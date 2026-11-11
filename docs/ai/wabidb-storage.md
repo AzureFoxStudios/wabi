@@ -125,4 +125,5 @@ Unused: nothing in the engine or the server calls `wabidb::blobs`, the engine ne
 ## Versioning
 
 - Record headers carry a `format_version` of 1; the decoder rejects any other value with an error, not a panic (test: `format::record::tests::unsupported_version_rejected`). Checking a commit-index file's magic, version, header CRC and trailer CRC when reading it is planned; startup relies on each entry's own CRC (tests under "Reading the index at startup" above).
-- No migration path between format versions exists yet; a version bump is a planned design task.
+- Durable records of 30 types carry a per-type version in a 15-byte header (`format::versioned`; layout and rules in `docs/architecture/STORAGE_FORMAT.md` §7.1; test: `tests::golden_records::every_durable_record_is_versioned`). Records without the header still decode.
+- No migration path exists for the file formats themselves (segment header, commit index, manifest); that is a planned design task.

@@ -335,8 +335,8 @@ runtime fields that **do not exist on the WabiDB `LoreRepoRecord`**:
 | `imported_from` | `Option<String>` | The upstream git URL a repo was files-imported from (`import_from_git`). |
 
 These are persisted in a **sidecar state file**, `.wabi-repo.json`, written
-into the repo's working tree (not in WabiDB — the postcard-encoded
-`LoreRepoRecord` cannot gain fields without a dual-decode migration). On
+into the repo's working tree (not in WabiDB — a new field on the
+postcard-encoded `LoreRepoRecord` needs a new record version, see below). On
 startup, `load_existing_repos` rehydrates the index from WabiDB *and* overlays
 each repo's sidecar file, so class/auto-branch/import provenance survive a
 restart. Deleting a repo removes the sidecar (and, for mirrors, the fetch
@@ -860,7 +860,7 @@ Repos default to `Native` (test: `core/addons/lore/backend/src/lib.rs::tests::te
 a mirror only via `POST /repos/{channel_id}/external` (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::mirror_manifest_reports_git_head_without_native_commit_events`). The `class`,
 `auto_branch_on_upload`, and `imported_from` fields live in the `.wabi-repo.json`
 sidecar in the working tree (see §7.4); that file is never a client file (test: `core/addons/lore/backend/src/lib.rs::tests::native_metadata_is_never_a_client_file_even_with_empty_ignore_rules`). The postcard `LoreRepoRecord`
-cannot gain fields without a dual-decode migration (AGENTS.md golden rule 5).
+can gain a field only as a new record version through `wabidb::format::versioned`, keeping the decoder for the old one (AGENTS.md golden rule 5; `docs/architecture/STORAGE_FORMAT.md` §7.1). No Lore record has a version 2.
 
 ### 14.2 Artist-friendly review flow
 

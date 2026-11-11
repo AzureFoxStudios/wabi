@@ -68,7 +68,7 @@ The `header_crc32c` covers bytes 0-39 (test: `format::record::tests::header_crc_
 
 Immediately follows the header. Length is `payload_len` bytes (range `[0, 16 MiB]`).
 
-For `record_kind = 1 (event)`: the payload is the encrypted event, AES-256-GCM under the stream's key. The 12-byte nonce is `commit_seq` as little-endian u64 padded to 12 bytes (zeros in the high 4 bytes) (test: `crypto::aes_gcm_record::tests::nonce_construction`). The AAD is the full 48-byte encoded header with `payload_crc32c` set to 0, not the first 40 bytes (tests: `crypto::aes_gcm_record::tests::bit_flip_in_aad_fails_auth`, `crypto::aes_gcm_record::tests::wrong_commit_seq_fails_auth`). The GCM authentication tag (16 bytes) is appended to the payload; the on-disk payload length therefore includes the tag (test: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`). The encoding of the plaintext is not part of this format.
+For `record_kind = 1 (event)`: the payload is the encrypted event, AES-256-GCM under the stream's key. The 12-byte nonce is `commit_seq` as little-endian u64 padded to 12 bytes (zeros in the high 4 bytes) (test: `crypto::aes_gcm_record::tests::nonce_construction`). The AAD is the full 48-byte encoded header with `payload_crc32c` set to 0, not the first 40 bytes (tests: `crypto::aes_gcm_record::tests::bit_flip_in_aad_fails_auth`, `crypto::aes_gcm_record::tests::wrong_commit_seq_fails_auth`). The GCM authentication tag (16 bytes) is appended to the payload; the on-disk payload length therefore includes the tag (test: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`). The plaintext is a record encoded by the projection that owns the event; §7.1 describes the version header that 30 record types carry.
 
 For `record_kind` 2 (snapshot), 3 (tombstone) and 4 (checkpoint): the header decoder accepts these values (test: `format::record::tests::round_trip_all_kinds`) but no payload layout or behavior is specified or implemented. Earlier text described a keyed snapshot payload, a tombstone that destroys a stream, and a high-water-mark checkpoint; all three are *planned*. A tombstone record does not destroy any key.
 
@@ -211,19 +211,41 @@ A JSON file at `$DATA_DIR/storage-manifest.json`, created when the engine first 
 
 ## 7. Versioning
 
-Two on-disk structures carry a version that the engine checks, and one carries versions that only the CLI checks:
+Three kinds of on-disk structure carry a version that the engine checks, and one carries versions that only the CLI checks:
 
 - **Stream segment header**: `format_version: u16`, `header_len: u16`. The decoder rejects an unsupported `format_version` or a `header_len` other than 48 with an error, not a panic (tests: `format::record::tests::unsupported_version_rejected`, `format::record::tests::wrong_header_len_rejected`).
 - **Quarantine list** (`global/quarantine.json`): `version`, currently `1`. The engine refuses to start on any other value (test: `engine::quarantine_tests::unparseable_quarantine_file_refuses_startup`).
+- **Durable records** of 30 types: a per-type version byte in a 15-byte header. See §7.1.
 - **Storage manifest**: `schema_version` and `format_version`, both `1`. The engine writes them and never reads them back, so starting the engine is not a compatibility check. `wabidb-cli verify` reports any other value as an error (`cli/verify.rs`); no test covers that refusal.
 
 The commit-index file header also carries a `format_version`, but the reader does not check it (planned, see §3.5). The `.wsnap` and `.meta` layouts are unused or text, see §4 and §5.
 
-*Planned:* a minor/major version-bump policy and a migration path between format versions. None exists; a change to a durable record needs a dual-decode plan by hand (AGENTS.md golden rule 5). Future format changes must update this document.
+*Planned:* a version-bump policy and a migration path for the file formats themselves (segment header, commit index, manifest). None exists. A change to a durable record goes through §7.1 (AGENTS.md golden rule 5). Future format changes must update this document.
+
+### 7.1 Durable record header
+
+A durable record of one of the 30 converted types (the plaintext of its event, and the projection row made from it) is stored as:
+
+| Offset | Size | Field | Notes |
+|---|---|---|---|
+| 0 | 10 | marker | `0xFF` ten times |
+| 10 | 4 | tag | four ASCII bytes naming the record type, for example `b"MESG"`, `b"USER"`, `b"CMEM"` |
+| 14 | 1 | version | layout version of that record type, starting at `1` |
+| 15 | varies | payload | postcard encoding of that layout version |
+
+(tests: `format::versioned::tests::header_layout_is_marker_tag_version_payload`, `tests::golden_records::every_durable_record_is_versioned`.)
+
+- Records written before the header existed are raw postcard and still decode, through each type's legacy path (tests: `format::versioned::tests::missing_marker_uses_the_legacy_decoder`, and one `tests::golden_records::golden_*` test per type that holds the exact bytes the old encoder wrote). A whole data directory written before the change still opens and replays (tests: `tests::pre_versioning_fixture::pre_versioning_snapshot_still_decodes`, `tests::pre_versioning_fixture::pre_versioning_log_replays_to_the_same_state`, `tests::pre_versioning_fixture::pre_versioning_log_with_new_writes_replays`).
+- The marker cannot begin a legacy record of these types. Each starts with a string, a `u64` or an `i64`, which postcard writes as a varint, and ten `0xFF` bytes in a row are not a valid varint (test: `format::versioned::tests::largest_legacy_varints_do_not_start_with_the_marker`). A record type that starts with a raw byte, a float or a fixed-size array is not covered by this argument.
+- A wrong tag, an unknown version, a truncated header, or bytes left over after a versioned payload is an error, not a guess (tests: `format::versioned::tests::wrong_tag_is_an_error`, `format::versioned::tests::unknown_version_is_an_error_naming_the_version`, `format::versioned::tests::truncated_header_is_an_error`, `format::versioned::tests::versioned_payload_must_be_fully_used`).
+- To change a record's fields: keep the old layout as its own struct, bump the version, and keep a decoder for every version ever written (test of the pattern: `format::versioned::tests::older_version_dispatches_to_its_own_decoder`). No record type has a version 2 yet.
+- The change is one-way. A build from before the header cannot decode a record that has it; see `docs/deployment/BACKUP_AND_RECOVERY.md`.
+- Offline inspection compares a replay with the saved projection. It treats a version-1 record and its legacy bytes as the same content, so a directory that spans the upgrade passes (tests: `format::versioned::tests::fingerprint_bytes_are_the_same_for_legacy_and_version_1`, `tests::pre_versioning_fixture::pre_versioning_directory_passes_offline_inspection`, `tests::pre_versioning_fixture::upgraded_directory_passes_offline_inspection`). That holds for version 1 only. A later version changes the payload, so a projection saved before that bump will not match a replay after it. Rebuilding the saved projection when a version changes is *planned*.
+- *Planned* (plan Task 3.1b): four event payloads are still raw postcard with no version: the forum vote and solution payloads, the user-deleted payload, and the DM one-time-key "consumed" payload. The `RecordCodec` trait's default `encode`/`decode` also still write raw postcard; nothing calls them for a converted type today.
 
 ## 8. What this document does not specify
 
-- The content of the payload for each `record_kind`. Event payloads are opaque to this format; the other kinds are planned.
+- The content of the payload for each `record_kind`. Beyond the version header in §7.1, an event payload is defined by the projection that owns it; the other kinds are planned.
 - The exact layout of the data directory's internal organization beyond the structure shown in §1 (e.g., subdirectories for projection state are implementation detail of the engine's rebuild process, not part of the format).
 - Wire format for WebSocket frames (covered in `wabidb-89`).
 - The TOML config file format (covered in `wabidb-97`).
