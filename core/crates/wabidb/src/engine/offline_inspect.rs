@@ -42,7 +42,16 @@ pub struct InspectionReceipt {
     pub indexed_commits: u64,
     pub observed_high_sequence: u64,
     pub full_history_replayed: bool,
+    /// The saved projection equals the replayed one. The snapshot's indexes
+    /// are always compared. The SQLite read model's rows are compared only
+    /// when `read_model_compared` is true.
     pub persisted_projection_matches: bool,
+    /// The directory holds a read model this build would use as it is (same
+    /// schema version and generation, no pending write-ahead log, covering
+    /// exactly the checkpoint), and its rows were compared with the replay.
+    /// When false, an engine opening the directory rebuilds the read model
+    /// from the log, so there is no saved state of it to compare.
+    pub read_model_compared: bool,
 }
 
 /// Rebuilt view for typed read assertions. It has no durable mutation handle.
@@ -121,6 +130,11 @@ fn read_saved_view(root: &Path, limits: &InspectionLimits) -> Result<ProjectionS
             }
             if !keys.insert(key.clone()) {
                 return Err(refused("duplicate inspection projection key"));
+            }
+            // A snapshot saved before messages moved to the read model still
+            // lists their indexes. The engine does not load them either.
+            if super::locks::LEGACY_MESSAGE_INDEXES.contains(&name.as_str()) {
+                continue;
             }
             state.insert(&name, key, value, saved.watermark);
         }
@@ -361,12 +375,22 @@ pub async fn inspect_frozen_locked(
             "inspection snapshot watermark differs from checkpoint",
         ));
     }
-    // The engine rebuilds two message indexes when it opens a projection that
-    // an older build saved with wrongly keyed entries. Compare what it would
-    // then hold: a match means the directory opens to the state the log gives,
-    // not that the file is byte for byte what replay writes.
-    crate::projections::messages::rekey_legacy_index_entries(&saved);
-    let saved_fingerprint = saved.content_fingerprint(limits.max_entries, limits.max_file_bytes)?;
+    // Messages live in the SQLite read model. Compare its rows when the
+    // engine would use the file as it is; otherwise the engine rebuilds it
+    // from the log at open, which is the replay below, and only the
+    // snapshot's indexes have a saved state to compare. The file is opened
+    // read-only and immutable: nothing in the tree is created or changed.
+    let saved_model = crate::projections::read_model::ReadModel::open_frozen(&root)
+        .filter(|model| model.messages_applied_seq() == expected_seq);
+    let read_model_compared = saved_model.is_some();
+    if let Some(model) = saved_model {
+        saved.attach_read_model(Arc::new(model));
+    }
+    let saved_fingerprint = saved.content_fingerprint_of(
+        limits.max_entries,
+        limits.max_file_bytes,
+        read_model_compared,
+    )?;
     let state = Arc::new(ProjectionState::new());
     let barrier = LinearizabilityBarrier::new(state.clone());
     let registry = tokio::sync::Mutex::new(StreamKeyRegistry::new());
@@ -387,7 +411,12 @@ pub async fn inspect_frozen_locked(
     .await
     .map_err(|_| refused("inspection replay deadline elapsed"))??;
     let rebuilt = state.content_fingerprint(limits.max_entries, limits.max_file_bytes)?;
-    if rebuilt != saved_fingerprint || barrier.current() != expected_seq {
+    let comparable = if read_model_compared {
+        rebuilt.clone()
+    } else {
+        state.content_fingerprint_of(limits.max_entries, limits.max_file_bytes, false)?
+    };
+    if comparable != saved_fingerprint || barrier.current() != expected_seq {
         return Err(refused(
             "inspection replay differs from persisted projection",
         ));
@@ -414,6 +443,7 @@ pub async fn inspect_frozen_locked(
             observed_high_sequence: high,
             full_history_replayed: true,
             persisted_projection_matches: true,
+            read_model_compared,
         },
     })
 }

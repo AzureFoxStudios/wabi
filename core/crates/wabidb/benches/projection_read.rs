@@ -8,6 +8,7 @@ use wabidb::projections::channel_members::{self as cm, ChannelMemberRecord, Chan
 use wabidb::projections::dm_message_recipients::{self as dmr, DmMessageRecipientsProjection, DmRecipientRecord};
 use wabidb::projections::dm_messages::{self as dm, DmMessageRecord, DmMessagesProjection};
 use wabidb::projections::forum::{self as forum, ForumPostRecord, ForumProjection};
+use wabidb::projections::handler::{DurableEvent, Projection};
 use wabidb::projections::incidents::{self as inc, IncidentProjection, IncidentRecord};
 use wabidb::projections::messages::{self as msg, MessageRecord, MessagesProjection};
 use wabidb::projections::reactions::{self as rxn, Reaction, ReactionsProjection};
@@ -38,9 +39,19 @@ fn populate(state: &ProjectionState) {
                 is_spoiler: false,
                 files: vec![],
             };
-            let key = msg::encode_key(&ch, &msgi);
-            let val = msg::encode_record(&r);
-            state.insert("messages", key, val, (g * per_group + i) as u64);
+            // Messages live in the SQLite read model (in memory for a bare
+            // state), so they are stored through their handler.
+            MessagesProjection
+                .apply(
+                    &DurableEvent {
+                        commit_seq: (g * per_group + i) as u64 + 1,
+                        stream_id: ch.clone(),
+                        event_type: "message_created".into(),
+                        payload: msg::encode_record(&r),
+                    },
+                    state,
+                )
+                .unwrap();
         }
     }
 

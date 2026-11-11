@@ -339,7 +339,7 @@ mod tests {
             expected_epoch: None,
         };
         assert!(preflight_command(&[react()], Some(&wrong), &state, &pending, 3).is_err());
-        assert_eq!(state.index_len("messages"), 0);
+        assert_eq!(messages::stored_message_count(&state), 0);
     }
 
     #[test]
@@ -377,6 +377,6 @@ mod tests {
             };
             assert!(preflight_command(&events, None, &state, &HashMap::new(), 1).is_err());
         }
-        assert_eq!(state.index_len("messages"), 0);
+        assert_eq!(messages::stored_message_count(&state), 0);
     }
 }
