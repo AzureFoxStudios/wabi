@@ -661,7 +661,7 @@ fn golden_gallery_work_record() {
 
 #[test]
 fn golden_gallery_feedback_record() {
-    unchanged_today(GALLERY_FEEDBACK_LEGACY, &gallery_feedback(), gallery::encode_feedback_record, gallery::decode_feedback_record);
+    converted(GALLERY_FEEDBACK_LEGACY, b"GFBK", &gallery_feedback(), gallery::encode_feedback_record, gallery::decode_feedback_record);
 }
 
 #[test]
