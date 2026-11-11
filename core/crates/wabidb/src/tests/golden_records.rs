@@ -606,7 +606,7 @@ fn golden_reaction() {
 
 #[test]
 fn golden_emote() {
-    unchanged_today(EMOTE_LEGACY, &emote(), emotes::encode_record, emotes::decode_record);
+    converted(EMOTE_LEGACY, b"EMOT", &emote(), emotes::encode_record, emotes::decode_record);
 }
 
 #[test]
