@@ -25,11 +25,17 @@
 //!
 //! ## Salt handling
 //!
-//! The salt is stored in the storage manifest at `$DATA_DIR/manifests/storage-manifest.json`.
-//! For a new data directory, the salt is generated randomly. For an existing
-//! data directory, the salt is read from the manifest. This means a passphrase
-//! change requires re-encrypting all stream keys (or keeping the old
-//! bootstrap key and using a multi-key approach — not implemented in v1).
+//! This crate does not store the salt. `WabiDbConfig::from_passphrase` takes it
+//! from the caller, who has to keep it and pass the same value on every open.
+//! The storage manifest (`$DATA_DIR/storage-manifest.json`) has no salt field,
+//! and [`generate_salt`] is called only from tests.
+//!
+//! The passphrase path is not used by the server today. Its one entry point,
+//! `WdbAdapter::open_with_passphrase` in wabi-server, has no caller; the server
+//! opens the engine with a ready key (`BootstrapSource::Provided`, read from
+//! `WABIDB_ROOT_KEY` or `wabidb/root_key`). Storing the salt, and changing a
+//! passphrase (which would mean re-encrypting every stream key or keeping the
+//! old bootstrap key alongside the new one), are *planned*.
 //!
 //! ## What this card does NOT do
 //!
