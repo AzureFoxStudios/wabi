@@ -291,10 +291,7 @@ async fn main() -> Result<()> {
                     let local = sync::scan_local(&folder)?;
                     let changed = local
                         .iter()
-                        .filter(|(p, etag)| {
-                            state.baselines.get(*p).cloned().flatten().as_deref()
-                                != Some(etag.as_str())
-                        })
+                        .filter(|(p, etag)| !state.local_matches_baseline(p, etag))
                         .count();
                     println!("local:     {} files, {changed} changed since last sync", local.len());
                 }
