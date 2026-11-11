@@ -1,0 +1,303 @@
+//! Lore capabilities that a role can grant must actually be enforced:
+//! `lore.lock` gates lock/unlock, `lore.approve` gates review approve/reject,
+//! `lore.admin` gates repo delete / PATCH, and a direct promote requires
+//! `lore.commit` whatever the request or the binding asks for.
+//! Real API router + real WabiDB; the Lore CLI is a protocol fixture.
+#![cfg(all(feature = "wabi-lore", unix))]
+
+use std::{os::unix::fs::PermissionsExt, path::{Path, PathBuf}, sync::Arc};
+
+use axum::{
+    body::{to_bytes, Body},
+    http::{Method, Request, StatusCode},
+};
+use serde_json::{json, Value};
+use tower::ServiceExt;
+use wabi_server::{
+    api::routes::create_api_router,
+    auth_extractor::JwtClaims,
+    config::{LoreAddonConfig, ServerConfig, ServerRole},
+    lore_roles::LoreRoleDef,
+    state::AppState,
+};
+use wabidb::{
+    domain::{ChannelKind, MemberRole},
+    engine::wabi_store::WabiStore,
+    projections::messages::FileAttachmentRecord,
+};
+
+fn server_config(path: &Path) -> ServerConfig {
+    ServerConfig {
+        host: "127.0.0.1".into(),
+        port: 0,
+        data_dir: path.to_string_lossy().into_owned(),
+        uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
+        jwt_secret: "lore-capability-enforcement-test-only".into(),
+        turn_enabled: false,
+        turn_uri: None,
+        turn_secret: None,
+        node_id: "test".into(),
+        is_primary: true,
+        server_role: ServerRole::Authority,
+        authority_url: None,
+        admin_user_ids: vec![],
+        blacklist_file: path.join("blacklist.txt").to_string_lossy().into_owned(),
+        max_body_size: None,
+        mesh_enabled: false,
+        mesh_peers: vec![],
+        lore: LoreAddonConfig::default(),
+    }
+}
+
+fn jwt(state: &AppState, uid: u64, username: &str) -> String {
+    let now = chrono::Utc::now().timestamp();
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &JwtClaims {
+            sub: uid.to_string(),
+            username: username.into(),
+            is_guest: false,
+            exp: now + 3600,
+            iat: now,
+            jti: uuid::Uuid::new_v4().to_string(),
+            stepup: false,
+            token_type: "access".into(),
+        },
+        &jsonwebtoken::EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+    )
+    .unwrap()
+}
+
+fn numeric(channel: &str) -> i64 {
+    i64::from_str_radix(channel.strip_prefix("ch_").unwrap(), 16).unwrap()
+}
+
+struct Fixture {
+    _dir: tempfile::TempDir,
+    app: axum::Router,
+    state: Arc<AppState>,
+    repo: i64,
+    message_id: String,
+    commit_log: PathBuf,
+    tokens: std::collections::HashMap<&'static str, String>,
+}
+
+/// Role slug -> capabilities. Each user is named after its role.
+const ROLES: [(&str, &[&str]); 4] = [
+    // lore.stage only: no lock, no commit, no approve, no admin.
+    ("stager", &["lore.stage"]),
+    // stage + lock, but nothing else.
+    ("locker", &["lore.stage", "lore.lock"]),
+    // stage + commit (the old "edit" gate), but no lock/approve/admin.
+    ("committer", &["lore.stage", "lore.commit"]),
+    // everything except lore.admin.
+    ("almost-admin", &["lore.stage", "lore.commit", "lore.approve", "lore.lock", "lore.manage-binding"]),
+];
+
+async fn fixture() -> Fixture {
+    let dir = tempfile::tempdir().unwrap();
+    let state = Arc::new(AppState::new(server_config(dir.path())).await.unwrap());
+
+    let owner = state.wdb.create_user("owner", None, "test-registered-hash").await.unwrap();
+    state.wdb.claim_owner(owner).await.unwrap();
+    *state.owner_user_id.write().await = Some(owner as i64);
+
+    let chat = state.wdb.create_channel("chat", ChannelKind::Text, owner, false).await.unwrap();
+    let lore_channel =
+        state.wdb.create_channel("repo", ChannelKind::Lore, owner, false).await.unwrap();
+    state.wdb.add_channel_member(&chat, owner, MemberRole::Member).await.unwrap();
+    state.wdb.add_channel_member(&lore_channel, owner, MemberRole::Member).await.unwrap();
+
+    let mut users = Vec::new();
+    for (slug, caps) in ROLES {
+        state
+            .lore_roles
+            .upsert(LoreRoleDef {
+                id: slug.into(),
+                name: slug.into(),
+                description: String::new(),
+                capabilities: caps.iter().map(|c| c.to_string()).collect(),
+            })
+            .unwrap();
+        let uid = state.wdb.create_user(slug, None, "test-registered-hash").await.unwrap();
+        state
+            .wdb
+            .ingest_event(
+                "rbac",
+                "assign_role",
+                &json!({
+                    "userId": uid,
+                    "workspaceId": "default-workspace",
+                    "role": slug,
+                    "assignedBy": owner,
+                }),
+            )
+            .await
+            .unwrap();
+        for channel in [&chat, &lore_channel] {
+            state.wdb.add_channel_member(channel, uid, MemberRole::Member).await.unwrap();
+        }
+        users.push((slug, uid));
+    }
+    let tokens = users.iter().map(|(slug, uid)| (*slug, jwt(&state, *uid, slug))).collect();
+
+    std::fs::create_dir_all(dir.path().join("uploads")).unwrap();
+    std::fs::write(dir.path().join("uploads/art.png"), b"png-bytes").unwrap();
+    let message_id = state
+        .wdb
+        .send_message(
+            &chat,
+            owner,
+            "look",
+            false,
+            &[FileAttachmentRecord {
+                file_url: "/uploads/art.png".into(),
+                file_name: "art.png".into(),
+                file_size: 9,
+            }],
+        )
+        .await
+        .unwrap();
+
+    let commit_log = dir.path().join("commits.log");
+    let binary = dir.path().join("lore-fixture");
+    std::fs::write(
+        &binary,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--offline\" ] && [ \"$2\" = \"--local\" ]; then shift 2; fi\n\
+             echo \"$*\" >> '{log}'\n\
+             case \"$1\" in\n\
+               commit) printf 'Revision  : 1\\nSignature : abcdef0123456789abcdef0123456789\\nDate      : Mon, 07 Sep 2026 00:00:00 +0000\\n    fixture\\nCommit succeeded\\n' ;;\n\
+               branch) [ \"$2\" = list ] && echo '* main' ; exit 0 ;;\n\
+               *) exit 0 ;;\n\
+             esac\n",
+            log = commit_log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+        enabled: true,
+        lore_binary_path: binary,
+        lore_data_dir: dir.path().join("lore"),
+        ..Default::default()
+    }));
+    let repo = numeric(&lore_channel);
+    lore.create_repo(repo, owner as i64, "repo").await.unwrap();
+    state.set_lore_service(lore).await;
+    state.wdb.lore_create_repo(repo, "repo", "embedded://repo", owner as i64).await.unwrap();
+    let _ = std::fs::remove_file(&commit_log);
+
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    Fixture { _dir: dir, app, state, repo, message_id, commit_log, tokens }
+}
+
+async fn call(
+    f: &Fixture,
+    who: &str,
+    method: Method,
+    uri: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {}", f.tokens[who]));
+    let body = match body {
+        Some(v) => {
+            builder = builder.header("content-type", "application/json");
+            Body::from(v.to_string())
+        }
+        None => Body::empty(),
+    };
+    let response = f.app.clone().oneshot(builder.body(body).unwrap()).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let body =
+        serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)));
+    (status, body)
+}
+
+#[tokio::test]
+async fn lock_and_unlock_require_lore_lock() {
+    let f = fixture().await;
+    let uri = format!("/addons/lore/repos/{}/lock/a.bin", f.repo);
+
+    let (status, body) = call(&f, "stager", Method::POST, &uri, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "lore.stage alone must not lock: {body}");
+    let (status, body) = call(&f, "stager", Method::DELETE, &uri, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "lore.stage alone must not unlock: {body}");
+
+    // The capability itself is sufficient.
+    let (status, body) = call(&f, "locker", Method::POST, &uri, None).await;
+    assert_eq!(status, StatusCode::OK, "lore.lock must allow locking: {body}");
+}
+
+#[tokio::test]
+async fn review_approve_and_reject_require_lore_approve() {
+    let f = fixture().await;
+    for action in ["approve", "reject"] {
+        let uri = format!("/addons/lore/repos/{}/review/chat-u1/{action}", f.repo);
+        let (status, body) = call(&f, "committer", Method::POST, &uri, None).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "lore.commit without lore.approve must not {action}: {body}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn repo_delete_and_patch_require_lore_admin() {
+    let f = fixture().await;
+    let uri = format!("/addons/lore/repos/{}", f.repo);
+
+    let (status, body) = call(&f, "almost-admin", Method::DELETE, &uri, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "repo delete without lore.admin: {body}");
+    let (status, body) = call(
+        &f,
+        "almost-admin",
+        Method::PATCH,
+        &uri,
+        Some(json!({ "auto_branch_on_upload": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "repo PATCH without lore.admin: {body}");
+    assert!(
+        f.state.lore_service.read().await.as_ref().unwrap().get_repo(f.repo).await.is_some(),
+        "refused delete must leave the repo in place"
+    );
+}
+
+#[tokio::test]
+async fn stage_only_user_cannot_force_a_direct_commit() {
+    let f = fixture().await;
+    // A binding whose mode is "stage" must not be overridable either.
+    let (status, body) = call(
+        &f,
+        "stager",
+        Method::POST,
+        "/addons/lore/promote/from-message",
+        Some(json!({
+            "message_id": f.message_id,
+            "file_url": "/uploads/art.png",
+            "repo_channel_id": f.repo,
+            "path": "assets",
+            "mode": "direct",
+        })),
+    )
+    .await;
+    // Staged or refused are both acceptable; a mainline commit is not.
+    if status == StatusCode::OK {
+        assert_eq!(body["mode"], "stage", "must be downgraded to stage: {body}");
+        assert_eq!(body["pending_review"], true, "{body}");
+        assert!(
+            body["branch"].as_str().unwrap_or_default().starts_with("chat/"),
+            "must land on a review branch, not the mainline: {body}"
+        );
+    } else {
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}; cli log: {:?}", std::fs::read_to_string(&f.commit_log));
+        assert!(!f.commit_log.exists() || !std::fs::read_to_string(&f.commit_log).unwrap().contains("commit"));
+    }
+}
