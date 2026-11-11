@@ -779,6 +779,8 @@ For projection <NAME>:
 Do not port a second projection in the same PR. Do not optimize beyond obvious indexes. Report before/after timings for the projection's existing benchmark if one exists.
 
 Added 2026-11-11 (from PR 320): records now carry a per-type version (format/versioned.rs), and some handlers decode a record and encode it again. So what replay writes depends on the build: the same event yields different stored bytes after a record's version is bumped. The read model must therefore carry a generation value that changes whenever any record version or any handler's stored output changes, and the engine must rebuild the read model from the log when the stored generation differs from the build's. Put this in the first projection's PR (schema plus rebuild-on-mismatch test: write with generation N, reopen with N+1, assert a rebuild happened and reads are unchanged) and reuse it for the rest.
+
+Added 2026-11-11 (from Task 3.4): the engine now runs three hand-written repairs on a loaded projection at open (`engine/mod.rs` step 7): `AlbumProjection::rebuild_id_index`, `message_lookup::rebuild` and `messages::rekey_legacy_index_entries`. Offline inspection runs the last one on the saved view too. Each exists because a build changed what replay writes and the saved projection had no way to say which build wrote it. Once a projection lives in SQLite under the generation value, its repair is dead code: remove it in the PR that moves that projection, and keep the fixture test `tests::pre_versioning_fixture::pre_versioning_snapshot_still_decodes` passing by rebuilding from the log instead.
 ```
 
 You check: the "delete the SQLite file and reopen" test is present in every one of these PRs.
