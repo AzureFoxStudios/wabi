@@ -381,7 +381,7 @@ Root causes found (all verified against source, most proven by probe/build):
    (call-state socket), not the embedded database; the drops were transport
    strain from (3) and self-healed. Old on-disk data is not implicated by
    any symptom in the log; the engine replays through dual-decode fallbacks.
-   If DB health is ever in doubt: `wabidb-cli check` / `backup` — not a reset
+   If DB health is ever in doubt: `wabidb-cli check` / `backup` — not a reset [2026-11-11: there is no `backup` command (removed in PR 302); the CLI has `check`, `verify`, `status`, `list-streams` and `quarantine`]
    (a reset destroys accounts/channels/messages for zero diagnostic gain).
 
 `bun run check` 0 errors; `bun test` 171 pass (1 pre-existing unrelated

@@ -153,7 +153,7 @@ The bot send endpoint rejects Live rooms because it only supports durable delive
 
 ## 9. Replication / standby / mesh (brief)
 
-- **Replication**: `SyncTransport` trait + `SyncWorker`; `/sync` REST group; deployment patterns in wabidb skills.
+- **Replication** (experimental, not HA; `docs/PROJECT_STATUS.md`): a `SyncTransport` trait and a `/api/v1/sync/*` REST group, gated by `WABIDB_EXPERIMENTAL_REPLICATION` (test: `core/crates/wabidb/src/tests/integration.rs::configured_replication_refuses_missing_transport_before_creating_data`). The `SyncWorker` type was removed in PR 302.
 - **Standby**: `/standby` receives snapshots for warm-standby nodes.
 - **Mesh**: `/mesh` multi-node coordination; `core/addons/mesh/backend` is a workspace addon. Helper nodes via `/nodes`; media via `/media` + `/media-turn` (SFU assignment).
 

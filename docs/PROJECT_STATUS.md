@@ -102,8 +102,8 @@ Firebase configuration. Current whiteboard code uses Wabi's own canvas,
 renderer and Authority synchronization; Excalidraw is not a current frontend
 dependency. No Wabi-owned private credential was confirmed. No credentials were rotated or
 history rewritten. The initial targeted phase passed 2,351 full-workspace tests
-after recovery on October 1; the separate WabiDB crash harness passed on
-September 30. Expanded backend acceptance completed with exit 0: **2,635 passed,
+after recovery on October 1; the separate WabiDB crash harness (a process-exit harness; no test discards the operating system's page cache, so fsync ordering rests on code review) passed on
+September 30 (tests: `core/crates/wabidb/src/tests/power_loss.rs`). Expanded backend acceptance completed with exit 0: **2,635 passed,
 zero failed and 11 ignored across 88 groups**, using pinned Rust **1.93.1** and
 the recorded addon/broker features. All recorded source and embedded-build
 hashes remained unchanged after testing. This is a tested local candidate;

@@ -1,6 +1,7 @@
 //! Concurrency and lock manager for the WabiDB engine.
 //!
-//! See `docs/proposals/wabidb-locks-design.md` for the full design. This module
+//! See `docs/proposals/wabidb-locks-design.md` for the original design (a proposal; this
+//! module doc and its tests are the record of what runs). This module
 //! implements the three primitive types that wabidb-15 (sequencer), wabidb-32
 //! (write barrier), and the projection engine build on top of.
 //!
@@ -9,31 +10,44 @@
 //! 1. [`SequencerPermit`]: an owned `tokio::sync::Semaphore` permit (capacity 1)
 //!    that the sequencer task holds. There is exactly one of these in the
 //!    entire engine. Holding the permit = the right to write to the
-//!    per-stream segments and the commit index.
+//!    per-stream segments and the commit index (tests:
+//!    `engine::locks::tests::sequencer_permit_serializes_writers`,
+//!    `sequencer::tests::no_two_sequencers`).
 //!
 //! 2. `spawn_projection_dispatcher`: spawns a long-lived `tokio` task that consumes
 //!    `DispatchCommit` batches from a bounded mpsc channel and applies them
-//!    to the projection state. The sequencer pushes; the dispatcher pulls.
-//!    A full channel causes the sequencer to backpressure.
+//!    to the projection state, in order (test:
+//!    `engine::locks::tests::dispatcher_processes_items_in_order`). The sequencer
+//!    pushes; the dispatcher pulls. A full channel causes the sequencer to
+//!    backpressure (test: `sequencer::tests::dispatcher_backpressure`).
 //!
-//! 3. [`ProjectionState`]: a `HashMap<index_name, SkipMap<K, V>>` plus an
-//!    watch-backed applied watermark. Index access uses an outer RwLock;
-//!    SkipMap operations are lock-free internally. A separate application lock
-//!    serializes whole-commit application with checkpoints, not ordinary reads.
+//! 3. [`ProjectionState`]: a `HashMap<index_name, SkipMap<K, V>>` plus a
+//!    watch-backed applied watermark. Every insert takes the outer `RwLock`'s
+//!    write lock; reads take its read lock. The `SkipMap` is lock-free internally, but
+//!    that does not make `insert` lock-free (tests:
+//!    `engine::locks::tests::projection_state_insert_and_get`,
+//!    `engine::locks::tests::reads_do_not_block_writes`). A separate application
+//!    lock serializes whole-commit application with checkpoints, not ordinary
+//!    reads; a snapshot never claims more than the applied watermark covers (test:
+//!    `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`).
 //!
 //! ## Lock ordering (deadlock avoidance)
 //!
-//! Three rules, enforced by code review (no compile-time check possible):
+//! Three rules, enforced by code review. No test checks them, and no
+//! compile-time check exists beyond the visibility noted in rule 1:
 //!
 //! 1. Single sequencer permit. No code outside the sequencer task may hold
-//!    a sequencer permit. Verified by the `pub(crate)` visibility on
-//!    `SequencerPermit`.
+//!    a sequencer permit. `SequencerPermit::acquire` is `pub(crate)`.
 //! 2. Acquire the application lock before index locks. Handlers may update
 //!    primary and secondary indexes, but must release index locks before
 //!    accessing another index. Never call save_snapshot from a handler.
 //! 3. No holding projection locks across `.await` points. Projection
 //!    handlers are sync. The dispatcher awaits on the mpsc receive, then
 //!    runs sync handler code, then sends the next watermark update.
+//!
+//! A commit listed in `global/quarantine.json` is skipped by the dispatcher, which
+//! advances the watermark and acknowledges the commit (test:
+//! `engine::locks::tests::dispatcher_skips_a_quarantined_commit`).
 
 use crate::error::{ErrorCategory, Result, WabiError};
 use crate::projections::handler::{DispatchTable, DurableEvent};

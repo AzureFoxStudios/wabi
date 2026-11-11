@@ -105,7 +105,7 @@ documented no-op that dropped the permit it claimed to leak.
   silently go back to measuring failures.
 
 ### `src/bin/wabidb-cli.rs` (new)
-- Operator binary: `wabidb-cli <check|verify|status> <DATA_DIR>`.
+- Operator binary: `wabidb-cli <check|verify|status> <DATA_DIR>`. [2026-11-11: the CLI now also has `list-streams` and `quarantine`; `quarantine` writes `global/quarantine.json`, the others only read.]
   Auto-discovered by cargo (no Cargo.toml change).
 
 ## Verification
