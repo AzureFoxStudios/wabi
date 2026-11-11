@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -24,15 +25,15 @@ impl RecordCodec for AlbumItemRecord {
     }
 }
 
+/// Versioned durable layout of [`AlbumItemRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"ALIT", "album_item projection");
+
 pub fn encode_record(r: &AlbumItemRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<AlbumItemRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "album_item projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(album_id: &str, item_id: &str) -> Vec<u8> {
@@ -75,7 +76,7 @@ impl AlbumItemsProjection {
     /// Remove all soft-deleted records from the `album_items` index.
     pub fn compact(state: &ProjectionState) -> usize {
         state.compact_index("album_items", |_key, value| {
-            postcard::from_bytes::<AlbumItemRecord>(value)
+            decode_record(value)
                 .ok()
                 .map_or(false, |r| r.is_deleted)
         })
