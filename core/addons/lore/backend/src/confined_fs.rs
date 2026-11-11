@@ -297,10 +297,37 @@ impl RepoDir {
         self.validate_tree(false, true)
     }
 
+    /// Validate a mirror's `.mirror-cache` clone. Symlinks are tolerated and
+    /// not followed: the cache is never served directly, and every read goes
+    /// through a confined handle that refuses symlinks. Anything that is not a
+    /// regular file, directory or symlink is still rejected.
+    pub(crate) fn validate_mirror_cache(&self) -> io::Result<()> {
+        for entry in self.dir.entries()? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let metadata = self.dir.symlink_metadata(&name)?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                self.child(&name, false)?.validate_mirror_cache()?;
+            } else if !metadata.is_file() {
+                return Err(denied("mirror cache contains a non-regular file"));
+            }
+        }
+        Ok(())
+    }
+
     fn validate_tree(&self, importing: bool, root: bool) -> io::Result<()> {
         for entry in self.dir.entries()? {
             let entry = entry?;
             let name = entry.file_name();
+            // The mirror cache is validated by `validate_mirror_cache`; its
+            // clone legitimately holds symlinks. The working tree proper is
+            // still validated strictly.
+            if !importing && root && name == OsStr::new(".mirror-cache") {
+                continue;
+            }
             let metadata = self.dir.symlink_metadata(&name)?;
             if metadata.file_type().is_symlink() {
                 return Err(denied("repository symlinks are not supported"));
