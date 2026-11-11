@@ -46,15 +46,16 @@ pub(crate) struct SolutionPayload {
     pub actor_user_id: u64,
 }
 
+/// Versioned durable layout of [`VotePayload`]; see `format::versioned`. The
+/// first field is a `String`, so legacy bytes never start with the marker.
+const VOTE_FORMAT: RecordFormat = RecordFormat::new(*b"FVOT", "forum vote payload");
+
 pub fn encode_vote(v: &VotePayload) -> Vec<u8> {
-    postcard::to_allocvec(v).expect("postcard serialization failed")
+    versioned::encode_v1(&VOTE_FORMAT, v)
 }
 
 pub(crate) fn decode_vote(buf: &[u8]) -> Result<VotePayload> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "forum projection".into(),
-        detail: format!("vote payload decode failed: {e}"),
-    })
+    versioned::decode_v1(&VOTE_FORMAT, buf)
 }
 
 pub(crate) fn decode_solution(buf: &[u8]) -> Result<SolutionPayload> {

@@ -831,9 +831,7 @@ fn golden_forum_vote_payload() {
     })
     .unwrap();
     assert_eq!(hex::encode(&encoded), FORUM_VOTE_LEGACY);
-    // The single struct that replaced the adapter's copy writes the same bytes.
-    assert_eq!(hex::encode(forum::encode_vote(&forum_vote())), FORUM_VOTE_LEGACY);
-    assert_eq!(forum::decode_vote(&bytes(FORUM_VOTE_LEGACY)).unwrap(), forum_vote());
+    converted(FORUM_VOTE_LEGACY, b"FVOT", &forum_vote(), forum::encode_vote, forum::decode_vote);
 }
 
 pub(crate) fn forum_vote() -> forum::VotePayload {
