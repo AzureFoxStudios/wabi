@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -23,15 +24,15 @@ impl RecordCodec for LoreRepoRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreRepoRecord`]; see `format::versioned`.
+const REPO_FORMAT: RecordFormat = RecordFormat::new(*b"LREP", "lore repo projection");
+
 pub fn encode_repo_record(r: &LoreRepoRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&REPO_FORMAT, r)
 }
 
 pub fn decode_repo_record(buf: &[u8]) -> Result<LoreRepoRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore repo projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&REPO_FORMAT, buf)
 }
 
 pub fn encode_repo_key(channel_id: i64) -> Vec<u8> {

@@ -666,7 +666,7 @@ fn golden_gallery_feedback_record() {
 
 #[test]
 fn golden_lore_repo_record() {
-    unchanged_today(LORE_REPO_LEGACY, &lore_repo(), lore::encode_repo_record, lore::decode_repo_record);
+    converted(LORE_REPO_LEGACY, b"LREP", &lore_repo(), lore::encode_repo_record, lore::decode_repo_record);
 }
 
 #[test]
