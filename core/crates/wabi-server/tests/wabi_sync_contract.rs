@@ -588,8 +588,12 @@ async fn read_only_token_reads_and_is_told_why_it_cannot_write() {
     assert_quiet(&reader.sync().await.expect("a round with nothing to push"));
     assert!(reader.client.changes(repo, 0).await.is_ok());
 
-    let refused = reader.client.upload(repo, "b.txt", b"x".to_vec(), "m", Some("")).await.unwrap_err().to_string();
-    assert!(refused.contains("read-only"), "the 403 was not explained: {refused}");
+    let refused = reader.client.upload(repo, "b.txt", b"x".to_vec(), "m", Some("")).await.unwrap();
+    let UploadOutcome::Refused(refusal) = refused else {
+        panic!("a read token uploaded: {refused:?}");
+    };
+    assert_eq!(refusal.status, 403);
+    assert!(refusal.to_string().contains("read-only"), "the 403 was not explained: {refusal}");
     let refused = reader.client.set_lock(repo, "a.txt", true).await.unwrap_err().to_string();
     assert!(refused.contains("read-only"), "the 403 was not explained: {refused}");
     let etag = etag_for_bytes(b"v1");
@@ -976,14 +980,38 @@ async fn refused_uploads_do_not_stop_the_pull(server: &Server, token: &str) -> S
 #[tokio::test]
 async fn member_without_write_permission_still_receives_changes() {
     let server = server().await;
-    refused_uploads_do_not_stop_the_pull(&server, &server.viewer_login).await;
+    let report = refused_uploads_do_not_stop_the_pull(&server, &server.viewer_login).await;
+    // Each local change is reported with the server's reason.
+    let reason = "(not uploaded: you do not have permission (403: Lore asset uploads require at least Artist role))";
+    assert_eq!(
+        report.not_uploaded,
+        vec![format!("a.txt {reason}"), format!("mine-only.txt {reason}"), format!("shared.txt {reason}")],
+    );
 }
 
 #[tokio::test]
 async fn read_only_token_with_a_local_edit_still_receives_changes() {
     let server = server().await;
     let token = server.connect_token(&server.artist_login, "read").await;
-    refused_uploads_do_not_stop_the_pull(&server, &token).await;
+    let report = refused_uploads_do_not_stop_the_pull(&server, &token).await;
+    assert_eq!(report.not_uploaded.len(), 3, "{}", describe(&report));
+    for line in &report.not_uploaded {
+        assert!(line.contains("(not uploaded: this connect token is read-only; mint one with write scope"), "{line}");
+        assert!(line.ends_with("(403))"), "{line}");
+    }
+}
+
+/// Someone who may not read the repo either: the manifest's 403 ends the
+/// round, as before.
+#[tokio::test]
+async fn no_access_at_all_still_ends_the_round() {
+    let server = server().await;
+    let outsider = server.state.wdb.create_user("outsider", None, "test-registered-hash").await.unwrap();
+    let folder = server.folder(&jwt(&server.state, outsider, "outsider"));
+    folder.write("a.txt", "mine");
+    let error = folder.sync().await.err().expect("a non-member must not sync").to_string();
+    assert!(error.contains("403"), "{error}");
+    assert_eq!(folder.read("a.txt").as_deref(), Some(&b"mine"[..]));
 }
 
 // -- The change-feed cursor --------------------------------------------------
