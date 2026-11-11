@@ -26,6 +26,12 @@ use std::path::{Path, PathBuf};
 
 const BOOTSTRAP: [u8; 32] = [0x31; 32];
 
+/// The committed engine directory inside the fixture. It is not named `data`
+/// because `scripts/check-runtime-files.py` (run by CI) rejects every tracked
+/// path under a `data` directory, to keep operator state out of the
+/// repository. This directory is test input that a test wrote.
+const ENGINE_DIR: &str = "engine_dir";
+
 fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pre_versioning_records")
 }
@@ -318,7 +324,7 @@ fn copy_dir(from: &Path, to: &Path) {
 /// directory the engine may write to.
 fn scratch_copy() -> tempfile::TempDir {
     let scratch = tempfile::tempdir().unwrap();
-    copy_dir(&fixture_dir().join("data"), &scratch.path().join("data"));
+    copy_dir(&fixture_dir().join(ENGINE_DIR), &scratch.path().join("data"));
     scratch
 }
 
@@ -335,7 +341,7 @@ async fn write_pre_versioning_fixture() {
         return;
     }
     let root = fixture_dir();
-    let data = root.join("data");
+    let data = root.join(ENGINE_DIR);
     assert!(!data.exists(), "refusing to overwrite {}", data.display());
     std::fs::create_dir_all(&data).unwrap();
     let engine = WabiDbEngine::open(config(&data)).await.unwrap();
