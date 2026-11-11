@@ -485,12 +485,13 @@ async fn opening_rewrites_wrongly_keyed_message_index_entries() {
         "the fixture must still hold the old keys, or this test proves nothing"
     );
 
-    drop(reopen(&data).await);
-    drop(super::wait_for_stopped_engine(&data).await);
-
+    // Read the file while the engine is still open: closing saves a snapshot
+    // anyway, so only this shows that open itself saved the corrected one.
+    let engine = reopen(&data).await;
     let (saved, _) = ProjectionState::load_snapshot(&data).unwrap().unwrap();
     assert_eq!(messages::rekey_legacy_index_entries(&saved), 0);
     assert_eq!(describe_state(&saved), expected());
+    drop(engine);
 }
 
 /// The same after an upgrade: this build opened the old directory, wrote a

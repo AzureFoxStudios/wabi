@@ -317,7 +317,7 @@ impl WabiDbEngine {
             crate::projections::albums::AlbumProjection::rebuild_id_index(&projection_state)?;
         let rebuilt_messages = crate::projections::message_lookup::rebuild(&projection_state)?;
         // Builds before Task 3.4 saved some message index entries under the
-        // wrong key. Replay no longer writes those, so move them here.
+        // wrong key. Replay no longer writes those, so rebuild them here.
         let rekeyed_messages =
             crate::projections::messages::rekey_legacy_index_entries(&projection_state);
         if rebuilt_albums > 0 || rebuilt_messages > 0 || rekeyed_messages > 0 {

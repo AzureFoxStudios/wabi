@@ -165,14 +165,22 @@ Secondary keys, secondary values and new-command admission use the same id
 `msg_{commit_seq:x}` even when the record had its own id, so an edit or delete
 wrote a second entry and left the first behind. `rekey_legacy_index_entries`
 runs at engine open, before the dispatcher starts, and on the saved view in
-offline inspection. It removes each entry whose key does not match its own
-record and, when nothing is at the right key, copies the primary row there
-(tests: `projections::messages::tests::legacy_entry_of_an_edited_message_is_dropped_and_the_edit_stays`,
+offline inspection. If it finds an entry whose key does not match its own
+record, it rebuilds both indexes: `messages_by_channel` as a copy of
+`messages`, and `messages_by_author` from the latest event per author and
+message id in `messages_by_channel_time` (whose keys carry the commit
+sequence), plus any primary row that index does not cover. Open then saves the
+corrected projection. Otherwise it changes nothing
+(tests: `projections::messages::tests::repair_of_one_message_matches_replay`,
+`projections::messages::tests::repair_matches_replay_when_an_own_id_looks_like_a_legacy_key`,
+`projections::messages::tests::repair_matches_replay_when_author_entries_collide_or_move`,
 `tests::pre_versioning_fixture::opening_rewrites_wrongly_keyed_message_index_entries`).
-Known limit: `messages_by_author` keys have no channel, so one author holding
-the same message id in two rooms keeps one entry, and which one can differ
-from replay. No server code reads either index today; `MessagesProjection::compact`
-has no production caller.
+Known limit: two events for one author and message id in the same commit share
+a sequence number, so which one `messages_by_author` keeps can differ from
+replay when they are in different rooms. In offline inspection a match now
+means the directory opens to the state the log gives, not that the saved file
+is byte for byte what replay writes. No server code reads either index today;
+`MessagesProjection::compact` has no production caller.
 
 **Query ordering**: `prefix_scan` returns lexicographic key order. After decode + filter, sort by parsed numeric commit_seq, THEN apply limit. Without this, mixed-width ids misorder.
 
