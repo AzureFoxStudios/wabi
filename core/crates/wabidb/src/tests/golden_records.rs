@@ -641,7 +641,7 @@ fn golden_wiki_page_record() {
 
 #[test]
 fn golden_wiki_revision_record() {
-    unchanged_today(WIKI_REVISION_LEGACY, &wiki_revision(), wiki::encode_revision_record, wiki::decode_revision_record);
+    converted(WIKI_REVISION_LEGACY, b"WREV", &wiki_revision(), wiki::encode_revision_record, wiki::decode_revision_record);
 }
 
 #[test]
