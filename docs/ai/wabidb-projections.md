@@ -43,7 +43,7 @@ A single projection struct can handle multiple event types (e.g., `MessagesProje
 
 ## Record encoding
 
-Most projections use `postcard` binary encoding via the `RecordCodec` trait. A few (channels, audit) use `serde_json` directly.
+Most projections store postcard records behind a version header (`wabidb::format::versioned`; layout and rules in `docs/architecture/STORAGE_FORMAT.md` §7.1). Each record type has `encode_*`/`decode_*` functions in its module, and its `RecordCodec` impl delegates to them: the trait has no default `encode`/`decode`, so a new record type has to state its own versioned layout (test: `tests::golden_records::record_codec_never_writes_unversioned_bytes`). A few (channels, audit) use `serde_json` directly.
 
 Each projection module exports:
 - `encode_record(r) -> Vec<u8>` — postcard serialization
@@ -234,7 +234,7 @@ distributed leases, live media admission, owner routing or regional delivery.
 ## How to add a new projection
 
 1. Define record struct in `src/projections/my_projection.rs` with `RecordCodec`
-2. Implement `encode_record`, `decode_record`, `encode_key` free functions
+2. Implement `encode_record`, `decode_record`, `encode_key` free functions. `encode_record`/`decode_record` go through `format::versioned` (`encode_v1`/`decode_v1` with a new 4-byte tag), and the `RecordCodec` impl calls them; add the type to `tests::golden_records` (`every_durable_record_is_versioned`, `record_codec_never_writes_unversioned_bytes`)
 3. Implement `MyProjection` struct with `Projection` trait
 4. Add typed query methods: `get_*`, `list_*`
 5. Optionally add `is_deleted` field and `compact()` static method
