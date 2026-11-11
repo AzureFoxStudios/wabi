@@ -120,7 +120,7 @@ struct Fixture {
     asset_channel: i64,
     member_token: String,
     outsider_token: String,
-    /// Member of the Recordings channel with only `lore.view` (Member role).
+    /// Member of the Recordings channel with no Lore capability (Member role).
     viewer_token: String,
 }
 

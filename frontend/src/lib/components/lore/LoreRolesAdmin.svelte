@@ -20,13 +20,13 @@
 	let policy = $state<LoreDefaultPolicy>('view');
 	let policyDraft = $state<LoreDefaultPolicy>('view');
 	let selected = $state('');
-	let draft = $state({ name: '', description: '', capabilities: ['lore.view'] as string[] });
+	let draft = $state({ name: '', description: '', capabilities: [] as string[] });
 	let status = $state('');
 	let error = $state('');
 	let role = $derived(roles.find(item => item.id === selected));
 	let locked = $derived(selected === 'owner' || selected === 'admin');
 	let isNew = $derived(selected === '@new');
-	let dirty = $derived(selected === '@policy' ? policyDraft !== policy : isNew ? !!draft.name || !!draft.description || !sameRoleDraft(draft, { name: '', description: '', capabilities: ['lore.view'] }) : !!role && !sameRoleDraft(draft, role));
+	let dirty = $derived(selected === '@policy' ? policyDraft !== policy : isNew ? !!draft.name || !!draft.description || !sameRoleDraft(draft, { name: '', description: '', capabilities: [] }) : !!role && !sameRoleDraft(draft, role));
 	$effect(() => { const value = dirty || busy; untrack(() => onDirtyChange?.(value)); });
 	onDestroy(() => { alive = false; onDirtyChange?.(false); });
 	function active() { return alive && isAdmin && getApiBase() === server && authSessionGeneration(server) === generation; }
@@ -39,7 +39,7 @@
 		if (busy || (ask && dirty && !window.confirm('Discard unsaved permission changes?'))) return;
 		selected = id; policyDraft = policy;
 		const found = roles.find(item => item.id === id);
-		draft = found ? { name: found.name, description: found.description, capabilities: [...found.capabilities] } : { name: '', description: '', capabilities: ['lore.view'] };
+		draft = found ? { name: found.name, description: found.description, capabilities: [...found.capabilities] } : { name: '', description: '', capabilities: [] };
 		error = ''; status = '';
 	}
 	async function load() {
