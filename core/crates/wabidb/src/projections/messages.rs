@@ -1,5 +1,6 @@
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
+use crate::format::versioned::{self, RecordFormat};
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
 use crate::projections::query::{apply_limit, MessagesFilter, QueryableProjection};
@@ -114,18 +115,35 @@ impl From<crate::domain::Message> for MessageRecord {
     }
 }
 
+/// Versioned durable layout of [`MessageRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"MESG", "messages projection");
+
 pub fn encode_record(r: &MessageRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<MessageRecord> {
     decode_record_lenient(buf)
 }
 
-/// Decode a `MessageRecord`, falling back to the pre-`is_spoiler` schema so
-/// on-disk records written before the field existed still load (with
-/// `is_spoiler` defaulting to `false`).
+/// Decode a `MessageRecord`. Versioned bytes decode by their version byte;
+/// unversioned bytes (written before Task 3.1) use the old fallback below.
 pub fn decode_record_lenient(buf: &[u8]) -> Result<MessageRecord> {
+    versioned::decode(
+        &FORMAT,
+        buf,
+        |version, body| match version {
+            1 => Some(versioned::payload(&FORMAT, body)),
+            _ => None,
+        },
+        decode_unversioned,
+    )
+}
+
+/// Unversioned bytes: the current layout, falling back to the pre-`is_spoiler`
+/// schema so records written before the field existed still load (with
+/// `is_spoiler` defaulting to `false`).
+fn decode_unversioned(buf: &[u8]) -> Result<MessageRecord> {
     match postcard::from_bytes::<MessageRecord>(buf) {
         Ok(r) => Ok(r),
         Err(_) => {

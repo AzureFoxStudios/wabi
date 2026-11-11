@@ -721,7 +721,7 @@ fn golden_payment_delete_key() {
 
 #[test]
 fn golden_message_record() {
-    unchanged_today(MESSAGE_LEGACY, &message(), messages::encode_record, messages::decode_record);
+    converted(MESSAGE_LEGACY, b"MESG", &message(), messages::encode_record, messages::decode_record);
 }
 
 #[test]
