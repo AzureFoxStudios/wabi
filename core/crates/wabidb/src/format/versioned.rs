@@ -80,6 +80,27 @@ pub fn is_versioned(bytes: &[u8]) -> bool {
     bytes.starts_with(&MARKER)
 }
 
+/// The bytes of a stored value that a content fingerprint hashes.
+///
+/// A version-1 record is its legacy postcard bytes behind a header (the golden
+/// tests assert the payload is byte-identical), and replay re-encodes some
+/// rows. So a row that a build from before versioning saved as raw postcard
+/// comes out of this build's replay of the same event with a version-1 header.
+/// Both are the same content, and both hash as the payload. Without this,
+/// offline inspection reports a healthy upgraded directory as "replay differs
+/// from persisted projection".
+///
+/// Every other value hashes as it is, a version-2 record included. A layout
+/// change does change the payload, so a projection saved before that change
+/// will not match a replay after it: the saved projection has to be rebuilt
+/// from the log when a record's version is bumped.
+pub fn fingerprint_bytes(value: &[u8]) -> &[u8] {
+    match value.strip_prefix(&MARKER) {
+        Some(rest) if rest.len() >= 5 && rest[4] == 1 => &rest[5..],
+        _ => value,
+    }
+}
+
 /// Decode a record of `format`.
 ///
 /// With the marker present, the tag must match and `versions` is called with
@@ -325,5 +346,26 @@ mod tests {
         ] {
             assert!(!is_versioned(&bytes), "{bytes:02x?}");
         }
+    }
+
+    #[test]
+    fn fingerprint_bytes_are_the_same_for_legacy_and_version_1() {
+        let legacy = postcard::to_allocvec(&sample_v1()).unwrap();
+        let v1 = encode_v1(&FORMAT, &sample_v1());
+        assert_ne!(legacy, v1);
+        assert_eq!(fingerprint_bytes(&v1), legacy.as_slice());
+        assert_eq!(fingerprint_bytes(&legacy), legacy.as_slice());
+    }
+
+    #[test]
+    fn fingerprint_bytes_keep_everything_else_whole() {
+        // A later layout is different content, not a relabelled legacy record.
+        let v2 = encode(&FORMAT, 2, &sample_v1());
+        assert_eq!(fingerprint_bytes(&v2), v2.as_slice());
+        // A marker with no complete header is not a record.
+        let short = [MARKER.as_slice(), b"TES"].concat();
+        assert_eq!(fingerprint_bytes(&short), short.as_slice());
+        assert_eq!(fingerprint_bytes(b""), b"");
+        assert_eq!(fingerprint_bytes(b"latest"), b"latest");
     }
 }

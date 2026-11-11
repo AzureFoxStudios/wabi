@@ -438,3 +438,63 @@ async fn pre_versioning_log_with_new_writes_replays() {
     }
     assert!(!described.contains("DECODE ERROR"), "{described}");
 }
+
+/// Offline inspection replays the whole log and compares the result with the
+/// saved projection. Replay re-encodes some rows, so a row the old build saved
+/// as raw postcard comes out of this build's replay with a version-1 header.
+/// That is the same content, and inspection must say the two match.
+async fn inspect(data: &Path) -> crate::error::Result<bool> {
+    use crate::engine::offline_inspect::{inspect_frozen, InspectionLimits};
+    let indexed =
+        crate::commit_index::batcher::read_all_entries(&data.join("global/commit-index")).unwrap();
+    let seq = indexed.iter().map(|entry| entry.commit_seq).max().unwrap();
+    let prefix = crate::replication::commit_prefix_fingerprint(&indexed, seq);
+    inspect_frozen(data, &BOOTSTRAP, seq, &prefix, InspectionLimits::default())
+        .await
+        .map(|inspected| inspected.receipt.persisted_projection_matches)
+}
+
+#[tokio::test]
+async fn pre_versioning_directory_passes_offline_inspection() {
+    let scratch = scratch_copy();
+    let matches = inspect(&scratch.path().join("data")).await;
+    assert!(matches!(matches, Ok(true)), "{:?}", matches.map_err(|e| e.to_string()));
+}
+
+/// The same after an upgrade: this build opened the old directory, wrote a
+/// versioned record, and saved a snapshot that mixes old and new rows.
+#[tokio::test]
+async fn upgraded_directory_passes_offline_inspection() {
+    let scratch = scratch_copy();
+    let data = scratch.path().join("data");
+    let engine = reopen(&data).await;
+    let mut member = sample::channel_member();
+    member.user_id = 4_200_000_002;
+    let new_event = event(
+        "channel_members:ch_general",
+        1,
+        "channel_member_added",
+        channel_members::encode_record(&member),
+    );
+    engine.get_or_create_stream_key(&new_event.stream_id).await.unwrap();
+    let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+    engine
+        .run_command(CommandCommit {
+            room_owner_precondition: None,
+            caller_user_id: 7,
+            caller_device_id: "fixture".into(),
+            command_name: "fixture_new_member".into(),
+            idempotency_key: None,
+            events: vec![new_event],
+            essential: true,
+            response_tx,
+        })
+        .await
+        .unwrap();
+    drop(engine);
+    drop(super::wait_for_stopped_engine(&data).await);
+    assert!(ProjectionState::snapshot_path(&data).exists());
+
+    let matches = inspect(&data).await;
+    assert!(matches!(matches, Ok(true)), "{:?}", matches.map_err(|e| e.to_string()));
+}
