@@ -616,7 +616,7 @@ fn golden_webhook() {
 
 #[test]
 fn golden_user_layout() {
-    unchanged_today(USER_LAYOUT_LEGACY, &user_layout(), layouts::encode_record, layouts::decode_record);
+    converted(USER_LAYOUT_LEGACY, b"ULAY", &user_layout(), layouts::encode_record, layouts::decode_record);
 }
 
 #[test]
