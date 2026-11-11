@@ -24,11 +24,17 @@
 //! 3. [`ProjectionState`]: a `HashMap<index_name, SkipMap<K, V>>` plus a
 //!    watch-backed applied watermark. Every insert takes the outer `RwLock`'s
 //!    write lock; reads take its read lock. The `SkipMap` is lock-free internally, but
-//!    that does not make `insert` lock-free (tests:
-//!    `engine::locks::tests::projection_state_insert_and_get`,
-//!    `engine::locks::tests::reads_do_not_block_writes`). A separate application
-//!    lock serializes whole-commit application with checkpoints, not ordinary
-//!    reads; a snapshot never claims more than the applied watermark covers (test:
+//!    that does not make `insert` lock-free. A write is visible to a read (test:
+//!    `engine::locks::tests::projection_state_insert_and_get`; it does not show which
+//!    lock either call takes, and no test does: read `ProjectionState::insert` and
+//!    `get`). `engine::locks::tests::reads_do_not_block_writes` only shows that 100
+//!    reader tasks and a writer sending 100 dispatch items finish within 5 seconds and
+//!    the applied watermark reaches 100; it does not inspect any lock. A separate application lock serializes whole-commit application
+//!    with checkpoints, not ordinary reads (test:
+//!    `engine::locks::tests::checkpoint_copy_holds_the_snapshot_writer_and_releases_on_an_error_result`
+//!    asserts the application lock is held during the checkpoint copy and released
+//!    after, and that a `get` returns while it is held). A snapshot never claims
+//!    more than the applied watermark covers (test:
 //!    `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`).
 //!
 //! ## Lock ordering (deadlock avoidance)
