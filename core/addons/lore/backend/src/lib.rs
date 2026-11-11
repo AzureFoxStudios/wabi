@@ -1382,16 +1382,25 @@ impl LoreService {
         branch: &str,
         review_branch: Option<&str>,
     ) -> anyhow::Result<LoreUploadResult> {
-        sanitize_revision_arg(branch)?;
-        if let Some(name) = review_branch {
-            sanitize_revision_arg(name)?;
-        }
+        // Only the branch that will be used is checked: stage mode never
+        // touches `branch`, and a binding may hold an empty one.
+        sanitize_revision_arg(review_branch.unwrap_or(branch))?;
         let _io = self.io_gate.lock().await;
         let repo = self.resolve_writable_target(channel_id, repo_path).await?;
         let original = self.current_branch_name(&repo).await?;
+        // A repo with auto_branch_on_upload makes its own review branch for
+        // every upload. A second one from here would be left with no commit,
+        // so a stage promote stays on the current branch and lets the upload
+        // create the one review branch.
+        let staged_by_repo = review_branch.is_some() && repo.auto_branch_on_upload;
+        let review_branch = if staged_by_repo { None } else { review_branch };
 
         let operation: anyhow::Result<LoreUploadResult> = async {
-            let target = review_branch.unwrap_or(branch);
+            let target = if staged_by_repo {
+                original.as_str()
+            } else {
+                review_branch.unwrap_or(branch)
+            };
             if let Some(name) = review_branch {
                 run_lore(
                     &self.config.lore_binary_path,
@@ -2018,13 +2027,16 @@ impl LoreService {
         {
             Ok(out) => out,
             Err(e) => {
-                let _ = run_lore(
+                if let Err(re) = run_lore(
                     &self.config.lore_binary_path,
                     &repo.working_tree,
                     &["branch", "switch", &mainline],
                     self.config.mode,
                 )
-                .await;
+                .await
+                {
+                    warn!(channel_id, error = %re, "could not restore mainline after failed review history read");
+                }
                 return Err(e);
             }
         };
@@ -3549,6 +3561,54 @@ esac
             assert!(outcome.is_err());
             assert_eq!(current_branch_of(data.path()), "feature");
         }
+    }
+
+    /// A repo with auto_branch_on_upload makes its own `uploads/` review branch
+    /// for every upload. A stage promote must not also create a `chat/` branch
+    /// that then holds no commit and never shows in the review queue.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stage_promote_on_an_auto_branch_repo_creates_no_second_review_branch() {
+        let data = tempfile::tempdir().unwrap();
+        let (mut service, _repo) = fixture_native_service(data.path()).await;
+        service.repos.write().await.get_mut(&42).unwrap().auto_branch_on_upload = true;
+        service.config.lore_binary_path = branch_tracking_cli(data.path());
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        let result = service
+            .promote_file(42, upload.to_str().unwrap(), "assets/a.txt", "Promote", 1, "main", Some("chat/u1-9"))
+            .await
+            .unwrap();
+        assert!(result.pending_review);
+        let reported = result.review_branch.unwrap();
+        assert!(reported.starts_with("uploads/"), "{reported}");
+        let branches = std::fs::read_to_string(data.path().join("state-branches")).unwrap();
+        assert!(!branches.contains("chat/u1-9"), "an unused review branch was created:\n{branches}");
+        assert!(branches.contains(&reported), "{branches}");
+        assert_eq!(current_branch_of(data.path()), "feature");
+    }
+
+    /// Stage mode commits on the review branch and never uses `branch`, so a
+    /// binding saved with an empty branch must not fail a stage promote.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stage_promote_ignores_a_branch_it_does_not_use() {
+        let data = tempfile::tempdir().unwrap();
+        let (mut service, _repo) = fixture_native_service(data.path()).await;
+        service.config.lore_binary_path = branch_tracking_cli(data.path());
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        let result = service
+            .promote_file(42, upload.to_str().unwrap(), "assets/a.txt", "Promote", 1, "", Some("chat/u1-3"))
+            .await
+            .unwrap();
+        assert_eq!(result.review_branch.as_deref(), Some("chat/u1-3"));
+        assert_eq!(current_branch_of(data.path()), "feature");
+        // Direct mode does use it, and still refuses an empty one.
+        assert!(service
+            .promote_file(42, upload.to_str().unwrap(), "assets/b.txt", "Promote", 1, "", None)
+            .await
+            .is_err());
     }
 
     #[cfg(unix)]
