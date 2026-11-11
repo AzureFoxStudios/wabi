@@ -25,6 +25,28 @@ fn unchanged_today<T: PartialEq + Debug>(
     assert_eq!(&decode(&legacy).expect("legacy bytes decode"), sample);
 }
 
+/// After conversion: the golden bytes still decode to the sample (legacy
+/// path), and the encoder writes a version-1 record with `tag` whose payload
+/// is the same postcard body, i.e. no field changed.
+fn converted<T: PartialEq + Debug>(
+    legacy_hex: &str,
+    tag: &[u8; 4],
+    sample: &T,
+    encode: impl Fn(&T) -> Vec<u8>,
+    decode: impl Fn(&[u8]) -> Result<T>,
+) {
+    use crate::format::versioned::{is_versioned, HEADER_LEN, MARKER};
+    let legacy = bytes(legacy_hex);
+    assert!(!is_versioned(&legacy), "golden literal must be unversioned");
+    assert_eq!(&decode(&legacy).expect("legacy bytes decode"), sample);
+    let encoded = encode(sample);
+    assert_eq!(&encoded[..MARKER.len()], &MARKER);
+    assert_eq!(&encoded[MARKER.len()..MARKER.len() + 4], tag);
+    assert_eq!(encoded[MARKER.len() + 4], 1, "version byte");
+    assert_eq!(hex::encode(&encoded[HEADER_LEN..]), legacy_hex, "payload layout changed");
+    assert_eq!(&decode(&encoded).expect("versioned bytes decode"), sample);
+}
+
 use crate::domain::{Emote, UserLayout, Webhook, WhiteboardDoc};
 use crate::projections::{
     album_items::{self, AlbumItemRecord},
@@ -559,7 +581,7 @@ const USER_V1_LEGACY: &str =
 
 #[test]
 fn golden_channel_member_record() {
-    unchanged_today(CHANNEL_MEMBER_LEGACY, &channel_member(), channel_members::encode_record, channel_members::decode_record);
+    converted(CHANNEL_MEMBER_LEGACY, b"CMEM", &channel_member(), channel_members::encode_record, channel_members::decode_record);
 }
 
 #[test]
