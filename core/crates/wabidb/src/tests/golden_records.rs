@@ -701,7 +701,7 @@ fn golden_payment_account_link_record() {
 
 #[test]
 fn golden_payment_intent_record() {
-    unchanged_today(PAYMENT_INTENT_LEGACY, &payment_intent(), PaymentIntentRecord::encode, PaymentIntentRecord::decode);
+    converted(PAYMENT_INTENT_LEGACY, b"PINT", &payment_intent(), PaymentIntentRecord::encode, PaymentIntentRecord::decode);
 }
 
 #[test]
