@@ -278,11 +278,16 @@ async fn main() -> Result<()> {
                 Ok(manifest) => {
                     println!("remote:    {} files (head {})", manifest.files.len(), manifest.head_revision);
                     let local = sync::scan_local(&folder)?;
-                    let changed = local
-                        .iter()
-                        .filter(|(p, etag)| !state.local_matches_baseline(p, etag))
-                        .count();
-                    println!("local:     {} files, {changed} changed since last sync", local.len());
+                    let status = sync::local_status(&state, &local);
+                    println!(
+                        "local:     {} files, {} changed since last sync, {} waiting for review",
+                        local.len(),
+                        status.changed.len(),
+                        status.waiting_review.len()
+                    );
+                    for path in &status.waiting_review {
+                        println!("           … {path} (sent for review; not on the mainline yet)");
+                    }
                 }
                 Err(e) => println!("remote:    manifest failed ({e})"),
             }

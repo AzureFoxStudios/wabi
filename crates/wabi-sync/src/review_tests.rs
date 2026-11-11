@@ -486,3 +486,22 @@ async fn mainline_delete_while_pending_keeps_the_local_version() {
     assert_eq!(h.read(&copies[0]).as_deref(), Some("my edit"));
     assert!(h.state().pending_review.is_empty());
 }
+
+/// `wabi-sync status`: a file waiting for review is not "changed since last
+/// sync" (it was sent), and status says that it is waiting.
+#[tokio::test]
+async fn status_says_a_file_is_waiting_for_review() {
+    use crate::sync::{local_status, scan_local};
+    let h = with_pending_edit().await;
+    h.write("new.txt", "not sent yet");
+
+    let status = local_status(&h.state(), &scan_local(h.folder()).unwrap());
+    assert_eq!(status.waiting_review, vec!["a.txt"]);
+    assert_eq!(status.changed, vec!["new.txt"]);
+
+    // Edited again: what is waiting is no longer what is in the folder.
+    h.write("a.txt", "my second edit");
+    let status = local_status(&h.state(), &scan_local(h.folder()).unwrap());
+    assert!(status.waiting_review.is_empty());
+    assert_eq!(status.changed, vec!["a.txt", "new.txt"]);
+}
