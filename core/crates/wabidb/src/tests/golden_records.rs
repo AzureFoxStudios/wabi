@@ -676,7 +676,7 @@ fn golden_lore_commit_record() {
 
 #[test]
 fn golden_lore_file_change_record() {
-    unchanged_today(LORE_FILE_CHANGE_LEGACY, &lore_file_change(), lore::encode_change_record, lore::decode_change_record);
+    converted(LORE_FILE_CHANGE_LEGACY, b"LCHG", &lore_file_change(), lore::encode_change_record, lore::decode_change_record);
 }
 
 #[test]

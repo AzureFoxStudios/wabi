@@ -222,15 +222,15 @@ impl RecordCodec for LoreFileChangeRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreFileChangeRecord`]; see `format::versioned`.
+const CHANGE_FORMAT: RecordFormat = RecordFormat::new(*b"LCHG", "lore file-change projection");
+
 pub fn encode_change_record(r: &LoreFileChangeRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&CHANGE_FORMAT, r)
 }
 
 pub fn decode_change_record(buf: &[u8]) -> Result<LoreFileChangeRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore file-change projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&CHANGE_FORMAT, buf)
 }
 
 /// Key = channel_id (LE) + seq (BE) so a prefix scan over the channel bytes
