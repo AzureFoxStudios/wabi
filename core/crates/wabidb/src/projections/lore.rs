@@ -410,15 +410,15 @@ impl RecordCodec for LoreBindingRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreBindingRecord`]; see `format::versioned`.
+const BINDING_FORMAT: RecordFormat = RecordFormat::new(*b"LBND", "lore binding projection");
+
 pub fn encode_binding_record(r: &LoreBindingRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&BINDING_FORMAT, r)
 }
 
 pub fn decode_binding_record(buf: &[u8]) -> Result<LoreBindingRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore binding projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&BINDING_FORMAT, buf)
 }
 
 impl LoreBindingProjection {

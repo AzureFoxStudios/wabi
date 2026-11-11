@@ -686,7 +686,7 @@ fn golden_lore_token_record() {
 
 #[test]
 fn golden_lore_binding_record() {
-    unchanged_today(LORE_BINDING_LEGACY, &lore_binding(), lore::encode_binding_record, lore::decode_binding_record);
+    converted(LORE_BINDING_LEGACY, b"LBND", &lore_binding(), lore::encode_binding_record, lore::decode_binding_record);
 }
 
 #[test]
