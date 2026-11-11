@@ -58,7 +58,7 @@ Record kinds: the header decoder accepts 1=event, 2=snapshot, 3=tombstone, 4=che
 
 Event payload: AES-256-GCM, 12-byte nonce from `commit_seq`, header bytes as AAD, tag appended (tests: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`, `crypto::aes_gcm_record::tests::nonce_construction`, and `crypto::aes_gcm_record::tests::bit_flip_in_aad_fails_auth`, which flips a bit in a zero-filled 48-byte header given as AAD). That the engine passes the full encoded header with `payload_crc32c` set to 0 is read from `sequencer/mod.rs`; no test covers it (see `STORAGE_FORMAT.md` §2).
 
-Reading a segment: a file cut at a record boundary yields the records before the cut (test: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`), and a record whose payload CRC fails is skipped (test: `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). The reader also stops at an invalid header, at a record cut mid-way and at non-zero padding; no test covers those three (read `stream_log/segment_reader.rs`). Valid records that the commit index does not reference are orphans and are skipped (tests: `stream_log::segment_reader::tests::orphan_records_skipped_when_filter_rejects`, `sequencer::tests::orphan_records_tolerated`). The engine does not physically truncate a segment at startup. A helper that does (`stream_log::recovery::scan_segment_file`, test: `stream_log::recovery::tests::recovery_truncates_at_corrupt_record`) is not part of engine startup.
+Reading a segment: a file cut at a record boundary yields the records before the cut (test: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`), and a record whose payload CRC fails is skipped (test: `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). The reader also stops at a record cut mid-way (tests: `tests::crash_tests::crash_during_segment_write`, `cli::check::tests::missing_indexed_record_is_not_ok`), at an invalid header and at non-zero padding; no test covers those last two (read `stream_log/segment_reader.rs`). Valid records that the commit index does not reference are orphans and are skipped (tests: `stream_log::segment_reader::tests::orphan_records_skipped_when_filter_rejects`, `sequencer::tests::orphan_records_tolerated`). The engine does not physically truncate a segment at startup. A helper that does (`stream_log::recovery::scan_segment_file`, test: `stream_log::recovery::tests::recovery_truncates_at_corrupt_record`) is not part of engine startup.
 
 ## Commit index format (.widx)
 
@@ -108,7 +108,7 @@ Unused: nothing in the engine or the server calls `wabidb::blobs`, the engine ne
 
 ## Storage manifest (JSON)
 
-`$DATA_DIR/storage-manifest.json` (test: `engine::tests::open_creates_storage_manifest` asserts the file exists with `"schema_version": 1` and `"engine_version": "0.1.0"`). The engine writes these fields and raises `highest_commit_seq` at open when replay finds a higher commit; no test covers the field list or the raise (read `open` and `update_manifest_high_seq` in `engine/mod.rs`):
+`$DATA_DIR/storage-manifest.json` (test: `engine::tests::open_creates_storage_manifest` asserts the file exists with `"schema_version": 1` and `"engine_version": "0.1.0"`). The engine writes these fields and raises `highest_commit_seq` at open when replay finds a higher commit; an engine-written manifest deserializes into those five fields (test: `cli::verify::tests::real_engine_tree_verifies`); no test covers the raise (read `update_manifest_high_seq` in `engine/mod.rs`):
 
 ```json
 {

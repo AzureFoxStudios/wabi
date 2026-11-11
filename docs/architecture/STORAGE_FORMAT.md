@@ -62,7 +62,7 @@ A stream segment file is a sequence of records. Each record has a 48-byte header
 
 **Total header size: 48 bytes** (not 36 — the 36 figure in the endstate doc predates the `payload_crc32c` field) (test: `format::record::tests::round_trip_event`).
 
-Decoding rejects a header in which a bit of `commit_seq` (byte 12) was flipped (test: `format::record::tests::header_crc_mismatch_rejected`); that the checksum covers exactly bytes 0-39 is read from `RecordHeader::encode`/`decode` in `format/record.rs`, and no test flips a byte at the boundary (39 or 40). `verify_payload_crc` rejects a wrong payload and a wrong length (test: `format::record::tests::payload_crc_verification`), and the segment reader skips a record whose payload CRC fails (test: `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). `stream_log::segment_reader::tests::non_zero_payload_crc_verified_by_reader` only reads back one record whose CRC is correct, so it is not cited for detection. That encrypted records write `0` here and rely on the GCM tag is read from `sequencer/mod.rs` (`RecordHeader::new(..., 0)`); no test covers it, and no test shows how the reader treats a `0` CRC.
+Decoding rejects a header in which a bit of `commit_seq` (byte 12) was flipped (test: `format::record::tests::header_crc_mismatch_rejected`); that the checksum covers exactly bytes 0-39 is read from `RecordHeader::encode`/`decode` in `format/record.rs`, and no test flips a byte at the boundary (39 or 40). `verify_payload_crc` rejects a wrong payload and a wrong length (test: `format::record::tests::payload_crc_verification`), and the segment reader skips a record whose payload CRC fails (test: `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). `stream_log::segment_reader::tests::non_zero_payload_crc_verified_by_reader` only reads back one record whose CRC is correct, so it is not cited for detection. That encrypted records write `0` here and rely on the GCM tag is read from `sequencer/mod.rs` (`RecordHeader::new(..., 0)`); no test covers the write side. With a `0` there the reader still returns a record whose payload was altered (test: `cli::check::tests::corrupt_indexed_record_is_not_ok` flips a payload byte in an engine-written record and still counts five records read); that test shows `wabidb-cli check` catching it through the commit-index payload hash instead.
 
 ### 2.2 Payload
 
@@ -84,14 +84,14 @@ The header decoder rejects a record unless all of these hold (tests in `format::
 1. The header magic equals `b"WABI"` (`bad_magic_rejected`).
 2. The `format_version` is `1` (`unsupported_version_rejected`).
 3. The `header_len` equals 48 (`wrong_header_len_rejected`).
-4. The `header_crc32c` matches the CRC of bytes 0-39 (`header_crc_mismatch_rejected`).
+4. The `header_crc32c` matches the CRC of bytes 0-39 (`format::record::tests::header_crc_mismatch_rejected` flips one bit of byte 12; no test flips a byte at the 39/40 boundary).
 5. The `record_kind` is one of `{1, 2, 3, 4}` (`unknown_record_kind_rejected`).
 6. The `payload_len` is in `[0, 16 MiB]` (`oversized_payload_rejected`).
 7. The `flags` field is `0` (`non_zero_flags_rejected`).
 
 The payload CRC is checked separately when it is non-zero (`payload_crc_verification`).
 
-The segment reader reads the valid prefix: a file cut at a record boundary yields the records before the cut (test: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`, which cuts exactly where record 4 begins), and it skips a record whose payload CRC fails (test: `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). It also stops at a record cut in the middle, at an invalid header, and when the padding after a record is not all zeros; no test covers those three cases (read `stream_log/segment_reader.rs`: the header decode failure and `UnexpectedEof` branches return `None`, and "Check padding" handles the padding). It never modifies the file.
+The segment reader reads the valid prefix: a file cut at a record boundary yields the records before the cut (test: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`, which cuts exactly where record 4 begins), and it skips a record whose payload CRC fails (test: `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). It also stops at a record cut in the middle (tests: `tests::crash_tests::crash_during_segment_write` appends part of a header after one record and still reads that record; `cli::check::tests::missing_indexed_record_is_not_ok` cuts one byte off a segment and reads four of its five records), at an invalid header in the middle of a file, and when the padding after a record is not all zeros; no test covers those last two cases (read `stream_log/segment_reader.rs`: the header decode failure and `UnexpectedEof` branches return `None`, and "Check padding" handles the padding). It never modifies the file.
 
 Truncating a damaged tail is not part of engine startup. A standalone helper, `stream_log::recovery::scan_segment_file`, truncates at the first invalid record (tests: `stream_log::recovery::tests::recovery_truncates_at_corrupt_record`, `stream_log::recovery::tests::recovery_does_not_truncate_clean_file`) but the engine does not call it. Truncate-and-resume at startup is *planned*.
 
@@ -193,7 +193,7 @@ A text sidecar of three lines: `blake3=<hex>`, `size=<bytes>`, `created_at_micro
 
 ## 6. Storage manifest (`storage-manifest.json`)
 
-A JSON file at `$DATA_DIR/storage-manifest.json`, created when the engine first opens a data directory (test: `engine::tests::open_creates_storage_manifest` asserts the file exists and contains `"schema_version": 1` and `"engine_version": "0.1.0"`). The engine writes these fields, and raises `highest_commit_seq` when it opens if replay finds a higher commit than recorded. No test covers the full field list or the raise; both are read from the `open` function in `engine/mod.rs` (step 4) and `update_manifest_high_seq`:
+A JSON file at `$DATA_DIR/storage-manifest.json`, created when the engine first opens a data directory (test: `engine::tests::open_creates_storage_manifest` asserts the file exists and contains `"schema_version": 1` and `"engine_version": "0.1.0"`). The engine writes these fields, and raises `highest_commit_seq` when it opens if replay finds a higher commit than recorded. That the five fields below are present is shown (an engine-written manifest deserializes into those five fields (test: `cli::verify::tests::real_engine_tree_verifies`)); no test covers the raise, which is read from `update_manifest_high_seq` in `engine/mod.rs`:
 
 ```json
 {
