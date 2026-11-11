@@ -18,6 +18,14 @@ impl RecordCodec for DmRecipientRecord {
     fn codec_name() -> &'static str {
         "dm_message_recipients"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`DmRecipientRecord`]; see `format::versioned`.

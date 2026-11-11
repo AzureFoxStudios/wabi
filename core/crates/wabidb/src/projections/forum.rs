@@ -25,44 +25,65 @@ pub struct ForumPostRecord {
     pub category: Option<String>,
 }
 
-// Shared with local write admission. Preserve the historical postcard field
-// order used by the adapter and projection; this is not a new event format.
-#[derive(Deserialize)]
-pub(crate) struct VotePayload {
+/// Payload of `forum_post_voted`. The one definition of this durable layout:
+/// the adapter encodes it with [`encode_vote`], the projection and local write
+/// admission decode it with [`decode_vote`]. Never change its fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VotePayload {
     pub post_id: String,
     pub thread_id: String,
     pub channel_id: String,
     pub direction: String,
-    #[allow(dead_code)]
     pub actor_user_id: u64,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SolutionPayload {
+/// Payload of `forum_post_solution_set`. The one definition of this durable
+/// layout: the adapter encodes it with [`encode_solution`], the projection and
+/// local write admission decode it with [`decode_solution`]. Never change its
+/// fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SolutionPayload {
     pub post_id: String,
     pub thread_id: String,
     pub channel_id: String,
-    #[allow(dead_code)]
     pub actor_user_id: u64,
 }
 
+/// Versioned durable layout of [`VotePayload`]; see `format::versioned`. The
+/// first field is a `String`, so legacy bytes never start with the marker.
+const VOTE_FORMAT: RecordFormat = RecordFormat::new(*b"FVOT", "forum vote payload");
+
+pub fn encode_vote(v: &VotePayload) -> Vec<u8> {
+    versioned::encode_v1(&VOTE_FORMAT, v)
+}
+
 pub(crate) fn decode_vote(buf: &[u8]) -> Result<VotePayload> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "forum projection".into(),
-        detail: format!("vote payload decode failed: {e}"),
-    })
+    versioned::decode_v1(&VOTE_FORMAT, buf)
+}
+
+/// Versioned durable layout of [`SolutionPayload`]; see `format::versioned`.
+/// The first field is a `String`, so legacy bytes never start with the marker.
+const SOLUTION_FORMAT: RecordFormat = RecordFormat::new(*b"FSOL", "forum solution payload");
+
+pub fn encode_solution(s: &SolutionPayload) -> Vec<u8> {
+    versioned::encode_v1(&SOLUTION_FORMAT, s)
 }
 
 pub(crate) fn decode_solution(buf: &[u8]) -> Result<SolutionPayload> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "forum projection".into(),
-        detail: format!("solution payload decode failed: {e}"),
-    })
+    versioned::decode_v1(&SOLUTION_FORMAT, buf)
 }
 
 impl RecordCodec for ForumPostRecord {
     fn codec_name() -> &'static str {
         "forum_posts"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
     }
 }
 

@@ -5,7 +5,7 @@
 //! `projections::handler::tests::dispatch_routes_by_event_type` covers routing
 //! in general). `apply` returns `Ok(())` without touching state and without
 //! logging. No projection reads these three event types today. No test targets
-//! this handler specifically; that coverage is planned.
+//! this handler specifically (no test covers it).
 //!
 //! `reaction_removed` is NOT here: `ReactionsProjection` applies it (tests:
 //! `projections::reactions::tests::reaction_removed_deletes_only_its_composite_key`,

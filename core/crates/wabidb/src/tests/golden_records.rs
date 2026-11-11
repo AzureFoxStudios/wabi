@@ -8,7 +8,7 @@
 use crate::error::Result;
 use std::fmt::Debug;
 
-fn bytes(hex_literal: &str) -> Vec<u8> {
+pub(crate) fn bytes(hex_literal: &str) -> Vec<u8> {
     hex::decode(hex_literal).expect("golden literal is valid hex")
 }
 
@@ -728,7 +728,8 @@ fn golden_user_record_v1() {
     assert_eq!(decoded, user_v1_decoded());
 }
 
-/// Every durable record type above writes the versioned header.
+/// Every durable record type and event payload above writes the versioned
+/// header.
 #[test]
 fn every_durable_record_is_versioned() {
     let encoded: Vec<(&str, Vec<u8>)> = vec![
@@ -762,6 +763,15 @@ fn every_durable_record_is_versioned() {
         ("PaymentDeleteKey", payment_delete_key().encode()),
         ("MessageRecord", messages::encode_record(&message())),
         ("UserRecord", users::encode_record(&user())),
+        ("forum_post_voted", forum::encode_vote(&forum_vote())),
+        ("forum_post_solution_set", forum::encode_solution(&forum_solution())),
+        (
+            "user_deleted",
+            crate::projections::user_deletion::encode_payload(&crate::domain::UserDeleted {
+                user_id: 4_200_000_001,
+            }),
+        ),
+        ("dm_onetime_prekey_consumed", dm_identities::encode_consumed(&dm_prekey_consumed())),
     ];
     let unversioned: Vec<&str> = encoded
         .iter()
@@ -769,4 +779,239 @@ fn every_durable_record_is_versioned() {
         .map(|(name, _)| *name)
         .collect();
     assert!(unversioned.is_empty(), "unversioned durable records: {unversioned:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Event payloads (Task 3.1b). These are not projection rows: each is the
+// payload of one durable event, decoded by its handler on every replay. The
+// literals were captured from the encoders before Task 3.1b changed them.
+// ---------------------------------------------------------------------------
+
+/// `forum_post_voted`: post, thread, channel, direction, actor.
+pub(crate) const FORUM_VOTE_LEGACY: &str =
+    "06706f73745f31057468725f310863685f666f72756d02757081d4dbd20f";
+/// `forum_post_solution_set`: post, thread, channel, actor.
+pub(crate) const FORUM_SOLUTION_LEGACY: &str =
+    "06706f73745f31057468725f310863685f666f72756d81d4dbd20f";
+/// `user_deleted`: the deleted user's id.
+pub(crate) const USER_DELETED_LEGACY: &str = "81d4dbd20f";
+/// `dm_onetime_prekey_consumed`: user, device, prekey.
+pub(crate) const DM_PREKEY_CONSUMED_LEGACY: &str = "09096465762d70686f6e65046f746b31";
+
+/// The encoders as they were before Task 3.1b. The vote and solution structs
+/// are verbatim copies of the private structs in wabi-server's
+/// `adapter::vote_forum_post` and `adapter::mark_forum_solution`; the consumed
+/// struct is a copy of the one the dm_identities tests encode (nothing in the
+/// workspace writes that event). `UserDeleted` is the real type the adapter
+/// encodes.
+mod pre_3_1b_encoders {
+    #[derive(serde::Serialize)]
+    pub struct VotePayload {
+        pub post_id: String,
+        pub thread_id: String,
+        pub channel_id: String,
+        pub direction: String,
+        pub actor_user_id: u64,
+    }
+
+    #[derive(serde::Serialize)]
+    pub struct SolutionPayload {
+        pub post_id: String,
+        pub thread_id: String,
+        pub channel_id: String,
+        pub actor_user_id: u64,
+    }
+
+    #[derive(serde::Serialize)]
+    pub struct ConsumedPayload {
+        pub user_id: u64,
+        pub device_id: String,
+        pub prekey_public: String,
+    }
+}
+
+#[test]
+fn golden_forum_vote_payload() {
+    let encoded = postcard::to_allocvec(&pre_3_1b_encoders::VotePayload {
+        post_id: "post_1".into(),
+        thread_id: "thr_1".into(),
+        channel_id: "ch_forum".into(),
+        direction: "up".into(),
+        actor_user_id: 4_200_000_001,
+    })
+    .unwrap();
+    assert_eq!(hex::encode(&encoded), FORUM_VOTE_LEGACY);
+    converted(FORUM_VOTE_LEGACY, b"FVOT", &forum_vote(), forum::encode_vote, forum::decode_vote);
+}
+
+pub(crate) fn forum_vote() -> forum::VotePayload {
+    forum::VotePayload {
+        post_id: "post_1".into(),
+        thread_id: "thr_1".into(),
+        channel_id: "ch_forum".into(),
+        direction: "up".into(),
+        actor_user_id: 4_200_000_001,
+    }
+}
+
+#[test]
+fn golden_forum_solution_payload() {
+    let encoded = postcard::to_allocvec(&pre_3_1b_encoders::SolutionPayload {
+        post_id: "post_1".into(),
+        thread_id: "thr_1".into(),
+        channel_id: "ch_forum".into(),
+        actor_user_id: 4_200_000_001,
+    })
+    .unwrap();
+    assert_eq!(hex::encode(&encoded), FORUM_SOLUTION_LEGACY);
+    converted(
+        FORUM_SOLUTION_LEGACY,
+        b"FSOL",
+        &forum_solution(),
+        forum::encode_solution,
+        forum::decode_solution,
+    );
+}
+
+pub(crate) fn forum_solution() -> forum::SolutionPayload {
+    forum::SolutionPayload {
+        post_id: "post_1".into(),
+        thread_id: "thr_1".into(),
+        channel_id: "ch_forum".into(),
+        actor_user_id: 4_200_000_001,
+    }
+}
+
+#[test]
+fn golden_user_deleted() {
+    let sample = crate::domain::UserDeleted { user_id: 4_200_000_001 };
+    assert_eq!(hex::encode(postcard::to_allocvec(&sample).unwrap()), USER_DELETED_LEGACY);
+    use crate::projections::user_deletion;
+    converted(
+        USER_DELETED_LEGACY,
+        b"UDEL",
+        &sample,
+        user_deletion::encode_payload,
+        user_deletion::decode_payload,
+    );
+    // Decoded by the handler, which removes the sample member (that user id).
+    use crate::engine::locks::ProjectionState;
+    use crate::projections::handler::{DurableEvent, Projection};
+    let state = ProjectionState::new();
+    let member = channel_member();
+    state.insert(
+        "channel_members",
+        channel_members::encode_key(&member.channel_id, member.user_id),
+        channel_members::encode_record(&member),
+        1,
+    );
+    let event = DurableEvent {
+        commit_seq: 2,
+        stream_id: "users".into(),
+        event_type: "user_deleted".into(),
+        payload: bytes(USER_DELETED_LEGACY),
+    };
+    crate::projections::user_deletion::UserDeletionProjection.apply(&event, &state).unwrap();
+    assert!(channel_members::ChannelMembersProjection::list_members(&state, "ch_general")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn golden_dm_prekey_consumed_payload() {
+    let encoded = postcard::to_allocvec(&pre_3_1b_encoders::ConsumedPayload {
+        user_id: 9,
+        device_id: "dev-phone".into(),
+        prekey_public: "otk1".into(),
+    })
+    .unwrap();
+    assert_eq!(hex::encode(&encoded), DM_PREKEY_CONSUMED_LEGACY);
+    converted(
+        DM_PREKEY_CONSUMED_LEGACY,
+        b"DOTP",
+        &dm_prekey_consumed(),
+        dm_identities::encode_consumed,
+        dm_identities::decode_consumed,
+    );
+    // And the handler reads the legacy bytes.
+    use crate::engine::locks::ProjectionState;
+    use crate::projections::handler::{DurableEvent, Projection};
+    let state = ProjectionState::new();
+    let identity = dm_identity();
+    state.insert(
+        "dm_identities",
+        dm_identities::encode_key(identity.user_id, &identity.device_id),
+        dm_identities::encode_record(&identity),
+        1,
+    );
+    let event = DurableEvent {
+        commit_seq: 2,
+        stream_id: "dm_identities:9".into(),
+        event_type: "dm_onetime_prekey_consumed".into(),
+        payload: bytes(DM_PREKEY_CONSUMED_LEGACY),
+    };
+    dm_identities::DmIdentitiesProjection.apply(&event, &state).unwrap();
+    let after = dm_identities::DmIdentitiesProjection::get_identity(&state, 9, "dev-phone")
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.one_time_prekeys, vec!["otk2".to_string()]);
+}
+
+pub(crate) fn dm_prekey_consumed() -> dm_identities::ConsumedPayload {
+    dm_identities::ConsumedPayload {
+        user_id: 9,
+        device_id: "dev-phone".into(),
+        prekey_public: "otk1".into(),
+    }
+}
+
+/// Writing through the `RecordCodec` trait must produce the same versioned
+/// record as the module encoder. The trait once had raw-postcard default
+/// bodies, so an implementor that did not override them wrote unversioned
+/// bytes through `payments::encode_record` or any other `T: RecordCodec` path.
+#[test]
+fn record_codec_never_writes_unversioned_bytes() {
+    fn check<T: RecordCodec + PartialEq + Debug>(
+        name: &'static str,
+        sample: T,
+        failed: &mut Vec<&'static str>,
+    ) {
+        let encoded = RecordCodec::encode(&sample);
+        let round_trips = <T as RecordCodec>::decode(&encoded).ok().as_ref() == Some(&sample);
+        if !crate::format::versioned::is_versioned(&encoded) || !round_trips {
+            failed.push(name);
+        }
+    }
+    let mut failed = Vec::new();
+    check("ChannelMemberRecord", channel_member(), &mut failed);
+    check("DmMessageRecord", dm_message(), &mut failed);
+    check("DmRecipientRecord", dm_recipient(), &mut failed);
+    check("DmIdentityRecord", dm_identity(), &mut failed);
+    check("Reaction", reaction(), &mut failed);
+    check("Emote", emote(), &mut failed);
+    check("Webhook", webhook(), &mut failed);
+    check("UserLayout", user_layout(), &mut failed);
+    check("WhiteboardDoc", whiteboard_doc(), &mut failed);
+    check("AlbumRecord", album(), &mut failed);
+    check("AlbumItemRecord", album_item(), &mut failed);
+    check("WikiPageRecord", wiki_page(), &mut failed);
+    check("WikiRevisionRecord", wiki_revision(), &mut failed);
+    check("ForumPostRecord", forum_post(), &mut failed);
+    check("IncidentRecord", incident(), &mut failed);
+    check("GalleryWorkRecord", gallery_work(), &mut failed);
+    check("GalleryFeedbackRecord", gallery_feedback(), &mut failed);
+    check("LoreRepoRecord", lore_repo(), &mut failed);
+    check("LoreCommitRecord", lore_commit(), &mut failed);
+    check("LoreFileChangeRecord", lore_file_change(), &mut failed);
+    check("LoreTokenRecord", lore_token(), &mut failed);
+    check("LoreBindingRecord", lore_binding(), &mut failed);
+    check("LorePromoteRecord", lore_promote(), &mut failed);
+    check("PaymentAccountLinkRecord", payment_account_link(), &mut failed);
+    check("PaymentIntentRecord", payment_intent(), &mut failed);
+    check("PaymentPolicyRecord", payment_policy(), &mut failed);
+    check("PaymentUserBlockRecord", payment_user_block(), &mut failed);
+    check("PaymentDeleteKey", payment_delete_key(), &mut failed);
+    check("MessageRecord", message(), &mut failed);
+    check("UserRecord", user(), &mut failed);
+    assert!(failed.is_empty(), "RecordCodec writes unversioned or unreadable bytes for {failed:?}");
 }
