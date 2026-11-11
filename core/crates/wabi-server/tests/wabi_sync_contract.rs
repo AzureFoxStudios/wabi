@@ -114,19 +114,48 @@ async fn null_one_manifest_etag(State(target): State<NullEtag>, request: Request
     Response::from_parts(parts, Body::from(manifest.to_string()))
 }
 
+/// The other test-only layer: when a path suffix is set, the next request
+/// whose path ends with it is answered 500 without reaching the handler, once.
+/// It stands for a server or network failure in the middle of a round.
+type FailOnce = Arc<Mutex<Option<String>>>;
+
+async fn fail_one_request(State(target): State<FailOnce>, request: Request, next: Next) -> Response {
+    let hit = {
+        let mut target = target.lock().unwrap();
+        let hit = target.as_deref().is_some_and(|suffix| request.uri().path().ends_with(suffix));
+        if hit {
+            target.take();
+        }
+        hit
+    };
+    if !hit {
+        return next.run(request).await;
+    }
+    Response::builder()
+        .status(500)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"error":"injected by the test","type":"Internal"}"#))
+        .unwrap()
+}
+
 struct Server {
     _dir: tempfile::TempDir,
+    state: Arc<AppState>,
     url: String,
     /// Numeric id of the Lore channel.
     repo: i64,
     /// Login JWTs, used only to mint connect tokens.
     owner_login: String,
     artist_login: String,
+    /// A channel member with no Lore role: may read, may not write, and may
+    /// not mint a connect token, so this JWT is the client's token.
+    viewer_login: String,
     null_etag: NullEtag,
+    fail_once: FailOnce,
 }
 
-/// A server with one Lore repo and two members who may write to it: the
-/// owner and an Artist.
+/// A server with one Lore repo and three members: the owner and an Artist,
+/// who may write to it, and a member with no role, who may only read.
 async fn server() -> Server {
     let dir = tempfile::tempdir().unwrap();
     let state = Arc::new(AppState::new(server_config(dir.path())).await.unwrap());
@@ -149,8 +178,9 @@ async fn server() -> Server {
         )
         .await
         .unwrap();
+    let viewer = state.wdb.create_user("viewer", None, "test-registered-hash").await.unwrap();
     let channel = state.wdb.create_channel("repo", ChannelKind::Lore, owner, false).await.unwrap();
-    for uid in [owner, artist] {
+    for uid in [owner, artist, viewer] {
         state.wdb.add_channel_member(&channel, uid, MemberRole::Member).await.unwrap();
     }
 
@@ -186,9 +216,11 @@ async fn server() -> Server {
     state.wdb.lore_create_repo(repo, "repo", "embedded://repo", owner as i64).await.unwrap();
 
     let null_etag = NullEtag::default();
+    let fail_once = FailOnce::default();
     let app = axum::Router::new()
         .nest("/api", create_api_router(state.clone()).with_state(state.clone()))
-        .layer(axum::middleware::from_fn_with_state(null_etag.clone(), null_one_manifest_etag));
+        .layer(axum::middleware::from_fn_with_state(null_etag.clone(), null_one_manifest_etag))
+        .layer(axum::middleware::from_fn_with_state(fail_once.clone(), fail_one_request));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
@@ -200,10 +232,13 @@ async fn server() -> Server {
     Server {
         owner_login: jwt(&state, owner, "owner"),
         artist_login: jwt(&state, artist, "artist"),
+        viewer_login: jwt(&state, viewer, "viewer"),
+        state,
         _dir: dir,
         url,
         repo,
         null_etag,
+        fail_once,
     }
 }
 
@@ -242,6 +277,11 @@ impl Server {
 
     async fn artist_folder(&self) -> Folder {
         self.folder(&self.connect_token(&self.artist_login, "write").await)
+    }
+
+    /// The next request whose path ends with `suffix` is answered 500.
+    fn fail_next(&self, suffix: &str) {
+        *self.fail_once.lock().unwrap() = Some(suffix.into());
     }
 }
 
@@ -296,12 +336,28 @@ impl Folder {
     }
 
     fn conflict_copies(&self) -> Vec<String> {
-        std::fs::read_dir(self.path())
+        let mut names: Vec<String> = std::fs::read_dir(self.path())
             .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.contains(".wabi-conflict-"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The contents of every conflict copy in the folder's root.
+    fn conflict_copy_contents(&self) -> Vec<String> {
+        self.conflict_copies()
+            .iter()
+            .map(|name| String::from_utf8(self.read(name).unwrap()).unwrap())
             .collect()
+    }
+
+    /// Every path the server's manifest lists.
+    async fn listed(&self) -> Vec<String> {
+        let manifest = self.client.manifest(self.link.channel_id).await.unwrap();
+        manifest.files.into_iter().map(|f| f.path).collect()
     }
 
     /// What the server holds for `rel`, read through the download route.
@@ -627,6 +683,307 @@ async fn manifest_entry_with_a_null_etag_decodes() {
     assert_eq!(theirs.read("a.txt").as_deref(), Some(&b"v1"[..]));
     assert_quiet(&theirs.sync().await.unwrap());
     assert_eq!(mine.recorded("a.txt", "upload").await, 1);
+}
+
+// -- Two people, one file ----------------------------------------------------
+
+/// Both folders hold `a.txt` = "v1"; the artist then uploads "theirs".
+async fn two_folders_and_a_change_by_the_artist(server: &Server) -> (Folder, Folder) {
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    mine.write("a.txt", "v1");
+    mine.sync().await.unwrap();
+    theirs.sync().await.unwrap();
+    theirs.write("a.txt", "theirs");
+    theirs.sync().await.unwrap();
+    (mine, theirs)
+}
+
+/// After a 409 the other member's change stays on the server until the user
+/// acts: the canonical file holds the server's version, the user's version is
+/// in the conflict copy, and the next round uploads nothing.
+#[tokio::test]
+async fn after_a_409_the_other_members_change_is_not_replaced() {
+    let server = server().await;
+    let (mine, theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+
+    mine.write("a.txt", "mine");
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert!(report.uploaded.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]), "a.txt must hold the server's version");
+    assert_eq!(mine.conflict_copy_contents(), vec!["mine"], "the user's version must be in the conflict copy");
+
+    // The next rounds change nothing anywhere.
+    let report = mine.sync().await.unwrap();
+    assert!(report.uploaded.is_empty() && report.conflicts.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.on_server("a.txt").await, b"theirs", "the artist's change was replaced without a merge");
+    let report = theirs.sync().await.unwrap();
+    assert!(report.downloaded.is_empty(), "{}", describe(&report));
+    assert_eq!(theirs.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+    assert_eq!(mine.recorded("a.txt", "upload").await, 2, "v1 and theirs only");
+
+    // Keeping their own version is the user's act: put the conflict copy's
+    // bytes back in a.txt. It then goes up as an ordinary edit.
+    let copy = mine.conflict_copies().remove(0);
+    std::fs::copy(mine.path().join(&copy), mine.path().join("a.txt")).unwrap();
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.uploaded, vec!["a.txt"], "{}", describe(&report));
+    assert!(report.conflicts.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.on_server("a.txt").await, b"mine");
+    let report = theirs.sync().await.unwrap();
+    assert_eq!(report.downloaded, vec!["a.txt"], "{}", describe(&report));
+    assert!(report.conflicts.is_empty(), "{}", describe(&report));
+    assert_eq!(theirs.read("a.txt").as_deref(), Some(&b"mine"[..]));
+}
+
+/// The 409 for a file the other member deleted (`currentEtag` is null): the
+/// file is not put back on the server; the user's version is the conflict copy.
+#[tokio::test]
+async fn after_a_409_a_file_deleted_by_the_other_member_is_not_put_back() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    mine.write("a.txt", "v1");
+    mine.sync().await.unwrap();
+    theirs.sync().await.unwrap();
+    std::fs::remove_file(theirs.path().join("a.txt")).unwrap();
+    theirs.sync().await.unwrap();
+    assert_eq!(mine.manifest_etag("a.txt").await, None);
+
+    mine.write("a.txt", "mine");
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert!(report.uploaded.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.read("a.txt"), None, "a.txt must be what the server has: nothing");
+    assert_eq!(mine.conflict_copy_contents(), vec!["mine"]);
+
+    let report = mine.sync().await.unwrap();
+    assert!(report.uploaded.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.manifest_etag("a.txt").await, None, "the deleted file was put back");
+    assert_eq!(mine.recorded("a.txt", "upload").await, 1, "v1 only");
+}
+
+// -- What is never uploaded --------------------------------------------------
+
+/// A conflict copy stays in the folder it was made in.
+#[tokio::test]
+async fn conflict_copies_are_not_synced() {
+    let server = server().await;
+    let (mine, theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    mine.write("a.txt", "mine");
+    mine.sync().await.unwrap();
+    assert_eq!(mine.conflict_copies().len(), 1);
+    let report = mine.sync().await.unwrap();
+    assert!(report.uploaded.is_empty(), "a conflict copy was uploaded: {}", describe(&report));
+    assert_eq!(mine.listed().await, vec!["a.txt"], "a conflict copy is on the server");
+    theirs.sync().await.unwrap();
+    assert!(theirs.conflict_copies().is_empty(), "the other member received {:?}", theirs.conflict_copies());
+}
+
+/// A conflict copy an earlier build already uploaded: no pull writes over a
+/// local file of that name or downloads it, and no push deletes it.
+#[tokio::test]
+async fn conflict_copies_already_on_the_server_are_left_alone() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    let repo = server.repo;
+    let stray = "a.txt.wabi-conflict-deadbeef";
+    let listed = "b.txt.wabi-conflict-deadbeef";
+    for path in [stray, listed] {
+        theirs.client.upload(repo, path, b"from the server".to_vec(), "m", None).await.unwrap();
+    }
+
+    // The same name, other bytes, in my folder.
+    mine.write(stray, "my own bytes");
+    // A copy my folder synced with an earlier build: baseline recorded, then
+    // removed from the folder by hand.
+    let mut state = mine.state();
+    state.baselines.insert(listed.into(), Some(etag_for_bytes(b"from the server")));
+    state.save(mine.path()).unwrap();
+
+    let report = mine.sync().await.unwrap();
+    assert_quiet(&report);
+    assert_eq!(mine.read(stray).as_deref(), Some(&b"my own bytes"[..]));
+    assert_eq!(mine.on_server(stray).await, b"from the server", "a conflict copy was uploaded over the server's file");
+    assert_eq!(mine.read(listed), None, "a conflict copy was downloaded");
+    assert!(mine.manifest_etag(listed).await.is_some(), "a conflict copy was deleted on the server");
+}
+
+/// Names the server refuses: reserved metadata is never sent, and a file
+/// the server turns down does not stop the rest of the round.
+#[tokio::test]
+async fn names_the_server_refuses_do_not_abort_the_round() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    theirs.write("other.txt", "from the artist");
+    theirs.sync().await.unwrap();
+
+    mine.write("ok.txt", "fine");
+    mine.write("sub/.git/config", "reserved at any depth");
+    mine.write("sub/.wabiignore", "*");
+    mine.write("AUX.txt", "not a portable name");
+    mine.write("node_modules/pkg/x.js", "ignored by the repo's .wabiignore");
+
+    let report = mine.sync().await.expect("a refused file must not abort the round");
+    assert_eq!(report.uploaded, vec!["ok.txt"], "{}", describe(&report));
+    assert_eq!(report.downloaded, vec!["other.txt"], "{}", describe(&report));
+    assert_eq!(mine.listed().await, vec!["ok.txt", "other.txt"]);
+    for kept in ["sub/.git/config", "sub/.wabiignore", "AUX.txt", "node_modules/pkg/x.js"] {
+        assert!(mine.read(kept).is_some(), "{kept} was removed from the folder");
+    }
+}
+
+// -- A round that fails part-way ---------------------------------------------
+
+/// A pull makes a conflict copy and then fails on a later file. The retry
+/// must not write the server's version over the copy that holds the user's.
+#[tokio::test]
+async fn a_retry_does_not_write_over_the_conflict_copy() {
+    let server = server().await;
+    let (mine, theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    theirs.write("z.txt", "new");
+    theirs.sync().await.unwrap();
+
+    mine.write("a.txt", "mine");
+    server.fail_next("/files/z.txt");
+    let error = mine.pull().await.err().expect("the injected failure").to_string();
+    assert!(error.contains("500"), "{error}");
+    assert_eq!(mine.conflict_copy_contents(), vec!["mine"]);
+
+    let report = mine.pull().await.unwrap();
+    assert!(report.downloaded.contains(&"z.txt".to_string()), "{}", describe(&report));
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+    assert_eq!(mine.read("z.txt").as_deref(), Some(&b"new"[..]));
+    assert_eq!(mine.conflict_copy_contents(), vec!["mine"], "the retry replaced the user's bytes");
+}
+
+/// A file already sits at the name a new conflict copy would get. It is the
+/// user's; the new copy takes another name.
+#[tokio::test]
+async fn an_existing_conflict_copy_is_never_written_over() {
+    let server = server().await;
+    let taken = format!("a.txt.wabi-conflict-{}", &etag_for_bytes(b"theirs")[..8]);
+
+    // The 409 on push.
+    let (mine, _theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    mine.write(&taken, "precious");
+    mine.write("a.txt", "mine");
+    mine.sync().await.unwrap();
+    assert_eq!(mine.read(&taken).as_deref(), Some(&b"precious"[..]), "an existing conflict copy was replaced");
+    assert_eq!(mine.conflict_copy_contents(), vec!["precious", "mine"]);
+
+    // The conflict found by a pull.
+    let server = self::server().await;
+    let (mine, _theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    mine.write(&taken, "precious");
+    mine.write("a.txt", "mine");
+    mine.pull().await.unwrap();
+    assert_eq!(mine.read(&taken).as_deref(), Some(&b"precious"[..]), "an existing conflict copy was replaced");
+    assert_eq!(mine.conflict_copy_contents(), vec!["precious", "mine"]);
+}
+
+/// The push succeeded and the pull failed: what the push did is on disk, so
+/// the retry does not upload the file again.
+#[tokio::test]
+async fn state_is_saved_after_the_push_when_the_pull_fails() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    mine.write("n.txt", "new");
+    server.fail_next("/manifest");
+    let error = mine.sync().await.err().expect("the injected failure").to_string();
+    assert!(error.contains("500"), "{error}");
+    assert_eq!(mine.on_server("n.txt").await, b"new");
+    assert_eq!(
+        mine.state().baselines.get("n.txt"),
+        Some(&Some(etag_for_bytes(b"new"))),
+        "the upload happened and was not recorded"
+    );
+
+    assert_quiet(&mine.sync().await.unwrap());
+    assert_eq!(mine.recorded("n.txt", "upload").await, 1, "the retry uploaded it again");
+}
+
+// -- A member who may read and not write -------------------------------------
+
+/// The folder of someone whose uploads the server refuses with 403, holding
+/// `a.txt` = "v1" from the owner.
+async fn reader_with_a_synced_file(server: &Server, token: &str) -> (Folder, Folder) {
+    let writer = server.owner_folder().await;
+    writer.write("a.txt", "v1");
+    writer.write("shared.txt", "v1");
+    writer.sync().await.unwrap();
+    let reader = server.folder(token);
+    reader.pull().await.unwrap();
+    (writer, reader)
+}
+
+async fn refused_uploads_do_not_stop_the_pull(server: &Server, token: &str) -> SyncReport {
+    let (writer, reader) = reader_with_a_synced_file(server, token).await;
+    reader.write("a.txt", "my local edit");
+    reader.write("mine-only.txt", "a new local file");
+    reader.write("shared.txt", "my edit of the file the owner is about to change");
+    writer.write("c.txt", "from the owner");
+    writer.write("shared.txt", "v2 by the owner");
+    writer.sync().await.unwrap();
+
+    let report = reader.sync().await.expect("a refused upload must not stop the pull");
+    assert!(report.uploaded.is_empty(), "{}", describe(&report));
+    assert!(report.downloaded.contains(&"c.txt".to_string()), "{}", describe(&report));
+    assert_eq!(reader.read("c.txt").as_deref(), Some(&b"from the owner"[..]));
+    // Nothing reached the server, and the local work is still there.
+    assert_eq!(writer.on_server("a.txt").await, b"v1");
+    assert_eq!(writer.manifest_etag("mine-only.txt").await, None);
+    assert_eq!(reader.read("a.txt").as_deref(), Some(&b"my local edit"[..]));
+    assert_eq!(reader.read("mine-only.txt").as_deref(), Some(&b"a new local file"[..]));
+    // A file both changed: the server's version, and the edit in a copy.
+    assert_eq!(reader.read("shared.txt").as_deref(), Some(&b"v2 by the owner"[..]));
+    assert_eq!(reader.conflict_copy_contents(), vec!["my edit of the file the owner is about to change"]);
+    report
+}
+
+#[tokio::test]
+async fn member_without_write_permission_still_receives_changes() {
+    let server = server().await;
+    refused_uploads_do_not_stop_the_pull(&server, &server.viewer_login).await;
+}
+
+#[tokio::test]
+async fn read_only_token_with_a_local_edit_still_receives_changes() {
+    let server = server().await;
+    let token = server.connect_token(&server.artist_login, "read").await;
+    refused_uploads_do_not_stop_the_pull(&server, &token).await;
+}
+
+// -- The change-feed cursor --------------------------------------------------
+
+/// The server sends at most 1000 entries per page. The cursor a round stores
+/// is the end of the feed, not the end of the first page.
+#[tokio::test]
+async fn cursor_reaches_the_end_of_a_feed_longer_than_one_page() {
+    let server = server().await;
+    let folder = server.owner_folder().await;
+    let repo = server.repo;
+    folder.write("a.txt", "v1");
+    folder.sync().await.unwrap();
+    for n in 0..1100 {
+        server
+            .state
+            .wdb
+            .lore_file_change(repo, "elsewhere.bin", "upload", Some("etag"), &format!("{n:032}"), 1)
+            .await
+            .unwrap();
+    }
+    let first_page = folder.client.changes(repo, 0).await.unwrap();
+    assert_eq!(first_page.changes.len(), 1000, "the server's page size");
+    let rest = folder.client.changes(repo, first_page.latest_seq).await.unwrap();
+    assert_eq!(rest.changes.len(), 101);
+    let head = rest.latest_seq;
+
+    folder.sync().await.unwrap();
+    assert_eq!(folder.state().cursor, head, "the cursor stopped at the end of the first page");
 }
 
 // -- Routes outside the sync round -------------------------------------------
