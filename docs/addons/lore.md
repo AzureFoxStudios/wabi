@@ -731,7 +731,22 @@ Authorization is **channel-scoped**. Tests:
 - A member's role limits what they can write, and a member who loses the role or the channel loses write access (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::role_loss_limits_writes_and_missing_membership_prevents_minting_dead_tokens`).
 - Promoting a message into a repo requires membership of the target repo's channel (test: `core/crates/wabi-server/tests/lore_promote_membership_contract.rs::promote_requires_membership_of_the_target_repo_channel`).
 - A read-only member, or a token for another repo, cannot write (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::read_only_and_cross_repo_writes_fail_before_file_side_effects`).
-- Repo delete and other admin operations are limited to channel admins. No test covers this rule; treat it as *planned coverage*.
+- Repo delete and repo PATCH require `lore.admin`; lock/unlock require `lore.lock`; review approve/reject require `lore.approve`; a direct promote requires `lore.commit` (tests: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs`, one test per rule).
+
+Roles are named bundles of capabilities (`lore_roles.json`), assigned through the role editor. The capabilities, and exactly what each one gates:
+
+| Capability | Enforced on |
+|---|---|
+| `lore.stage` | file upload and delete, recording upload, minting connect tokens, and promoting to a review branch |
+| `lore.commit` | promoting with a direct commit; with `lore.manage-binding`, the repo create/link/import/snapshot/mirror and branch create/merge routes (either capability is enough) |
+| `lore.manage-binding` | setting and deleting channel bindings (see the line above for the routes it shares with `lore.commit`) |
+| `lore.lock` | lock and unlock |
+| `lore.approve` | review branch approve and reject |
+| `lore.admin` | repo delete and PATCH, and listing or revoking other users' connect tokens |
+
+Read access is **not** a capability. Every read route requires channel membership, so a `lore.view` entry on an older stored role is ignored and dropped the next time the role is saved. Server owners and admins hold every capability.
+
+A promote without `lore.commit` never commits directly: a request with `"mode": "direct"`, or a binding whose mode is `direct` or `hybrid`, is staged on a review branch instead.
 
 The `upload_recording` endpoint restricts its target to the single configured Recordings channel. It requires the asset-write role, applies the blob cap, and accepts only a single-component filename (tests: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::view_only_member_recording_upload_is_403_before_any_body_byte_is_read`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_over_the_blob_cap_is_413_regression`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_filename_with_a_separator_is_rejected_and_writes_nothing`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_filename_that_names_no_file_is_rejected_and_writes_nothing`). Earlier text said it refuses (404) anything that is not a real Lore repo; no test covers that, so it is not claimed here.
 

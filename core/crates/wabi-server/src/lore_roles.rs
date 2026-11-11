@@ -23,7 +23,10 @@ use serde::{Deserialize, Serialize};
 
 // ─── Capabilities ────────────────────────────────────────────────────────────
 
-pub const CAP_VIEW: &str = "lore.view";
+/// Legacy capability id. Read access is implied by channel membership and is
+/// not an editable capability; roles stored with it keep loading, and it is
+/// dropped the next time the role is saved.
+const LEGACY_CAP_VIEW: &str = "lore.view";
 pub const CAP_STAGE: &str = "lore.stage";
 pub const CAP_COMMIT: &str = "lore.commit";
 pub const CAP_APPROVE: &str = "lore.approve";
@@ -32,8 +35,7 @@ pub const CAP_MANAGE_BINDING: &str = "lore.manage-binding";
 pub const CAP_ADMIN: &str = "lore.admin";
 
 /// Canonical capability order (also the seed order for owner/admin).
-pub const ALL_CAPABILITIES: [&str; 7] = [
-    CAP_VIEW,
+pub const ALL_CAPABILITIES: [&str; 6] = [
     CAP_STAGE,
     CAP_COMMIT,
     CAP_APPROVE,
@@ -332,7 +334,6 @@ pub(crate) fn seed_roles() -> HashMap<String, LoreRoleDef> {
             description: "Full edit access to repositories (stage, commit, approve, lock)."
                 .into(),
             capabilities: vec![
-                CAP_VIEW.into(),
                 CAP_STAGE.into(),
                 CAP_COMMIT.into(),
                 CAP_APPROVE.into(),
@@ -343,13 +344,13 @@ pub(crate) fn seed_roles() -> HashMap<String, LoreRoleDef> {
             id: "artist".into(),
             name: "Artist".into(),
             description: "Asset-write access (stage and lock artwork assets).".into(),
-            capabilities: vec![CAP_VIEW.into(), CAP_STAGE.into(), CAP_LOCK.into()],
+            capabilities: vec![CAP_STAGE.into(), CAP_LOCK.into()],
         },
         LoreRoleDef {
             id: "member".into(),
             name: "Member".into(),
             description: "Read-only repository access by default.".into(),
-            capabilities: vec![CAP_VIEW.into()],
+            capabilities: vec![],
         },
     ]
     .into_iter()
@@ -374,7 +375,11 @@ pub fn validate_role_def(def: &LoreRoleDef) -> Result<(), String> {
     if name.is_empty() || name.chars().count() > 40 {
         return Err("name must be non-empty and at most 40 characters".to_string());
     }
-    if let Some(bad) = def.capabilities.iter().find(|c| !is_known_capability(c)) {
+    if let Some(bad) = def
+        .capabilities
+        .iter()
+        .find(|c| !is_known_capability(c) && c.as_str() != LEGACY_CAP_VIEW)
+    {
         return Err(format!("unknown capability '{bad}'"));
     }
     Ok(())
@@ -441,13 +446,13 @@ mod tests {
         assert_eq!(roles["admin"].capabilities, all_caps());
         assert_eq!(
             roles["developer"].capabilities,
-            vec!["lore.view", "lore.stage", "lore.commit", "lore.approve", "lore.lock"]
+            vec!["lore.stage", "lore.commit", "lore.approve", "lore.lock"]
         );
         assert_eq!(
             roles["artist"].capabilities,
-            vec!["lore.view", "lore.stage", "lore.lock"]
+            vec!["lore.stage", "lore.lock"]
         );
-        assert_eq!(roles["member"].capabilities, vec!["lore.view"]);
+        assert!(roles["member"].capabilities.is_empty());
     }
 
     #[test]
@@ -460,7 +465,7 @@ mod tests {
         assert!(store.capabilities_for(Some("nope")).is_none());
         assert_eq!(
             store.capabilities_for(Some("developer")).unwrap(),
-            vec!["lore.view", "lore.stage", "lore.commit", "lore.approve", "lore.lock"]
+            vec!["lore.stage", "lore.commit", "lore.approve", "lore.lock"]
         );
     }
 
@@ -484,7 +489,7 @@ mod tests {
         assert!(store.upsert(owner).is_err());
         // admin reduced below ALL refused
         let mut admin = store.get_role("admin").unwrap();
-        admin.capabilities = vec!["lore.view".into()];
+        admin.capabilities = vec!["lore.stage".into()];
         assert!(store.upsert(admin).is_err());
         // admin full-set edit allowed
         let admin = store.get_role("admin").unwrap();
@@ -517,11 +522,11 @@ mod tests {
             id: "reviewer".into(),
             name: "Reviewer".into(),
             description: "Can approve.".into(),
-            capabilities: vec!["lore.approve".into(), "lore.view".into()],
+            capabilities: vec!["lore.approve".into(), "lore.view".into()], // legacy id is accepted and dropped
         };
         let saved = store.upsert(def).unwrap();
         // Canonical order follows ALL_CAPABILITIES.
-        assert_eq!(saved.capabilities, vec!["lore.view", "lore.approve"]);
+        assert_eq!(saved.capabilities, vec!["lore.approve"]);
         store.delete("reviewer").unwrap();
         assert!(store.capabilities_for(Some("reviewer")).is_none());
         assert!(store.delete("reviewer").is_err());
