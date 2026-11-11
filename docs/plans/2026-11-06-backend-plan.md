@@ -181,6 +181,8 @@ Status 2026-11-10: 4.4 and 4.5 merged together as PR 314 (`49a0754`). Review fou
 
 Status 2026-11-11: 4.1 merged (PR 319 at a565846): one `promote_file` call under a single `io_gate` hold, the original branch restored on success and on error, and the leading `/` handled in one place. An independent review found no lock, path-confinement or authorization defect and confirmed the fixes through the real HTTP handler. Review fixes: a stage promote on an `auto_branch_on_upload` repo no longer leaves an empty `chat/` branch, stage mode no longer fails on a binding with an empty branch, and a failed restore in `approve_review_branch` is logged.
 
+4.6 merged 2026-11-11 (PR 321 at a2e4854): the startup walk leaves a mirror's `.mirror-cache` to its own check, which tolerates symlinks without following them, so a mirror of a repository that contains a symlink survives a restart. Review fix: only a real `.mirror-cache` directory is exempt; a symlink of that name is refused as before.
+
 Open Lore findings from that review. None is verified against a real `lore` binary, because the sandboxes have none; every Lore test runs against a shell stub.
 - When the commit succeeds and the branch restore fails, the caller gets an error although the revision exists (500, no promote record, no announcement). The contract is undecided.
 - A failed promote restores the branch but leaves the written, staged file in the working tree, and a retry then reports a collision. Whether `lore branch switch` carries a staged file to the mainline is unknown. Older than 4.1.

@@ -579,6 +579,21 @@ mod tests {
         }
     }
 
+    /// Read the index until it holds `expected` entries, or for ten seconds.
+    /// Returns what was last read, so a caller's assertion reports the count.
+    /// A fixed sleep here failed on a loaded machine: the flush includes an
+    /// fsync, and 100 ms was not always enough.
+    async fn entries_once_flushed(dir: &std::path::Path, expected: usize) -> Vec<CommitIndexEntry> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let entries = read_all_entries(&dir.to_path_buf()).unwrap_or_default();
+            if entries.len() >= expected || std::time::Instant::now() >= deadline {
+                return entries;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // batch_size triggers flush
     // -----------------------------------------------------------------------
@@ -597,11 +612,10 @@ mod tests {
             handle.submit(test_entry(seq)).unwrap();
         }
 
-        // The batch size is 3, so the batcher should flush immediately.
-        // Give it a moment to process.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let entries = read_all_entries(&dir.path().to_path_buf()).unwrap();
+        // The batch size is 3, so the batcher flushes without waiting for the
+        // 60 s max_age. The flush fsyncs, so how long it takes depends on the
+        // machine: wait for it instead of assuming a duration.
+        let entries = entries_once_flushed(dir.path(), 3).await;
         assert_eq!(entries.len(), 3, "expected 3 entries after batch flush");
         assert_eq!(entries[0].commit_seq, 1);
         assert_eq!(entries[2].commit_seq, 3);
@@ -623,10 +637,9 @@ mod tests {
 
         handle.submit(test_entry(1)).unwrap();
 
-        // Wait well past the 10 ms max_age.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let entries = read_all_entries(&dir.path().to_path_buf()).unwrap();
+        // One entry is far below the batch size of 100, so only the 10 ms
+        // max_age can flush it.
+        let entries = entries_once_flushed(dir.path(), 1).await;
         assert_eq!(entries.len(), 1, "expected 1 entry after max_age flush");
         assert_eq!(entries[0].commit_seq, 1);
     }
