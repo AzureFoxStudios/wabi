@@ -626,7 +626,7 @@ fn golden_whiteboard_doc() {
 
 #[test]
 fn golden_album_record() {
-    unchanged_today(ALBUM_LEGACY, &album(), albums::encode_record, albums::decode_record);
+    converted(ALBUM_LEGACY, b"ALBM", &album(), albums::encode_record, albums::decode_record);
 }
 
 #[test]
