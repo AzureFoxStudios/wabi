@@ -539,6 +539,51 @@ Deliver a table at the end: sentence (shortened), file:line, what you did. No ro
 
 You check: the table has no "left as is" rows, and it has rows for the passages each of the six PRs listed (302, 305, 306, 307, 309, 315).
 
+### Task 2.3b Docs truth pass, second round (Sonnet)
+
+Added 2026-11-11 from the review of PR 318 (Task 2.3). The first pass added 176 test references and every one names a real test. A second reviewer read about 45 of the tests and found that some do not show the sentence they are attached to. Line numbers below are from PR 318 and have moved; find each by the test name.
+
+```
+TASK 2.3b. Docs and doc comments only. Do not change any code or any test. Do not add tests.
+
+For each item below, read the cited test in full. Then do one of: (a) replace the reference with a test that does show the sentence, (b) narrow the sentence to what the cited test shows, or (c) keep the sentence if the code backs it and say "no test covers it" in place of the reference, naming the file and function you read. Never keep a reference to a test that does not show the sentence.
+
+Items (file, test, what the reviewer saw):
+1. core/crates/wabidb/src/lib.rs, docs/ai/wabidb-engine.md, docs/architecture/PERSISTENCE_MODEL.md: `tests::integration::engine_rebuilds_projections_on_startup` is cited for "projections are rebuilt from the snapshot plus the commit index on start". The test sends one DispatchItem to a dispatcher. It opens no engine, writes no snapshot and never restarts.
+2. PERSISTENCE_MODEL.md: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage` is cited for "a checkpoint is saved every N dispatched commits, which bounds replay time". It calls save and load by hand.
+3. PERSISTENCE_MODEL.md: `channel_access_contract.rs::durable_delete_waits_for_commit_but_live_delete_remains_session_only` is cited for "live messages are not written to WabiDB". No channel is in live mode and no live message is sent.
+4. docs/architecture/overview.md: `tests/integration.rs::configured_replication_refuses_missing_transport_before_creating_data` is cited for the WABIDB_EXPERIMENTAL_REPLICATION gate. That variable is read in wabi-server (api/sync.rs, replication_transport.rs), not in the test.
+5. docs/addons/lore.md: `lore_credential_contract.rs::mirror_manifest_reports_git_head_without_native_commit_events` is cited for "a repo becomes a mirror only via POST .../external" and "no bytes are cloned at registration". It calls the service method, not the route, and creates the cache itself.
+6. docs/architecture/STORAGE_FORMAT.md: `commit_index::batcher::tests::entries_in_order` is cited for index files being read in name order. It writes one file. `file_rotation_at_10000_entries` covers two.
+7. STORAGE_FORMAT.md and docs/ai/wabidb-storage.md: `graceful_shutdown_flushes_remaining` and `file_rotation_at_10000_entries` are cited for sealing and the trailer. Neither looks at the sealed flag or the trailer. `corrupt_middle_entry_in_sealed_file_refuses_to_open` asserts the sealed flag.
+8. lib.rs: `tests::integration::engine_starts_and_serves_a_command`. The command goes through a second sequencer the test builds by hand, not through the engine.
+9. core/crates/wabidb/src/engine/locks.rs: `projection_state_insert_and_get` and `reads_do_not_block_writes` are cited for which lock each path takes. Neither shows it.
+10. STORAGE_FORMAT.md, wabidb-storage.md, PERSISTENCE_MODEL.md: `blobs::write::tests::canonical_path_layout` is cited for the `blobs/<hash[0..2]>/<rest>.bin` path. It asserts only "blobs", ".bin" and the data directory.
+11. lib.rs: `blobs::write::tests::write_creates_canonical_file` is cited for "temp file, fsync and rename". It checks the file exists and reads back.
+12. STORAGE_FORMAT.md, PERSISTENCE_MODEL.md, wabidb-storage.md: `engine::tests::open_creates_storage_manifest` is cited for "exactly these fields" and for refreshing highest_commit_seq on open. It asserts two substrings.
+13. STORAGE_FORMAT.md, wabidb-storage.md: `segment_reader::tests::truncated_tail_returns_valid_prefix` cuts the file at a record boundary. No cited test covers a torn record or a bad header in the middle of a file.
+14. STORAGE_FORMAT.md: `bit_flip_in_aad_fails_auth` and `wrong_commit_seq_fails_auth` are cited for "the AAD is the full 48-byte header, not the first 40 bytes". The flipped byte is inside the first 40.
+15. docs/architecture/INSTANCE_RECOVERY_INVENTORY.md and PERSISTENCE_MODEL.md: "without quarantine.json, startup refuses that commit again". The cited test removes the checkpoint before forcing a replay; once a checkpoint covers the commit, startup does not refuse. Say "can".
+16. lore.md: `review_upload_pins_review_bytes_before_restoring_mainline` does not assert the `uploads/` branch name.
+17. The reverse case, lore.md: mirror cache reuse and refresh are marked as having no test, but the test cited one line above asserts a cached read after an upstream change and a fresh read after refresh_mirror_cache. Only the HTTP route and TTL expiry are untested.
+
+Also fix these, each found in a file the first pass covered:
+- lore.md says "planned coverage" for things that are implemented but untested, while STORAGE_FORMAT.md and PERSISTENCE_MODEL.md define planned as not implemented. Use one meaning: planned is not implemented; implemented and untested is "no test covers it".
+- PERSISTENCE_MODEL.md: "Wabi defaults to client-side storage (like Signal)" has no reference and contradicts the table below it. The backup-unit list and the "bootstrap key stored separately" line have no reference.
+- docs/wabidb-kanban.md marks wabidb-81 (commands/send_dm_message.rs) done; the file does not exist. Find the PR that removed it and add the note.
+- lore.md: the `?stageOnly=` query parameter has no reference (a test in lore_upload_streaming_contract.rs uses it).
+- docs/architecture/wabidb-storage-architecture-correction.md still lists a storage CLI with inspect, recover, backup and rebuild-indexes commands.
+- Four references are not in path::test_name form (two in PERSISTENCE_MODEL.md with the path elided, two in lore.md with no directory). Write them in full.
+
+Not in scope: STORAGE_FORMAT.md section 7.1 and the record-versioning text added after PR 320; they were written from the merged code.
+
+Then read 40 references the reviewer did not read (pick them across files, list which), apply the same test to each, and report what you found.
+
+Deliver a table: sentence (shortened), file:line, the test you read, what it asserts, what you did. Run `cargo doc -p wabidb --no-deps` to prove the doc comments still build.
+```
+
+You check: every row says what the test asserts, in words that come from reading it.
+
 ### Task 2.4 Retention wording (Sonnet)
 
 ```
@@ -636,6 +681,35 @@ Do not change any field of any record in this task. Report the list of types con
 
 You check: every converted type has a golden-bytes test whose hex literal was captured before the change (ask the agent to show the commit where each literal was added, which must precede the conversion commit for that type).
 
+### Task 3.1b Version the remaining raw postcard payloads (Opus)
+
+Added 2026-11-11. Task 3.1 (PR 320) converted the 30 record types on its list. These were not on the list.
+
+```
+TASK 3.1b. Read core/crates/wabidb/src/format/versioned.rs and the description of PR 320 first. Same rules as Task 3.1: golden bytes before each conversion, one payload per commit, no field of any payload changes.
+
+Still raw postcard, with no version:
+1. The forum vote payload. Decoded by decode_vote in core/crates/wabidb/src/projections/forum.rs (struct VotePayload). ENCODED in another crate: core/crates/wabi-server/src/adapter/mod.rs builds its own private VotePayload struct and calls postcard::to_allocvec. Two definitions of one durable layout is the first thing to fix: move the encoder into the forum module next to the decoder, with one struct, and call it from the adapter.
+2. The forum solution payload (decode_solution, SolutionPayload), same shape and same fix.
+3. UserDeleted (core/crates/wabidb/src/domain/mod.rs). Decoded in projections/user_deletion.rs, encoded in the adapter.
+4. The DM one-time prekey consumed payload (ConsumedPayload, a struct declared inside a match arm in projections/dm_identities.rs). Find its writer.
+Search for any other postcard::to_allocvec / from_bytes on a durable event payload outside format/versioned.rs and tests, in every crate, and list what you find before converting anything.
+
+For each: capture golden bytes from the CURRENT encoder in a test (hex literal), then convert to versioned::encode_v1 / decode_v1 with a new 4-byte tag, keeping the legacy path. Each of these starts with a String or a u64, so the marker argument in versioned.rs holds; say so per type, and stop if one does not.
+
+Then close the generic hole: core/crates/wabidb/src/projections/codec.rs gives RecordCodec default encode and decode methods that are raw postcard, and 25 converted types implement the trait without overriding them. Nothing calls those methods for a converted type today. Make it impossible to write an unversioned record through the trait: either remove the default bodies so every implementor must supply versioned ones, or remove the trait methods if nothing needs them. Add a test that fails if any implementor encodes without the marker.
+
+Extend tests::golden_records::every_durable_record_is_versioned to the new payloads, and extend the committed pre-versioning fixture test the way the module doc allows: do NOT regenerate tests/fixtures/pre_versioning_records. If you need old-format events for these four payloads, build them in the test from the golden bytes.
+
+Offline inspection: add these payloads to the check that a directory written before the change still passes inspection (see pre_versioning_directory_passes_offline_inspection), or explain why they cannot affect it (an event whose handler never stores the payload bytes does not).
+
+Run python3 scripts/check-runtime-files.py before pushing; CI runs it first and it rejects any tracked path under a directory named data or uploads.
+
+Report: the list from the search, each payload with its tag and golden test, the commit where each literal was added, and what you did to RecordCodec.
+```
+
+You check: each golden literal's commit precedes its conversion commit, and the report says what happened to the `RecordCodec` defaults.
+
 ### Task 3.2 Operator repair path for a poison event (Opus)
 
 ```
@@ -666,6 +740,8 @@ Under decision B (SQLite read model), the SQLite file becomes the checkpoint. Re
 Also add the in-memory read-model flag: a WabiDbConfig option (and WABIDB_READ_MODEL=memory environment override in wabi-server config) that opens SQLite with ":memory:" so no derived state is written to disk. When the flag is off, create the SQLite file with mode 0600.
 
 Tests: start with the flag set, assert no read-model file exists in the data directory after writes and after close; start with it off, assert the file exists with mode 0600; assert projections/snapshot.json is never created.
+
+Added 2026-11-11 (from PR 320): offline inspection (engine/offline_inspect.rs) reads projections/snapshot.json and compares it with a full replay. Removing the snapshot removes what it compares against. Decide and state what inspection verifies afterwards, and keep its callers in wabi-server (instance_archive/verify.rs, recovery_peer_jobs.rs) working or refuse clearly. Do not leave it comparing against a file that is no longer written.
 ```
 
 You check: the test output shows the `-rw-------` mode or an assertion on 0o600.
@@ -701,6 +777,8 @@ For projection <NAME>:
 5. Add a concurrency test if the projection has one today.
 
 Do not port a second projection in the same PR. Do not optimize beyond obvious indexes. Report before/after timings for the projection's existing benchmark if one exists.
+
+Added 2026-11-11 (from PR 320): records now carry a per-type version (format/versioned.rs), and some handlers decode a record and encode it again. So what replay writes depends on the build: the same event yields different stored bytes after a record's version is bumped. The read model must therefore carry a generation value that changes whenever any record version or any handler's stored output changes, and the engine must rebuild the read model from the log when the stored generation differs from the build's. Put this in the first projection's PR (schema plus rebuild-on-mismatch test: write with generation N, reopen with N+1, assert a rebuild happened and reads are unchanged) and reuse it for the rest.
 ```
 
 You check: the "delete the SQLite file and reopen" test is present in every one of these PRs.
@@ -818,9 +896,11 @@ TASK 4.8. Build and test with --features wabi-lore.
 
 Problem: core/crates/wabi-server/src/lore_roles.rs defines lore.view, lore.stage, lore.commit, lore.approve, lore.lock, lore.manage-binding and lore.admin, and the role editor lets admins assign them, but handlers only check lore.stage, lore.commit and lore.manage-binding. Locking uses lore.stage, approve/reject use can_edit_lore, and nothing checks lore.view, lore.approve, lore.lock or lore.admin. docs/addons/lore.md section 11.2 describes tiers that do not exist.
 
+Also found in the review of PR 319: the promote handler resolves the mode from the request before it looks at capabilities, so a user whose role has lore.stage but not lore.commit can send "mode":"direct" and get a direct commit on the target branch (core/crates/wabi-server/src/api/lore.rs, promote_from_message, the "Resolve mode" block). That also overrides a binding whose mode is stage. Fix it here: a direct commit requires lore.commit whatever the request or the binding says; without it the promote is staged or refused. Test first: a lore.stage-only user sending mode direct does not produce a commit on the mainline.
+
 Decide per capability and implement: lore.lock gates the lock/unlock routes; lore.approve gates review approve/reject; lore.admin gates repo delete, PATCH, and connect-token administration for other users; lore.view is implied by channel membership and is removed from the editable set (or enforced on every read route if you prefer; pick one and say why). Update the role editor's capability list and docs/addons/lore.md 11.2 to match exactly what is enforced.
 
 Tests first (must fail on main): a user whose role has lore.stage but not lore.lock cannot lock; a user without lore.approve cannot approve; a user without lore.admin cannot delete the repo. Use the existing role-store test pattern in lore_roles.rs and the contract tests.
 ```
 
-You check: three denial tests, one per newly enforced capability.
+You check: three denial tests, one per newly enforced capability, and a fourth showing a `lore.stage`-only user cannot force a direct commit.
