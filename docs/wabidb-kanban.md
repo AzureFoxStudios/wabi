@@ -5,7 +5,9 @@
 > **Source:** `docs/proposals/wabidb-endstate.md` + architectural risk analysis
 > **Scope:** All implementation work for the v1 WabiDB engine. Every card has acceptance criteria, verification commands, and a daytime/overnight tag.
 
-> **Status:** 799 tests passing (656 wabidb + 99 cargo workspace + 44 wabi-server). Replay engine + persistence policy implemented. **Latest session (2026-06-28):** Added `ReplayEnvelope` write-path, `replay_projections()` with snapshot watermark skip, JSON snapshot save/load/checkpoint (every 1000 events via dispatcher), 4 noop handler stubs (`reaction_removed`, `member_joined`, `member_left`, `channel_renamed`). **Updated status tracking (2026-06-28):** Re-audited all 99 cards against actual source tree to produce realistic completion counts. **Latest session (2026-08-18):** Payments projection landed — `projections/payments.rs` (8 event types, 4 indexes), payments registry registration in `build_type_registry()`, 13 `WabiStore` payment methods (`payment_account_link`/`payment_intent`/`payment_policy`/`payment_user_block`), plus `WdbAdapter` impls; wabi-server payments API rewired off JSONL onto the store (intents, account links, user blocks, policy) with a one-shot `intents.jsonl` migration. 10 new wabidb unit tests + 5 new wabi-server integration tests (`tests/payments_projection_contract.rs`). Full suite green: wabidb 861 lib tests, wabi-server 98 unit + 214 integration (107 onboarding + 5 payments + 2×2 others). See `docs/plans/2026-08-18-payments-p2p-audit-and-roadmap.md` §6b. **Latest session (2026-08-18):** Payments Phases 2-4 landed — three optional rails as addon crates (`wabi-payments-crypto`, `wabi-payments-eu` [EPC069-12 v3.1, no CRC — verified against the official PDF], `wabi-payments-us`; 6/8/7 tests) wired into wabi-server under the `payments-rails` cargo feature (cfg-gated `/addons` capability entries, provider-routed intent creation in `api/payments/intents.rs` with `WABI_CRYPTO_MERCHANT_NAME`/`WABI_EU_PAYEE_NAME`/`WABI_EU_BIC` envs, shared `reference_code()` helper) + 5 rail-contract integration tests; frontend capability-gated checkout (catalog, route presets, per-rail connection labels, app_switch intent card, external-confirmation status). Verified: workspace green (default + `--features payments-rails`), `bun run check` 0 errors. See plan doc §6c. **WS-3 enforcement (2026-08-18, ZCode):** `create_intent` now enforces the payments access policy + user blocks (`evaluate_payment_access`, 403 blocked/disabled/role/guest; JWT is_guest decoded); `/payments/access` returns a server-computed actor; default policy flipped to enabled (kill-switch semantics — plan §6d); +1 integration test, 6/6 payments contract tests green.
+> **Truth pass 2026-11-11 (Task 2.3):** this file is a history of the plan, not a description of the engine. Status text and `[x]` marks below record what was true when they were written. Where a card marked done has since been removed, the entry now says "removed in PR N". Test counts are not maintained; run `cargo test -p wabidb`. For what exists, read `docs/PROJECT_STATUS.md` and the tests named in `docs/architecture/STORAGE_FORMAT.md`.
+
+> **Status (historical):** 799 tests passing (656 wabidb + 99 cargo workspace + 44 wabi-server). Replay engine + persistence policy implemented. **Latest session (2026-06-28):** Added `ReplayEnvelope` write-path, `replay_projections()` with snapshot watermark skip, JSON snapshot save/load/checkpoint (every 1000 events via dispatcher), 4 noop handler stubs (`reaction_removed`, `member_joined`, `member_left`, `channel_renamed`). **Updated status tracking (2026-06-28):** Re-audited all 99 cards against actual source tree to produce realistic completion counts. **Latest session (2026-08-18):** Payments projection landed — `projections/payments.rs` (8 event types, 4 indexes), payments registry registration in `build_type_registry()`, 13 `WabiStore` payment methods (`payment_account_link`/`payment_intent`/`payment_policy`/`payment_user_block`), plus `WdbAdapter` impls; wabi-server payments API rewired off JSONL onto the store (intents, account links, user blocks, policy) with a one-shot `intents.jsonl` migration. 10 new wabidb unit tests + 5 new wabi-server integration tests (`tests/payments_projection_contract.rs`). Full suite green: wabidb 861 lib tests, wabi-server 98 unit + 214 integration (107 onboarding + 5 payments + 2×2 others). See `docs/plans/2026-08-18-payments-p2p-audit-and-roadmap.md` §6b. **Latest session (2026-08-18):** Payments Phases 2-4 landed — three optional rails as addon crates (`wabi-payments-crypto`, `wabi-payments-eu` [EPC069-12 v3.1, no CRC — verified against the official PDF], `wabi-payments-us`; 6/8/7 tests) wired into wabi-server under the `payments-rails` cargo feature (cfg-gated `/addons` capability entries, provider-routed intent creation in `api/payments/intents.rs` with `WABI_CRYPTO_MERCHANT_NAME`/`WABI_EU_PAYEE_NAME`/`WABI_EU_BIC` envs, shared `reference_code()` helper) + 5 rail-contract integration tests; frontend capability-gated checkout (catalog, route presets, per-rail connection labels, app_switch intent card, external-confirmation status). Verified: workspace green (default + `--features payments-rails`), `bun run check` 0 errors. See plan doc §6c. **WS-3 enforcement (2026-08-18, ZCode):** `create_intent` now enforces the payments access policy + user blocks (`evaluate_payment_access`, 403 blocked/disabled/role/guest; JWT is_guest decoded); `/payments/access` returns a server-computed actor; default policy flipped to enabled (kill-switch semantics — plan §6d); +1 integration test, 6/6 payments contract tests green.
 
 ## Conventions
 
@@ -1100,42 +1102,42 @@
 ### Phase 4: Projection Engine (9/10 complete)
 - [x] wabidb-23 — Projection handler trait
 - [x] wabidb-24 — messages projection (message_created/edited/deleted)
-- [x] wabidb-25 — reactions projection (reaction_added + reaction_removed noop stub)
+- [x] wabidb-25 — reactions projection (reaction_added + reaction_removed noop stub; the stub was replaced: `reaction_removed` is now applied by `ReactionsProjection`, test: `projections::reactions::tests::reaction_removed_deletes_only_its_composite_key`)
 - [x] wabidb-26 — dm_messages projection
 - [x] wabidb-27 — dm_message_recipients projection
 - [ ] wabidb-28 — whiteboard_patches projection (NOT STARTED)
 - [x] wabidb-29 — channels + channel_members projections
 - [x] wabidb-30 — Fixed skiplist/B-tree indexes (crossbeam-skiplist)
-- [x] wabidb-31 — rebuild_indexes from snapshots + commit index (lives in `cli/rebuild_indexes.rs`, `cli/rebuild_indexes_cmd.rs`, `engine/replay.rs`)
+- [x] wabidb-31 — rebuild_indexes from snapshots + commit index (lived in `cli/rebuild_indexes.rs`, `cli/rebuild_indexes_cmd.rs`, `engine/replay.rs`; the two `cli/` files were removed in PR 302, replay remains in `engine/replay.rs`, test: `engine::replay::tests::replay_applies_events_in_global_commit_seq_order`)
 - [x] wabidb-32 — Projection Write Barrier (`projections/barrier.rs` — LinearizabilityBarrier complete)
 
 ### Phase 5: Snapshot Manager (3/4 complete)
-- [x] wabidb-33 — Snapshot writer (`snapshots/writer.rs` — WSNAP format, atomic writes)
+- [x] wabidb-33 — Snapshot writer (`snapshots/writer.rs` — WSNAP format, atomic writes; no production caller, the engine's checkpoint is `projections/snapshot.json`, test: `snapshots::writer::tests::write_and_read_back`)
 - [x] wabidb-34 — Snapshot reloader (functionality in `engine/locks.rs` `ProjectionState::load_snapshot`; no dedicated `loader.rs`)
 - [x] wabidb-35 — Per-stream snapshot policy (checkpoint interval in dispatcher; no dedicated `policy.rs`)
 - [ ] wabidb-36 — whiteboard_snapshots + whiteboard_history tables (NOT STARTED)
 
 ### Phase 6: Retention Engine (7/9 — 3 core + 4 extra files)
 - [ ] wabidb-37 — expires_at indexes (NOT STARTED)
-- [x] wabidb-38 — Per-stream TTL reaper (`retention/reaper.rs` — `RetentionReaper` with run_once/run_forever)
-- [x] wabidb-39 — Key destruction + tombstone, not wired into the server (`retention/key_destruction.rs` — `destroy_stream_keys` with tombstone creation)
+- [x] wabidb-38 — Per-stream TTL reaper (`retention/reaper.rs` — `RetentionReaper` with run_once/run_forever) — removed in PR 302
+- [x] wabidb-39 — Key destruction + tombstone, not wired into the server (`retention/key_destruction.rs` — `destroy_stream_keys` with tombstone creation) — removed in PR 302
 - [ ] wabidb-40 — retention_policies table (NOT STARTED)
 - [ ] wabidb-41 — Per-scope policy evaluation (NOT STARTED)
-- [x] wabidb-42 — Segment Compaction and GC (`retention/compaction.rs` — single-segment compaction, zero-and-remove, dir fsync)
-- *(Extra)* `retention/tombstone.rs` — Tombstone and TombstoneTable (HashMap-based, 7 tests)
+- [x] wabidb-42 — Segment Compaction and GC (`retention/compaction.rs` — single-segment compaction, zero-and-remove, dir fsync) — removed in PR 302
+- *(Extra)* `retention/tombstone.rs` — Tombstone and TombstoneTable (HashMap-based, 7 tests) — removed in PR 306
 - *(Extra)* `retention/data_backup.rs` — Full data directory backup with manifest
 - *(Extra)* `retention/manifest_backup.rs` — storage-manifest.json backup
 - *(Extra)* `retention/verify_backup.rs` — BLAKE3 hash verification against manifest
 
 ### Phase 7: Ephemeral Bus (4/6 — 1 core + 5 extra files)
 - [ ] wabidb-43 — EmissionDurability enum (NOT STARTED)
-- [x] wabidb-44 — EphemeralBus (`ephemeral/bus.rs` — tokio::sync::broadcast, 3 tests)
+- [x] wabidb-44 — EphemeralBus (`ephemeral/bus.rs` — tokio::sync::broadcast, 3 tests) — removed in PR 302
 - [ ] wabidb-45 — Ephemeral event dispatch (NOT STARTED — routing logic is ad-hoc)
-- *(Extra)* `ephemeral/auth.rs` — EphemeralAction auth (typing, join_call, move_cursor)
-- *(Extra)* `ephemeral/ticket.rs` — One-time ticket create/validate/revoke
-- *(Extra)* `ephemeral/rate_limit.rs` — Per-user sliding window rate limiter
-- *(Extra)* `ephemeral/subscription.rs` — Topic subscription registry
-- *(Extra)* `ephemeral/persistence.rs` — JSON save/load (save is a stub)
+- *(Extra)* `ephemeral/auth.rs` — EphemeralAction auth (typing, join_call, move_cursor) — removed in PR 302
+- *(Extra)* `ephemeral/ticket.rs` — One-time ticket create/validate/revoke — removed in PR 302
+- *(Extra)* `ephemeral/rate_limit.rs` — Per-user sliding window rate limiter — removed in PR 302
+- *(Extra)* `ephemeral/subscription.rs` — Topic subscription registry — removed in PR 302
+- *(Extra)* `ephemeral/persistence.rs` — JSON save/load (save is a stub) — removed in PR 302
 
 ### Phase 8: Subscription Engine (9/12 — core engine + 8 supporting files)
 - [ ] wabidb-46 — Topic enum + grammar (topic concept is embedded inline)
@@ -1143,17 +1145,17 @@
 - [ ] wabidb-48 — Live fanout (equivalent in `engine.rs` `deliver` method)
 - [ ] wabidb-49 — Topic indexes (NOT STARTED — uses simple matching)
 - [ ] wabidb-50 — Snapshot barrier (subscription-barrier, not projection-barrier)
-- [x] wabidb-51 — Resume cursor (`ws_resume.rs` — `ws_resume` function, 4 tests)
+- [x] wabidb-51 — Resume cursor (`ws_resume.rs` — `ws_resume` function, 4 tests) — removed in PR 306 (with `subscription/`)
 - [x] wabidb-52 — EventEnvelope with versioning (lives in `sequencer/event_envelope.rs`, 6 tests)
 - [ ] wabidb-53 — Backpressure with priority lanes (backpressure in `ws_send.rs` MessageQueue)
 - [ ] wabidb-54 — WebSocket adapter (WebSocket split across 4 files: `ws_subscribe.rs`, `ws_send.rs`, `ws_unsubscribe.rs`, `ws_resume.rs`)
-- [x] wabidb-55 — WebSocket ticket auth (`ticket_auth.rs` — TicketStore + handshake, 5 tests)
-- [x] wabidb-56 — ws_tickets table + atomic redemption (`ws_tickets.rs` — WsTicketsTable, 8 tests)
-- [x] wabidb-57 — Membership Change Revalidation (`membership_revalidation.rs` — MembershipStore, 4 tests)
-- *(Extra)* `subscription/engine.rs` — SubscriptionEngine core (subscribe/deliver/ack, 6 tests)
-- *(Extra)* `subscription/consumer_offsets.rs` — ConsumerOffsetsTable (upsert/lookup/checkpoint, 5 tests)
-- *(Extra)* `subscription/presence.rs` — PresenceTracker (RwLock-backed, 5 tests)
-- *(Extra)* `subscription/ws_ticket_endpoint.rs` — Issue WS auth tickets (4 tests)
+- [x] wabidb-55 — WebSocket ticket auth (`ticket_auth.rs` — TicketStore + handshake, 5 tests) — removed in PR 306 (with `subscription/`)
+- [x] wabidb-56 — ws_tickets table + atomic redemption (`ws_tickets.rs` — WsTicketsTable, 8 tests) — removed in PR 306 (with `subscription/`)
+- [x] wabidb-57 — Membership Change Revalidation (`membership_revalidation.rs` — MembershipStore, 4 tests) — removed in PR 302
+- *(Extra)* `subscription/engine.rs` — SubscriptionEngine core (subscribe/deliver/ack, 6 tests) — removed in PR 306
+- *(Extra)* `subscription/consumer_offsets.rs` — ConsumerOffsetsTable (upsert/lookup/checkpoint, 5 tests) — removed in PR 306
+- *(Extra)* `subscription/presence.rs` — PresenceTracker (RwLock-backed, 5 tests) — removed in PR 306
+- *(Extra)* `subscription/ws_ticket_endpoint.rs` — Issue WS auth tickets (4 tests) — removed in PR 306
 
 ### Phase 9: Blob Store (2/5 complete)
 - [ ] wabidb-58 — BLAKE3 content addressing (addressing inline in write/read; no dedicated `addressing.rs`)
@@ -1163,53 +1165,53 @@
 - [ ] wabidb-62 — Blob GC (`blobs/gc.rs` — NOT STARTED)
 
 ### Phase 10: Storage CLI (10/12 commands exist)
-- [x] wabidb-63 — `wabidb check` (`cli/check.rs` + `cli/verify.rs`)
-- [x] wabidb-64 — `wabidb dump-stream` (`cli/dump_stream.rs`)
+- [x] wabidb-63 — `wabidb check` (`cli/check.rs` + `cli/verify.rs`; rewritten in PR 305 to read the real stream layout, test: `cli::check::tests::check_scans_the_segments_a_real_engine_wrote`)
+- [x] wabidb-64 — `wabidb dump-stream` (`cli/dump_stream.rs`) — removed in PR 305
 - [ ] wabidb-65 — `wabidb inspect-commit` (NOT STARTED)
-- [x] wabidb-66 — `wabidb rebuild-indexes` (`cli/rebuild_indexes.rs` + `cli/rebuild_indexes_cmd.rs`)
+- [x] wabidb-66 — `wabidb rebuild-indexes` (`cli/rebuild_indexes.rs` + `cli/rebuild_indexes_cmd.rs`) — removed in PR 302
 - [x] wabidb-67 — `wabidb list-streams` (`cli/list_streams.rs`)
-- [x] wabidb-68 — Manifest-based backup (`cli/backup.rs`)
-- [x] wabidb-69 — `wabidb verify-backup` (`cli/verify.rs`)
-- *(Extra)* `cli/decrypt.rs` — Offline record decryption with key derivation
-- *(Extra)* `cli/restore.rs` — Restore from backup directory
+- [x] wabidb-68 — Manifest-based backup (`cli/backup.rs`) — removed in PR 302
+- [x] wabidb-69 — `wabidb verify-backup` (`cli/verify.rs`) — there is no backup-verification command; `cli/verify.rs` checks the live data directory against its manifest (PR 305, test: `cli::verify::tests::real_engine_tree_verifies`)
+- *(Extra)* `cli/decrypt.rs` — Offline record decryption with key derivation — removed in PR 305
+- *(Extra)* `cli/restore.rs` — Restore from backup directory — removed in PR 302
 - *(Extra)* `cli/status.rs` — Data dir health summary
-- *(Extra)* `cli/tail.rs` — Last N events from a stream
+- *(Extra)* `cli/tail.rs` — Last N events from a stream — removed in PR 305
 - *(Omitted)* `src/bin/wabidb.rs` — CLI binary entry point is elsewhere (Cargo.toml [[bin]])
 
 ### Phase 11: First Vertical Slice (2/5 checkable source files exist)
 - [ ] wabidb-70 — send_message command (NOT STARTED — no `commands/messages/send_message.rs`)
-- [x] wabidb-71 — Channel messages subscription (`tests/send_message_flow.rs` — integration flow test)
+- [x] wabidb-71 — Channel messages subscription (`tests/send_message_flow.rs` — integration flow test; the subscription engine it was named for was removed in PR 306, the flow test remains: `tests::send_message_flow::send_message_flow`)
 - [x] wabidb-72 — 10 crash/resume tests (`tests/crash_tests.rs` — logical crash tests)
 - [ ] wabidb-73 — First-vertical-slice integration test (wabi-server level)
 - [ ] wabidb-74 — Local dev deployment (`scripts/dev-engine.sh` missing; `docs/local-dev.md` exists lowercase)
 
 ### Phase 12: Encryption (6/7 source files exist)
-- [x] wabidb-75 — Identity key + signed prekey + prekey pool (`crypto/identity.rs` + `crypto/x3dh_identity.rs`)
-- [x] wabidb-76 — device_pinned_keys TOFU (`crypto/device_pinning.rs` — projection `device_pinned_keys.rs` missing)
-- [x] wabidb-77 — Safety numbers (`crypto/safety_number.rs`)
-- [x] wabidb-78 — X3DH initial handshake (`crypto/x3dh_handshake.rs`)
-- [x] wabidb-79 — Double Ratchet session (`crypto/double_ratchet.rs`)
-- [x] wabidb-80 — Per-device DM envelopes (`crypto/dm_envelope.rs`)
+- [x] wabidb-75 — Identity key + signed prekey + prekey pool (`crypto/identity.rs` + `crypto/x3dh_identity.rs`) — `x3dh_identity.rs` removed in PR 302
+- [x] wabidb-76 — device_pinned_keys TOFU (`crypto/device_pinning.rs` — projection `device_pinned_keys.rs` missing) — removed in PR 302
+- [x] wabidb-77 — Safety numbers (`crypto/safety_number.rs`) — removed in PR 302
+- [x] wabidb-78 — X3DH initial handshake (`crypto/x3dh_handshake.rs`) — removed in PR 302
+- [x] wabidb-79 — Double Ratchet session (`crypto/double_ratchet.rs`) — removed in PR 302
+- [x] wabidb-80 — Per-device DM envelopes (`crypto/dm_envelope.rs`) — removed in PR 302
 - [x] wabidb-81 — send_dm_message command (`commands/send_dm_message.rs`)
-- *(17 total files in `crypto/` — fully stocked module including rekey, re-encrypt, version_skew, helper_revocation, etc.)*
+- *(17 total files in `crypto/` — fully stocked module including rekey, re-encrypt, version_skew, helper_revocation, etc.)* — `rekey`, `re_encrypt`, `dm_rekey` and `place_rekey` were removed in PR 302; the file count is no longer 17
 
 ### Phase 13: Helper Node Protocol (2/5 source files exist)
-- [x] wabidb-82 — pair_tokens table (`auth/pair_tokens.rs`)
-- [x] wabidb-83 — route_tokens table (`auth/route_tokens.rs`)
+- [x] wabidb-82 — pair_tokens table (`auth/pair_tokens.rs`) — removed in PR 302
+- [x] wabidb-83 — route_tokens table (`auth/route_tokens.rs`) — removed in PR 302
 - [ ] wabidb-84 — Atomic pair token redemption (NOT STARTED — `commands/helpers/` dir absent)
 - [ ] wabidb-85 — Helper node heartbeat (NOT STARTED)
 - [ ] wabidb-86 — Helper token revocation (NOT STARTED)
 
 ### Phase 14: WebSocket + Ticket Auth (3/5 core files exist under different names)
-- [x] wabidb-87 — WebSocket ticket endpoint (`subscription/ws_ticket_endpoint.rs` — request handler, 4 tests)
-- [x] wabidb-88 — Ticket auth handler (`subscription/ticket_auth.rs` — TicketStore + handshake, 5 tests)
+- [x] wabidb-87 — WebSocket ticket endpoint (`subscription/ws_ticket_endpoint.rs` — request handler, 4 tests) — removed in PR 306
+- [x] wabidb-88 — Ticket auth handler (`subscription/ticket_auth.rs` — TicketStore + handshake, 5 tests) — removed in PR 306
 - [ ] wabidb-89 — WebSocket frame parser/serializer (NOT STARTED — no `subscription/frame.rs`)
-- [x] wabidb-90 — ClientMessage / ServerMessage protocol (`protocol/mod.rs` — top-level protocol module, 14 tests)
+- [x] wabidb-90 — ClientMessage / ServerMessage protocol (`protocol/mod.rs` — top-level protocol module, 14 tests) — removed in PR 302
 - [ ] wabidb-91 — Backpressure protocol control lane (NOT STARTED)
 
 ### Phase 15: Operations (2/5 checkable items exist)
-- [x] wabidb-92 — Manifest backup format (`cli/backup.rs` — backup produces manifest; `docs/BACKUP_FORMAT.md` missing)
-- [x] wabidb-93 — Restore from manifest (`cli/restore.rs` — restore from backup)
+- [x] wabidb-92 — Manifest backup format (`cli/backup.rs` — backup produces manifest; `docs/BACKUP_FORMAT.md` missing) — removed in PR 302
+- [x] wabidb-93 — Restore from manifest (`cli/restore.rs` — restore from backup) — removed in PR 302
 - [ ] wabidb-94 — Real-world test deployment (`docs/REAL_WORLD_TEST_REPORT.md` missing)
 - [x] wabidb-95 — Performance benchmark (`benches/commit_throughput.rs` — criterion bench)
 - [ ] wabidb-96 — Migration plan doc (`docs/futuresight-wabidb-migration.md` missing; `futuresight-wabidb-proposal.md` exists)
@@ -1259,9 +1261,9 @@
 - **wabidb-12**: Directory fsync utility. Prevents silent data corruption on power loss.
 - **wabidb-20**: Concurrency and Lock Manager. Required to prevent write starvation.
 - **wabidb-32**: Projection Write Barrier. Ensures linearizability (reads see writes).
-- **wabidb-42**: Segment Compaction and GC. Prevents unbounded disk growth.
-- **wabidb-57**: Membership Change Revalidation. Prevents security leaks when users are banned/removed.
+- **wabidb-42**: Segment Compaction and GC. Prevents unbounded disk growth. (Removed in PR 302.)
+- **wabidb-57**: Membership Change Revalidation. Prevents security leaks when users are banned/removed. (Removed in PR 302.)
 - **wabidb-97**: Engine Configuration and Limits. Required for tuning.
 - **wabidb-98**: Metrics and Health Endpoint. Required for production observability.
 - **wabidb-99**: Power-Loss Simulation Test. Validates the custom storage engine's crash safety.
-- **Replication wiring**: Engine config + `SyncTransport` trait + background sync worker + HTTP sync endpoints (`POST /api/sync/pull`, `POST /api/sync/push`, `GET /api/sync/status`). Worker uses `NoopTransport` by default; prod deployments provide a `reqwest`-based transport via `WabiDbConfig::sync_transport`.
+- **Replication wiring**: Engine config + `SyncTransport` trait + background sync worker + HTTP sync endpoints (`POST /api/sync/pull`, `POST /api/sync/push`, `GET /api/sync/status`). Worker uses `NoopTransport` by default; prod deployments provide a `reqwest`-based transport via `WabiDbConfig::sync_transport`. (The `SyncWorker` and `ReplicaStateMachine` types were removed in PR 302; replication is experimental and not HA, see `docs/PROJECT_STATUS.md`.)

@@ -373,18 +373,17 @@ and the Lore router at `/addons/lore` within it).
 
 ### 8.2 File operations
 
+Tests named here are `path::test_name`. Paths: `core/crates/wabi-server/src/api/lore.rs` unit tests are in `tests`; `core/addons/lore/backend/src/lib.rs` unit tests are in `tests`.
+
 | Method | Path | Description |
 |---|---|---|
-| `PUT` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Upload/stage a file. **Body is raw bytes** (`application/octet-stream`), with optional `?message=` and `?repo_path=` query params. Optional `If-Match` header for optimistic concurrency (§8.4a). Response: `{ revision, file, etag, pendingReview, reviewBranch, cursor, wdbRecorded }`. Over the blob limit → 413. Stale `If-Match` → 409 `StaleEtag`. |
-| `GET` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Download. Supports HTTP `Range` requests, `ETag`/`If-None-Match` (304), and `?revision=` pinning (§8.4a). |
-| `DELETE` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Delete a file. Optional `If-Match`. |
-| `POST` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Acquire a file lock (returns `locked_by`/`locked_at`). |
-| `DELETE` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Release a lock. |
+| `PUT` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Upload/stage a file. **Body is raw bytes** (`application/octet-stream`), with optional `?message=`, `?repo_path=` and `?stageOnly=` query params. Optional `If-Match` header for optimistic concurrency (§8.4a). Response: `{ revision, file, etag, pendingReview, reviewBranch, cursor, wdbRecorded }`. The body is streamed after the membership and credential checks (test: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::slow_upload_body_does_not_hold_membership_or_credential_gates`). A non-member gets 403 before any body byte is read (test: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::non_member_upload_is_403_before_any_body_byte_is_read`). One byte over the blob limit → 413 and nothing is staged (test: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::upload_one_byte_over_the_blob_cap_is_413_without_reading_the_rest_and_stages_nothing`). An upload under the cap commits a new revision with the content ETag (test: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::upload_under_the_cap_commits_a_new_revision_with_the_content_etag`); `wdbRecorded` and `cursor` appear in the response (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::scoped_tool_can_sync_files_but_cannot_bypass_revocation_with_a_cached_download`). A stale `If-Match` → 409 `StaleEtag` carrying the current ETag (tests: `core/crates/wabi-server/src/api/lore.rs::tests::if_match_stale_etag_conflicts`, `core/crates/wabi-server/src/api/lore.rs::tests::conflict_response_is_409_with_current_etag`). An upload without `If-Match` overwrites (test: `core/crates/wabi-server/src/api/lore.rs::tests::upload_without_if_match_overwrites_existing_file`). Uploading `.wabiignore` or `.loreignore` is refused (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::members_cannot_upload_ignore_files_that_hide_the_whole_repo`). |
+| `GET` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Download. Supports HTTP `Range` requests (206) (tests: `core/crates/wabi-server/tests/lore_credential_contract.rs::head_download_changes_immediately_and_missing_file_is_not_found`, `core/crates/wabi-server/src/api/lore.rs::tests::byte_range_parsing`, `core/crates/wabi-server/src/api/lore.rs::tests::streamed_snapshots_preserve_ranges_and_remove_private_files_on_completion_or_disconnect`) and `?revision=` pinning (test: `core/crates/wabi-server/src/api/lore.rs::tests::upload_download_revision_and_conflict_flow`). `ETag`/`If-None-Match` (304) is *planned as a documented behavior*: no test covers a 304 response. |
+| `DELETE` | `/api/addons/lore/repos/{channel_id}/files/{*path}` | Delete a file. Optional `If-Match`. No test covers the delete route's success path. |
+| `POST` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Acquire a file lock. A read-only member or another repo's token is refused before any side effect (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::read_only_and_cross_repo_writes_fail_before_file_side_effects`). No test covers a successful acquire or the `locked_by`/`locked_at` response. |
+| `DELETE` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Release a lock. Same coverage as acquire. |
 
-> **Note on `GET .../files/{*path}`:** this handler implements HTTP **Range**
-> support (206 Partial Content) with a stable on-disk cache under
-> `$TMPDIR/wabi-lore-cache/`, plus a background cleanup task. This is what makes
-> large video files seekable without re-downloading.
+> **Note on `GET .../files/{*path}`:** the current file is served from a private streamed snapshot that is removed when the response completes or the client disconnects (test: `core/crates/wabi-server/src/api/lore.rs::tests::streamed_snapshots_preserve_ranges_and_remove_private_files_on_completion_or_disconnect`). Earlier text described a stable cache under `$TMPDIR/wabi-lore-cache/` with a background cleanup task; no such cache exists in the code. Reads pinned with `?revision=` use a per-revision cache (tests: `core/addons/lore/backend/src/lib.rs::tests::test_rev_cache_roundtrip`, `core/addons/lore/backend/src/lib.rs::tests::revision_cache_never_follows_leaf_or_directory_links`); bounding and pruning it is *planned* (Task 4.2 in `docs/plans/2026-11-06-backend-plan.md`).
 
 ### 8.3 History & diff
 
@@ -727,24 +726,18 @@ account logout does not individually revoke an already issued link.
 
 ### 11.2 Authorization
 
-Authorization is **channel-scoped**:
+Authorization is **channel-scoped**. Tests:
 
-- Channel **read** → Lore read access to that channel's repo.
-- Channel **write** → Lore write access (upload, commit, lock).
-- Channel **admin** → repo delete and other admin operations.
+- A member's role limits what they can write, and a member who loses the role or the channel loses write access (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::role_loss_limits_writes_and_missing_membership_prevents_minting_dead_tokens`).
+- Promoting a message into a repo requires membership of the target repo's channel (test: `core/crates/wabi-server/tests/lore_promote_membership_contract.rs::promote_requires_membership_of_the_target_repo_channel`).
+- A read-only member, or a token for another repo, cannot write (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::read_only_and_cross_repo_writes_fail_before_file_side_effects`).
+- Repo delete and other admin operations are limited to channel admins. No test covers this rule; treat it as *planned coverage*.
 
-The `upload_recording` endpoint additionally restricts its target to the single
-configured Recordings channel and refuses (404) anything that isn't a real Lore
-repo, so a user cannot redirect recordings into an arbitrary channel.
+The `upload_recording` endpoint restricts its target to the single configured Recordings channel. It requires the asset-write role, applies the blob cap, and accepts only a single-component filename (tests: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::view_only_member_recording_upload_is_403_before_any_body_byte_is_read`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_over_the_blob_cap_is_413_regression`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_filename_with_a_separator_is_rejected_and_writes_nothing`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_filename_that_names_no_file_is_rejected_and_writes_nothing`). Earlier text said it refuses (404) anything that is not a real Lore repo; no test covers that, so it is not claimed here.
 
-The current worktree uses descriptor-relative file access and rejects symlinks,
-traversal and internal repository furniture. Downloads and ZIP archives use
-private streamed snapshots rather than a shared predictable cache or whole-file
-memory buffers. Git import and mirror fetch accept public HTTPS targets,
-reject embedded credentials and private addresses, pin an approved DNS result,
-disable redirects and ambient Git configuration, and bound subprocess execution.
-Local paths, `file:` remotes and ambient SSH authentication are unsupported in
-these API-selected operations. Wabi has no export or push path to external remotes.
+The worktree uses descriptor-relative file access and rejects symlinks, traversal and internal repository furniture (tests: `core/addons/lore/backend/src/confined_fs.rs::tests::symlink_leaves_directories_and_internal_sidecars_do_not_escape`, `confined_fs.rs::tests::metadata_is_denied_independently_of_ignore_rules`, `core/addons/lore/backend/src/lib.rs::tests::native_direct_reads_and_uploads_reject_leaf_and_directory_symlinks`, `core/addons/lore/backend/src/lib.rs::tests::test_sanitize_repo_path_rejects_traversal_and_absolute`). Downloads and ZIP archives use private streamed snapshots (tests: `core/crates/wabi-server/src/api/lore.rs::tests::streamed_snapshots_preserve_ranges_and_remove_private_files_on_completion_or_disconnect`, `core/crates/wabi-server/src/api/lore.rs::tests::archive_zips_the_visible_working_tree`, `core/crates/wabi-server/src/api/lore.rs::tests::archive_refuses_a_file_replaced_by_a_symlink_after_listing`); uploads are streamed rather than buffered whole (test: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::upload_under_the_cap_commits_a_new_revision_with_the_content_etag`, and the 413 test above). Pinned-revision reads use a revision cache, see §8.2.
+
+Git import and mirror fetch accept public HTTPS targets, reject embedded credentials and private addresses, pin an approved DNS result, disable redirects and ambient Git configuration (tests: `core/addons/lore/backend/src/git_remote.rs::tests::rejects_host_files_protocol_helpers_credentials_and_private_destinations`, `git_remote.rs::tests::clone_keeps_hostname_but_pins_address_and_disables_redirects_and_host_credentials`). Local paths and `file:` remotes are refused in these API-selected operations (tests: `core/crates/wabi-server/src/api/lore.rs::tests::git_import_refuses_local_source_without_replacing_auto_created_repo`, `git_remote.rs::tests::rejects_host_files_protocol_helpers_credentials_and_private_destinations`). Wabi has no export or push path to external remotes (the export path was removed in PR 309). Bounded subprocess execution and ambient SSH handling are *planned coverage*: no test checks them.
 
 ### 11.3 Encryption & transport
 
@@ -858,84 +851,64 @@ artist-friendly **review flow** where uploads land on review branches, plus a
 A `LoreRepo` has a `class` (`RepoClass`):
 
 - **`Native`** (default) — a full Lore repo owned by Wabi: create/upload/commit/
-  lock/branch/merge all work as documented in §8.
+  lock/branch/merge as documented in §8 (default: test `core/addons/lore/backend/src/lib.rs::tests::test_repo_class_default_is_native`).
 - **`Mirror { upstream_url }`** — a read-only pointer to an external git
   repository. Wabi never owns the bytes; it lazily fetches from upstream and
-  serves reads. All write endpoints return **501** (`MirrorReadOnly`).
+  serves reads. A mirror repo is read-only (test: `core/addons/lore/backend/src/lib.rs::tests::test_lore_repo_read_only`). The HTTP status for a write on a mirror (**501**, `MirrorReadOnly`) is not asserted by a test.
 
-Repos default to `Native`; nothing changes for existing channels. A repo becomes
-a mirror only via `POST /repos/{channel_id}/external`. The `class`,
+Repos default to `Native` (test: `core/addons/lore/backend/src/lib.rs::tests::test_repo_class_defaults_in_json`). A repo becomes
+a mirror only via `POST /repos/{channel_id}/external` (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::mirror_manifest_reports_git_head_without_native_commit_events`). The `class`,
 `auto_branch_on_upload`, and `imported_from` fields live in the `.wabi-repo.json`
-sidecar in the working tree (see §7.4) because the postcard `LoreRepoRecord`
-cannot gain fields without a dual-decode migration.
+sidecar in the working tree (see §7.4); that file is never a client file (test: `core/addons/lore/backend/src/lib.rs::tests::native_metadata_is_never_a_client_file_even_with_empty_ignore_rules`). The postcard `LoreRepoRecord`
+cannot gain fields without a dual-decode migration (AGENTS.md golden rule 5).
 
 ### 14.2 Artist-friendly review flow
 
 Lore's model of "upload straight to the current branch" is hostile to artists —
-an accidental upload pollutes the trunk. The review flow fixes this:
+an accidental upload pollutes the trunk. The review flow keeps uploads off the trunk:
 
 1. An Owner/Admin/Developer turns it on per repo:
-   `PATCH /repos/{channel_id}` with `{ "autoBranchOnUpload": true }`.
-2. An Artist uploads as usual (`PUT .../files/{*path}`). The service
-   **creates + switches to a fresh `uploads/{sanitized_username}-{timestamp}`
-   branch**, commits the file there, then switches back. The response includes
-   `"pendingReview": true` and `"reviewBranch": "uploads/.../..."`. The upload
-   never touches mainline.
-3. A reviewer (Owner/Admin/Developer) either:
-   - **Approves**: `POST /repos/{channel_id}/review/{name}/approve` → merge the
-     branch into mainline, then archive (retire) it via `lore branch archive`.
-   - **Rejects**: `POST /repos/{channel_id}/review/{name}/reject` → archive the
-     branch without merging.
-
-Archiving (rather than deleting) is deliberate: the Lore CLI has no destructive
-branch delete; `lore branch archive` hides the branch from normal `list`
-output while keeping it recoverable. The branch name embeds the uploader so
-reviewers know who to talk to. Branch management and commit/review actions are
-gated to Owner/Admin/Developer; uploads accept Artist (see §11.2).
+   `PATCH /repos/{channel_id}` with `{ "autoBranchOnUpload": true }`. (The service call `set_auto_branch_on_upload` exists; no test drives the PATCH route.)
+2. An Artist uploads as usual (`PUT .../files/{*path}`). With the flag on, the service
+   creates a fresh `uploads/{sanitized_username}-{timestamp}` branch, commits the file there, then switches back to mainline, and the response sets `pendingReview` and `reviewBranch` (test: `core/addons/lore/backend/src/lib.rs::tests::review_upload_pins_review_bytes_before_restoring_mainline`). An ignored upload leaves no bytes and no stray branch (test: `core/crates/wabi-server/src/api/lore.rs::tests::ignored_upload_leaves_no_bytes_and_no_branch_rot`).
+3. A reviewer either approves (`POST /repos/{channel_id}/review/{name}/approve`, merge into mainline then archive the branch) or rejects (`.../reject`, archive without merging). *No test covers approve or reject, the archive step, or the Owner/Admin/Developer gating of branch actions.* Treat these as *planned coverage*; the routes and service methods exist.
 
 ### 14.3 External mirrors (read-only pointers)
 
 Registering an external mirror records a pointer and creates the WabiDB
-`LoreRepoRecord`; **no bytes are cloned at registration**. Reads are served
+`LoreRepoRecord`; no bytes are cloned at registration (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::mirror_manifest_reports_git_head_without_native_commit_events`). Reads are served
 from a fetch cache:
 
-- The first read (`list_files`, `get_file_content`, `download_file`,
-  `file_history`) triggers a lazy `git clone --depth 1` of `upstream_url` into
-  `<data_dir>/<channel_id>/.mirror-cache`.
-- Subsequent reads within `MIRROR_CACHE_TTL_SECS` (600 s) reuse the cache.
-- `POST /repos/{channel_id}/mirror/refresh` invalidates the cache so the next
-  read re-fetches — point your upstream's push webhook here.
-- `delete_repo` removes the cache directory.
+- The first read triggers a lazy shallow clone of `upstream_url` into
+  `<data_dir>/<channel_id>/.mirror-cache`; concurrent reads share one fresh clone, and links and metadata in the upstream are skipped (test: `core/addons/lore/backend/src/lib.rs::tests::mirror_concurrent_reads_share_a_fresh_clone_and_skip_links_and_metadata`).
+- Subsequent reads within `MIRROR_CACHE_TTL_SECS` (600 s) reuse the cache. *Planned coverage*: no test checks the TTL expiry.
+- `POST /repos/{channel_id}/mirror/refresh` is meant to invalidate the cache so the next read re-fetches. *Planned coverage*: no test drives it.
+- `delete_repo` removing the cache directory is *planned coverage* as well.
 
-Caveats: the shallow clone carries only the tip commit, so mirror history shows
-a single revision, and diffs are not supported on mirrors (the service refuses
-diff on read-only repos). Mirrors are best used as a "browse upstream" window,
+The shallow clone carries only the tip commit, so mirror history shows
+a single revision; refusing diffs on read-only repos is not covered by a test. Mirrors are best used as a "browse upstream" window,
 or alongside `import_from_git` (below) to get working history.
 
 ### 14.4 Git import (files-only)
 
 `POST /repos/import` (`{ channelId, name, upstreamUrl }`) imports an existing
-git repository into a new native Lore repo:
+git repository into a native Lore repo:
 
-1. Validates the channel has no repo yet (else **409**).
-2. `git clone` the upstream into a temp dir; on failure, returns **502** with
-   the git stderr.
-3. Strips `.git`, seeds a `.gitignore`, stages everything, and makes one initial
-   commit, then moves the tree into place as the repo's working tree.
+1. An empty, auto-created repo for the channel is adopted; a non-empty one is refused and kept, and a repo that already exists returns **409** (tests: `core/addons/lore/backend/src/lib.rs::tests::real_git_import_adopts_empty_auto_created_native_repo`, `core/addons/lore/backend/src/lib.rs::tests::import_refuses_and_keeps_a_detached_non_empty_tree`, `core/addons/lore/backend/src/lib.rs::tests::import_refuses_when_the_existing_path_cannot_be_listed`). The HTTP status itself is not asserted by a test.
+2. The upstream is cloned into a temp dir. A clone failure returning **502** with the git stderr is *planned coverage*: no test drives it. A local-path source is refused without replacing the repo (test: `core/crates/wabi-server/src/api/lore.rs::tests::git_import_refuses_local_source_without_replacing_auto_created_repo`).
+3. `.git` is stripped, everything is staged, and one initial commit is made (test: `core/addons/lore/backend/src/lib.rs::tests::real_git_import_adopts_empty_auto_created_native_repo`). Unsafe repository furniture in the source is refused before the Lore CLI runs (test: `core/addons/lore/backend/src/lib.rs::tests::git_import_rejects_unsafe_furniture_before_lore_cli_or_sidecar_write`). Earlier text also said a `.gitignore` is seeded; no test shows that, so it is not claimed.
 
 This imports **files only** — git history, tags, and branches are not carried
 over. For a channel that wants the old history browsable, register the same
 upstream as an external mirror (`POST .../external`) so the reads come from
 upstream while Wabi keeps its own native repo for writes. The upstream URL is
-recorded in `LoreRepo.imported_from`.
+recorded in `LoreRepo.imported_from` (test: `core/addons/lore/backend/src/lib.rs::tests::real_git_import_adopts_empty_auto_created_native_repo`).
 
 ### 14.5 Embedded mode
 
 The default `mode = "embedded"` runs Lore fully offline against a local
-working tree. For mirrors this means `git` (not the Lore CLI) does the fetching;
-`sync_repo`/`push_repo` are no-ops that log `offline repo: sync skipped`, and
-file locks degrade to a local record with no Lore server to consult. The `git`
-binary must be on the server's `PATH` for mirror/import features.
+working tree. For mirrors this means `git` (not the Lore CLI) does the fetching (test: `core/addons/lore/backend/src/lib.rs::tests::mirror_concurrent_reads_share_a_fresh_clone_and_skip_links_and_metadata`).
+Offline repos skip server sync and degrade file locks to a local record; the code logs `offline repo: sync skipped` and `offline repo: file lock degraded (no server)`. No test covers these paths: *planned coverage*. The `git` binary must be on the server's `PATH` for mirror/import features (tests above run with real `git`).
 
 ---
 

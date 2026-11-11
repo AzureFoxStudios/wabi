@@ -52,9 +52,9 @@ WabiDB
 ├── global commit index       (commit_seq → stream refs)
 ├── projection engine         (applies events to materialized state, fixed indexes, rebuildable)
 ├── snapshot manager          (object snapshots, trims replay window)
-├── retention/compaction      (compacts streams, drops expired segments, destroys keys)
-├── subscription engine       (live fanout, replay from commit index, snapshot barriers)
-├── ephemeral bus             (memory-only events)
+├── retention/compaction      (planned; removed in PR 302, never compacted or destroyed keys in the server)
+├── subscription engine       (removed in PR 306)
+├── ephemeral bus             (removed in PR 302)
 ├── blob store                (content-addressed immutable files)
 └── storage CLI               (check, inspect, recover, backup, rebuild-indexes)
 ```

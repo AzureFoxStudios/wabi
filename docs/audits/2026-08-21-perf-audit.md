@@ -25,7 +25,7 @@
 1. **Commit batcher is structurally dead.** Sequencer is a strict serial loop (`sequencer/mod.rs:181-206`): each command fully processed incl. `batcher.flush_now().await` (`sequencer/mod.rs:350`) before the next arrives. Batcher config (batch=10 / 50ms, `batcher.rs:1-4`) can never see >1 entry → every write pays a solo fsync. Fix = group commit: submit entry, continue loop, resolve waiters when their batch flushes.
 2. **Idempotency table leak.** Every send mints a fresh UUID key (`adapter/mod.rs:195-199`), inserts a 24h-expiry record into an in-memory HashMap (`run_command.rs:115-125`). `remove_expired` (`commands/idempotency.rs:96`) has NO caller outside tests. Insert-only map grows forever per process.
 3. **Double key-registry lock per write.** Adapter takes registry mutex (`adapter/mod.rs:113`) AND sequencer again (`sequencer/mod.rs:233`) to short-circuit. Cache known streams locally.
-4. **Payload copied ~5× per message** (`adapter/mod.rs:110`, ReplayEnvelope build, encrypt, blake3, per-subscriber `.to_vec()` in `deliver_event` engine/mod.rs:526-540). Consider `Bytes`.
+4. **Payload copied ~5× per message** (`adapter/mod.rs:110`, ReplayEnvelope build, encrypt, blake3, per-subscriber `.to_vec()` in `deliver_event` engine/mod.rs:526-540; 2026-11-11: `deliver_event` and the subscription engine were removed in PR 306). Consider `Bytes`.
 5. **reqwest::Client built per webhook delivery** (`bot_delivery.rs:62`) — new pool+TLS per message-with-webhooks. Reuse one Arc<Client>. Same pattern in `anchor.rs`, `mesh.rs`.
 
 ### Backend — reads / maintenance

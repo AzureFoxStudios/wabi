@@ -1,3 +1,4 @@
+READ FIRST (2026-11-11): this is a design proposal, not a description of the product. Mechanisms described below as present (the subscription engine, dump-stream, verify-backup, key destruction) do not exist in the running server. docs/PROJECT_STATUS.md is the status of record.
 
 ============================================================
 WABIDB: END-STATE DESIGN DOCUMENT
