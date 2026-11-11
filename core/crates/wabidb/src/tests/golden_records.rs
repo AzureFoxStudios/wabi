@@ -12,19 +12,6 @@ fn bytes(hex_literal: &str) -> Vec<u8> {
     hex::decode(hex_literal).expect("golden literal is valid hex")
 }
 
-/// Before conversion: today's encoder still writes the golden bytes, and they
-/// decode to the sample.
-fn unchanged_today<T: PartialEq + Debug>(
-    legacy_hex: &str,
-    sample: &T,
-    encode: impl Fn(&T) -> Vec<u8>,
-    decode: impl Fn(&[u8]) -> Result<T>,
-) {
-    let legacy = bytes(legacy_hex);
-    assert_eq!(hex::encode(encode(sample)), legacy_hex, "encoder changed");
-    assert_eq!(&decode(&legacy).expect("legacy bytes decode"), sample);
-}
-
 /// After conversion: the golden bytes still decode to the sample (legacy
 /// path), and the encoder writes a version-1 record with `tag` whose payload
 /// is the same postcard body, i.e. no field changed.
@@ -739,4 +726,47 @@ fn golden_message_record_v0() {
 fn golden_user_record_v1() {
     let decoded = users::decode_record(&bytes(USER_V1_LEGACY)).unwrap();
     assert_eq!(decoded, user_v1_decoded());
+}
+
+/// Every durable record type above writes the versioned header.
+#[test]
+fn every_durable_record_is_versioned() {
+    let encoded: Vec<(&str, Vec<u8>)> = vec![
+        ("ChannelMemberRecord", channel_members::encode_record(&channel_member())),
+        ("DmMessageRecord", dm_messages::encode_record(&dm_message())),
+        ("DmRecipientRecord", dm_message_recipients::encode_record(&dm_recipient())),
+        ("DmIdentityRecord", dm_identities::encode_record(&dm_identity())),
+        ("Reaction", reactions::encode_reaction(&reaction())),
+        ("Emote", emotes::encode_record(&emote())),
+        ("Webhook", webhooks::encode_record(&webhook())),
+        ("UserLayout", layouts::encode_record(&user_layout())),
+        ("WhiteboardDoc", whiteboard_docs::encode_record(&whiteboard_doc())),
+        ("AlbumRecord", albums::encode_record(&album())),
+        ("AlbumItemRecord", album_items::encode_record(&album_item())),
+        ("WikiPageRecord", wiki::encode_record(&wiki_page())),
+        ("WikiRevisionRecord", wiki::encode_revision_record(&wiki_revision())),
+        ("ForumPostRecord", forum::encode_record(&forum_post())),
+        ("IncidentRecord", incidents::encode_record(&incident())),
+        ("GalleryWorkRecord", gallery::encode_record(&gallery_work())),
+        ("GalleryFeedbackRecord", gallery::encode_feedback_record(&gallery_feedback())),
+        ("LoreRepoRecord", lore::encode_repo_record(&lore_repo())),
+        ("LoreCommitRecord", lore::encode_record(&lore_commit())),
+        ("LoreFileChangeRecord", lore::encode_change_record(&lore_file_change())),
+        ("LoreTokenRecord", lore::encode_token_record(&lore_token())),
+        ("LoreBindingRecord", lore::encode_binding_record(&lore_binding())),
+        ("LorePromoteRecord", lore::encode_promote_record(&lore_promote())),
+        ("PaymentAccountLinkRecord", payment_account_link().encode()),
+        ("PaymentIntentRecord", payment_intent().encode()),
+        ("PaymentPolicyRecord", payment_policy().encode()),
+        ("PaymentUserBlockRecord", payment_user_block().encode()),
+        ("PaymentDeleteKey", payment_delete_key().encode()),
+        ("MessageRecord", messages::encode_record(&message())),
+        ("UserRecord", users::encode_record(&user())),
+    ];
+    let unversioned: Vec<&str> = encoded
+        .iter()
+        .filter(|(_, bytes)| !crate::format::versioned::is_versioned(bytes))
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(unversioned.is_empty(), "unversioned durable records: {unversioned:?}");
 }
