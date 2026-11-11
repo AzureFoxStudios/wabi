@@ -506,6 +506,7 @@ async fn edit_over_a_stale_baseline_takes_the_409_path() {
     let their_etag = etag_for_bytes(b"theirs");
     assert_eq!(mine.conflict_copies(), vec![format!("a.txt.wabi-conflict-{}", &their_etag[..8])]);
     assert_eq!(mine.read(&mine.conflict_copies()[0]).as_deref(), Some(&b"mine"[..]));
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]));
     assert_eq!(mine.state().baselines.get("a.txt"), Some(&Some(their_etag)));
 }
 
