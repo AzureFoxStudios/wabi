@@ -174,7 +174,12 @@ pub(crate) mod tests {
             direction: "up".into(),
             actor_user_id: 1,
         });
-        let solution = postcard::to_allocvec(&("post_a", "thread_a", room, 1u64)).unwrap();
+        let solution = forum::encode_solution(&forum::SolutionPayload {
+            post_id: "post_a".into(),
+            thread_id: "thread_a".into(),
+            channel_id: room.into(),
+            actor_user_id: 1,
+        });
         let incident = incidents::encode_record(&incidents::IncidentRecord {
             incident_id: "incident_a".into(),
             channel_id: room.into(),

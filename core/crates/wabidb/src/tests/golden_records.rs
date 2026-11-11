@@ -854,9 +854,13 @@ fn golden_forum_solution_payload() {
     })
     .unwrap();
     assert_eq!(hex::encode(&encoded), FORUM_SOLUTION_LEGACY);
-    // The single struct that replaced the adapter's copy writes the same bytes.
-    assert_eq!(hex::encode(forum::encode_solution(&forum_solution())), FORUM_SOLUTION_LEGACY);
-    assert_eq!(forum::decode_solution(&bytes(FORUM_SOLUTION_LEGACY)).unwrap(), forum_solution());
+    converted(
+        FORUM_SOLUTION_LEGACY,
+        b"FSOL",
+        &forum_solution(),
+        forum::encode_solution,
+        forum::decode_solution,
+    );
 }
 
 pub(crate) fn forum_solution() -> forum::SolutionPayload {
