@@ -12,17 +12,49 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::api::WabiClient;
 use crate::config::{LinkConfig, SyncState};
-use crate::etag::etag_for_bytes;
+use crate::etag::{etag_for_bytes, ETAG_FULL_HASH_MAX_BYTES};
 use crate::sync::{SyncEngine, SyncReport};
 
 #[derive(Default)]
-struct Fake {
-    mainline: BTreeMap<String, Vec<u8>>,
-    review: BTreeMap<String, Vec<u8>>,
-    route_to_review: bool,
-    delete_forbidden: bool,
-    puts: Vec<String>,
-    deletes: Vec<String>,
+pub(crate) struct Fake {
+    pub(crate) mainline: BTreeMap<String, Vec<u8>>,
+    pub(crate) review: BTreeMap<String, Vec<u8>>,
+    pub(crate) route_to_review: bool,
+    pub(crate) delete_forbidden: bool,
+    pub(crate) puts: Vec<String>,
+    pub(crate) deletes: Vec<String>,
+    /// Stands in for the server-side mtime of each mainline file: bumped on
+    /// every write, and part of the etag of a file over the full-hash limit.
+    stamps: BTreeMap<String, u64>,
+    clock: u64,
+}
+
+/// The etag the real server would report. Up to the full-hash limit it is the
+/// content hash, the same value the client computes. Above it the real server
+/// samples its own copy and mixes in that copy's mtime, so the value is never
+/// one the client can compute; the fake returns an opaque `q-` string that
+/// changes with every server-side write.
+fn server_etag(bytes: &[u8], stamp: u64) -> String {
+    if bytes.len() as u64 <= ETAG_FULL_HASH_MAX_BYTES {
+        etag_for_bytes(bytes)
+    } else {
+        format!("q-server-{}-{stamp}", bytes.len())
+    }
+}
+
+impl Fake {
+    fn mainline_etag(&self, path: &str) -> Option<String> {
+        let bytes = self.mainline.get(path)?;
+        Some(server_etag(bytes, self.stamps.get(path).copied().unwrap_or(0)))
+    }
+
+    /// Write a mainline file the way another client's upload (or an approved
+    /// review) would: new bytes and a new server-side mtime.
+    pub(crate) fn set_mainline(&mut self, path: &str, bytes: Vec<u8>) {
+        self.clock += 1;
+        self.stamps.insert(path.to_string(), self.clock);
+        self.mainline.insert(path.to_string(), bytes);
+    }
 }
 
 type Shared = Arc<Mutex<Fake>>;
@@ -63,7 +95,7 @@ fn respond(fake: &Shared, method: &str, target: &str, if_match: Option<&str>, bo
         let files: Vec<_> = f
             .mainline
             .iter()
-            .map(|(p, b)| serde_json::json!({"path": p, "size": b.len(), "etag": etag_for_bytes(b)}))
+            .map(|(p, b)| serde_json::json!({"path": p, "size": b.len(), "etag": f.mainline_etag(p)}))
             .collect();
         return json(200, serde_json::json!({"channel_id": 1, "files": files, "head_revision": "h", "read_only": false}));
     }
@@ -73,7 +105,7 @@ fn respond(fake: &Shared, method: &str, target: &str, if_match: Option<&str>, bo
     let Some(file) = rest.strip_prefix("files/").map(percent_decode) else {
         return json(404, serde_json::json!({"error": "no route"}));
     };
-    let current = f.mainline.get(&file).map(|b| etag_for_bytes(b));
+    let current = f.mainline_etag(&file);
     let stale = serde_json::json!({"type": "StaleEtag", "currentEtag": current});
     match method {
         "GET" => match f.mainline.get(&file) {
@@ -85,11 +117,14 @@ fn respond(fake: &Shared, method: &str, target: &str, if_match: Option<&str>, bo
                 return json(409, stale);
             }
             f.puts.push(file.clone());
-            let etag = etag_for_bytes(&body);
+            f.clock += 1;
+            let etag = server_etag(&body, f.clock);
             let pending = f.route_to_review;
             if pending {
                 f.review.insert(file, body);
             } else {
+                let stamp = f.clock;
+                f.stamps.insert(file.clone(), stamp);
                 f.mainline.insert(file, body);
             }
             json(200, serde_json::json!({
@@ -162,15 +197,15 @@ async fn serve_one(mut sock: tokio::net::TcpStream, fake: Shared) -> std::io::Re
     sock.shutdown().await
 }
 
-struct Harness {
+pub(crate) struct Harness {
     fake: Shared,
-    client: WabiClient,
-    link: LinkConfig,
+    pub(crate) client: WabiClient,
+    pub(crate) link: LinkConfig,
     dir: tempfile::TempDir,
 }
 
 impl Harness {
-    async fn start() -> Self {
+    pub(crate) async fn start() -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let fake: Shared = Arc::default();
@@ -188,16 +223,16 @@ impl Harness {
         }
     }
 
-    fn folder(&self) -> &Path {
+    pub(crate) fn folder(&self) -> &Path {
         self.dir.path()
     }
 
     /// One `wabi-sync sync` round: a fresh engine, so state goes through disk.
-    async fn sync(&self) -> anyhow::Result<SyncReport> {
+    pub(crate) async fn sync(&self) -> anyhow::Result<SyncReport> {
         SyncEngine::new(&self.client, self.folder(), &self.link).sync().await
     }
 
-    fn server<R>(&self, f: impl FnOnce(&mut Fake) -> R) -> R {
+    pub(crate) fn server<R>(&self, f: impl FnOnce(&mut Fake) -> R) -> R {
         f(&mut self.fake.lock().unwrap())
     }
 
@@ -209,11 +244,11 @@ impl Harness {
         std::fs::read_to_string(self.folder().join(rel)).ok()
     }
 
-    fn state(&self) -> SyncState {
+    pub(crate) fn state(&self) -> SyncState {
         SyncState::load(self.folder()).unwrap()
     }
 
-    fn conflict_copies(&self) -> Vec<String> {
+    pub(crate) fn conflict_copies(&self) -> Vec<String> {
         std::fs::read_dir(self.folder())
             .unwrap()
             .filter_map(|e| e.ok())

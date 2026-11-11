@@ -13,6 +13,8 @@ mod api;
 mod config;
 mod etag;
 #[cfg(test)]
+mod large_file_tests;
+#[cfg(test)]
 mod review_tests;
 mod sync;
 
