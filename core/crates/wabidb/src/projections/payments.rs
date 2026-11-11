@@ -156,9 +156,20 @@ impl RecordCodec for PaymentIntentRecord {
         versioned::decode_v1(&INTENT_FORMAT, buf)
     }
 }
+/// Versioned durable layout of [`PaymentPolicyRecord`]; see `format::versioned`.
+const POLICY_FORMAT: RecordFormat = RecordFormat::new(*b"PPOL", "payment_policy");
+
 impl RecordCodec for PaymentPolicyRecord {
     fn codec_name() -> &'static str {
         "payment_policy"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&POLICY_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&POLICY_FORMAT, buf)
     }
 }
 impl RecordCodec for PaymentUserBlockRecord {
