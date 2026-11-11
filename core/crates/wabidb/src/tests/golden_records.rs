@@ -636,7 +636,7 @@ fn golden_album_item_record() {
 
 #[test]
 fn golden_wiki_page_record() {
-    unchanged_today(WIKI_PAGE_LEGACY, &wiki_page(), wiki::encode_record, wiki::decode_record);
+    converted(WIKI_PAGE_LEGACY, b"WPAG", &wiki_page(), wiki::encode_record, wiki::decode_record);
 }
 
 #[test]
