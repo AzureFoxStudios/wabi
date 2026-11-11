@@ -1,4 +1,5 @@
 use crate::domain::UserLayout;
+use crate::format::versioned::{self, RecordFormat};
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
@@ -10,15 +11,15 @@ impl RecordCodec for UserLayout {
     }
 }
 
+/// Versioned durable layout of [`UserLayout`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"ULAY", "layouts projection");
+
 pub fn encode_record(l: &UserLayout) -> Vec<u8> {
-    postcard::to_allocvec(l).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, l)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<UserLayout> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "layouts projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(user_id: u64) -> Vec<u8> {

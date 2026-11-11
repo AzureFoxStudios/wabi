@@ -1,11 +1,15 @@
 #[cfg(test)]
 pub mod crash_tests;
 #[cfg(test)]
+pub mod golden_records;
+#[cfg(test)]
 pub mod integration;
 #[cfg(test)]
 pub mod lore_integration;
 #[cfg(test)]
 pub mod power_loss;
+#[cfg(test)]
+pub mod pre_versioning_fixture;
 #[cfg(test)]
 pub mod property_tests;
 #[cfg(test)]

@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -79,15 +80,15 @@ impl From<ChannelMemberRecord> for crate::domain::ChannelMember {
     }
 }
 
+/// Versioned durable layout of [`ChannelMemberRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"CMEM", "channel_members projection");
+
 pub fn encode_record(r: &ChannelMemberRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<ChannelMemberRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "channel_members projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(channel_id: &str, user_id: u64) -> Vec<u8> {

@@ -1,4 +1,5 @@
 use crate::domain::WhiteboardDoc;
+use crate::format::versioned::{self, RecordFormat};
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
@@ -10,15 +11,15 @@ impl RecordCodec for WhiteboardDoc {
     }
 }
 
+/// Versioned durable layout of [`WhiteboardDoc`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"WBDC", "whiteboard_docs projection");
+
 pub fn encode_record(d: &WhiteboardDoc) -> Vec<u8> {
-    postcard::to_allocvec(d).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, d)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<WhiteboardDoc> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "whiteboard_docs projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(board_id: &str) -> Vec<u8> {

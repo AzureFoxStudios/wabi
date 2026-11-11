@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -23,15 +24,15 @@ impl RecordCodec for LoreRepoRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreRepoRecord`]; see `format::versioned`.
+const REPO_FORMAT: RecordFormat = RecordFormat::new(*b"LREP", "lore repo projection");
+
 pub fn encode_repo_record(r: &LoreRepoRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&REPO_FORMAT, r)
 }
 
 pub fn decode_repo_record(buf: &[u8]) -> Result<LoreRepoRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore repo projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&REPO_FORMAT, buf)
 }
 
 pub fn encode_repo_key(channel_id: i64) -> Vec<u8> {
@@ -124,15 +125,15 @@ impl RecordCodec for LoreCommitRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreCommitRecord`]; see `format::versioned`.
+const COMMIT_FORMAT: RecordFormat = RecordFormat::new(*b"LCOM", "lore projection");
+
 pub fn encode_record(r: &LoreCommitRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&COMMIT_FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<LoreCommitRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&COMMIT_FORMAT, buf)
 }
 
 pub fn encode_key(channel_id: i64, commit_hash: &str) -> Vec<u8> {
@@ -221,15 +222,15 @@ impl RecordCodec for LoreFileChangeRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreFileChangeRecord`]; see `format::versioned`.
+const CHANGE_FORMAT: RecordFormat = RecordFormat::new(*b"LCHG", "lore file-change projection");
+
 pub fn encode_change_record(r: &LoreFileChangeRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&CHANGE_FORMAT, r)
 }
 
 pub fn decode_change_record(buf: &[u8]) -> Result<LoreFileChangeRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore file-change projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&CHANGE_FORMAT, buf)
 }
 
 /// Key = channel_id (LE) + seq (BE) so a prefix scan over the channel bytes
@@ -313,15 +314,15 @@ impl RecordCodec for LoreTokenRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreTokenRecord`]; see `format::versioned`.
+const TOKEN_FORMAT: RecordFormat = RecordFormat::new(*b"LTOK", "lore token projection");
+
 pub fn encode_token_record(r: &LoreTokenRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&TOKEN_FORMAT, r)
 }
 
 pub fn decode_token_record(buf: &[u8]) -> Result<LoreTokenRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore token projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&TOKEN_FORMAT, buf)
 }
 
 pub fn encode_token_key(token_hash: &str) -> Vec<u8> {
@@ -409,15 +410,15 @@ impl RecordCodec for LoreBindingRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreBindingRecord`]; see `format::versioned`.
+const BINDING_FORMAT: RecordFormat = RecordFormat::new(*b"LBND", "lore binding projection");
+
 pub fn encode_binding_record(r: &LoreBindingRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&BINDING_FORMAT, r)
 }
 
 pub fn decode_binding_record(buf: &[u8]) -> Result<LoreBindingRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore binding projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&BINDING_FORMAT, buf)
 }
 
 impl LoreBindingProjection {
@@ -516,15 +517,15 @@ impl RecordCodec for LorePromoteRecord {
     }
 }
 
+/// Versioned durable layout of [`LorePromoteRecord`]; see `format::versioned`.
+const PROMOTE_FORMAT: RecordFormat = RecordFormat::new(*b"LPRM", "lore promote projection");
+
 pub fn encode_promote_record(r: &LorePromoteRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&PROMOTE_FORMAT, r)
 }
 
 pub fn decode_promote_record(buf: &[u8]) -> Result<LorePromoteRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore promote projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&PROMOTE_FORMAT, buf)
 }
 
 /// Key: channel_id (8 LE) + message_id + 0x00 + file_url.

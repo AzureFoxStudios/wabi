@@ -2,3 +2,4 @@
 
 pub mod record;
 pub mod message_body;
+pub mod versioned;

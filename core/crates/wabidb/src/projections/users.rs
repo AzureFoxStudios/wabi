@@ -1,5 +1,6 @@
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
+use crate::format::versioned::{self, RecordFormat};
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
 use crate::projections::query::{apply_limit, UsersFilter, QueryableProjection};
@@ -49,8 +50,11 @@ impl From<UserRecord> for crate::domain::User {
     }
 }
 
+/// Versioned durable layout of [`UserRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"USER", "users projection");
+
 pub fn encode_record(r: &UserRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 /// Pre-profile-fields layout (before profile_picture/username_font/bio/status_message).
@@ -89,7 +93,21 @@ impl From<UserRecordV1> for UserRecord {
     }
 }
 
+/// Decode a `UserRecord`. Versioned bytes decode by their version byte;
+/// unversioned bytes (written before Task 3.1) use the old fallback below.
 pub fn decode_record(buf: &[u8]) -> Result<UserRecord> {
+    versioned::decode(
+        &FORMAT,
+        buf,
+        |version, body| match version {
+            1 => Some(versioned::payload(&FORMAT, body)),
+            _ => None,
+        },
+        decode_unversioned,
+    )
+}
+
+fn decode_unversioned(buf: &[u8]) -> Result<UserRecord> {
     // Prefer current schema, then legacy v1 (no profile fields).
     if let Ok(r) = postcard::from_bytes::<UserRecord>(buf) {
         return Ok(r);
