@@ -61,15 +61,16 @@ pub(crate) fn decode_vote(buf: &[u8]) -> Result<VotePayload> {
     versioned::decode_v1(&VOTE_FORMAT, buf)
 }
 
+/// Versioned durable layout of [`SolutionPayload`]; see `format::versioned`.
+/// The first field is a `String`, so legacy bytes never start with the marker.
+const SOLUTION_FORMAT: RecordFormat = RecordFormat::new(*b"FSOL", "forum solution payload");
+
 pub fn encode_solution(s: &SolutionPayload) -> Vec<u8> {
-    postcard::to_allocvec(s).expect("postcard serialization failed")
+    versioned::encode_v1(&SOLUTION_FORMAT, s)
 }
 
 pub(crate) fn decode_solution(buf: &[u8]) -> Result<SolutionPayload> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "forum projection".into(),
-        detail: format!("solution payload decode failed: {e}"),
-    })
+    versioned::decode_v1(&SOLUTION_FORMAT, buf)
 }
 
 impl RecordCodec for ForumPostRecord {
