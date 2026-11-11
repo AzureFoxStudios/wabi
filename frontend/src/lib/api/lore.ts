@@ -1179,7 +1179,6 @@ export interface LoreRolesState {
 
 /** Ordered capability ids the server understands. */
 export const ALL_LORE_CAPABILITIES: string[] = [
-	'lore.view',
 	'lore.stage',
 	'lore.commit',
 	'lore.approve',
@@ -1190,7 +1189,6 @@ export const ALL_LORE_CAPABILITIES: string[] = [
 
 /** Short UI labels for the capability checkboxes. */
 export const CAPABILITY_LABELS: Record<string, string> = {
-	'lore.view': 'View',
 	'lore.stage': 'Stage',
 	'lore.commit': 'Commit',
 	'lore.approve': 'Approve',
@@ -1201,13 +1199,12 @@ export const CAPABILITY_LABELS: Record<string, string> = {
 
 /** One-line tooltips for the capability checkboxes. */
 export const CAPABILITY_DESCRIPTIONS: Record<string, string> = {
-	'lore.view': 'Read files and history',
 	'lore.stage': 'Upload and stage files',
 	'lore.commit': 'Write changes to the repository history',
-	'lore.approve': 'Approve uploads awaiting review',
-	'lore.lock': 'Lock/unlock files',
+	'lore.approve': 'Approve or reject review branches',
+	'lore.lock': 'Lock and unlock files',
 	'lore.manage-binding': 'Change the repo↔channel binding',
-	'lore.admin': 'Edit roles and delete content'
+	'lore.admin': 'Delete repos, change repo settings, manage other users\' connect tokens'
 };
 
 /** Role ids the server protects from deletion. */

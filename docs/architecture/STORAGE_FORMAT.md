@@ -224,7 +224,7 @@ The commit-index file header also carries a `format_version`, but the reader doe
 
 ### 7.1 Durable record header
 
-A durable record of one of the 30 converted types (the plaintext of its event, and the projection row made from it) is stored as:
+A durable record of one of the 30 converted record types (the plaintext of its event, and the projection row made from it), and each of four event payloads that are not stored as rows (forum vote `FVOT`, forum solution `FSOL`, user-deleted `UDEL`, DM one-time-prekey consumed `DOTP`), is stored as:
 
 | Offset | Size | Field | Notes |
 |---|---|---|---|
@@ -241,7 +241,7 @@ A durable record of one of the 30 converted types (the plaintext of its event, a
 - To change a record's fields: keep the old layout as its own struct, bump the version, and keep a decoder for every version ever written (test of the pattern: `format::versioned::tests::older_version_dispatches_to_its_own_decoder`). No record type has a version 2 yet.
 - The change is one-way. A build from before the header cannot decode a record that has it; see `docs/deployment/BACKUP_AND_RECOVERY.md`.
 - Offline inspection compares a replay with the saved projection. It treats a version-1 record and its legacy bytes as the same content, so a directory that spans the upgrade passes (tests: `format::versioned::tests::fingerprint_bytes_are_the_same_for_legacy_and_version_1`, `tests::pre_versioning_fixture::pre_versioning_directory_passes_offline_inspection`, `tests::pre_versioning_fixture::upgraded_directory_passes_offline_inspection`). That holds for version 1 only. A later version changes the payload, so a projection saved before that bump will not match a replay after it. Rebuilding the saved projection when a version changes is *planned*.
-- *Planned* (plan Task 3.1b): four event payloads are still raw postcard with no version: the forum vote and solution payloads, the user-deleted payload, and the DM one-time-key "consumed" payload. The `RecordCodec` trait's default `encode`/`decode` also still write raw postcard; nothing calls them for a converted type today.
+- The four event payloads were converted after the 30 record types, each with golden bytes captured first (tests: `tests::golden_records::golden_forum_vote_payload`, `tests::golden_records::golden_forum_solution_payload`, `tests::golden_records::golden_user_deleted`, `tests::golden_records::golden_dm_prekey_consumed_payload`), and old-format events of each still replay and pass offline inspection (tests: `tests::pre_versioning_fixture::raw_event_payloads_replay_in_both_formats`, `tests::pre_versioning_fixture::raw_event_payloads_pass_offline_inspection`). The `RecordCodec` trait has no default `encode`/`decode`, so an implementor cannot write a record without a version by omission (test: `tests::golden_records::record_codec_never_writes_unversioned_bytes`). Nothing writes the `dm_onetime_prekey_consumed` event today; its handler replays any that a data directory holds.
 
 ## 8. What this document does not specify
 

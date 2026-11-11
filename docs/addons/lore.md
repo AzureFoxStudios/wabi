@@ -470,8 +470,8 @@ Within the exact channel for which the token was minted:
 
 Mint/list/revoke require an account credential, not a connect token. Minting
 requires an active registered non-bot account, explicit membership and at least
-Artist permissions. Users can list/revoke their own tokens after losing Artist
-permissions; admins can manage others' tokens in channels they can access.
+the `lore.stage` capability. Users can list/revoke their own tokens after losing
+it; holders of `lore.admin` can manage others' tokens in channels they can access.
 Minting returns `tokenHash` as well as the legacy prefix and one-time plaintext.
 The list contains persisted unrevoked records, which may already be unusable
 because of role changes or account-wide revocation.
@@ -731,7 +731,29 @@ Authorization is **channel-scoped**. Tests:
 - A member's role limits what they can write, and a member who loses the role or the channel loses write access (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::role_loss_limits_writes_and_missing_membership_prevents_minting_dead_tokens`).
 - Promoting a message into a repo requires membership of the target repo's channel (test: `core/crates/wabi-server/tests/lore_promote_membership_contract.rs::promote_requires_membership_of_the_target_repo_channel`).
 - A read-only member, or a token for another repo, cannot write (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::read_only_and_cross_repo_writes_fail_before_file_side_effects`).
-- Repo delete, detach and registering an external mirror require channel membership plus the `lore.commit` or `lore.manage-binding` capability, which the server owner and admins hold. This is read from `core/crates/wabi-server/src/api/lore.rs` (`delete_repo`, `register_external_mirror`, `can_edit_lore`); no test covers it. Earlier text said "limited to channel admins", which the code does not say.
+- Repo delete and repo PATCH require `lore.admin`; lock/unlock require `lore.lock`; review approve/reject require `lore.approve`; a direct promote requires `lore.commit` (tests: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs`, one test per rule: `repo_delete_and_patch_require_lore_admin`, `lock_and_unlock_require_lore_lock`, `review_approve_and_reject_require_lore_approve`, `stage_only_user_cannot_force_a_direct_commit`).
+- Merging a branch requires `lore.approve` as well as the branch gate, so the merge route is not a way around review (test: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs::merging_a_branch_requires_lore_approve`).
+- `POST /repos` on a channel that already has a repo requires `lore.admin`, because it renames the repo, changes its owner and can turn review on (test: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs::recreating_an_existing_repo_requires_lore_admin`).
+- The `open` default policy does not grant `lore.admin` (test: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs::open_policy_does_not_hand_out_lore_admin`).
+- Holders of `lore.approve` and `lore.admin`, and the server owner, pass those gates (test: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs::holders_of_the_new_capabilities_are_allowed`).
+- Registering an external mirror requires channel membership plus the `lore.commit` or `lore.manage-binding` capability. This is read from `core/crates/wabi-server/src/api/lore.rs` (`register_external_mirror`, `can_edit_lore`); no test covers the capability rule. Repo delete and detach go through `delete_repo` and need `lore.admin`, as above. Earlier text said "limited to channel admins", which the code does not say.
+
+Roles are named bundles of capabilities (`lore_roles.json`), assigned through the role editor. The capabilities, and exactly what each one gates:
+
+| Capability | Enforced on |
+|---|---|
+| `lore.stage` | file upload and delete, recording upload, minting connect tokens, and promoting to a review branch. **This is not review-only:** an upload commits straight to the mainline when the repo's review setting (`auto_branch_on_upload`) is off, which is the default, and a file delete always commits to the mainline. Routing those through review for members without `lore.commit` is *planned* |
+| `lore.commit` | promoting with a direct commit; with `lore.manage-binding`, the repo create/link/import/snapshot/mirror and branch create routes (either capability is enough), and the first half of the branch merge gate |
+| `lore.manage-binding` | setting and deleting channel bindings (see the line above for the routes it shares with `lore.commit`) |
+| `lore.lock` | lock and unlock |
+| `lore.approve` | review branch approve and reject, and branch merge (together with `lore.commit` or `lore.manage-binding`) |
+| `lore.admin` | repo delete (and detach) and PATCH, `POST /repos` over an existing repo, and listing or revoking other users' connect tokens |
+
+Read access is **not** a capability. The repo read routes require channel membership, so a `lore.view` entry on an older stored role is ignored and dropped the next time the role is saved. (`GET /health` requires nothing, and `GET /promotes/{message_id}` checks membership only when a promote record exists.) Server owners and admins hold every capability.
+
+A member with no Lore role, or with a role id the store does not know, gets the default policy: `view` grants no capability, and `open` grants every capability except `lore.admin`. `lore.admin` always needs a server owner or admin, or a role that lists it.
+
+A promote without `lore.commit` never commits directly: a request with `"mode": "direct"`, or a binding whose mode is `direct` or `hybrid`, is staged on a review branch instead.
 
 The `upload_recording` endpoint restricts its target to the single configured Recordings channel. It requires the asset-write role, applies the blob cap, and accepts only a single-component filename (tests: `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::view_only_member_recording_upload_is_403_before_any_body_byte_is_read`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_over_the_blob_cap_is_413_regression`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_filename_with_a_separator_is_rejected_and_writes_nothing`, `core/crates/wabi-server/tests/lore_upload_streaming_contract.rs::recording_filename_that_names_no_file_is_rejected_and_writes_nothing`). Earlier text said it refuses (404) anything that is not a real Lore repo; no test covers that, so it is not claimed here.
 
@@ -751,8 +773,8 @@ Git import and mirror fetch accept public HTTPS targets, reject embedded credent
 ### 11.4 File locks
 
 Unmergeable binary assets can be locked via the lock endpoints. The Lore server
-owns lock state; the addon enforces channel-level authorization on acquire /
-release.
+owns lock state; the addon requires channel membership and the `lore.lock`
+capability on acquire and release (§11.2).
 
 ---
 
@@ -867,11 +889,11 @@ can gain a field only as a new record version through `wabidb::format::versioned
 Lore's model of "upload straight to the current branch" is hostile to artists —
 an accidental upload pollutes the trunk. The review flow keeps uploads off the trunk:
 
-1. An Owner/Admin/Developer turns it on per repo:
-   `PATCH /repos/{channel_id}` with `{ "autoBranchOnUpload": true }`. (The service call `set_auto_branch_on_upload` exists; no test drives the PATCH route.)
+1. A holder of `lore.admin` (the server owner and admins; the seeded Developer role does not have it) turns it on per repo:
+   `PATCH /repos/{channel_id}` with `{ "auto_branch_on_upload": true }` (the handler reads that spelling only; test: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs::holders_of_the_new_capabilities_are_allowed` sends it as a `lore.admin` holder and as the owner).
 2. An Artist uploads as usual (`PUT .../files/{*path}`). With the flag on, the service
    creates a fresh `uploads/{sanitized_username}-{timestamp}` branch, commits the file there, then switches back to mainline, and the response sets `pendingReview` and `reviewBranch`. Test `core/addons/lore/backend/src/lib.rs::tests::review_upload_pins_review_bytes_before_restoring_mainline` shows that, with `auto_branch_on_upload` on and a scripted `lore` stand-in, `upload_file` returns `pending_review`, the revision hash, and the new size and ETag, that the review revision downloads the uploaded bytes, and that a later read of mainline returns the old bytes (or none for a new path). It does not assert the branch name, that a branch is created, or `review_branch`: the stand-in prints a fixed branch list. The `uploads/` prefix of a reported review branch is asserted only on the stage-promote path (test: `core/addons/lore/backend/src/lib.rs::tests::stage_promote_on_an_auto_branch_repo_creates_no_second_review_branch`); the `{sanitized_username}-{timestamp}` suffix has no test and is read from `upload_file`. An ignored upload leaves no bytes and no stray branch (test: `core/crates/wabi-server/src/api/lore.rs::tests::ignored_upload_leaves_no_bytes_and_no_branch_rot`).
-3. A reviewer either approves (`POST /repos/{channel_id}/review/{name}/approve`, merge into mainline then archive the branch) or rejects (`.../reject`, archive without merging). *No test covers approve or reject, the archive step, or the Owner/Admin/Developer gating of branch actions.* The routes and service methods exist (`approve_review_branch`, `reject_review_branch`); this is implemented and untested, not planned.
+3. A reviewer either approves (`POST /repos/{channel_id}/review/{name}/approve`, merge into mainline then archive the branch) or rejects (`.../reject`, archive without merging). Approve and reject require `lore.approve` (test: `core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs::review_approve_and_reject_require_lore_approve`). *No test covers a successful approve or reject against a real Lore CLI, or the archive step.* The routes and service methods exist (`approve_review_branch`, `reject_review_branch`); that part is implemented and untested, not planned.
 
 ### 14.3 External mirrors (read-only pointers)
 
