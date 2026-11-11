@@ -631,7 +631,7 @@ fn golden_album_record() {
 
 #[test]
 fn golden_album_item_record() {
-    unchanged_today(ALBUM_ITEM_LEGACY, &album_item(), album_items::encode_record, album_items::decode_record);
+    converted(ALBUM_ITEM_LEGACY, b"ALIT", &album_item(), album_items::encode_record, album_items::decode_record);
 }
 
 #[test]
