@@ -10,15 +10,33 @@ use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
 use crate::config::{LinkConfig, SyncState, LINK_FILE, STATE_DIR};
 use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 
-/// Paths never synced regardless of ignore files.
+/// What every conflict copy has in its file name.
+const CONFLICT_MARKER: &str = ".wabi-conflict-";
+
+/// Paths never synced regardless of ignore files, in either direction:
+/// - this tool's own link file and state directory;
+/// - conflict copies, which belong to the folder they were made in;
+/// - the names the server refuses as repository metadata, at any depth and
+///   in any letter case (`reserved` and `ignore_file` in the Lore addon's
+///   `confined_fs.rs`).
 fn is_internal(rel: &str) -> bool {
-    rel == LINK_FILE
-        || rel == ".wabiignore"
-        || rel == ".loreignore"
-        || rel == ".wabi-repo.json"
-        || rel.starts_with(&(STATE_DIR.to_string() + "/"))
-        || rel.starts_with(".lore/")
-        || rel.starts_with(".git/")
+    rel.split('/').any(|component| {
+        let name = component.to_ascii_lowercase();
+        name == LINK_FILE
+            || name == STATE_DIR
+            || name.contains(CONFLICT_MARKER)
+            || matches!(
+                name.as_str(),
+                ".git"
+                    | ".lore"
+                    | ".mirror-cache"
+                    | ".wabi-repo.json"
+                    | ".wabi-mirror-fetched-at"
+                    | ".wabiignore"
+                    | ".loreignore"
+            )
+            || name.starts_with(".wabi-publish-")
+    })
 }
 
 /// Glob-style `.wabiignore` matching: `**` spans `/`, `*` within a segment.
@@ -155,6 +173,9 @@ pub struct SyncReport {
     pub waiting_review: Vec<String>,
     /// Local deletions the server refused (403).
     pub not_deleted: Vec<String>,
+    /// Local files the server refused, each with the reason. They stay as
+    /// they are in the folder and are offered again on the next round.
+    pub not_uploaded: Vec<String>,
 }
 
 impl SyncReport {
@@ -167,6 +188,7 @@ impl SyncReport {
             conflicts: Vec::new(),
             waiting_review: Vec::new(),
             not_deleted: Vec::new(),
+            not_uploaded: Vec::new(),
         }
     }
 
@@ -178,6 +200,7 @@ impl SyncReport {
             && self.conflicts.is_empty()
             && self.waiting_review.is_empty()
             && self.not_deleted.is_empty()
+            && self.not_uploaded.is_empty()
     }
 }
 
@@ -190,12 +213,14 @@ pub struct SyncEngine<'a> {
 
 impl<'a> SyncEngine<'a> {
     pub fn new(client: &'a WabiClient, folder: &'a Path, link: &'a LinkConfig) -> Self {
-        Self {
-            client,
-            folder,
-            link,
-            state: SyncState::load(folder).unwrap_or_default(),
-        }
+        let mut state = SyncState::load(folder).unwrap_or_default();
+        // An earlier build synced conflict copies like any other file. With
+        // no record of them here they are neither deleted nor replaced, on
+        // the server or in the folder.
+        state.baselines.retain(|path, _| !is_internal(path));
+        state.pending_review.retain(|path, _| !is_internal(path));
+        state.local_fingerprints.retain(|path, _| !is_internal(path));
+        Self { client, folder, link, state }
     }
 
     pub fn save_state(&self) -> anyhow::Result<()> {
@@ -270,6 +295,7 @@ impl<'a> SyncEngine<'a> {
         let remote: BTreeMap<&str, &Option<String>> = manifest
             .files
             .iter()
+            .filter(|f| !is_internal(&f.path))
             .map(|f| (f.path.as_str(), &f.etag))
             .collect();
 
@@ -451,6 +477,11 @@ impl<'a> SyncEngine<'a> {
                         self.state.baselines.insert(path.clone(), Some(adopted));
                     }
                 }
+                UploadOutcome::Refused(refusal) => {
+                    // Nothing changed on either side; the rest of the round
+                    // does not depend on this file.
+                    report.not_uploaded.push(format!("{path} (not uploaded: {refusal})"));
+                }
                 UploadOutcome::Conflict(conflict) => {
                     self.state.pending_review.remove(path);
                     self.state.local_fingerprints.remove(path);
@@ -546,6 +577,9 @@ pub fn print_report(prefix: &str, report: &SyncReport) {
     for p in &report.not_deleted {
         println!("{prefix} ⚠ {p} (not deleted: you do not have permission)");
     }
+    for p in &report.not_uploaded {
+        println!("{prefix} ⚠ {p}");
+    }
 }
 
 #[cfg(test)]
@@ -575,6 +609,28 @@ mod tests {
         assert!(is_internal(".lore/config"));
         assert!(is_internal(".git/HEAD"));
         assert!(!is_internal("src/main.rs"));
+        // The server's reserved names, at any depth and in any case.
+        for path in [
+            "sub/.git/config",
+            "sub/.Lore/head",
+            "a/.wabi-repo.json",
+            "a/.mirror-cache/x",
+            ".wabi-mirror-fetched-at",
+            "a/.wabi-publish-123/x",
+            ".wabiignore",
+            "sub/.WabiIgnore",
+            "sub/.loreignore",
+            "nested/.wabi-sync/state.json",
+            "nested/.wabi-sync.json",
+        ] {
+            assert!(is_internal(path), "{path}");
+        }
+        // Conflict copies.
+        assert!(is_internal("docs/file.txt.wabi-conflict-ab12cd34"));
+        assert!(is_internal("docs/file.txt.wabi-conflict-ab12cd34-2"));
+        for path in [".gitignore", ".github/workflows/ci.yml", "wabi-conflict-notes.txt", "lore/readme.md"] {
+            assert!(!is_internal(path), "{path}");
+        }
     }
 
     #[test]
@@ -592,6 +648,11 @@ mod tests {
         std::fs::write(dir.path().join("node_modules/pkg/x.js"), b"junk").unwrap();
         std::fs::write(dir.path().join(".wabiignore"), "node_modules\n").unwrap();
         std::fs::write(dir.path().join(".wabi-sync.json"), b"{}").unwrap();
+        std::fs::create_dir_all(dir.path().join(".wabi-sync")).unwrap();
+        std::fs::write(dir.path().join(".wabi-sync/state.json"), b"{}").unwrap();
+        std::fs::write(dir.path().join("src/main.rs.wabi-conflict-ab12cd34"), b"mine").unwrap();
+        std::fs::create_dir_all(dir.path().join("src/.git")).unwrap();
+        std::fs::write(dir.path().join("src/.git/config"), b"x").unwrap();
         let scanned = scan_local(dir.path()).unwrap();
         assert_eq!(scanned.len(), 1);
         assert!(scanned.contains_key("src/main.rs"));
