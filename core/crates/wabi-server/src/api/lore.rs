@@ -279,8 +279,12 @@ async fn can_asset_write_lore(state: &AppState, user_id: i64) -> bool {
 ///   2. stored workspace role id `owner` / `admin` → all caps (the
 ///      un-lockable base: these ids cannot be reduced below ALL).
 ///   3. stored role id found in the store → capability in its bundle.
-///   4. roleless / unknown role id → default policy: `open` = all caps,
-///      otherwise no capabilities (read access comes from channel membership).
+///   4. roleless / unknown role id → default policy: `open` = every
+///      capability except `lore.admin`, otherwise none (read access comes
+///      from channel membership). `lore.admin` is never implied: it needs
+///      a server owner/admin or a role that lists it. It gates other users'
+///      connect tokens, which were for server admins only before it was
+///      enforced, as well as repo delete and settings.
 /// LoreWriteUser enforces connect-token scope independently of these role gates.
 pub(crate) async fn can_lore(state: &AppState, user_id: i64, capability: &str) -> bool {
     use crate::lore_roles::ALL_CAPABILITIES;
@@ -290,7 +294,7 @@ pub(crate) async fn can_lore(state: &AppState, user_id: i64, capability: &str) -
     }
     let default_fallback = || {
         if state.lore_roles.default_policy_is_open() {
-            ALL_CAPABILITIES.contains(&capability)
+            capability != crate::lore_roles::CAP_ADMIN && ALL_CAPABILITIES.contains(&capability)
         } else {
             // "view" policy: read access only, which is implied by channel
             // membership and is not a capability.
@@ -499,6 +503,16 @@ async fn create_repo(
                 .unwrap_or(false);
 
             let lore = lore_service(&state).await?;
+            // Creating over a repo that is already registered renames it,
+            // takes it over and can turn review on. That is repo
+            // administration, gated like PATCH.
+            if lore.get_repo(channel_id).await.is_some()
+                && !can_lore(&state, auth.user_id, crate::lore_roles::CAP_ADMIN).await
+            {
+                return Err(AppError::Forbidden(
+                    "Changing an existing Lore repo requires the lore.admin capability".into(),
+                ));
+            }
             let repo = lore
                 .create_repo(channel_id, auth.user_id, repo_name)
                 .await?;
@@ -2728,6 +2742,13 @@ async fn merge_branch(
             if !can_edit_lore(&state, auth.user_id).await {
                 return Err(AppError::Forbidden(
                     "Lore branch operations require Owner/Admin/Developer role".into(),
+                ));
+            }
+            // A merge lands a branch on the mainline, which is what approving
+            // a review branch does, so it needs the same capability.
+            if !can_lore(&state, auth.user_id, crate::lore_roles::CAP_APPROVE).await {
+                return Err(AppError::Forbidden(
+                    "Merging a branch requires the lore.approve capability".into(),
                 ));
             }
             let lore = lore_service(&state).await?;

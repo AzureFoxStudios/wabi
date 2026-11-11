@@ -83,7 +83,7 @@ struct Fixture {
 }
 
 /// Role slug -> capabilities. Each user is named after its role.
-const ROLES: [(&str, &[&str]); 4] = [
+const ROLES: [(&str, &[&str]); 7] = [
     // lore.stage only: no lock, no commit, no approve, no admin.
     ("stager", &["lore.stage"]),
     // stage + lock, but nothing else.
@@ -92,6 +92,12 @@ const ROLES: [(&str, &[&str]); 4] = [
     ("committer", &["lore.stage", "lore.commit"]),
     // everything except lore.admin.
     ("almost-admin", &["lore.stage", "lore.commit", "lore.approve", "lore.lock", "lore.manage-binding"]),
+    // the other half of the old "edit" gate, alone.
+    ("binder", &["lore.manage-binding"]),
+    // may land other people's work: commit + approve.
+    ("approver", &["lore.stage", "lore.commit", "lore.approve"]),
+    // lore.admin and nothing else.
+    ("repo-admin", &["lore.admin"]),
 ];
 
 async fn fixture() -> Fixture {
@@ -139,6 +145,13 @@ async fn fixture() -> Fixture {
         }
         users.push((slug, uid));
     }
+    // A member with no Lore role at all, and the server owner.
+    let nobody = state.wdb.create_user("nobody", None, "test-registered-hash").await.unwrap();
+    for channel in [&chat, &lore_channel] {
+        state.wdb.add_channel_member(channel, nobody, MemberRole::Member).await.unwrap();
+    }
+    users.push(("nobody", nobody));
+    users.push(("owner", owner));
     let tokens = users.iter().map(|(slug, uid)| (*slug, jwt(&state, *uid, slug))).collect();
 
     std::fs::create_dir_all(dir.path().join("uploads")).unwrap();
@@ -300,4 +313,100 @@ async fn stage_only_user_cannot_force_a_direct_commit() {
         assert_eq!(status, StatusCode::FORBIDDEN, "{body}; cli log: {:?}", std::fs::read_to_string(&f.commit_log));
         assert!(!f.commit_log.exists() || !std::fs::read_to_string(&f.commit_log).unwrap().contains("commit"));
     }
+}
+
+/// Merging a branch lands it on the mainline, which is what approving a
+/// review branch does. The merge route must not be a way around lore.approve.
+#[tokio::test]
+async fn merging_a_branch_requires_lore_approve() {
+    let f = fixture().await;
+    let uri = format!("/addons/lore/repos/{}/branches/chat-u1/merge", f.repo);
+    for who in ["binder", "committer"] {
+        let (status, body) = call(&f, who, Method::POST, &uri, None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{who} merged without lore.approve: {body}");
+    }
+    assert!(
+        !std::fs::read_to_string(&f.commit_log).unwrap_or_default().contains("merge"),
+        "a refused merge reached the CLI"
+    );
+    let (status, body) = call(&f, "approver", Method::POST, &uri, None).await;
+    assert_eq!(status, StatusCode::OK, "lore.commit + lore.approve must merge: {body}");
+}
+
+/// POST /repos on a channel that already has a repo renames it, takes it
+/// over and can turn review on. That is repo administration, so it needs
+/// lore.admin, the same as PATCH.
+#[tokio::test]
+async fn recreating_an_existing_repo_requires_lore_admin() {
+    let f = fixture().await;
+    let body = json!({ "channelId": f.repo, "repoName": "renamed", "autoBranchOnUpload": true });
+    for who in ["committer", "binder", "almost-admin"] {
+        let (status, reply) =
+            call(&f, who, Method::POST, "/addons/lore/repos", Some(body.clone())).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{who} re-created an existing repo: {reply}");
+    }
+    let repo =
+        f.state.lore_service.read().await.as_ref().unwrap().get_repo(f.repo).await.unwrap();
+    assert_eq!(repo.repo_name, "repo", "a refused request renamed the repo");
+    assert!(!repo.auto_branch_on_upload, "a refused request turned review on");
+
+    let (status, reply) = call(&f, "owner", Method::POST, "/addons/lore/repos", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "the owner may: {reply}");
+}
+
+/// The "open" default policy gives a member with no role the working
+/// capabilities. It must not hand out lore.admin: before these gates existed,
+/// other users' connect tokens were for server admins only.
+#[tokio::test]
+async fn open_policy_does_not_hand_out_lore_admin() {
+    let f = fixture().await;
+    f.state.lore_roles.set_default_policy("open").unwrap();
+    let tokens_uri = format!("/addons/lore/repos/{}/connect-tokens", f.repo);
+
+    let (status, minted) =
+        call(&f, "stager", Method::POST, &tokens_uri, Some(json!({ "scopes": "read" }))).await;
+    assert_eq!(status, StatusCode::OK, "{minted}");
+
+    // Open policy still lets a roleless member work: locking needs lore.lock.
+    let lock = format!("/addons/lore/repos/{}/lock/assets/a.txt", f.repo);
+    let (status, body) = call(&f, "nobody", Method::POST, &lock, None).await;
+    assert_eq!(status, StatusCode::OK, "open policy should grant lore.lock: {body}");
+
+    let (status, listed) = call(&f, "nobody", Method::GET, &tokens_uri, None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert_eq!(listed["tokens"].as_array().unwrap().len(), 0, "saw another user's token: {listed}");
+
+    let (status, listed) = call(&f, "repo-admin", Method::GET, &tokens_uri, None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let all = listed["tokens"].as_array().unwrap();
+    assert_eq!(all.len(), 1, "lore.admin lists other users' tokens: {listed}");
+    let hash = all[0]["tokenHash"].as_str().unwrap().to_string();
+
+    let (status, body) =
+        call(&f, "nobody", Method::DELETE, &format!("{tokens_uri}/{hash}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "revoked another user's token: {body}");
+
+    let repo_uri = format!("/addons/lore/repos/{}", f.repo);
+    let (status, body) = call(&f, "nobody", Method::DELETE, &repo_uri, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "open policy deleted the repo: {body}");
+
+    let (status, body) =
+        call(&f, "repo-admin", Method::DELETE, &format!("{tokens_uri}/{hash}"), None).await;
+    assert_eq!(status, StatusCode::OK, "lore.admin revokes other users' tokens: {body}");
+}
+
+/// The gates deny without the capability; these show they allow with it.
+#[tokio::test]
+async fn holders_of_the_new_capabilities_are_allowed() {
+    let f = fixture().await;
+    let approve = format!("/addons/lore/repos/{}/review/chat-u1/approve", f.repo);
+    let (status, body) = call(&f, "approver", Method::POST, &approve, None).await;
+    assert_ne!(status, StatusCode::FORBIDDEN, "lore.approve must pass the approve gate: {body}");
+
+    let repo_uri = format!("/addons/lore/repos/{}", f.repo);
+    let patch = Some(json!({ "auto_branch_on_upload": true }));
+    let (status, body) = call(&f, "repo-admin", Method::PATCH, &repo_uri, patch.clone()).await;
+    assert_eq!(status, StatusCode::OK, "lore.admin must PATCH: {body}");
+    let (status, body) = call(&f, "owner", Method::PATCH, &repo_uri, patch).await;
+    assert_eq!(status, StatusCode::OK, "the owner must PATCH: {body}");
 }
