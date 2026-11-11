@@ -175,9 +175,12 @@ corrected projection. Otherwise it changes nothing
 `projections::messages::tests::repair_matches_replay_when_an_own_id_looks_like_a_legacy_key`,
 `projections::messages::tests::repair_matches_replay_when_author_entries_collide_or_move`,
 `tests::pre_versioning_fixture::opening_rewrites_wrongly_keyed_message_index_entries`).
-Known limit: two events for one author and message id in the same commit share
+Known limits, for shapes the server does not write (it sends one message event
+per command): two events for one author and message id in the same commit share
 a sequence number, so which one `messages_by_author` keeps can differ from
-replay when they are in different rooms. In offline inspection a match now
+replay; a commit that created a message with its own id and then one with a
+blank id leaves no wrongly keyed entry, so nothing is rebuilt; and a time index
+that is missing events cannot order two rooms' rows. In offline inspection a match now
 means the directory opens to the state the log gives, not that the saved file
 is byte for byte what replay writes. No server code reads either index today;
 `MessagesProjection::compact` has no production caller.

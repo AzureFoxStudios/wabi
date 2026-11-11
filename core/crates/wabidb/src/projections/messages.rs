@@ -901,15 +901,24 @@ fn author_index_key(author_user_id: u64, message_id: &str) -> Vec<u8> {
 ///   commit sequence. That is the entry replay leaves. A primary row the time
 ///   index does not cover is added from `messages`.
 ///
-/// A value that does not decode is skipped; it cannot be judged or re-keyed.
+/// A value that does not decode cannot be judged, so it never starts a
+/// rebuild. A rebuild replaces both indexes whole, so it does not survive one.
 ///
 /// Run at engine open before the dispatcher starts, and on the saved view in
 /// offline inspection. Returns the number of wrongly keyed entries found; zero
 /// for a projection written by a build with the fix.
 ///
-/// Known limit: two events for one author and message id inside the same
-/// commit share a sequence number, so which of them `messages_by_author`
-/// keeps can differ from replay when they are in different rooms.
+/// Known limits, all for shapes the server does not write (it sends one
+/// message event per command, and the time index covers every message):
+///
+/// - Events of one commit share a sequence number. Two events for one author
+///   and message id in the same commit cannot be put in order, so the
+///   `messages_by_author` entry kept can differ from replay.
+/// - If one commit created a message with its own id and then one with a
+///   blank id, the old build overwrote the first entry with a rightly keyed
+///   one. Nothing is wrongly keyed, so nothing is rebuilt.
+/// - Where the time index is missing events, the `messages` fallback cannot
+///   tell which room's row is later, or recover a former author's entry.
 pub fn rekey_legacy_index_entries(state: &ProjectionState) -> usize {
     let mut wrong = 0;
     for index in ["messages_by_channel", "messages_by_author"] {
