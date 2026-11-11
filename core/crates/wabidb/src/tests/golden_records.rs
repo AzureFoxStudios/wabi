@@ -671,7 +671,7 @@ fn golden_lore_repo_record() {
 
 #[test]
 fn golden_lore_commit_record() {
-    unchanged_today(LORE_COMMIT_LEGACY, &lore_commit(), lore::encode_record, lore::decode_record);
+    converted(LORE_COMMIT_LEGACY, b"LCOM", &lore_commit(), lore::encode_record, lore::decode_record);
 }
 
 #[test]
