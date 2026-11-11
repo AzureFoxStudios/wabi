@@ -770,3 +770,151 @@ fn every_durable_record_is_versioned() {
         .collect();
     assert!(unversioned.is_empty(), "unversioned durable records: {unversioned:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Event payloads (Task 3.1b). These are not projection rows: each is the
+// payload of one durable event, decoded by its handler on every replay. The
+// literals were captured from the encoders before Task 3.1b changed them.
+// ---------------------------------------------------------------------------
+
+/// `forum_post_voted`: post, thread, channel, direction, actor.
+const FORUM_VOTE_LEGACY: &str =
+    "06706f73745f31057468725f310863685f666f72756d02757081d4dbd20f";
+/// `forum_post_solution_set`: post, thread, channel, actor.
+const FORUM_SOLUTION_LEGACY: &str =
+    "06706f73745f31057468725f310863685f666f72756d81d4dbd20f";
+/// `user_deleted`: the deleted user's id.
+const USER_DELETED_LEGACY: &str = "81d4dbd20f";
+/// `dm_onetime_prekey_consumed`: user, device, prekey.
+const DM_PREKEY_CONSUMED_LEGACY: &str = "09096465762d70686f6e65046f746b31";
+
+/// The encoders as they were before Task 3.1b. The vote and solution structs
+/// are verbatim copies of the private structs in wabi-server's
+/// `adapter::vote_forum_post` and `adapter::mark_forum_solution`; the consumed
+/// struct is a copy of the one the dm_identities tests encode (nothing in the
+/// workspace writes that event). `UserDeleted` is the real type the adapter
+/// encodes.
+mod pre_3_1b_encoders {
+    #[derive(serde::Serialize)]
+    pub struct VotePayload {
+        pub post_id: String,
+        pub thread_id: String,
+        pub channel_id: String,
+        pub direction: String,
+        pub actor_user_id: u64,
+    }
+
+    #[derive(serde::Serialize)]
+    pub struct SolutionPayload {
+        pub post_id: String,
+        pub thread_id: String,
+        pub channel_id: String,
+        pub actor_user_id: u64,
+    }
+
+    #[derive(serde::Serialize)]
+    pub struct ConsumedPayload {
+        pub user_id: u64,
+        pub device_id: String,
+        pub prekey_public: String,
+    }
+}
+
+#[test]
+fn golden_forum_vote_payload() {
+    let encoded = postcard::to_allocvec(&pre_3_1b_encoders::VotePayload {
+        post_id: "post_1".into(),
+        thread_id: "thr_1".into(),
+        channel_id: "ch_forum".into(),
+        direction: "up".into(),
+        actor_user_id: 4_200_000_001,
+    })
+    .unwrap();
+    assert_eq!(hex::encode(&encoded), FORUM_VOTE_LEGACY);
+    let vote = forum::decode_vote(&bytes(FORUM_VOTE_LEGACY)).unwrap();
+    assert_eq!(
+        (vote.post_id.as_str(), vote.thread_id.as_str(), vote.channel_id.as_str()),
+        ("post_1", "thr_1", "ch_forum")
+    );
+    assert_eq!((vote.direction.as_str(), vote.actor_user_id), ("up", 4_200_000_001));
+}
+
+#[test]
+fn golden_forum_solution_payload() {
+    let encoded = postcard::to_allocvec(&pre_3_1b_encoders::SolutionPayload {
+        post_id: "post_1".into(),
+        thread_id: "thr_1".into(),
+        channel_id: "ch_forum".into(),
+        actor_user_id: 4_200_000_001,
+    })
+    .unwrap();
+    assert_eq!(hex::encode(&encoded), FORUM_SOLUTION_LEGACY);
+    let solution = forum::decode_solution(&bytes(FORUM_SOLUTION_LEGACY)).unwrap();
+    assert_eq!(
+        (solution.post_id.as_str(), solution.thread_id.as_str(), solution.channel_id.as_str()),
+        ("post_1", "thr_1", "ch_forum")
+    );
+    assert_eq!(solution.actor_user_id, 4_200_000_001);
+}
+
+#[test]
+fn golden_user_deleted() {
+    let encoded =
+        postcard::to_allocvec(&crate::domain::UserDeleted { user_id: 4_200_000_001 }).unwrap();
+    assert_eq!(hex::encode(&encoded), USER_DELETED_LEGACY);
+    // Decoded by the handler, which removes the sample member (that user id).
+    use crate::engine::locks::ProjectionState;
+    use crate::projections::handler::{DurableEvent, Projection};
+    let state = ProjectionState::new();
+    let member = channel_member();
+    state.insert(
+        "channel_members",
+        channel_members::encode_key(&member.channel_id, member.user_id),
+        channel_members::encode_record(&member),
+        1,
+    );
+    let event = DurableEvent {
+        commit_seq: 2,
+        stream_id: "users".into(),
+        event_type: "user_deleted".into(),
+        payload: bytes(USER_DELETED_LEGACY),
+    };
+    crate::projections::user_deletion::UserDeletionProjection.apply(&event, &state).unwrap();
+    assert!(channel_members::ChannelMembersProjection::list_members(&state, "ch_general")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn golden_dm_prekey_consumed_payload() {
+    let encoded = postcard::to_allocvec(&pre_3_1b_encoders::ConsumedPayload {
+        user_id: 9,
+        device_id: "dev-phone".into(),
+        prekey_public: "otk1".into(),
+    })
+    .unwrap();
+    assert_eq!(hex::encode(&encoded), DM_PREKEY_CONSUMED_LEGACY);
+    // The handler's decoder is private to its match arm; applying the event
+    // to the sample identity is the only way to run it.
+    use crate::engine::locks::ProjectionState;
+    use crate::projections::handler::{DurableEvent, Projection};
+    let state = ProjectionState::new();
+    let identity = dm_identity();
+    state.insert(
+        "dm_identities",
+        dm_identities::encode_key(identity.user_id, &identity.device_id),
+        dm_identities::encode_record(&identity),
+        1,
+    );
+    let event = DurableEvent {
+        commit_seq: 2,
+        stream_id: "dm_identities:9".into(),
+        event_type: "dm_onetime_prekey_consumed".into(),
+        payload: bytes(DM_PREKEY_CONSUMED_LEGACY),
+    };
+    dm_identities::DmIdentitiesProjection.apply(&event, &state).unwrap();
+    let after = dm_identities::DmIdentitiesProjection::get_identity(&state, 9, "dev-phone")
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.one_time_prekeys, vec!["otk2".to_string()]);
+}
