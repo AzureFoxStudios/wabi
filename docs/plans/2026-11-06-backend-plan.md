@@ -206,6 +206,8 @@ Open Lore findings from that review. None is verified against a real `lore` bina
 | 4.8 | Capability model: either enforce `lore.view/approve/lock/admin` or remove them from the role editor. Also: `lore.stage` alone must not get a direct commit by asking for `mode: direct`. | L6 |
 | 4.8b | A member with only `lore.stage` still changes the mainline through a plain upload (when the repo's review setting is off, the default) and through file delete (always). Route both through review, or require `lore.commit`. Added 2026-11-11 from the review of PR 324. | L6 |
 
+4.8b done 2026-11-11 (PR 329): a caller without `lore.commit` no longer changes the mainline. Uploads, recordings and connect-token uploads by such a caller go to a fresh `uploads/` review branch whatever the repo's review setting; file delete is refused with 403. Review added a third route the task had not named: a stage-only upload (`?stageOnly=true`) wrote the file into the mainline's working tree without a commit, so the next commit by anyone would have carried it; it now needs `lore.commit` too. What changes for the seeded Artist role: on a repo with review off, uploads wait for approval, and deletes and batch staging are refused. Left open: `POST /snapshot` still accepts `lore.manage-binding` without `lore.commit` (no seeded role is in that position); the Lore UI still offers delete to artists and shows the refusal; nothing here was run against a real `lore` binary or seen in a browser.
+
 ---
 
 ## Phase 5: only now, new things

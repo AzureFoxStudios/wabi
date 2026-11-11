@@ -1835,12 +1835,21 @@ async fn admit_file_upload(
     auth: &AuthUser,
     channel_id: i64,
     repo_path: &str,
+    stage_only: bool,
 ) -> Result<Option<Arc<wabi_lore::LoreService>>> {
     ensure_channel_member(state, channel_id, auth.user_id).await?;
     // L8: asset writes = Owner/Admin/Developer/Artist
     if !can_asset_write_lore(state, auth.user_id).await {
         return Err(AppError::Forbidden(
             "Lore asset uploads require at least Artist role".into(),
+        ));
+    }
+    // A stage-only upload writes the file into the working tree of the
+    // current branch, where everyone reads it and where the next commit by
+    // anyone picks it up. That changes the mainline, so it needs lore.commit.
+    if stage_only && !can_lore(state, auth.user_id, "lore.commit").await {
+        return Err(AppError::Forbidden(
+            "Staging a batch writes to the main branch and requires lore.commit. Upload the file without stageOnly to send it for review.".into(),
         ));
     }
     wabi_lore::validate_repo_path(repo_path)
@@ -1895,6 +1904,7 @@ async fn upload_file(
     let message = query.message.unwrap_or_else(|| "Upload via API".into());
     check_commit_message(&message)?;
     let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
+    let stage_only = query.stage_only.unwrap_or(false);
     let operation_state = state.clone();
 
     // Authorize and look up the blob cap before reading any of the body. The
@@ -1906,7 +1916,7 @@ async fn upload_file(
         let (state, auth, repo_path) = (state.clone(), auth.clone(), repo_path.clone());
         admission
             .run(&operation_state, async move {
-                admit_file_upload(&state, &auth, channel_id, &repo_path).await
+                admit_file_upload(&state, &auth, channel_id, &repo_path, stage_only).await
             })
             .await?
     };
@@ -1925,7 +1935,8 @@ async fn upload_file(
     super::lore_auth::validate_current_capability(&state, &auth, channel_id, true).await?;
     admission
         .run(&operation_state, async move {
-            let Some(lore) = admit_file_upload(&state, &auth, channel_id, &repo_path).await?
+            let Some(lore) =
+                admit_file_upload(&state, &auth, channel_id, &repo_path, stage_only).await?
             else {
                 return Ok(mirror_read_only_response());
             };
@@ -1951,7 +1962,7 @@ async fn upload_file(
             // Batch-push half of the device setup flow: stage the bytes now, seal the
             // whole batch with ONE POST /snapshot afterwards. Per-file WDB commit
             // recording is deferred to that snapshot (which owns the revision hash).
-            if query.stage_only.unwrap_or(false) {
+            if stage_only {
                 let file = lore
                     .stage_file(
                         channel_id,

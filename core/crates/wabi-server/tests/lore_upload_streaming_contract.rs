@@ -119,6 +119,8 @@ struct Fixture {
     recordings_tree: PathBuf,
     asset_channel: i64,
     member_token: String,
+    /// The server owner, who holds every Lore capability.
+    owner_token: String,
     outsider_token: String,
     /// Member of the Recordings channel with no Lore capability (Member role).
     viewer_token: String,
@@ -251,6 +253,7 @@ async fn fixture_with_max_body(max_body_size: Option<usize>) -> Fixture {
     let app = router.with_state(state.clone());
     Fixture {
         member_token: jwt(&state, artist, "artist"),
+        owner_token: jwt(&state, owner, "owner"),
         outsider_token: jwt(&state, outsider, "outsider"),
         viewer_token: jwt(&state, viewer, "viewer"),
         _dir: dir,
@@ -437,7 +440,26 @@ async fn upload_under_the_cap_commits_a_new_revision_with_the_content_etag() {
     }
     assert_ne!(revisions[0], revisions[1], "each upload is a new revision");
 
-    // Stage-only: bytes land, nothing is committed, etag matches the bytes.
+    // Stage-only needs lore.commit, which the Artist role lacks: refused
+    // before the body is read, and nothing reaches the working tree.
+    let consumed = Arc::new(AtomicUsize::new(0));
+    let body = counted_body(b"staged".to_vec(), consumed.clone(), false);
+    let (status, response) = send(
+        &f.app,
+        upload_request(
+            Method::PUT,
+            &format!("{}?stage_only=true", file_uri(f.asset_channel, "docs/staged.txt")),
+            &f.member_token,
+            body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{response}");
+    assert_eq!(consumed.load(Ordering::SeqCst), 0, "refused upload read its body");
+    assert!(!f.asset_tree.join("docs/staged.txt").exists());
+
+    // Stage-only by a commit holder: bytes land, nothing is committed, etag
+    // matches the bytes.
     let commits_before = f.cli_calls().matches("commit").count();
     let body = counted_body(b"staged".to_vec(), Arc::new(AtomicUsize::new(0)), false);
     let (status, response) = send(
@@ -445,7 +467,7 @@ async fn upload_under_the_cap_commits_a_new_revision_with_the_content_etag() {
         upload_request(
             Method::PUT,
             &format!("{}?stage_only=true", file_uri(f.asset_channel, "docs/staged.txt")),
-            &f.member_token,
+            &f.owner_token,
             body,
         ),
     )

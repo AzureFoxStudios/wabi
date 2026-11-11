@@ -1199,8 +1199,8 @@ export const CAPABILITY_LABELS: Record<string, string> = {
 
 /** One-line tooltips for the capability checkboxes. */
 export const CAPABILITY_DESCRIPTIONS: Record<string, string> = {
-	'lore.stage': 'Upload files for review and stage changes (without Commit, uploads go to a review branch and deletes are refused)',
-	'lore.commit': 'Change the mainline directly: commit uploads and deletes, promote directly',
+	'lore.stage': 'Upload files for review (without Commit, uploads go to a review branch; deletes and batch staging are refused)',
+	'lore.commit': 'Change the mainline directly: commit uploads and deletes, stage batches, promote directly',
 	'lore.approve': 'Approve or reject review branches',
 	'lore.lock': 'Lock and unlock files',
 	'lore.manage-binding': 'Change the repo↔channel binding',

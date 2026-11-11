@@ -489,6 +489,26 @@ async fn stage_only_delete_is_refused_and_never_reaches_the_cli() {
     );
 }
 
+/// A stage-only upload writes into the working tree of the current branch
+/// without a commit. The next commit by anyone would carry it to the mainline.
+#[tokio::test]
+async fn staging_a_batch_requires_lore_commit() {
+    let f = fixture().await;
+    let uri = format!("{}?stageOnly=true", upload_uri(&f, "batch.txt"));
+
+    let (status, body) = call_bytes(&f, &f.tokens["stager"], Method::PUT, &uri, b"x").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let log = std::fs::read_to_string(&f.commit_log).unwrap_or_default();
+    assert!(!log.contains("stage batch.txt"), "refused staging reached the CLI: {log}");
+
+    let (status, body) = call_bytes(&f, &f.tokens["committer"], Method::PUT, &uri, b"x").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["staged"], true, "{body}");
+    let log = std::fs::read_to_string(&f.commit_log).unwrap_or_default();
+    assert!(log.contains("stage batch.txt"), "{log}");
+    assert!(commit_branches(&f).is_empty(), "staging must not commit: {log}");
+}
+
 #[tokio::test]
 async fn commit_holder_upload_and_delete_still_commit_directly() {
     let f = fixture().await;
