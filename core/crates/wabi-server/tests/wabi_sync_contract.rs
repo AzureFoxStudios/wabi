@@ -381,14 +381,15 @@ impl Folder {
 
 fn describe(report: &SyncReport) -> String {
     format!(
-        "downloaded {:?}, uploaded {:?}, deleted_local {:?}, deleted_remote {:?}, conflicts {:?}, waiting_review {:?}, not_deleted {:?}",
+        "downloaded {:?}, uploaded {:?}, deleted_local {:?}, deleted_remote {:?}, conflicts {:?}, waiting_review {:?}, not_deleted {:?}, not_uploaded {:?}",
         report.downloaded,
         report.uploaded,
         report.deleted_local,
         report.deleted_remote,
         report.conflicts,
         report.waiting_review,
-        report.not_deleted
+        report.not_deleted,
+        report.not_uploaded
     )
 }
 
@@ -832,6 +833,17 @@ async fn names_the_server_refuses_do_not_abort_the_round() {
     assert_eq!(report.uploaded, vec!["ok.txt"], "{}", describe(&report));
     assert_eq!(report.downloaded, vec!["other.txt"], "{}", describe(&report));
     assert_eq!(mine.listed().await, vec!["ok.txt", "other.txt"]);
+    // The reserved names were not offered at all; the other two were, and
+    // each is reported with what the server answered.
+    assert_eq!(report.not_uploaded.len(), 2, "{}", describe(&report));
+    assert!(report.not_uploaded[0].starts_with("AUX.txt (not uploaded: "), "{}", describe(&report));
+    assert!(report.not_uploaded[0].contains("400: Invalid repository file path"), "{}", describe(&report));
+    assert!(report.not_uploaded[1].starts_with("node_modules/pkg/x.js (not uploaded: "), "{}", describe(&report));
+    assert!(report.not_uploaded[1].contains("500"), "{}", describe(&report));
+    // They are offered again, and refused again, on the next round.
+    let again = mine.sync().await.unwrap();
+    assert_eq!(again.not_uploaded, report.not_uploaded);
+    assert!(again.uploaded.is_empty() && again.downloaded.is_empty(), "{}", describe(&again));
     for kept in ["sub/.git/config", "sub/.wabiignore", "AUX.txt", "node_modules/pkg/x.js"] {
         assert!(mine.read(kept).is_some(), "{kept} was removed from the folder");
     }

@@ -57,10 +57,35 @@ pub struct Conflict {
     pub current_etag: Option<String>,
 }
 
+/// A PUT the server turned down for a reason that concerns this one file (or
+/// this one user's right to write), not the whole round.
+#[derive(Debug)]
+pub struct Refusal {
+    pub status: u16,
+    /// The `error` text of the server's answer; may be empty.
+    pub reason: String,
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let what = match self.status {
+            400 => "the server does not accept this file",
+            413 => "the file is too large for this server",
+            _ => "the server could not store this file",
+        };
+        write!(f, "{what} ({}", self.status)?;
+        if !self.reason.is_empty() {
+            write!(f, ": {}", self.reason)?;
+        }
+        write!(f, ")")
+    }
+}
+
 #[derive(Debug)]
 pub enum UploadOutcome {
     Ok { etag: String, revision: String, pending_review: bool },
     Conflict(Conflict),
+    Refused(Refusal),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -208,6 +233,17 @@ impl WabiClient {
             return Ok(UploadOutcome::Conflict(Conflict {
                 current_etag: body["currentEtag"].as_str().map(str::to_string),
             }));
+        }
+        // Answers about this file only: 400 is a name the server does not
+        // accept, 413 a file over its size limit, and 500 is what it answers
+        // for a path its own `.wabiignore` excludes (it gives no reason in
+        // the body). Everything else (401, 404, 501, a gateway error) means
+        // the round cannot work and is an error.
+        if matches!(resp.status().as_u16(), 400 | 413 | 500) {
+            let status = resp.status().as_u16();
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let reason = body["error"].as_str().unwrap_or_default().to_string();
+            return Ok(UploadOutcome::Refused(Refusal { status, reason }));
         }
         let resp = self.check_status(resp).await?;
         let body: serde_json::Value = resp.json().await.context("upload body")?;
