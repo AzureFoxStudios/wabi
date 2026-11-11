@@ -716,7 +716,7 @@ fn golden_payment_user_block_record() {
 
 #[test]
 fn golden_payment_delete_key() {
-    unchanged_today(PAYMENT_DELETE_KEY_LEGACY, &payment_delete_key(), PaymentDeleteKey::encode, PaymentDeleteKey::decode);
+    converted(PAYMENT_DELETE_KEY_LEGACY, b"PDEL", &payment_delete_key(), PaymentDeleteKey::encode, PaymentDeleteKey::decode);
 }
 
 #[test]

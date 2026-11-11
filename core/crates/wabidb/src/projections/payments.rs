@@ -188,9 +188,20 @@ impl RecordCodec for PaymentUserBlockRecord {
         versioned::decode_v1(&USER_BLOCK_FORMAT, buf)
     }
 }
+/// Versioned durable layout of [`PaymentDeleteKey`]; see `format::versioned`.
+const DELETE_KEY_FORMAT: RecordFormat = RecordFormat::new(*b"PDEL", "payment_delete_key");
+
 impl RecordCodec for PaymentDeleteKey {
     fn codec_name() -> &'static str {
         "payment_delete_key"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&DELETE_KEY_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&DELETE_KEY_FORMAT, buf)
     }
 }
 
