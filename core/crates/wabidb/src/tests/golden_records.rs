@@ -726,7 +726,7 @@ fn golden_message_record() {
 
 #[test]
 fn golden_user_record() {
-    unchanged_today(USER_LEGACY, &user(), users::encode_record, users::decode_record);
+    converted(USER_LEGACY, b"USER", &user(), users::encode_record, users::decode_record);
 }
 
 #[test]
