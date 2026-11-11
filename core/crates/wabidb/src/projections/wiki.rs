@@ -76,15 +76,15 @@ pub fn encode_revision_key(channel_id: &str, page_id: &str, revision_id: &str) -
     buf
 }
 
+/// Versioned durable layout of [`WikiRevisionRecord`]; see `format::versioned`.
+const REVISION_FORMAT: RecordFormat = RecordFormat::new(*b"WREV", "wiki revision projection");
+
 pub fn encode_revision_record(r: &WikiRevisionRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&REVISION_FORMAT, r)
 }
 
 pub fn decode_revision_record(buf: &[u8]) -> Result<WikiRevisionRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "wiki revision projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&REVISION_FORMAT, buf)
 }
 
 impl WikiProjection {
