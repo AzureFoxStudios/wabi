@@ -696,7 +696,7 @@ fn golden_lore_promote_record() {
 
 #[test]
 fn golden_payment_account_link_record() {
-    unchanged_today(PAYMENT_ACCOUNT_LINK_LEGACY, &payment_account_link(), PaymentAccountLinkRecord::encode, PaymentAccountLinkRecord::decode);
+    converted(PAYMENT_ACCOUNT_LINK_LEGACY, b"PLNK", &payment_account_link(), PaymentAccountLinkRecord::encode, PaymentAccountLinkRecord::decode);
 }
 
 #[test]
