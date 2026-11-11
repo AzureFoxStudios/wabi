@@ -29,7 +29,7 @@ $DATA_DIR/
 │   └── quarantine.json             # only after `wabidb-cli quarantine`
 ├── projections/
 │   └── snapshot.json               # the engine's projection checkpoint
-└── blobs/
+└── blobs/                          # only if wabidb::blobs is used; nothing calls it (§5)
     └── <hash[0..2]>/
         ├── <rest-of-hash>.bin
         └── <rest-of-hash>.meta
@@ -43,15 +43,15 @@ Segment file numbering: monotonically increasing `u64` zero-padded to 8 digits, 
 
 ## 2. Stream segment file format (`.wseg`)
 
-A stream segment file is a sequence of records. Each record has a 36-byte header, a variable-length payload, and 16-byte alignment padding.
+A stream segment file is a sequence of records. Each record has a 48-byte header, a variable-length payload, and 16-byte alignment padding.
 
-### 2.1 Record header (36 bytes)
+### 2.1 Record header (48 bytes)
 
 | Offset | Size | Field | Type | Notes |
 |---|---|---|---|---|
 | 0 | 4 | `magic` | `[u8; 4]` | Always `b"WABI"` (`0x57 0x41 0x42 0x49`) |
 | 4 | 2 | `format_version` | `u16` | Current: `1` |
-| 6 | 2 | `header_len` | `u16` | Current: `36` (allows future expansion) |
+| 6 | 2 | `header_len` | `u16` | Current: `48` (allows future expansion) |
 | 8 | 2 | `record_kind` | `u16` | 1=event, 2=snapshot, 3=tombstone, 4=checkpoint |
 | 10 | 2 | `flags` | `u16` | Reserved, must be `0` |
 | 12 | 8 | `commit_seq` | `u64` | Monotonic per stream; matches the global commit index entry |
@@ -91,9 +91,9 @@ The header decoder rejects a record unless all of these hold (tests in `format::
 
 The payload CRC is checked separately when it is non-zero (`payload_crc_verification`).
 
-The segment reader reads the valid prefix: it stops at a truncated tail or an invalid header, and skips a record whose payload CRC fails (tests: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`, `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). It never modifies the file.
+The segment reader reads the valid prefix: it stops at a truncated tail or an invalid header, and skips a record whose payload CRC fails (tests: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`, `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). It also stops when the padding after a record is not all zeros (`segment_reader.rs`, "Check padding"); no test covers that case. It never modifies the file.
 
-Truncating a damaged tail is not part of engine startup. A standalone helper, `stream_log::recovery::scan_segment_file`, truncates at the first invalid record (tests: `stream_log::recovery::tests::recovery_truncates_at_corrupt_record`, `stream_log::recovery::tests::recovery_does_not_truncate_clean_file`) but the engine does not call it. Truncate-and-resume at startup is *planned*. Checking that padding is all zeros is also *planned* as a documented rule.
+Truncating a damaged tail is not part of engine startup. A standalone helper, `stream_log::recovery::scan_segment_file`, truncates at the first invalid record (tests: `stream_log::recovery::tests::recovery_truncates_at_corrupt_record`, `stream_log::recovery::tests::recovery_does_not_truncate_clean_file`) but the engine does not call it. Truncate-and-resume at startup is *planned*.
 
 Records that are valid but absent from the global commit index are **orphans**; the reader skips them (tests: `stream_log::segment_reader::tests::orphan_records_skipped_when_filter_rejects`, `sequencer::tests::orphan_records_tolerated`). Replay refuses to start if an indexed event cannot be found (test: `tests::write_completion::missing_indexed_event_refuses_startup_instead_of_restoring_partial_commit`).
 
@@ -173,13 +173,15 @@ The engine reads every `.widx` file in order. For each entry it checks the lengt
 
 ## 4. Snapshot file format (`.wsnap`) — planned / unused
 
-`snapshots::writer::SnapshotWriter` can write and read back a standalone `{seq:08}.wsnap` file (tests: `snapshots::writer::tests::write_and_read_back`, `snapshots::writer::tests::crc_mismatch_detected`). Its layout is: magic `b"WSNAP"` (5 bytes), version `u8`, flags `u16`, `commit_seq` `u64`, a 32-byte projection state hash, `commit_seq` again, and a CRC32C. It holds a hash, not projection state. Nothing in the engine or the server calls it, so no `.wsnap` file exists on a real data directory.
+`snapshots::writer::SnapshotWriter` can write a standalone `{seq:08}.wsnap` file, and a test-only helper reads it back (tests: `snapshots::writer::tests::write_and_read_back`, `snapshots::writer::tests::crc_mismatch_detected`). Its layout is: magic `b"WSNAP"` (5 bytes), version `u8`, flags `u16`, `commit_seq` `u64`, a 32-byte projection state hash, `commit_seq` again, and a CRC32C. It holds a hash, not projection state. Nothing in the engine or the server calls it, so no `.wsnap` file exists on a real data directory.
 
 The checkpoint the engine uses is `projections/snapshot.json`, which stores the applied watermark and the index entries (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). The `b"WSNP"` layout with BSATN state that this section used to describe was never written by any code.
 
 ## 5. Blob file format (`.bin` + `.meta`)
 
 Each blob is two files: the data (`.bin`) and a metadata sidecar (`.meta`).
+
+Nothing in the engine or the server calls `wabidb::blobs`: the engine never creates `blobs/`, and wabi-server keeps uploads in its own SHA-256 registry (`core/crates/wabi-server/src/blobs/`), outside the WabiDB directory. So a real data directory has no `blobs/`. The format below is what the tested writer produces; using it for uploads is *planned*.
 
 ### 5.1 Blob data (`.bin`)
 
@@ -209,10 +211,11 @@ A JSON file at `$DATA_DIR/storage-manifest.json`, created when the engine first 
 
 ## 7. Versioning
 
-Only two on-disk structures carry a version that the engine checks:
+Two on-disk structures carry a version that the engine checks, and one carries versions that only the CLI checks:
 
 - **Stream segment header**: `format_version: u16`, `header_len: u16`. The decoder rejects an unsupported `format_version` or a `header_len` other than 48 with an error, not a panic (tests: `format::record::tests::unsupported_version_rejected`, `format::record::tests::wrong_header_len_rejected`).
-- **Storage manifest**: `schema_version` and `format_version`, both `1`.
+- **Quarantine list** (`global/quarantine.json`): `version`, currently `1`. The engine refuses to start on any other value (test: `engine::quarantine_tests::unparseable_quarantine_file_refuses_startup`).
+- **Storage manifest**: `schema_version` and `format_version`, both `1`. The engine writes them and never reads them back, so starting the engine is not a compatibility check. `wabidb-cli verify` reports any other value as an error (`cli/verify.rs`); no test covers that refusal.
 
 The commit-index file header also carries a `format_version`, but the reader does not check it (planned, see §3.5). The `.wsnap` and `.meta` layouts are unused or text, see §4 and §5.
 

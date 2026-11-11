@@ -12,7 +12,7 @@
 
 Wabi defaults to client-side storage (like Signal), but server operators can opt into varying levels of persistence per channel. Self-host means **their data, their rules, their risk**.
 
-WabiDB's state lives inside the operator's `./data/wabi-server/wabidb/` directory; other server state (sidecar files, uploads) is listed in `docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`. Only one engine process can own a data directory at a time (tests: `tests::integration::two_engines_cannot_share_a_data_dir`, `engine::process_lock_tests::process_lock_excludes_another_engine_and_releases_after_kill`). `wabi-server` reads and writes through the engine. The `wabidb-cli` commands `check`, `verify`, `status` and `list-streams` only read and never take or touch the lock (test: `cli::tests::commands_are_read_only_and_never_touch_the_lock`); `wabidb-cli quarantine` writes `global/quarantine.json` while holding the lock (tests: `cli::quarantine::tests::quarantine_fails_while_the_lock_is_held`, `cli::quarantine::tests::quarantine_appends_once_and_refuses_unindexed_seqs`). There is no CLI command for backup or migration.
+WabiDB's state lives inside the operator's `./data/wabi-server/wabidb/` directory; other server state (sidecar files, uploads) is listed in `docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`. Only one engine process can own a data directory at a time (tests: `tests::integration::two_engines_cannot_share_a_data_dir`, `engine::process_lock_tests::process_lock_excludes_another_engine_and_releases_after_kill`). `wabi-server` reads and writes through the engine. The `wabidb-cli` commands `check`, `verify`, `status` and `list-streams` only read and never take or touch the lock (test: `cli::tests::commands_are_read_only_and_never_touch_the_lock`); `wabidb-cli quarantine` writes `global/quarantine.json` while holding the lock (tests: `cli::quarantine::tests::quarantine_fails_while_the_lock_is_held`, `cli::quarantine::tests::quarantine_appends_once_and_refuses_unindexed_seqs`). `wabidb-cli` has no backup or migration command; a stopped instance is archived with `wabi-instance-snapshot` (`docs/deployment/BACKUP_AND_RECOVERY.md`).
 
 ---
 
@@ -22,7 +22,7 @@ WabiDB's state lives inside the operator's `./data/wabi-server/wabidb/` director
 |------|---------|--------------|---------|
 | **Client (IndexedDB)** | Always | User | Personal history, offline access, draft state |
 | **Server (Wabidb streams)** | Always | Server admin | Real-time sync, active sessions, shared state |
-| **Server (BLAKE3 blobs)** | Opt-in | Server admin | File uploads, attachments, large media (test for the blob writer: `blobs::write::tests::write_is_idempotent`) |
+| **`wabidb::blobs` (BLAKE3 blob writer)** | Not used | n/a | *Planned* for uploads and large media. The writer exists and is tested (`blobs::write::tests::write_is_idempotent`), but nothing calls it: wabi-server keeps uploads in its own registry outside WabiDB (`docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`) |
 | **Projection checkpoint** (`projections/snapshot.json`) | Automatic | Engine | Fast recovery without replaying the full commit log (tests: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`, `tests::integration::engine_rebuilds_projections_on_startup`) |
 | **Operator archives** | Manual | Server admin | Offsite backup, disaster recovery; see `docs/deployment/BACKUP_AND_RECOVERY.md` |
 
@@ -62,8 +62,8 @@ All on-disk formats are specified in `docs/architecture/STORAGE_FORMAT.md`, whic
 | `*.wseg` | 48-byte header + payload + zero padding to a 16-byte boundary | Encrypted stream segment (test: `format::record::tests::total_size_includes_alignment_padding`) |
 | `*.widx` | 16-byte header + entries + 32-byte trailer on sealed files | Commit index file (test: `commit_index::batcher::tests::file_rotation_at_10000_entries`) |
 | `projections/snapshot.json` | JSON | Projection checkpoint (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`) |
-| `*.bin` | raw bytes | BLAKE3 content-addressed blob (test: `blobs::write::tests::canonical_path_layout`) |
-| `*.meta` | three text lines: `blake3=`, `size=`, `created_at_micros=` | Blob metadata sidecar (test: `blobs::write::tests::metadata_sidecar_written`) |
+| `*.bin` | raw bytes | BLAKE3 content-addressed blob (test: `blobs::write::tests::canonical_path_layout`). No production caller writes one |
+| `*.meta` | three text lines: `blake3=`, `size=`, `created_at_micros=` | Blob metadata sidecar (test: `blobs::write::tests::metadata_sidecar_written`). No production caller writes one |
 | `storage-manifest.json` | JSON | Format version and commit watermark (test: `engine::tests::open_creates_storage_manifest`) |
 | `global/quarantine.json` | JSON | Commits replay must skip (test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`) |
 
@@ -107,7 +107,7 @@ The full `data/wabi-server/` directory plus the `storage-manifest.json` are the 
 - `global/commit-index/` — the index, and `global/quarantine.json` if it exists (without it, startup refuses the quarantined commit again; test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`)
 - `storage-manifest.json` — the manifest
 - `projections/snapshot.json` — the projection checkpoint
-- `blobs/` — content-addressed uploads
+- `blobs/` — where `wabidb::blobs` would write. Nothing writes it today; uploads live outside this directory (`docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`)
 - The Wabidb engine's bootstrap key material (stored separately; see `wabidb::crypto::bootstrap`)
 
 The full recovery unit, including sidecar files and uploads, is in `docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`.
