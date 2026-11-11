@@ -706,7 +706,7 @@ fn golden_payment_intent_record() {
 
 #[test]
 fn golden_payment_policy_record() {
-    unchanged_today(PAYMENT_POLICY_LEGACY, &payment_policy(), PaymentPolicyRecord::encode, PaymentPolicyRecord::decode);
+    converted(PAYMENT_POLICY_LEGACY, b"PPOL", &payment_policy(), PaymentPolicyRecord::encode, PaymentPolicyRecord::decode);
 }
 
 #[test]
