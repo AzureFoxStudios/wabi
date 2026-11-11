@@ -691,7 +691,7 @@ fn golden_lore_binding_record() {
 
 #[test]
 fn golden_lore_promote_record() {
-    unchanged_today(LORE_PROMOTE_LEGACY, &lore_promote(), lore::encode_promote_record, lore::decode_promote_record);
+    converted(LORE_PROMOTE_LEGACY, b"LPRM", &lore_promote(), lore::encode_promote_record, lore::decode_promote_record);
 }
 
 #[test]

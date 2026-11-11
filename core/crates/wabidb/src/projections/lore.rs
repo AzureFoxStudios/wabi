@@ -517,15 +517,15 @@ impl RecordCodec for LorePromoteRecord {
     }
 }
 
+/// Versioned durable layout of [`LorePromoteRecord`]; see `format::versioned`.
+const PROMOTE_FORMAT: RecordFormat = RecordFormat::new(*b"LPRM", "lore promote projection");
+
 pub fn encode_promote_record(r: &LorePromoteRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&PROMOTE_FORMAT, r)
 }
 
 pub fn decode_promote_record(buf: &[u8]) -> Result<LorePromoteRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore promote projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&PROMOTE_FORMAT, buf)
 }
 
 /// Key: channel_id (8 LE) + message_id + 0x00 + file_url.
