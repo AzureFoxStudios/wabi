@@ -422,7 +422,9 @@ async fn upload_under_the_cap_commits_a_new_revision_with_the_content_etag() {
             send(&f.app, upload_request(Method::PUT, &uri, &f.member_token, body)).await;
         assert_eq!(status, StatusCode::OK, "{response}");
         assert_eq!(response["etag"], wabi_lore::etag_for_bytes(&content));
-        assert_eq!(response["pendingReview"], false, "{response}");
+        // The seeded Artist role has no lore.commit, so its upload waits on a
+        // review branch instead of landing on the mainline.
+        assert_eq!(response["pendingReview"], true, "{response}");
         assert_eq!(response["wdbRecorded"], true, "{response}");
         let revision = response["revision"]["hash"].as_str().unwrap().to_string();
         assert!(!revision.is_empty(), "{response}");

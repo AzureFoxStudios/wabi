@@ -1854,6 +1854,36 @@ async fn admit_file_upload(
     Ok(Some(lore))
 }
 
+/// Upload `local_path` the way the caller's capabilities allow. A caller
+/// without lore.commit never changes the mainline: the file is committed on a
+/// fresh review branch (the per-call form of auto_branch_on_upload) and the
+/// working tree is put back on the branch that was current.
+async fn upload_for_caller(
+    state: &AppState,
+    lore: &wabi_lore::LoreService,
+    user_id: i64,
+    channel_id: i64,
+    local_path: &str,
+    repo_path: &str,
+    message: &str,
+) -> anyhow::Result<wabi_lore::LoreUploadResult> {
+    if can_lore(state, user_id, "lore.commit").await {
+        return lore
+            .upload_file(channel_id, local_path, repo_path, message, user_id)
+            .await;
+    }
+    let review = format!(
+        "uploads/u{user_id}-{}-{}",
+        chrono::Utc::now().timestamp(),
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
+    // `branch` is unused when a review branch is given.
+    lore.promote_file(
+        channel_id, local_path, repo_path, message, user_id, "", Some(&review),
+    )
+    .await
+}
+
 async fn upload_file(
     State(state): State<Arc<AppState>>,
     LoreWriteUser(auth): LoreWriteUser,
@@ -1955,15 +1985,16 @@ async fn upload_file(
                 .into_response());
             }
 
-            let result = lore
-                .upload_file(
-                    channel_id,
-                    tmp_path.to_str().unwrap_or("/dev/null"),
-                    &repo_path,
-                    &message,
-                    auth.user_id,
-                )
-                .await?;
+            let result = upload_for_caller(
+                &state,
+                &lore,
+                auth.user_id,
+                channel_id,
+                tmp_path.to_str().unwrap_or("/dev/null"),
+                &repo_path,
+                &message,
+            )
+            .await?;
 
             let mut wdb_recorded = false;
             let mut cursor = 0u64;
@@ -2152,15 +2183,16 @@ async fn upload_recording(
 
             let tmp_path = temporary.path();
 
-            let result = lore
-                .upload_file(
-                    lore_channel_id,
-                    tmp_path.to_str().unwrap_or("/dev/null"),
-                    &repo_path,
-                    &message,
-                    auth.user_id,
-                )
-                .await?;
+            let result = upload_for_caller(
+                &state,
+                &lore,
+                auth.user_id,
+                lore_channel_id,
+                tmp_path.to_str().unwrap_or("/dev/null"),
+                &repo_path,
+                &message,
+            )
+            .await?;
             let (revision, file_info) = (result.revision, result.file_info);
 
             let mut wdb_recorded = false;
@@ -2456,6 +2488,13 @@ async fn delete_file(
             if !can_asset_write_lore(&state, auth.user_id).await {
                 return Err(AppError::Forbidden(
                     "Lore asset deletion requires at least Artist role".into(),
+                ));
+            }
+            // A delete has no review-branch path, and committing it would change
+            // the mainline: it needs lore.commit, not just lore.stage.
+            if !can_lore(&state, auth.user_id, "lore.commit").await {
+                return Err(AppError::Forbidden(
+                    "Deleting a Lore file changes the mainline and requires lore.commit".into(),
                 ));
             }
             let message = payload.message.unwrap_or_else(|| "Deleted via API".into());

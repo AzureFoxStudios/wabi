@@ -410,3 +410,121 @@ async fn holders_of_the_new_capabilities_are_allowed() {
     let (status, body) = call(&f, "owner", Method::PATCH, &repo_uri, patch).await;
     assert_eq!(status, StatusCode::OK, "the owner must PATCH: {body}");
 }
+
+// ---- Task 4.8b: a caller without lore.commit must not change the mainline ----
+// All of these run against the shell stand-in for the lore binary, so they
+// assert on the CLI call log: which branch was current when `commit` ran.
+
+async fn call_bytes(
+    f: &Fixture,
+    bearer: &str,
+    method: Method,
+    uri: &str,
+    body: &'static [u8],
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {bearer}"))
+        .header("content-type", "application/octet-stream")
+        .body(Body::from(body))
+        .unwrap();
+    let response = f.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes))))
+}
+
+/// The branch each `commit` in the CLI log ran on (the fixture starts on main).
+fn commit_branches(f: &Fixture) -> Vec<String> {
+    let log = std::fs::read_to_string(&f.commit_log).unwrap_or_default();
+    let mut current = "main".to_string();
+    let mut out = Vec::new();
+    for line in log.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match words.as_slice() {
+            ["branch", "switch", name] => current = name.to_string(),
+            ["commit", ..] => out.push(current.clone()),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn upload_uri(f: &Fixture, name: &str) -> String {
+    format!("/addons/lore/repos/{}/files/{name}", f.repo)
+}
+
+fn delete_body(f: &Fixture, who: &str) -> Request<Body> {
+    Request::builder()
+        .method(Method::DELETE)
+        .uri(upload_uri(f, "gone.txt"))
+        .header("authorization", format!("Bearer {}", f.tokens[who]))
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn stage_only_upload_lands_on_a_review_branch() {
+    let f = fixture().await;
+    let (status, body) =
+        call_bytes(&f, &f.tokens["stager"], Method::PUT, &upload_uri(&f, "direct.txt"), b"x").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["pendingReview"], true, "{body}");
+    let branches = commit_branches(&f);
+    assert_eq!(branches.len(), 1, "one commit expected: {branches:?}");
+    assert_ne!(branches[0], "main", "stage-only upload committed on the mainline: {branches:?}");
+}
+
+#[tokio::test]
+async fn stage_only_delete_is_refused_and_never_reaches_the_cli() {
+    let f = fixture().await;
+    let response = f.app.clone().oneshot(delete_body(&f, "stager")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(
+        commit_branches(&f).is_empty(),
+        "refused delete reached the CLI: {:?}",
+        std::fs::read_to_string(&f.commit_log)
+    );
+}
+
+#[tokio::test]
+async fn commit_holder_upload_and_delete_still_commit_directly() {
+    let f = fixture().await;
+    let (status, body) =
+        call_bytes(&f, &f.tokens["committer"], Method::PUT, &upload_uri(&f, "a.txt"), b"x").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["pendingReview"], false, "{body}");
+    let response = f.app.clone().oneshot(delete_body(&f, "committer")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(commit_branches(&f), vec!["main", "main"]);
+}
+
+#[tokio::test]
+async fn write_connect_token_of_a_stage_only_user_behaves_like_that_user() {
+    let f = fixture().await;
+    let tokens_uri = format!("/addons/lore/repos/{}/connect-tokens", f.repo);
+    let (status, minted) =
+        call(&f, "stager", Method::POST, &tokens_uri, Some(json!({ "scopes": "write" }))).await;
+    assert_eq!(status, StatusCode::OK, "{minted}");
+    let token = minted["token"].as_str().unwrap().to_string();
+
+    let (status, body) =
+        call_bytes(&f, &token, Method::PUT, &upload_uri(&f, "tool.txt"), b"x").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        commit_branches(&f).iter().all(|b| b != "main"),
+        "token upload committed on the mainline: {:?}",
+        std::fs::read_to_string(&f.commit_log)
+    );
+    let request = Request::builder()
+        .method(Method::DELETE)
+        .uri(upload_uri(&f, "tool.txt"))
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let response = f.app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
