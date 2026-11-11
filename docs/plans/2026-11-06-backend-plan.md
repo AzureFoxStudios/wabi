@@ -187,7 +187,7 @@ Status 2026-11-11: 4.1 merged (PR 319 at a565846): one `promote_file` call under
 
 4.6 merged 2026-11-11 (PR 321 at a2e4854): the startup walk leaves a mirror's `.mirror-cache` to its own check, which tolerates symlinks without following them, so a mirror of a repository that contains a symlink survives a restart. Review fix: only a real `.mirror-cache` directory is exempt; a symlink of that name is refused as before.
 
-Open Lore findings from that review. None is verified against a real `lore` binary, because the sandboxes have none; every Lore test runs against a shell stub.
+Open Lore findings from that review. None is verified against a real `lore` binary, because the sandboxes have none; every Lore test runs against a shell stub. On 2026-11-11 the checks that need the real program were written down so they can be run on a machine that has it: `docs/testing/LORE_REAL_BINARY_CHECKS.md` and the ignored tests in `core/addons/lore/backend/tests/real_lore_binary.rs`. They have not been run yet.
 - When the commit succeeds and the branch restore fails, the caller gets an error although the revision exists (500, no promote record, no announcement). The contract is undecided.
 - A failed promote restores the branch but leaves the written, staged file in the working tree, and a retry then reports a collision. Whether `lore branch switch` carries a staged file to the mainline is unknown. Older than 4.1.
 - Direct mode now switches to the binding's branch whenever it differs from the current one. The default is the literal `main` (handler and `set_binding`). If a repository's first branch has another name, a default promote now fails at the switch.
