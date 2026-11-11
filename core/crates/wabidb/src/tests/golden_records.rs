@@ -916,8 +916,14 @@ fn golden_dm_prekey_consumed_payload() {
     })
     .unwrap();
     assert_eq!(hex::encode(&encoded), DM_PREKEY_CONSUMED_LEGACY);
-    // The handler's decoder is private to its match arm; applying the event
-    // to the sample identity is the only way to run it.
+    converted(
+        DM_PREKEY_CONSUMED_LEGACY,
+        b"DOTP",
+        &dm_prekey_consumed(),
+        dm_identities::encode_consumed,
+        dm_identities::decode_consumed,
+    );
+    // And the handler reads the legacy bytes.
     use crate::engine::locks::ProjectionState;
     use crate::projections::handler::{DurableEvent, Projection};
     let state = ProjectionState::new();
@@ -939,4 +945,12 @@ fn golden_dm_prekey_consumed_payload() {
         .unwrap()
         .unwrap();
     assert_eq!(after.one_time_prekeys, vec!["otk2".to_string()]);
+}
+
+pub(crate) fn dm_prekey_consumed() -> dm_identities::ConsumedPayload {
+    dm_identities::ConsumedPayload {
+        user_id: 9,
+        device_id: "dev-phone".into(),
+        prekey_public: "otk1".into(),
+    }
 }
