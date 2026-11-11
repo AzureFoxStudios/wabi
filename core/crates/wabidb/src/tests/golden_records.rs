@@ -621,7 +621,7 @@ fn golden_user_layout() {
 
 #[test]
 fn golden_whiteboard_doc() {
-    unchanged_today(WHITEBOARD_DOC_LEGACY, &whiteboard_doc(), whiteboard_docs::encode_record, whiteboard_docs::decode_record);
+    converted(WHITEBOARD_DOC_LEGACY, b"WBDC", &whiteboard_doc(), whiteboard_docs::encode_record, whiteboard_docs::decode_record);
 }
 
 #[test]
