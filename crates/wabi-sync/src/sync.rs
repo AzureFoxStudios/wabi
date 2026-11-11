@@ -218,6 +218,47 @@ impl<'a> SyncEngine<'a> {
         Ok(())
     }
 
+    /// The user and someone else both changed `path`. The rule, wherever the
+    /// conflict is found: the canonical name ends up holding the server's
+    /// version (nothing, when the file was deleted there), the user's version
+    /// goes to a conflict copy next to it, and the baseline becomes the
+    /// server's. The client never sends the user's version over the other
+    /// change by itself; the user does that by putting the conflict copy's
+    /// bytes back in the file. Returns the line for the report.
+    ///
+    /// `server_etag` is `None` when the server has no such file.
+    async fn keep_both(&mut self, path: &str, server_etag: Option<&str>) -> anyhow::Result<String> {
+        let local_file = self.folder.join(path);
+        let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let Some(server_etag) = server_etag else {
+            let copy = conflict_path(&local_file, "deleted");
+            std::fs::copy(&local_file, &copy)?;
+            std::fs::remove_file(&local_file)?;
+            self.state.baselines.remove(path);
+            self.state.local_fingerprints.remove(path);
+            return Ok(format!(
+                "{path} (deleted on the server; your version is saved as {})",
+                name(&copy)
+            ));
+        };
+        // Fetch before touching the folder: a failed download leaves the
+        // user's file where it was.
+        let bytes = self
+            .client
+            .download(self.link.channel_id, path, None)
+            .await?
+            .context("conflict download failed")?;
+        let tag = server_etag.chars().take(8).collect::<String>();
+        let copy = conflict_path(&local_file, &tag);
+        std::fs::copy(&local_file, &copy)?;
+        std::fs::write(&local_file, &bytes)?;
+        self.record_download(path, &bytes, server_etag)?;
+        Ok(format!(
+            "{path} (changed on the server too; {path} now holds the server's version, yours is saved as {})",
+            name(&copy)
+        ))
+    }
+
     /// Pull remote changes down (three-way against baselines).
     pub async fn pull(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
@@ -413,22 +454,14 @@ impl<'a> SyncEngine<'a> {
                 UploadOutcome::Conflict(conflict) => {
                     self.state.pending_review.remove(path);
                     self.state.local_fingerprints.remove(path);
-                    let tag = conflict
-                        .current_etag
-                        .as_deref()
-                        .unwrap_or("server")
-                        .chars()
-                        .take(8)
-                        .collect::<String>();
-                    let local_file = self.folder.join(path);
-                    let copy = conflict_path(&local_file, &tag);
-                    std::fs::copy(&local_file, &copy)?;
-                    report.conflicts.push(format!(
-                        "{path} (server had newer changes; your version saved as {})",
-                        copy.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-                    ));
-                    // Adopt server state; the next pull fills the canonical file.
-                    self.state.baselines.insert(path.clone(), conflict.current_etag.clone());
+                    if conflict.current_etag.as_deref() == Some(sent_etag.as_str()) {
+                        // The server already holds these very bytes (the
+                        // same edit made twice): nothing to keep apart.
+                        self.state.baselines.insert(path.clone(), conflict.current_etag);
+                        continue;
+                    }
+                    let line = self.keep_both(path, conflict.current_etag.as_deref()).await?;
+                    report.conflicts.push(line);
                 }
             }
         }
