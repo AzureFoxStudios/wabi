@@ -439,24 +439,107 @@ fn rev_cache_path(
         .join(repo_path))
 }
 
+/// Default number of revisions kept per repo in the revision cache.
+/// Override with `WABI_LORE_REVCACHE_KEEP` (0 = never prune) or
+/// [`LoreService::set_revcache_keep`].
+const DEFAULT_REVCACHE_KEEP: usize = 20;
+
+fn revcache_dir_name(channel_id: i64) -> String {
+    format!("{channel_id}.revcache")
+}
+
+/// Cached revisions for a channel, newest first (by directory mtime).
+fn list_cached_revisions(lore_data_dir: &std::path::Path, channel_id: i64) -> Vec<std::ffi::OsString> {
+    let Ok(cache) = RepoDir::open(lore_data_dir)
+        .and_then(|r| r.child(std::ffi::OsStr::new(&revcache_dir_name(channel_id)), false))
+    else {
+        return Vec::new();
+    };
+    let mut revs = cache.list_child_dirs().unwrap_or_default();
+    revs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
+    revs.into_iter().map(|(name, _)| name).collect()
+}
+
+/// Remove all but the newest `keep` cached revisions. `protect` (the revision
+/// just written) is never removed. `keep == 0` disables pruning.
+fn prune_revcache(lore_data_dir: &std::path::Path, channel_id: i64, keep: usize, protect: &str) {
+    if keep == 0 {
+        return;
+    }
+    let revs = list_cached_revisions(lore_data_dir, channel_id);
+    if revs.len() <= keep {
+        return;
+    }
+    let others: Vec<_> = revs.into_iter().filter(|r| r != protect).collect();
+    let result = (|| -> std::io::Result<()> {
+        let cache = RepoDir::open(lore_data_dir)?
+            .child(std::ffi::OsStr::new(&revcache_dir_name(channel_id)), false)?;
+        for stale in others.iter().skip(keep.saturating_sub(1)) {
+            cache.remove_child_tree(stale)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        warn!(%error, channel_id, "revcache: prune failed");
+    }
+}
+
+/// True when both files have identical bytes (size check first).
+fn same_file_content(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Result<bool> {
+    use std::io::Read;
+    if a.metadata()?.len() != b.metadata()?.len() {
+        return Ok(false);
+    }
+    let (mut x, mut y) = ([0u8; 64 * 1024], [0u8; 64 * 1024]);
+    loop {
+        let n = a.read(&mut x)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        b.read_exact(&mut y[..n])?;
+        if x[..n] != y[..n] {
+            return Ok(false);
+        }
+    }
+}
+
 /// Best-effort copy of a just-committed file version into the revision
 /// cache so `?revision=` downloads work without lore CLI support.
+/// With `previous`, a file whose bytes are unchanged since that cached
+/// revision is hard-linked instead of copied (copy if linking fails).
 async fn cache_revision_content(
     lore_data_dir: &std::path::Path,
     channel_id: i64,
     revision: &str,
     repo_path: &str,
     working_tree: &std::path::Path,
+    previous: Option<&str>,
 ) {
     if revision.is_empty() {
         return;
     }
     let result = (|| -> anyhow::Result<()> {
         rev_cache_path(lore_data_dir, channel_id, revision, std::path::Path::new(repo_path))?;
-        let source = RepoDir::open(working_tree)?.open_file(repo_path)?;
-        let cache = RepoDir::open(lore_data_dir)?
-            .child(std::ffi::OsStr::new(&format!("{channel_id}.revcache")), true)?
-            .child(std::ffi::OsStr::new(revision), true)?;
+        let mut source = RepoDir::open(working_tree)?.open_file(repo_path)?;
+        let cache_root = RepoDir::open(lore_data_dir)?
+            .child(std::ffi::OsStr::new(&revcache_dir_name(channel_id)), true)?;
+        let cache = cache_root.child(std::ffi::OsStr::new(revision), true)?;
+        if let Some(previous) = previous.filter(|p| *p != revision) {
+            let unchanged = (|| -> std::io::Result<bool> {
+                let prev = cache_root.child(std::ffi::OsStr::new(previous), false)?;
+                let mut old = prev.open_file(repo_path)?;
+                if !same_file_content(&mut source, &mut old)? {
+                    return Ok(false);
+                }
+                Ok(cache.link_from(&prev, repo_path).is_ok())
+            })()
+            .unwrap_or(false);
+            if unchanged {
+                return Ok(());
+            }
+            // Linking failed or content differs: rewind and copy.
+            std::io::Seek::seek(&mut source, std::io::SeekFrom::Start(0))?;
+        }
         cache.write_from(repo_path, source)?;
         Ok(())
     })();
@@ -499,6 +582,8 @@ pub struct LoreService {
     /// Serialize tree replacement, branch/CLI writes, and open/copy operations.
     /// Never held while HTTP upload bodies are being received.
     io_gate: Arc<tokio::sync::Mutex<()>>,
+    /// Revisions kept per repo in the revision cache (0 = unlimited).
+    revcache_keep: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     copy_test_hook: std::sync::Mutex<Option<CopyTestHook>>,
 }
@@ -511,9 +596,24 @@ impl LoreService {
             ignore_filters: std::sync::RwLock::new(HashMap::new()),
             etag_cache: std::sync::Mutex::new(HashMap::new()),
             io_gate: Arc::new(tokio::sync::Mutex::new(())),
+            revcache_keep: std::sync::atomic::AtomicUsize::new(
+                std::env::var("WABI_LORE_REVCACHE_KEEP")
+                    .ok()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(DEFAULT_REVCACHE_KEEP),
+            ),
             #[cfg(test)]
             copy_test_hook: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Set how many revisions per repo the revision cache keeps (0 = unlimited).
+    pub fn set_revcache_keep(&self, keep: usize) {
+        self.revcache_keep.store(keep, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn revcache_keep(&self) -> usize {
+        self.revcache_keep.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn recordings_channel_name(&self) -> &str {
@@ -867,6 +967,15 @@ impl LoreService {
         RepoDir::open(&repo.working_tree)?;
         RepoDir::open(&self.config.lore_data_dir)?
             .remove_child_tree(std::ffi::OsStr::new(&channel_id.to_string()))?;
+        // Cached revisions must not outlive the repo ("deleted" content would
+        // stay servable by revision hash).
+        match RepoDir::open(&self.config.lore_data_dir)?
+            .remove_child_tree(std::ffi::OsStr::new(&revcache_dir_name(channel_id)))
+        {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         self.etag_cache.lock().unwrap().retain(|(id, _), _| *id != channel_id);
         self.ignore_filters.write().unwrap().remove(&channel_id);
 
@@ -1301,8 +1410,10 @@ impl LoreService {
             &revision.hash,
             repo_path,
             &repo.working_tree,
+            None,
         )
         .await;
+        prune_revcache(&self.config.lore_data_dir, channel_id, self.revcache_keep(), &revision.hash);
 
         // Capture the committed review branch's metadata before restoring
         // mainline, which may contain older bytes or no file at this path.
@@ -2151,12 +2262,17 @@ impl LoreService {
         // A batch snapshot seals files that stage_file did not cache. Keep
         // the I/O gate through publication so a branch switch cannot substitute
         // another revision's bytes while the snapshot is being copied.
+        let previous = list_cached_revisions(&self.config.lore_data_dir, channel_id)
+            .into_iter()
+            .map(|r| r.to_string_lossy().into_owned())
+            .find(|r| *r != revision.hash);
         for path in walk_working_tree_files(&repo.working_tree).await {
             if sanitize_repo_path(&path).is_ok() {
                 cache_revision_content(&self.config.lore_data_dir, channel_id,
-                    &revision.hash, &path, &repo.working_tree).await;
+                    &revision.hash, &path, &repo.working_tree, previous.as_deref()).await;
             }
         }
+        prune_revcache(&self.config.lore_data_dir, channel_id, self.revcache_keep(), &revision.hash);
 
 
         info!(channel_id, message, "Committed staged changes");
@@ -3311,6 +3427,82 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn counting_commit_body(data: &std::path::Path) -> String {
+        let ctr = data.join("ctr");
+        format!(
+            "case \"$*\" in *commit*) n=$(cat '{c}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{c}'; printf 'Signature : rev%s\\n' $n;; esac",
+            c = ctr.display()
+        )
+    }
+
+    #[cfg(unix)]
+    fn revcache_dirs(data: &std::path::Path, channel: i64) -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(data.join("repos").join(format!("{channel}.revcache")))
+            .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .unwrap_or_default();
+        v.sort();
+        v
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_repo_removes_the_revision_cache() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        std::fs::write(repo.working_tree.join("a.txt"), b"one").unwrap();
+        service.commit_staged(42, "snap", 1).await.unwrap();
+        assert!(!revcache_dirs(data.path(), 42).is_empty());
+        service.delete_repo(42).await.unwrap();
+        assert!(!data.path().join("repos/42.revcache").exists(), "revcache must not outlive the repo");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn revcache_keeps_only_the_newest_revisions_and_pruned_ones_are_not_found() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        for i in 1..=25 {
+            std::fs::write(repo.working_tree.join("a.txt"), format!("v{i}")).unwrap();
+            service.commit_staged(42, "snap", 1).await.unwrap();
+        }
+        let dirs = revcache_dirs(data.path(), 42);
+        assert_eq!(dirs.len(), 20, "got {dirs:?}");
+        assert!(!dirs.contains(&"rev5".to_string()));
+        assert!(dirs.contains(&"rev6".to_string()) && dirs.contains(&"rev25".to_string()));
+        // Retained revision still readable with its own bytes.
+        let mut kept = service.open_content_file(42, "a.txt", Some("rev6")).await.unwrap();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut kept, &mut text).unwrap();
+        assert_eq!(text, "v6");
+        // Pruned revision is a clean not-found.
+        let err = service.open_content_file(42, "a.txt", Some("rev5")).await.unwrap_err();
+        let io = err.downcast_ref::<std::io::Error>().expect("io error");
+        assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn snapshot_commit_hard_links_unchanged_files_and_copies_changed_ones() {
+        use std::os::unix::fs::MetadataExt;
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        std::fs::write(repo.working_tree.join("same.txt"), b"same").unwrap();
+        std::fs::write(repo.working_tree.join("changes.txt"), b"old").unwrap();
+        service.commit_staged(42, "one", 1).await.unwrap();
+        std::fs::write(repo.working_tree.join("changes.txt"), b"new").unwrap();
+        service.commit_staged(42, "two", 1).await.unwrap();
+        let root = data.path().join("repos/42.revcache");
+        let ino = |r: &str, f: &str| std::fs::metadata(root.join(r).join(f)).unwrap().ino();
+        assert_eq!(ino("rev1", "same.txt"), ino("rev2", "same.txt"), "unchanged file should be linked");
+        assert_ne!(ino("rev1", "changes.txt"), ino("rev2", "changes.txt"));
+        assert_eq!(std::fs::read(root.join("rev1/changes.txt")).unwrap(), b"old");
+        assert_eq!(std::fs::read(root.join("rev2/changes.txt")).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn import_refuses_and_keeps_a_detached_non_empty_tree() {
         use std::os::unix::fs::PermissionsExt;
@@ -3875,7 +4067,7 @@ Date      : Sat, 8 Aug 2026 03:05:43 +0000
         tokio::fs::write(tree.join("src/main.rs"), b"fn main() {}").await.unwrap();
 
         let rev = "abc123";
-        cache_revision_content(dir.path(), 225, rev, "src/main.rs", &tree).await;
+        cache_revision_content(dir.path(), 225, rev, "src/main.rs", &tree, None).await;
         let cached = rev_cache_path(dir.path(), 225, rev, "src/main.rs".as_ref()).unwrap();
         let content = tokio::fs::read(&cached).await.unwrap();
         assert_eq!(content, b"fn main() {}");
