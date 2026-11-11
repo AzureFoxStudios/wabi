@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -22,15 +23,15 @@ impl RecordCodec for DmIdentityRecord {
     }
 }
 
+/// Versioned durable layout of [`DmIdentityRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"DIDN", "dm_identities projection");
+
 pub fn encode_record(r: &DmIdentityRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<DmIdentityRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "dm_identities projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(user_id: u64, device_id: &str) -> Vec<u8> {
