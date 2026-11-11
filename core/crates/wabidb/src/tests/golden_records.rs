@@ -601,7 +601,7 @@ fn golden_dm_identity_record() {
 
 #[test]
 fn golden_reaction() {
-    unchanged_today(REACTION_LEGACY, &reaction(), reactions::encode_reaction, reactions::decode_reaction);
+    converted(REACTION_LEGACY, b"RACT", &reaction(), reactions::encode_reaction, reactions::decode_reaction);
 }
 
 #[test]

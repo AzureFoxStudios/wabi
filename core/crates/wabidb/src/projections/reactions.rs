@@ -23,6 +23,7 @@
 //! kanban originally had wabidb-24 first, but the design is independent
 //! (each projection is a separate index in `ProjectionState`).
 
+use crate::format::versioned::{self, RecordFormat};
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
@@ -202,17 +203,17 @@ pub fn parse_composite_key(key: &[u8]) -> Option<(String, u64, String)> {
     Some((mid.to_string(), user_id, rt.to_string()))
 }
 
-/// Encode a `Reaction` as bytes for storage. Uses postcard for compactness.
+/// Versioned durable layout of [`Reaction`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"RACT", "reaction payload");
+
+/// Encode a `Reaction` as a versioned postcard record for storage.
 pub fn encode_reaction(reaction: &Reaction) -> Vec<u8> {
-    postcard::to_allocvec(reaction).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, reaction)
 }
 
 /// Decode a `Reaction` from bytes. Inverse of `encode_reaction`.
 pub fn decode_reaction(bytes: &[u8]) -> Result<Reaction> {
-    postcard::from_bytes(bytes).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "reaction payload".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, bytes)
 }
 
 #[cfg(test)]
@@ -240,12 +241,22 @@ mod tests {
     }
 
     #[test]
-    fn postcard_decode_tolerates_trailing_bytes() {
+    fn legacy_postcard_decode_tolerates_trailing_bytes() {
+        // Unversioned bytes written before Task 3.1 decode exactly as before.
         let r = sample_reaction();
-        let mut bytes = encode_reaction(&r);
+        let mut bytes = postcard::to_allocvec(&r).unwrap();
         bytes.push(0xFF);
         let decoded = decode_reaction(&bytes).unwrap();
         assert_eq!(r, decoded);
+    }
+
+    #[test]
+    fn versioned_decode_rejects_trailing_bytes() {
+        // A versioned payload must match its version's layout exactly.
+        let r = sample_reaction();
+        let mut bytes = encode_reaction(&r);
+        bytes.push(0xFF);
+        assert!(decode_reaction(&bytes).is_err());
     }
 
     #[test]
