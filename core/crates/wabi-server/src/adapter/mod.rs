@@ -2883,26 +2883,14 @@ impl WabiStore for WdbAdapter {
         direction: &str,
         actor_user_id: u64,
     ) -> Result<()> {
-        use postcard::to_allocvec;
-        #[derive(serde::Serialize)]
-        struct VotePayload {
-            post_id: String,
-            thread_id: String,
-            channel_id: String,
-            direction: String,
-            actor_user_id: u64,
-        }
-        let payload = to_allocvec(&VotePayload {
+        use wabidb::projections::forum::{encode_vote, VotePayload};
+        let payload = encode_vote(&VotePayload {
             post_id: post_id.to_string(),
             thread_id: thread_id.to_string(),
             channel_id: channel_id.to_string(),
             direction: direction.to_string(),
             actor_user_id,
-        })
-        .map_err(|e| wabidb::error::WabiError::Corrupt {
-            location: "vote_forum_post".into(),
-            detail: format!("postcard encode failed: {e}"),
-        })?;
+        });
         self.run(
             actor_user_id,
             "vote_forum_post",

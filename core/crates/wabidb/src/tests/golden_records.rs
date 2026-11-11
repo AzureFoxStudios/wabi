@@ -831,12 +831,19 @@ fn golden_forum_vote_payload() {
     })
     .unwrap();
     assert_eq!(hex::encode(&encoded), FORUM_VOTE_LEGACY);
-    let vote = forum::decode_vote(&bytes(FORUM_VOTE_LEGACY)).unwrap();
-    assert_eq!(
-        (vote.post_id.as_str(), vote.thread_id.as_str(), vote.channel_id.as_str()),
-        ("post_1", "thr_1", "ch_forum")
-    );
-    assert_eq!((vote.direction.as_str(), vote.actor_user_id), ("up", 4_200_000_001));
+    // The single struct that replaced the adapter's copy writes the same bytes.
+    assert_eq!(hex::encode(forum::encode_vote(&forum_vote())), FORUM_VOTE_LEGACY);
+    assert_eq!(forum::decode_vote(&bytes(FORUM_VOTE_LEGACY)).unwrap(), forum_vote());
+}
+
+pub(crate) fn forum_vote() -> forum::VotePayload {
+    forum::VotePayload {
+        post_id: "post_1".into(),
+        thread_id: "thr_1".into(),
+        channel_id: "ch_forum".into(),
+        direction: "up".into(),
+        actor_user_id: 4_200_000_001,
+    }
 }
 
 #[test]
