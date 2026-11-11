@@ -189,14 +189,6 @@ scan, not a claim that a fixture router is production-exposed.
 | `core/crates/wabi-server/src/api/lore.rs:418` | API | `(nested)` | `/promotes/{message_id}` | GET | `promotes_for_message` | AuthUser bearer, channel_access module |
 | `core/crates/wabi-server/src/api/lore.rs:423` | API | `(nested)` | `/health` | GET | `health_check` | no handler-level token — REVIEW |
 | `core/crates/wabi-server/src/api/lore.rs:425` | API | `(nested)` | `/recordings` | POST | `upload_recording` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:427` | API | `(nested)` | `/repos/{channel_id}/editor` | POST/DELETE | `start_editor_session, stop_editor_session` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/lore.rs:431` | API | `(nested)` | `/repos/{channel_id}/editor/sessions` | GET | `list_editor_sessions` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:436` | API | `(nested)` | `/repos/{channel_id}/scripts/run` | POST | `run_script` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/lore.rs:440` | API | `(nested)` | `/repos/{channel_id}/scripts/active` | GET | `list_active_scripts` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:444` | API | `(nested)` | `/repos/{channel_id}/scripts/{script_id}/cancel` | POST | `cancel_script` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:449` | API | `(nested)` | `/repos/{channel_id}/mirror` | GET/POST/DELETE | `register_mirror, get_mirror_config, remove_mirror` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/lore.rs:455` | API | `(nested)` | `/repos/{channel_id}/mirror/run` | POST | `run_mirror` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/lore.rs:459` | API | `(nested)` | `/repos/{channel_id}/mirror/configs` | GET | `list_mirror_configs` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/media.rs:86` | API | `/media` | `/rooms` | POST | `create_room` | AuthUser bearer, channel policy, channel_access module |
 | `core/crates/wabi-server/src/api/media.rs:87` | API | `/media` | `/rooms` | GET | `list_rooms` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/media.rs:88` | API | `/media` | `/rooms/{room_id}` | GET | `get_room` | AuthUser bearer, channel policy, channel_access module |

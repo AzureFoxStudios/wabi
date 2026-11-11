@@ -335,8 +335,11 @@ struct WriterEntry {
 /// 5. Wait for the batcher to fsync the entry (durability-await, §2.3).
 ///    This is a **group commit**: the loop drains every already-queued
 ///    command into a window (up to [`GROUP_COMMIT_WINDOW`]), submits all of
-///    their index entries, and issues ONE durability-await per window — so
-///    N concurrent commands collapse to ≤1 fsync per window instead of N.
+///    their index entries, and issues ONE durability-await per window, so the
+///    commit INDEX is fsynced at most once per window instead of once per
+///    command (test: `sequencer::tests::group_commit_shares_fsyncs_under_concurrency`).
+///    Each command still fsyncs every segment it touched (step 3), so segment
+///    fsyncs are not shared; no test checks that half.
 /// 6. Send one [`DispatchCommit`] containing all command events, in order.
 /// 7. Await successful application of the whole commit. The dispatcher advances
 ///    the applied watermark only after all events succeed.
@@ -599,7 +602,7 @@ fn has_room_control_event(command: &CommandCommit) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Max commands per group-commit window. A burst larger than this still
-/// collapses to ceil(N / WINDOW) fsyncs instead of N.
+/// collapses to ceil(N / WINDOW) commit-index fsyncs instead of N.
 const GROUP_COMMIT_WINDOW: usize = 32;
 
 /// A command whose index entry has been submitted to the batcher but whose

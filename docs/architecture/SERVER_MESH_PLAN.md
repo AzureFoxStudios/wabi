@@ -58,7 +58,7 @@ Current boundary:
 - the push receiver requires a durable local WabiDB writer fence, validates encrypted records against their commit references, preserves existing segment prefixes, and applies accepted events to its live projections. A [disposable two-commit check](../testing/FENCED_REPLICATION_2026-09-27.md) covers that narrow path. `wabi-db-replica-dev` is a separate fenced development receiver with optional upload copying, not a complete passive Wabi runtime or whole-instance state replica;
 - there is no safe active-active writer/election model around commit-sequence conflicts.
 
-The legacy `replication::failover::FailoverCoordinator` is an in-memory health observer, not an election participant. It now reports `PrimaryDown` on heartbeat timeout and never returns a promotion verdict. A focused WabiDB test covers that fail-closed behavior. It has no durable term, vote, majority, complete-state proof or runtime writer gate; none of those may be inferred from health alone.
+The legacy `replication::failover::FailoverCoordinator` (an in-memory health observer) was removed in PR 302, along with its test. Nothing in the running server elects a writer or promotes a replica. A durable term, vote, majority, complete-state proof and runtime writer gate are *planned*; none may be inferred from health alone.
 
 Therefore network replication is **disabled by default even when a peer endpoint is configured**. Both the client and sync API require these settings for developer testing:
 
@@ -74,7 +74,7 @@ The HTTP transport uses:
 - explicit non-2xx failure handling
 - stream-id hash validation while locating shipped segments
 
-The legacy `/api/v1/sync/pull` endpoint remains available behind the gate but the current sender does not use it for catch-up. Its decoder now preserves binary caller hashes and rejects malformed hash or ordering data; this has a focused unit check, not a separate multi-process pull acceptance run. This is scaffolding for the acceptance work below, not a production replica. The [experimental receiver guide](../deployment/EXPERIMENTAL_DB_REPLICA.md) is for disposable labs; do not put `WABIDB_EXPERIMENTAL_REPLICATION=true` in normal deployment examples.
+The legacy `/api/v1/sync/pull` endpoint remains available behind the gate but the current sender does not use it for catch-up. Its decoder preserves binary caller hashes and rejects malformed hash or ordering data (test: `core/crates/wabi-server/src/replication_transport.rs::tests::pull_keeps_binary_identity_hashes_and_rejects_malformed_peer_data`); there is no separate multi-process pull acceptance run. This is scaffolding for the acceptance work below, not a production replica. The [experimental receiver guide](../deployment/EXPERIMENTAL_DB_REPLICA.md) is for disposable labs; do not put `WABIDB_EXPERIMENTAL_REPLICATION=true` in normal deployment examples.
 
 ### 3.4 Warm standby
 

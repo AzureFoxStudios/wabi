@@ -1,6 +1,6 @@
 # Wabi Persistence Model
 
-> **Status:** Canonical reference for how state is stored in Wabi.
+> **Status:** Canonical reference for how state is stored in Wabi. Truth pass 2026-11-11 (Task 2.3): statements about what the engine does carry a `(test: path::name)` reference; sentences marked *planned* are not implemented.
 > **Last major revision:** 2026-06-22 (Wabidb replaces SpacetimeDB).
 > **Audience:** Operators configuring retention, contributors adding storage features, and integrators building on the Wabi API.
 
@@ -12,7 +12,7 @@
 
 Wabi defaults to client-side storage (like Signal), but server operators can opt into varying levels of persistence per channel. Self-host means **their data, their rules, their risk**.
 
-Every byte of server-side state lives inside the operator's `./data/wabi-server/` directory. The Wabidb engine is the only writer; the only readers are `wabi-server` itself (for query responses) and the Wabidb CLI tools (for backup/verify/migration).
+WabiDB's state lives inside the operator's `./data/wabi-server/wabidb/` directory; other server state (sidecar files, uploads) is listed in `docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`. Only one engine process can own a data directory at a time (tests: `tests::integration::two_engines_cannot_share_a_data_dir`, `engine::process_lock_tests::process_lock_excludes_another_engine_and_releases_after_kill`). `wabi-server` reads and writes through the engine. The `wabidb-cli` commands `check`, `verify`, `status` and `list-streams` only read and never take or touch the lock (test: `cli::tests::commands_are_read_only_and_never_touch_the_lock`); `wabidb-cli quarantine` writes `global/quarantine.json` while holding the lock (tests: `cli::quarantine::tests::quarantine_fails_while_the_lock_is_held`, `cli::quarantine::tests::quarantine_appends_once_and_refuses_unindexed_seqs`). `wabidb-cli` has no backup or migration command; a stopped instance is archived with `wabi-instance-snapshot` (`docs/deployment/BACKUP_AND_RECOVERY.md`).
 
 ---
 
@@ -22,146 +22,78 @@ Every byte of server-side state lives inside the operator's `./data/wabi-server/
 |------|---------|--------------|---------|
 | **Client (IndexedDB)** | Always | User | Personal history, offline access, draft state |
 | **Server (Wabidb streams)** | Always | Server admin | Real-time sync, active sessions, shared state |
-| **Server (BLAKE3 blobs)** | Opt-in | Server admin | File uploads, attachments, large media |
-| **Wabidb snapshots** | Automatic | Engine | Fast recovery from crash without replaying full commit log |
-| **Operator archives** | Manual | Server admin | Offsite backup, disaster recovery |
+| **`wabidb::blobs` (BLAKE3 blob writer)** | Not used | n/a | *Planned* for uploads and large media. The writer exists and is tested (`blobs::write::tests::write_is_idempotent`), but nothing calls it: wabi-server keeps uploads in its own registry outside WabiDB (`docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`) |
+| **Projection checkpoint** (`projections/snapshot.json`) | Automatic | Engine | Fast recovery without replaying the full commit log (tests: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`, `tests::integration::engine_rebuilds_projections_on_startup`) |
+| **Operator archives** | Manual | Server admin | Offsite backup, disaster recovery; see `docs/deployment/BACKUP_AND_RECOVERY.md` |
 
 All tiers run on the same filesystem. There is no separate database server to provision.
 
 ---
 
-## 3. Persistence Modes (Per Channel / Stream)
+## 3. Retention and persistence (what exists)
 
-Wabidb supports three modes, configured per-stream via the stream key metadata:
+There is no per-stream persistence mode in WabiDB and no per-stream TOML configuration. Earlier versions of this section described three modes (Ephemeral with a TTL reaper that destroys keys, Session-Only, Persistent) configured by `[streams."..."]` TOML tables, a `wabidb::retention::reaper` module and key destruction on expiry. None of that exists: the reaper and key destruction were removed in PR 302, and no TOML stream table is read. They are *planned* at most.
 
-### 3.1 Ephemeral
-Streams are deleted after a TTL. Used for high-churn channels (e.g. temporary coordination chats).
+What the server does today is set per channel, by the server, before the durable write:
 
-**Use cases:**
-- Temporary coordination channels
-- Privacy-focused conversations
-- High-churn chat rooms
+- **`live`**: messages are held in the server's live cache for the session and are not written to WabiDB. It is "not retained", not private or confidential (test: `core/crates/wabi-server/tests/channel_access_contract.rs::durable_delete_waits_for_commit_but_live_delete_remains_session_only`).
+- **Timed**: the message is written, and after N days the server's sweep appends a `message_deleted` event that hides it from the read model. The encrypted record stays in the append-only segment until a future compaction feature exists. This is a soft delete. Which messages count as expired is tested (`core/crates/wabi-server/src/api/retention_policy.rs::tests::policy_changes_only_affect_messages_created_after_each_boundary`, `::fast_sweep_includes_short_timers_and_excludes_long_or_disabled_channels`). No test checks that the encrypted record is still in the segment after the hide; that sentence rests on reading the delete path in `adapter/mod.rs`.
+- **`forever`**: the message is written and not swept.
 
-**Implementation:**
-- The Wabidb retention engine (`wabidb::retention::reaper`) scans for streams past their TTL
-- On expiry, the stream's encryption key is destroyed (key destruction; design intent, see section 6)
-- The segments become unreadable garbage
-- The commit index entry remains (audit trail) but the data is unrecoverable
+(The policy files and their loading are covered by `core/crates/wabi-server/tests/channel_access_contract.rs::exact_retention_loads_before_requests_and_corruption_cannot_change_live_mode` and `::socket_retention_persists_exact_modes_and_ignores_unrelated_updates`.)
 
-**Configuration (TOML, per stream):**
-```toml
-[streams."ch_01H...#temp"]
-persistence = "ephemeral"
-ttl_minutes = 5
-```
+### 3.1 How a durable write is stored
 
-### 3.2 Session-Only
-Streams persist until server restart. No disk writes beyond the operating system's page cache flushes.
-
-**Use cases:**
-- Daily standup channels
-- Event coordination
-- Testing / development
-
-**Implementation:**
-- The stream is held in memory only; not flushed to disk
-- On restart, all session-only streams are gone
-- (This mode is partially implemented; currently most streams are durable-by-default. Future work.)
-
-### 3.3 Persistent (Default)
-Streams are durable across server restarts. This is the default for all streams that don't explicitly request ephemeral.
-
-**Use cases:**
-- Community servers with compliance needs
-- Project coordination (audit trail)
-- Servers wanting backup capability
-
-**Implementation:**
-- Writes are append-only to per-stream segments
-- Segments are AES-256-GCM encrypted with the stream's key
-- Segments are fsync'd to disk before the commit index is updated
-- The commit index is the canonical ordering of all writes
-- Snapshots are taken periodically (configurable threshold) to bound recovery time
-
-**Configuration (TOML):**
-```toml
-[streams."ch_01H...#general"]
-persistence = "persistent"
-retention_days = 365
-```
+- Writes are append-only to per-stream segments (tests: `stream_log::segment_writer::tests::write_multiple_records`, `stream_log::segment_writer::tests::flush_and_close_persist_data`).
+- Segment records are AES-256-GCM encrypted under the stream's key (tests: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`, `crypto::aes_gcm_record::tests::wrong_key_fails_auth`).
+- The commit is acknowledged only after its segment writes and its commit-index entry are flushed (tests: `sequencer::tests::durability_await`, `tests::power_loss::simulate_crash_between_segment_write_and_commit_index`, `tests::power_loss::simulate_power_loss_before_fsync`).
+- The commit index is the canonical ordering of all writes (test: `engine::replay::tests::replay_applies_events_in_global_commit_seq_order`).
+- A projection checkpoint is saved every N dispatched commits, which bounds replay time (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). Per-stream snapshots are *planned*; none are written.
+- The process-exit crash tests do not discard the operating system's page cache, so fsync ordering is established by code review, not by a test.
 
 ---
 
 ## 4. File Format
 
-All on-disk formats are specified in `core/crates/wabidb/docs/STORAGE_FORMAT.md`. Summary:
+All on-disk formats are specified in `docs/architecture/STORAGE_FORMAT.md`, which gives a test for each behavior. Summary:
 
 | File | Format | Purpose |
 |------|--------|---------|
-| `*.wseg` | 48-byte header + payload + 4-byte CRC32C + padding | Encrypted stream segment |
-| `*.widx` | 16-byte header + entries + 32-byte trailer | Commit index file |
-| `*.wsnap` | 40-byte header + BLAKE3-keyed state + 4-byte CRC32C | Projection snapshot |
-| `*.bin` | raw bytes | BLAKE3 content-addressed blob |
-| `*.meta` | `BMTA` magic + content hash + size + CRC32C | Blob metadata sidecar |
-| `storage-manifest.json` | JSON | Operator-readable manifest of all streams, segments, sizes |
+| `*.wseg` | 48-byte header + payload + zero padding to a 16-byte boundary | Encrypted stream segment (test: `format::record::tests::total_size_includes_alignment_padding`) |
+| `*.widx` | 16-byte header + entries + 32-byte trailer on sealed files | Commit index file (test: `commit_index::batcher::tests::file_rotation_at_10000_entries`) |
+| `projections/snapshot.json` | JSON | Projection checkpoint (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`) |
+| `*.bin` | raw bytes | BLAKE3 content-addressed blob (test: `blobs::write::tests::canonical_path_layout`). No production caller writes one |
+| `*.meta` | three text lines: `blake3=`, `size=`, `created_at_micros=` | Blob metadata sidecar (test: `blobs::write::tests::metadata_sidecar_written`). No production caller writes one |
+| `storage-manifest.json` | JSON | Format version and commit watermark (test: `engine::tests::open_creates_storage_manifest`) |
+| `global/quarantine.json` | JSON | Commits replay must skip (test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`) |
 
-All CRCs are CRC32C (Castagnoli polynomial `0x1EDC6F41`). All multi-byte integers are little-endian.
+`*.wsnap` files and a binary `BMTA` blob header were described here before; no code writes either (see `STORAGE_FORMAT.md` §4 and §5).
+
+All CRCs are CRC32C (Castagnoli) and all multi-byte integers are little-endian (test: `format::record::tests::round_trip_event`).
 
 ---
 
 ## 5. Storage Manifest
 
-`$DATA_DIR/manifests/storage-manifest.json` is the canonical operator-readable manifest. It's the primary artifact for backup verification (per `wabidb-62` and `wabidb-86`).
+`$DATA_DIR/storage-manifest.json` holds `schema_version`, `format_version`, `engine_version`, `created_at_micros` and `highest_commit_seq`. It is created on first open, and `highest_commit_seq` is refreshed when the engine opens (test: `engine::tests::open_creates_storage_manifest`). `wabidb-cli verify` reads it (test: `cli::verify::tests::real_engine_tree_verifies`).
 
-```json
-{
-  "schema_version": 1,
-  "format_version": 1,
-  "highest_commit_seq": 12345,
-  "engine_version": "0.1.0",
-  "created_at_micros": 1718901234567890,
-  "config": {
-    "segment_size_bytes": 67108864,
-    "commit_batch_size": 10,
-    "commit_batch_age_micros": 50000,
-    "backpressure_timeout_micros": 5000000,
-    "reaper_interval_micros": 60000000,
-    "snapshot_threshold_events": 10000,
-    "snapshot_threshold_age_micros": 86400000000,
-    "load_shed_backlog_threshold": 50000
-  },
-  "streams": [
-    {
-      "stream_id": "ch_01H...",
-      "stream_kind": 1,
-      "stream_key_id": "01H...",
-      "segment_count": 3,
-      "total_record_count": 15234,
-      "total_size_bytes": 8923456,
-      "created_at_micros": 1718901234567890,
-      "last_commit_seq": 12345
-    }
-  ]
-}
-```
-
-The manifest is regenerated whenever the engine reopens the data directory. It is also the **primary backup verification artifact**: a backup is valid iff its manifest matches the live data directory's manifest after restore.
+*Planned, not implemented:* a per-stream list and a `config` block in the manifest, and using the manifest as a backup verification artifact ("a backup is valid iff its manifest matches the live data directory"). Nothing compares manifests, and the engine does not refuse to start on a manifest mismatch.
 
 ---
 
-## 6. Key Destruction (design intent, not implemented)
+## 6. Key Destruction (planned; not implemented)
 
 > **Status:** nothing in the running server destroys stream keys. Timed retention is a soft delete: a `message_deleted` event hides the message and the original encrypted record stays in the segment. The per-stream key is re-derived from the bootstrap key on every start. The text below describes the intended design only.
 
-The intended design is **key destruction** for streams: rather than overwriting data on disk (slow, fragile on SSDs), the engine destroys the stream's encryption key. The on-disk bytes become mathematically unrecoverable.
+The planned design is **key destruction** for streams. Everything below this line in this section is design intent, not behavior: rather than overwriting data on disk (slow, fragile on SSDs), the engine destroys the stream's encryption key. The on-disk bytes become mathematically unrecoverable.
 
-**Lifecycle:**
-1. **Create:** A new stream is allocated with a fresh 256-bit key. The key is stored in the `StreamKeyRegistry` (in-memory + optional offline backup).
-2. **Use:** Every segment is encrypted with the stream's current key. AES-256-GCM provides confidentiality + integrity.
-3. **Rekey (optional):** For streams being migrated, the engine generates a new key, re-encrypts all segments, and discards the old key. See `wabidb::crypto::rekey`.
-4. **Delete:** The key is removed from the registry. The segments are now unrecoverable garbage. The commit index retains a tombstone marking the stream as deleted (for audit).
+**Intended lifecycle (planned):**
+1. **Create:** A new stream is allocated with a fresh 256-bit key held in the `StreamKeyRegistry`. (Today the key is derived from the bootstrap key and the stream id on every start, which is why destruction is not possible: tests: `engine::stream_dir_tests::encoded_directory_registers_decoded_key_when_snapshot_covers_records`, `engine::stream_dir_tests::legacy_raw_colon_directory_replays_with_raw_id_and_key`.)
+2. **Use:** Every segment is encrypted with the stream's key (implemented; see section 3.1).
+3. **Rekey:** planned. The rekey module was removed in PR 302.
+4. **Delete:** planned. The key would be removed so the segments become unrecoverable, and an audit marker would remain.
 
-This is the basis for the Ephemeral persistence mode (3.1): reaper deletes keys, segments are unreadable, no I/O amplification.
+An expiry mode built on this (a reaper that deletes keys) is planned; no reaper exists.
 
 ---
 
@@ -172,27 +104,23 @@ This is the basis for the Ephemeral persistence mode (3.1): reaper deletes keys,
 The full `data/wabi-server/` directory plus the `storage-manifest.json` are the backup unit. Specifically:
 
 - `streams/` — all segments
-- `global/commit-index/` — the index
-- `manifests/storage-manifest.json` — the manifest
-- `blobs/` — content-addressed uploads
+- `global/commit-index/` — the index, and `global/quarantine.json` if it exists (without it, startup refuses the quarantined commit again; test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`)
+- `storage-manifest.json` — the manifest
+- `projections/snapshot.json` — the projection checkpoint
+- `blobs/` — where `wabidb::blobs` would write. Nothing writes it today; uploads live outside this directory (`docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`)
 - The Wabidb engine's bootstrap key material (stored separately; see `wabidb::crypto::bootstrap`)
+
+The full recovery unit, including sidecar files and uploads, is in `docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`.
 
 ### 7.2 Backup Workflow
 
-The Wabidb CLI (`wabidb backup`) produces a manifest-frozen directory copy. Steps:
+There is no `wabidb backup` command. It was removed in PR 302. A backup today is a copy of the whole data directory taken while the server is stopped; the steps are in `docs/deployment/BACKUP_AND_RECOVERY.md`. Quiescing a running engine, freezing a manifest hash and verifying it after the copy are *planned*.
 
-1. Engine quiesces (no new commits accepted for the duration)
-2. Engine flushes pending writes
-3. `storage-manifest.json` is regenerated with `highest_commit_seq` reflecting the quiesced state
-4. The manifest is frozen (hash recorded)
-5. Directory copy proceeds (rsync, cp, tar, etc.)
-6. Manifest hash is verified against the post-copy directory
-
-See `wabidb::retention::manifest_backup` for implementation.
+Helpers that copy and hash files exist (`retention::manifest_backup`, `retention::data_backup`, `retention::verify_backup`; tests: `retention::manifest_backup::tests::backup_to_new_dir`, `retention::data_backup::tests::backup_populated`, `retention::verify_backup::tests::hash_mismatch_reported`) but no command or server route runs them.
 
 ### 7.3 Restore
 
-Restore is the inverse: write the directory back, then run `wabidb check` to verify the manifest matches. If the manifest hash disagrees, the engine refuses to start (configurable; default = refuse).
+Restore is the inverse: write the directory back with the server stopped. `wabidb-cli check` and `wabidb-cli verify` can then be run against the restored directory. `check` scans the segments the commit index references and reports `ok: false` when none are found or a record is missing or damaged; `verify` reads the manifest and checks the segments (tests: `cli::check::tests::check_scans_the_segments_a_real_engine_wrote`, `cli::check::tests::zero_segments_with_indexed_commits_is_not_ok`, `cli::check::tests::missing_indexed_record_is_not_ok`, `cli::verify::tests::real_engine_tree_verifies`, `cli::verify::tests::corrupted_segment_in_encoded_stream_dir_returns_error`). The engine does not compare a manifest hash at startup; a "refuse to start when the manifest hash disagrees" setting is *planned*.
 
 ---
 
@@ -200,15 +128,14 @@ Restore is the inverse: write the directory back, then run `wabidb check` to ver
 
 - Wire protocol for client-server sync — see `docs/architecture/ARCHITECTURE.md` §5
 - Internal Wabidb key derivation — see `wabidb::crypto::bootstrap`
-- Operator runbook for backups — see `docs/deployment/BACKUP_AND_RESTORE.md`
-- Disaster recovery procedures — see `docs/deployment/DEPLOYMENT.md`
+- Operator runbook for backups and recovery — see `docs/deployment/BACKUP_AND_RECOVERY.md`
 
 ---
 
 ## 9. Cross-References
 
-- `core/crates/wabidb/docs/STORAGE_FORMAT.md` — full byte-level format spec
+- `docs/architecture/STORAGE_FORMAT.md` — full byte-level format spec
 - `docs/proposals/wabidb-endstate.md` — Wabidb endstate design (the larger storage architecture)
-- `docs/deployment/BACKUP_AND_RESTORE.md` — operator backup runbook
+- `docs/deployment/BACKUP_AND_RECOVERY.md` — operator backup and recovery runbook
 - `docs/architecture/ARCHITECTURE.md` §4 — Wabidb engine architecture
 - `docs-history branch (archive/) 2026-04-stdb-migration/` — historical context for what this doc replaced

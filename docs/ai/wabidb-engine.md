@@ -17,51 +17,54 @@ CommandCommit
   → 7. Response — outcome (including commit_seq) returned via oneshot channel
 ```
 
+Tests for the steps: single writer (`sequencer::tests::no_two_sequencers`, `engine::locks::tests::sequencer_permit_serializes_writers`); a failed command burns its commit_seq and the number is not reused (`sequencer::tests::burned_seq_on_failure`, `tests::power_loss::restart_never_reuses_commit_seq`); one fsync can cover several concurrent commits (`sequencer::tests::group_commit_shares_fsyncs_under_concurrency`); the caller waits for durability and for projection application (`sequencer::tests::durability_await`, `sequencer::tests::completion_waits_for_projection_application`); the dispatcher applies commits in order (`engine::locks::tests::dispatcher_processes_items_in_order`); a failed projection application is durable but stops later commits and refuses to report ready on restart (`sequencer::tests::failed_application_stops_a_durable_group_without_dispatching_later_commands`, `tests::write_completion::projection_failure_is_durable_but_never_successful_or_ready_on_restart`).
+
 ## Storage
 
 | File | Purpose |
 |------|---------|
-| `.wseg` | Append-only segment files, max ~64 MiB each. Records: 48-byte header + payload + 16-byte padding. Magic `b"WABI"`, CRC32C on header and payload. |
-| `.widx` | Global commit index, batcher with configurable batch size/age. Maps events to segment locations. Magic `b"WIDX"`. |
-| `.wsnap` | Point-in-time serialized projection state for fast recovery. Magic `b"WSNP"`. |
-| `.bin` + `.meta` | BLAKE3-addressed large binary data. Metadata magic `b"BMTA"`. |
-| `storage-manifest.json` | Schema version, commit watermark, per-stream metadata. |
+| `.wseg` | Append-only segment files, max ~64 MiB each. Records: 48-byte header + payload + zero padding to a 16-byte boundary. Magic `b"WABI"`, CRC32C on the header; the payload CRC is `0` (unchecked) for encrypted records. (tests: `format::record::tests::round_trip_event`, `format::record::tests::total_size_includes_alignment_padding`, `stream_log::segment_writer::tests::segment_rotation_on_full`) |
+| `.widx` | Global commit index, batcher with configurable batch size/age. Maps events to segment locations. Magic `b"WIDX"`. (tests: `commit_index::batcher::tests::batch_size_triggers_flush`, `commit_index::batcher::tests::max_age_triggers_flush`, `commit_index::batcher::tests::file_rotation_at_10000_entries`) |
+| `.wsnap` | Planned / unused. A writer exists (`snapshots::writer`, test: `snapshots::writer::tests::write_and_read_back`) but nothing calls it. The engine's checkpoint is `projections/snapshot.json`. |
+| `.bin` + `.meta` | BLAKE3-addressed large binary data. `.meta` is a three-line text file (`blake3=`, `size=`, `created_at_micros=`), not a binary `BMTA` file. (test: `blobs::write::tests::metadata_sidecar_written`) Nothing in the engine or the server calls `wabidb::blobs`, so a real data directory has no `blobs/`. |
+| `storage-manifest.json` | `schema_version`, `format_version`, `engine_version`, `created_at_micros`, `highest_commit_seq`. No per-stream metadata. (test: `engine::tests::open_creates_storage_manifest`) |
+| `global/quarantine.json` | Commits the operator told replay to skip. Written only by `wabidb-cli quarantine`. (tests: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`, `cli::quarantine::tests::quarantine_appends_once_and_refuses_unindexed_seqs`) |
 
 ## Security
 
-- **Per-stream keys**: each stream has a unique 32-byte key via `register_stream_key()`
-- **AES-256-GCM**: event payloads encrypted with `commit_seq` as nonce
-- **Key exchange**: double ratchet protocol with X3DH initial handshake
-- **Key destruction**: design intent only (no production caller); today timed retention is a soft delete and nothing is cryptographically destroyed
+- **AES-256-GCM**: event payloads encrypted with `commit_seq` as nonce and the 48-byte record header as AAD (tests: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`, `crypto::aes_gcm_record::tests::nonce_construction`, `crypto::aes_gcm_record::tests::bit_flip_in_aad_fails_auth`, `crypto::aes_gcm_record::tests::wrong_key_fails_auth`)
+- **Per-stream keys**: each stream's key is derived from the bootstrap key and the stream id, and replay of a legacy raw-named stream directory derives it from the raw id (tests: `engine::stream_dir_tests::legacy_raw_colon_directory_replays_with_raw_id_and_key`, `engine::stream_dir_tests::encoded_directory_registers_decoded_key_when_snapshot_covers_records`)
+- **Key exchange (X3DH / double ratchet)**: removed in PR 302. WabiDB has no key-exchange code.
+- **Key destruction**: not implemented (design intent only). Timed retention is a soft delete and nothing is cryptographically destroyed.
 
 ## Projections
 
-In-memory materialized views backed by `crossbeam-skiplist::SkipMap` indexes. Rebuilt from snapshots + commit journal on restart. All read methods hit projections, not raw segments.
+In-memory materialized views backed by `crossbeam-skiplist::SkipMap` indexes, rebuilt from the saved `projections/snapshot.json` plus the commit index on restart (tests: `tests::integration::engine_rebuilds_projections_on_startup`, `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`, `engine::replay::tests::replay_applies_events_in_global_commit_seq_order`). Replay holds a bounded number of decoded events (test: `engine::replay::tests::replay_holds_decoded_events_bounded_by_stream_count`). A projection handler that fails or panics on a commit stops startup with an error naming the commit (tests: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`, `engine::quarantine_tests::panicking_handler_is_named_at_startup_and_quarantine_skips_it`).
 
 ## WabiStore trait
 
 `src/engine/wabi_store.rs` — the typed domain API (50+ methods). Two implementations:
-- **`WdbAdapter`** (wabi-server) — real engine, writes events via `self.run()`
+- **`WdbAdapter`** (wabi-server) — real engine, writes events via `self.run()` (test: `core/crates/wabi-server/tests/message_delivery_contract.rs::committed_text_is_accepted_but_failed_text_and_file_writes_have_no_success_effects`)
 - **`LocalWabiStore`** (wabidb) — HashMap-backed in-memory store for testing
 
 ## Testing
 
 | Layer | Coverage |
 |-------|----------|
-| Unit | 753+ tests across all modules |
-| Property | Proptest round-trips for RecordHeader, CommitIndexEntry, projection records, key encoding injectivity, domain JSON |
-| Integration | Full command-commit-readback flows |
-| Fuzz | 4 inline targets (RecordHeader, StreamRef, CommitIndexEntry, parse_composite_key) |
-| Power-loss | 5 physical subprocess crash tests (one per crash boundary) + 3 logical crash tests |
+| Unit | Run `cargo test -p wabidb` for the current count; it is not recorded here because it goes stale. |
+| Property | Proptest round-trips (`tests::property_tests::record_encode_decode_round_trip`, `tests::property_tests::commit_index_encode_decode_round_trip`, `tests::property_tests::message_record_postcard_round_trip`) |
+| Integration | `tests::integration::engine_starts_and_serves_a_command`, `tests::send_message_flow::send_message_flow` |
+| Decoder robustness | Fixed inputs only, not a fuzz target: `fuzz::tests::garbage_input_does_not_panic`, `fuzz::tests::stream_ref_garbage_does_not_panic`, `fuzz::tests::commit_index_entry_garbage_does_not_panic`, `fuzz::tests::composite_key_garbage_does_not_panic` |
+| Process-exit crash | `tests::power_loss`: three in-process tests (`simulate_power_loss_before_fsync`, `simulate_crash_between_segment_write_and_commit_index`, `simulate_power_loss_after_commit_index_fsync`), `restart_never_reuses_commit_seq`, and five subprocess tests marked `#[ignore]` behind the `test-harness` feature (`crash_before_any_write`, `crash_mid_stream_write`, `crash_before_index_fsync`, `crash_after_index_fsync`, `crash_after_projection_update`). The CI job `power-loss` runs the ignored ones. They end the process; no test discards the operating system's page cache, so fsync ordering is not proven by a test. |
 
 ## Benchmarks
 
-`benches/projection_read.rs` — 24 benchmarks across get/list/compact groups. Each populates 10k records across 100 groups. Run with `cargo bench -p wabidb -- projection_read`.
+`benches/projection_read.rs` and `benches/commit_throughput.rs` exist. Numbers from them are not recorded here; run `cargo bench -p wabidb` to measure.
 
 ## Key pitfalls
 
 - **Not a KV store** — no `get(key)`/`put(key, value)`. The API is command/event-based.
 - **No SQL** — no MVCC, bloom filters, or WAL.
 - **Single-threaded sequencer** — write throughput bounded by single-core commit processing.
-- **Projections are in-memory** — large datasets may have slow recovery.
-- **Batcher restarts from widx_number=0** — stale `.widx` files can conflict after unclean shutdown.
+- **Projections are in-memory** — large datasets may have slow recovery (planned: a derived on-disk read model, `docs/architecture/ADR-0001-projection-storage.md`).
+- **Commit-index files resume after a restart** — the batcher continues numbering after the highest existing `.widx` file (test: `commit_index::batcher::tests::partial_final_entry_survives_a_second_restart_after_new_commits`).

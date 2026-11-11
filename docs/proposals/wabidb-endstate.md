@@ -1,5 +1,7 @@
 # WabiDB: End-State Design Document
 
+> **Read first (2026-11-11):** this is a design proposal, not a description of the product. Mechanisms described below as present (the subscription engine, `dump-stream`, `verify-backup`, key destruction) do not exist in the running server. `docs/PROJECT_STATUS.md` is the status of record.
+
 > **Status:** Proposal (revised after Arena LLM review and storage architecture correction, 2026-06-19)  
 > **Date:** 2026-06-19  
 > **Audience:** Senior Rust engineer implementing the Wabi database engine  
