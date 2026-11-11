@@ -759,7 +759,7 @@
       "fact_live": "Solo en vivo · no se guardan",
       "title_forever": "Los mensajes nuevos se guardan hasta que alguien los borre.",
       "title_live": "Los mensajes nuevos se muestran en vivo y no se guardan. No guardarlos no los oculta al operador del servidor.",
-      "title_duration": "Los mensajes nuevos se guardan {duration}. Los anteriores conservan la duración con la que se enviaron."
+      "title_duration": "Los mensajes nuevos se ocultan después de {duration}. No se borran: el registro guardado permanece en el servidor. Los anteriores conservan la duración con la que se enviaron."
     },
     "duration": {
       "second_one": "{count} segundo",

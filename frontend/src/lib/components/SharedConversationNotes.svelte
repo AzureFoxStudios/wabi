@@ -3,7 +3,7 @@
 	import { currentUser, serverMembers } from '$lib/presenceIdentity';
 	import { getSocket } from '$lib/socketConnection';
 	import { getE2eeRoomStatus } from '$lib/e2ee';
-	import { keepSharedNoteDraft, listSharedNotes, removeSharedNote, saveSharedNote, takeSharedNoteDraft, type SharedNote } from '$lib/notes/sharedConversationNotes';
+	import { keepSharedNoteDraft, listSharedNotes, removeSharedNote, saveSharedNote, sharedNoteErrorText, takeSharedNoteDraft, type SharedNote } from '$lib/notes/sharedConversationNotes';
 
 	let { channelId, surface = 'center' }: { channelId: string; surface?: 'center' | 'right' } = $props();
 	let notes = $state<SharedNote[]>([]);
@@ -90,7 +90,7 @@
 		} catch (failure) {
 			if (sequence !== requestSequence || room !== channelId) return;
 			loading = false;
-			error = failure instanceof Error ? failure.message : 'Could not load shared notes.';
+			error = sharedNoteErrorText(failure, 'Could not load shared notes.');
 		}
 	}
 
@@ -111,7 +111,7 @@
 			status = 'Saved for everyone';
 		} catch (failure) {
 			if (room !== channelId) return;
-			error = failure instanceof Error ? failure.message : 'Could not share this note.';
+			error = sharedNoteErrorText(failure, 'Could not share this note.');
 			status = 'Not saved';
 		} finally { busy = false; }
 	}
@@ -128,7 +128,7 @@
 			status = 'Removed for everyone';
 			error = '';
 		} catch (failure) {
-			if (room === channelId) error = failure instanceof Error ? failure.message : 'Could not remove this note.';
+			if (room === channelId) error = sharedNoteErrorText(failure, 'Could not remove this note.');
 		} finally { busy = false; }
 	}
 
@@ -203,7 +203,7 @@
 				<button type="button" class="note-row" class:selected={selectedId === note.id} onclick={() => select(note)}>
 					<strong>{note.title}</strong>
 					<span>{displayAuthor(note)} · {new Date(note.updatedAt).toLocaleDateString()}</span>
-					<small>{note.locked ? 'Unavailable on this device' : note.encrypted ? 'Encrypted note' : 'Server-readable note'}</small>
+					<small>{note.locked ? 'Unavailable on this device' : note.encrypted ? 'Experimental encryption' : 'Server-readable note'}</small>
 				</button>
 			{/each}
 		</aside>
@@ -213,7 +213,7 @@
 					<div class="note-empty"><h4>Cannot open this note</h4><p>{selected.openError}</p></div>
 				{:else}
 					<div class="detail-top">
-						<span class="scope-label">{selectedId === 'new' ? 'Private draft until saved' : selected?.encrypted ? 'Encrypted for this conversation' : 'Server-readable shared note'}</span>
+						<span class="scope-label">{selectedId === 'new' ? 'Private draft until saved' : selected?.encrypted ? 'Experimental encryption for this conversation' : 'Server-readable shared note'}</span>
 						{#if remoteChange}<button type="button" onclick={() => selected && useNote(selected)}>Load newer version</button>{/if}
 					</div>
 					<input class="note-title" aria-label="Shared note title" placeholder="Note title" maxlength="120" bind:value={title} readonly={!canEdit || busy}/>
