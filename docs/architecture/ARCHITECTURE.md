@@ -97,7 +97,7 @@ See [`PERSISTENCE_MODEL.md`](PERSISTENCE_MODEL.md), [`STORAGE_FORMAT.md`](STORAG
 
 ### Persistent schema rule
 
-Many records are postcard-encoded. Adding/reordering fields without a versioned/dual-decode path can make old events unreadable. Persistent-record evolution is therefore an architectural migration, not a casual Rust-struct edit.
+Many records are postcard-encoded. Adding/reordering fields without a versioned/dual-decode path can make old events unreadable. Persistent-record evolution is therefore an architectural migration, not a casual Rust-struct edit. Thirty record types carry a per-type version header for this (`wabidb::format::versioned`; `docs/architecture/STORAGE_FORMAT.md` §7.1): a field change is a new version there, with the old decoder kept.
 
 ## 4. Retention is decided before persistence
 
