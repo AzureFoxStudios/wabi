@@ -8,6 +8,8 @@
 //!
 //! Do not regenerate the fixture: the generator now writes versioned records,
 //! so a regenerated directory would no longer prove anything about old data.
+//! A payload versioned later than the fixture (Task 3.1b) gets its old-format
+//! events built in the test from its golden bytes instead.
 
 use super::golden_records as sample;
 use crate::crypto::bootstrap::BootstrapSource;
@@ -499,6 +501,148 @@ async fn upgraded_directory_passes_offline_inspection() {
         .unwrap();
     drop(engine);
     drop(super::wait_for_stopped_engine(&data).await);
+    assert!(ProjectionState::snapshot_path(&data).exists());
+
+    let matches = inspect(&data).await;
+    assert!(matches!(matches, Ok(true)), "{:?}", matches.map_err(|e| e.to_string()));
+}
+
+// ---------------------------------------------------------------------------
+// Task 3.1b: event payloads that stayed raw postcard after Task 3.1.
+//
+// The fixture has none of these events and must not be regenerated, so the
+// old-format events are built here from the golden bytes (exactly what an
+// older build wrote), each followed by the same event from today's encoder.
+// ---------------------------------------------------------------------------
+
+/// Old and new `forum_post_voted`, `forum_post_solution_set`, `user_deleted`
+/// and `dm_onetime_prekey_consumed` events against the fixture's records.
+fn raw_payload_events() -> Vec<EventToWrite> {
+    use crate::domain::UserDeleted;
+    use crate::projections::user_deletion;
+    use sample::{
+        bytes, DM_PREKEY_CONSUMED_LEGACY, FORUM_SOLUTION_LEGACY, FORUM_VOTE_LEGACY,
+        USER_DELETED_LEGACY,
+    };
+    let down_vote = forum::VotePayload { direction: "down".into(), ..sample::forum_vote() };
+    let second_prekey = dm_identities::ConsumedPayload {
+        prekey_public: "otk2".into(),
+        ..sample::dm_prekey_consumed()
+    };
+    vec![
+        // The fixture's thread got a post id from its commit seq, so put the
+        // sample post the golden payloads name in place first (an edit is an
+        // upsert that keeps the ids it is given).
+        event(
+            "ch_forum",
+            6,
+            "forum_post_edited",
+            forum::encode_record(&sample::forum_post()),
+        ),
+        // Up-votes post_1 (legacy), then down-votes it (versioned).
+        event("ch_forum", 6, "forum_post_voted", bytes(FORUM_VOTE_LEGACY)),
+        event("ch_forum", 6, "forum_post_voted", forum::encode_vote(&down_vote)),
+        // Marks post_1 the solution, once in each format.
+        event("ch_forum", 6, "forum_post_solution_set", bytes(FORUM_SOLUTION_LEGACY)),
+        event(
+            "ch_forum",
+            6,
+            "forum_post_solution_set",
+            forum::encode_solution(&sample::forum_solution()),
+        ),
+        // Deletes the channel member's user (legacy), then user 7 (versioned).
+        event("users", 6, "user_deleted", bytes(USER_DELETED_LEGACY)),
+        event(
+            "users",
+            6,
+            "user_deleted",
+            user_deletion::encode_payload(&UserDeleted { user_id: 7 }),
+        ),
+        // Consumes both of user 9's one-time prekeys, one in each format.
+        event("dm_identities:9", 6, "dm_onetime_prekey_consumed", bytes(DM_PREKEY_CONSUMED_LEGACY)),
+        event(
+            "dm_identities:9",
+            6,
+            "dm_onetime_prekey_consumed",
+            dm_identities::encode_consumed(&second_prekey),
+        ),
+    ]
+}
+
+/// Open the fixture copy at `data`, commit [`raw_payload_events`] one command
+/// each, and stop the engine (which saves a snapshot).
+async fn write_raw_payload_events(data: &Path) {
+    let engine = reopen(data).await;
+    for event in raw_payload_events() {
+        engine.get_or_create_stream_key(&event.stream_id).await.unwrap();
+        let event_type = event.event_type.clone();
+        let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+        engine
+            .run_command(CommandCommit {
+                room_owner_precondition: None,
+                caller_user_id: 7,
+                caller_device_id: "fixture".into(),
+                command_name: format!("fixture_{event_type}"),
+                idempotency_key: None,
+                events: vec![event],
+                essential: true,
+                response_tx,
+            })
+            .await
+            .unwrap_or_else(|e| panic!("{event_type} rejected: {e}"));
+    }
+    drop(engine);
+    drop(super::wait_for_stopped_engine(data).await);
+}
+
+/// What [`raw_payload_events`] must have done to the fixture's state.
+fn assert_raw_payload_events_applied(state: &ProjectionState) {
+    let post = forum::ForumProjection::get_post(state, "ch_forum", "thr_1", "post_1")
+        .unwrap()
+        .unwrap();
+    let before = sample::forum_post();
+    assert_eq!((post.votes_up, post.votes_down), (before.votes_up + 1, before.votes_down + 1));
+    assert!(post.is_solution);
+    assert!(!crate::projections::user_deletion::user_exists(state, 7));
+    assert!(channel_members::ChannelMembersProjection::list_members(state, "ch_general")
+        .unwrap()
+        .is_empty());
+    let identity = dm_identities::DmIdentitiesProjection::get_identity(state, 9, "dev-phone")
+        .unwrap()
+        .unwrap();
+    assert!(identity.one_time_prekeys.is_empty(), "{:?}", identity.one_time_prekeys);
+}
+
+/// Old-format and new-format payload events in one log both replay, with the
+/// snapshot removed so every event goes through today's decoders.
+#[tokio::test]
+async fn raw_event_payloads_replay_in_both_formats() {
+    let scratch = scratch_copy();
+    let data = scratch.path().join("data");
+    write_raw_payload_events(&data).await;
+    std::fs::remove_file(ProjectionState::snapshot_path(&data)).unwrap();
+
+    let engine = reopen(&data).await;
+    let state = engine.projection_state();
+    assert_eq!(
+        state.applied_commit_seq(),
+        (fixture_events().len() + raw_payload_events().len()) as u64
+    );
+    assert_raw_payload_events_applied(&state);
+    assert!(!describe_state(&state).contains("DECODE ERROR"));
+}
+
+/// Offline inspection replays the same mixed log and must match the snapshot
+/// this build saved. None of these handlers stores its payload bytes (votes and
+/// solutions re-encode the forum post, `user_deleted` only removes rows, the
+/// prekey event re-encodes the identity), so they cannot cause a legacy-versus-
+/// version-1 fingerprint difference; what this checks is that inspection's
+/// replay decodes both formats of every one.
+#[tokio::test]
+async fn raw_event_payloads_pass_offline_inspection() {
+    let scratch = scratch_copy();
+    let data = scratch.path().join("data");
+    write_raw_payload_events(&data).await;
     assert!(ProjectionState::snapshot_path(&data).exists());
 
     let matches = inspect(&data).await;
