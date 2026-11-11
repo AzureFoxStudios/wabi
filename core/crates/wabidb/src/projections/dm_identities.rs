@@ -34,6 +34,29 @@ pub fn decode_record(buf: &[u8]) -> Result<DmIdentityRecord> {
     versioned::decode_v1(&FORMAT, buf)
 }
 
+/// Payload of `dm_onetime_prekey_consumed`: remove one one-time prekey from a
+/// device's bundle. Nothing in the workspace writes this event today, but the
+/// projection replays any that a data directory holds. Never change its fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConsumedPayload {
+    pub user_id: u64,
+    pub device_id: String,
+    pub prekey_public: String,
+}
+
+/// Versioned durable layout of [`ConsumedPayload`]; see `format::versioned`.
+/// The first field is a `u64`, so legacy bytes never start with the marker.
+const CONSUMED_FORMAT: RecordFormat =
+    RecordFormat::new(*b"DOTP", "dm_identities onetime_prekey_consumed");
+
+pub fn encode_consumed(payload: &ConsumedPayload) -> Vec<u8> {
+    versioned::encode_v1(&CONSUMED_FORMAT, payload)
+}
+
+pub fn decode_consumed(buf: &[u8]) -> Result<ConsumedPayload> {
+    versioned::decode_v1(&CONSUMED_FORMAT, buf)
+}
+
 pub fn encode_key(user_id: u64, device_id: &str) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&user_id.to_be_bytes());
@@ -126,17 +149,7 @@ impl Projection for DmIdentitiesProjection {
                 Ok(())
             }
             "dm_onetime_prekey_consumed" => {
-                #[derive(Deserialize)]
-                struct ConsumedPayload {
-                    user_id: u64,
-                    device_id: String,
-                    prekey_public: String,
-                }
-                let payload: ConsumedPayload = postcard::from_bytes(&event.payload)
-                    .map_err(|e| crate::error::WabiError::Corrupt {
-                        location: "dm_identities projection".into(),
-                        detail: format!("onetime_prekey_consumed decode failed: {e}"),
-                    })?;
+                let payload = decode_consumed(&event.payload)?;
                 DmIdentitiesProjection::remove_onetime_prekey(
                     state,
                     payload.user_id,
@@ -273,18 +286,11 @@ mod tests {
         let record = make_identity(42, "dev_a", 3);
         apply_register(&state, &record, 1);
 
-        #[derive(Serialize)]
-        struct ConsumedPayload {
-            user_id: u64,
-            device_id: String,
-            prekey_public: String,
-        }
-        let payload = postcard::to_allocvec(&ConsumedPayload {
+        let payload = encode_consumed(&ConsumedPayload {
             user_id: 42,
             device_id: "dev_a".into(),
             prekey_public: "prekey_dev_a_1".into(),
-        })
-        .unwrap();
+        });
         let event = DurableEvent {
             commit_seq: 2,
             stream_id: "dm_identity_42".into(),
