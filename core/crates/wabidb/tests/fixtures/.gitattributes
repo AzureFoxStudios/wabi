@@ -1,0 +1,2 @@
+# Byte-exact fixture: never convert line endings.
+* -text
