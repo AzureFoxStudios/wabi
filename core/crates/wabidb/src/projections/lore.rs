@@ -22,6 +22,14 @@ impl RecordCodec for LoreRepoRecord {
     fn codec_name() -> &'static str {
         "lore_repos"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_repo_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_repo_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`LoreRepoRecord`]; see `format::versioned`.
@@ -123,6 +131,14 @@ impl RecordCodec for LoreCommitRecord {
     fn codec_name() -> &'static str {
         "lore_commits"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`LoreCommitRecord`]; see `format::versioned`.
@@ -220,6 +236,14 @@ impl RecordCodec for LoreFileChangeRecord {
     fn codec_name() -> &'static str {
         "lore_file_changes"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_change_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_change_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`LoreFileChangeRecord`]; see `format::versioned`.
@@ -311,6 +335,14 @@ pub struct LoreTokenRecord {
 impl RecordCodec for LoreTokenRecord {
     fn codec_name() -> &'static str {
         "lore_tokens"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_token_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_token_record(buf)
     }
 }
 
@@ -407,6 +439,14 @@ pub struct LoreBindingRecord {
 impl RecordCodec for LoreBindingRecord {
     fn codec_name() -> &'static str {
         "lore_bindings"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_binding_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_binding_record(buf)
     }
 }
 
@@ -514,6 +554,14 @@ pub struct LorePromoteRecord {
 impl RecordCodec for LorePromoteRecord {
     fn codec_name() -> &'static str {
         "lore_promotes"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_promote_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_promote_record(buf)
     }
 }
 
