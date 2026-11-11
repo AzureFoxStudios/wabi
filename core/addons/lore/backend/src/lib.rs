@@ -1198,9 +1198,23 @@ impl LoreService {
         message: &str,
         author_id: i64,
     ) -> anyhow::Result<LoreUploadResult> {
+        let _io = self.io_gate.lock().await;
+        self.upload_file_locked(channel_id, local_path, repo_path, message, author_id)
+            .await
+    }
+
+    /// Body of [`Self::upload_file`]. The caller MUST hold `io_gate` for the
+    /// whole call (it is a plain async fn, not a re-entrant lock).
+    async fn upload_file_locked(
+        &self,
+        channel_id: i64,
+        local_path: &str,
+        repo_path: &str,
+        message: &str,
+        author_id: i64,
+    ) -> anyhow::Result<LoreUploadResult> {
         let message = sanitize_commit_message(message)?;
         let message = message.as_str();
-        let _io = self.io_gate.lock().await;
         let repo = self.resolve_writable_target(channel_id, repo_path).await?;
 
         // Artist-friendly review flow: switch to a fresh per-upload branch
@@ -1238,6 +1252,10 @@ impl LoreService {
             None
         };
 
+        // Everything between switching to the review branch and switching
+        // back runs in one block so that an error cannot return early and
+        // leave the shared working tree on the review branch.
+        let committed: anyhow::Result<_> = async {
         // Write through held directory descriptors; imported links cannot
         // redirect either directory creation or the final publication.
         let root = RepoDir::open(&repo.working_tree)?;
@@ -1270,16 +1288,7 @@ impl LoreService {
         let revision = parse_revision_from_output(&stdout);
         if revision.hash.is_empty() {
             // The CLI exited 0 but reported no revision (nothing committed).
-            // Do not report success; leave the repo on its mainline branch.
-            if let Some(mainline) = &mainline_branch {
-                let _ = run_lore(
-                    &self.config.lore_binary_path,
-                    &repo.working_tree,
-                    &["branch", "switch", mainline],
-                    self.config.mode,
-                )
-                .await;
-            }
+            // Do not report success; the caller restores the mainline branch.
             anyhow::bail!("lore commit reported no revision signature; nothing was committed");
         }
 
@@ -1299,17 +1308,32 @@ impl LoreService {
         let opened = root.open_file(repo_path)?;
         let size = opened.metadata()?.len();
         let etag = file_etag_open(opened).await.ok();
+        Ok((revision, size, etag))
+        }
+        .await;
 
-        // Switch back to the mainline branch after a review-branch commit.
-        if let Some(mainline) = mainline_branch {
-            run_lore(
+        // Always return to the branch that was current, success or error.
+        let restored = match &mainline_branch {
+            Some(mainline) => run_lore(
                 &self.config.lore_binary_path,
                 &repo.working_tree,
-                &["branch", "switch", &mainline],
-                self.config.mode
+                &["branch", "switch", mainline],
+                self.config.mode,
             )
-            .await?;
-        }
+            .await
+            .map(|_| ()),
+            None => Ok(()),
+        };
+        let (revision, size, etag) = match committed {
+            Ok(v) => v,
+            Err(e) => {
+                if let Err(re) = restored {
+                    warn!(channel_id, error = %re, "could not restore branch after failed upload");
+                }
+                return Err(e);
+            }
+        };
+        restored?;
 
         // Mainline has changed again; no branch-specific etag can be retained
         // under the channel/path cache key.
@@ -1336,6 +1360,94 @@ impl LoreService {
             pending_review,
             review_branch,
         })
+    }
+
+    /// Promote a file into the repo on a chosen branch, under ONE `io_gate`
+    /// hold, and always leave the working tree on the branch that was current
+    /// when the call began (including on error).
+    ///
+    /// * `review_branch: Some(name)` creates `name`, commits there, and leaves
+    ///   it pending review.
+    /// * `review_branch: None` commits on `branch` (switching to it first when
+    ///   it is not already current).
+    ///
+    /// `repo_path` is repo-relative (no leading `/`).
+    pub async fn promote_file(
+        &self,
+        channel_id: i64,
+        local_path: &str,
+        repo_path: &str,
+        message: &str,
+        author_id: i64,
+        branch: &str,
+        review_branch: Option<&str>,
+    ) -> anyhow::Result<LoreUploadResult> {
+        sanitize_revision_arg(branch)?;
+        if let Some(name) = review_branch {
+            sanitize_revision_arg(name)?;
+        }
+        let _io = self.io_gate.lock().await;
+        let repo = self.resolve_writable_target(channel_id, repo_path).await?;
+        let original = self.current_branch_name(&repo).await?;
+
+        let operation: anyhow::Result<LoreUploadResult> = async {
+            let target = review_branch.unwrap_or(branch);
+            if let Some(name) = review_branch {
+                run_lore(
+                    &self.config.lore_binary_path,
+                    &repo.working_tree,
+                    &["branch", "create", name],
+                    self.config.mode,
+                )
+                .await?;
+            }
+            if target != original {
+                run_lore(
+                    &self.config.lore_binary_path,
+                    &repo.working_tree,
+                    &["branch", "switch", target],
+                    self.config.mode,
+                )
+                .await?;
+            }
+            let mut result = self
+                .upload_file_locked(channel_id, local_path, repo_path, message, author_id)
+                .await?;
+            // A repo with auto_branch_on_upload already routed the commit to
+            // its own review branch; report that one, not ours.
+            if let Some(name) = review_branch {
+                if !result.pending_review {
+                    result.pending_review = true;
+                    result.review_branch = Some(name.to_string());
+                }
+            }
+            Ok(result)
+        }
+        .await;
+
+        let restored = match self.current_branch_name(&repo).await {
+            Ok(now) if now == original => Ok(()),
+            _ => run_lore(
+                &self.config.lore_binary_path,
+                &repo.working_tree,
+                &["branch", "switch", &original],
+                self.config.mode,
+            )
+            .await
+            .map(|_| ()),
+        };
+        match operation {
+            Ok(result) => {
+                restored?;
+                Ok(result)
+            }
+            Err(e) => {
+                if let Err(re) = restored {
+                    warn!(channel_id, error = %re, "could not restore branch after failed promote");
+                }
+                Err(e)
+            }
+        }
     }
 
     /// Stage a file WITHOUT committing — the batch-push half of the device
@@ -1887,7 +1999,8 @@ impl LoreService {
 
         let mainline = self.current_branch_name(&repo).await?;
 
-        // Capture the review branch's tip revision to report.
+        // Capture the review branch's tip revision to report. If anything
+        // fails after the switch, put the tree back on the mainline first.
         run_lore(
             &self.config.lore_binary_path,
             &repo.working_tree,
@@ -1895,13 +2008,26 @@ impl LoreService {
             self.config.mode
         )
         .await?;
-        let history_out = run_lore(
+        let history_out = match run_lore(
             &self.config.lore_binary_path,
             &repo.working_tree,
             &["history"],
             self.config.mode
         )
-        .await?;
+        .await
+        {
+            Ok(out) => out,
+            Err(e) => {
+                let _ = run_lore(
+                    &self.config.lore_binary_path,
+                    &repo.working_tree,
+                    &["branch", "switch", &mainline],
+                    self.config.mode,
+                )
+                .await;
+                return Err(e);
+            }
+        };
         let revision = parse_history_output(&String::from_utf8_lossy(&history_out.stdout))
             .into_iter()
             .next()
@@ -3333,6 +3459,143 @@ fi
                 assert!(service.head_etag(42, "docs/file.txt").await.unwrap().is_none());
             }
         }
+    }
+
+    /// Stateful `lore` stand-in that remembers the current branch in
+    /// `<dir>/state-current` and the branch list in `<dir>/state-branches`.
+    /// Creating `<dir>/fail-commit` makes `commit` exit non-zero.
+    #[cfg(unix)]
+    fn branch_tracking_cli(dir: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(dir.join("state-current"), "feature").unwrap();
+        std::fs::write(dir.join("state-branches"), "feature\nmain\n").unwrap();
+        let cli = dir.join("lore-branch-fixture");
+        let script = format!(
+            r##"#!/bin/sh
+D="{d}"
+shift; shift
+case "$1" in
+  branch)
+    case "$2" in
+      list) cur=$(cat "$D/state-current"); while read b; do if [ "$b" = "$cur" ]; then echo "* $b"; else echo "  $b"; fi; done < "$D/state-branches" ;;
+      create) echo "$3" >> "$D/state-branches" ;;
+      switch) echo "$3" > "$D/state-current" ;;
+    esac ;;
+  commit)
+    if [ -f "$D/fail-commit" ]; then echo boom >&2; exit 1; fi
+    echo "Signature : sig$$" ;;
+  *) exit 0 ;;
+esac
+"##,
+            d = dir.display()
+        );
+        std::fs::write(&cli, script).unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        cli
+    }
+
+    #[cfg(unix)]
+    fn current_branch_of(dir: &std::path::Path) -> String {
+        std::fs::read_to_string(dir.join("state-current")).unwrap().trim().to_string()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn promote_stage_restores_the_branch_that_was_current() {
+        let data = tempfile::tempdir().unwrap();
+        let (mut service, _repo) = fixture_native_service(data.path()).await;
+        service.config.lore_binary_path = branch_tracking_cli(data.path());
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        let result = service
+            .promote_file(42, upload.to_str().unwrap(), "assets/a.txt", "Promote", 1, "feature", Some("chat/u1-1"))
+            .await
+            .unwrap();
+        assert!(result.pending_review);
+        assert_eq!(result.review_branch.as_deref(), Some("chat/u1-1"));
+        assert_eq!(current_branch_of(data.path()), "feature");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn promote_direct_returns_to_original_branch_not_main() {
+        let data = tempfile::tempdir().unwrap();
+        let (mut service, _repo) = fixture_native_service(data.path()).await;
+        service.config.lore_binary_path = branch_tracking_cli(data.path());
+        // Current is "feature"; promote directly onto "main".
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        let result = service
+            .promote_file(42, upload.to_str().unwrap(), "assets/a.txt", "Promote", 1, "main", None)
+            .await
+            .unwrap();
+        assert!(!result.pending_review);
+        assert_eq!(current_branch_of(data.path()), "feature");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_promote_restores_the_original_branch() {
+        for review in [None, Some("chat/u1-2")] {
+            let data = tempfile::tempdir().unwrap();
+            let (mut service, _repo) = fixture_native_service(data.path()).await;
+            service.config.lore_binary_path = branch_tracking_cli(data.path());
+            std::fs::write(data.path().join("fail-commit"), "").unwrap();
+            let upload = data.path().join("upload");
+            std::fs::write(&upload, b"bytes").unwrap();
+            let outcome = service
+                .promote_file(42, upload.to_str().unwrap(), "assets/a.txt", "Promote", 1, "main", review)
+                .await;
+            assert!(outcome.is_err());
+            assert_eq!(current_branch_of(data.path()), "feature");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_review_branch_upload_restores_mainline() {
+        let data = tempfile::tempdir().unwrap();
+        let (mut service, _repo) = fixture_native_service(data.path()).await;
+        service.repos.write().await.get_mut(&42).unwrap().auto_branch_on_upload = true;
+        service.config.lore_binary_path = branch_tracking_cli(data.path());
+        std::fs::write(data.path().join("fail-commit"), "").unwrap();
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        assert!(service.upload_file(42, upload.to_str().unwrap(), "docs/a.txt", "Review", 1).await.is_err());
+        assert_eq!(current_branch_of(data.path()), "feature");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn promote_holds_the_io_gate_for_the_whole_operation() {
+        // Another caller must not observe the intermediate branch: while the
+        // promote runs, a concurrent branch listing waits behind the gate.
+        let data = tempfile::tempdir().unwrap();
+        let (mut service, _repo) = fixture_native_service(data.path()).await;
+        service.config.lore_binary_path = branch_tracking_cli(data.path());
+        let service = std::sync::Arc::new(service);
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        let reader = {
+            let service = service.clone();
+            tokio::spawn(async move {
+                let mut seen = Vec::new();
+                for _ in 0..50 {
+                    let branches = service.list_branches(42).await.unwrap();
+                    seen.push(branches.into_iter().find(|b| b.is_current).unwrap().name);
+                    tokio::task::yield_now().await;
+                }
+                seen
+            })
+        };
+        for i in 0..10 {
+            service
+                .promote_file(42, upload.to_str().unwrap(), "assets/a.txt", "Promote", 1, "main", Some(&format!("chat/u1-{i}")))
+                .await
+                .unwrap();
+        }
+        let seen = reader.await.unwrap();
+        assert!(seen.iter().all(|b| b == "feature"), "reader saw {seen:?}");
     }
 
     #[cfg(unix)]

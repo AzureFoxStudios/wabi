@@ -856,6 +856,24 @@ struct PromoteFromMessagePayload {
     collision: Option<String>,
 }
 
+/// Repo-relative path for a promoted attachment. Bindings store their path
+/// with a leading "/" (set_binding requires it), but the engine's
+/// `sanitize_repo_path` rejects absolute paths, so the slash is stripped here,
+/// the single place the target path is built.
+fn promote_target_path(base_path: &str, file_name: &str) -> Result<String> {
+    let name = file_name.replace(['/', '\\', '\0'], "_");
+    let base = base_path.trim_matches('/');
+    let target = if base.is_empty() {
+        name
+    } else {
+        format!("{base}/{name}")
+    };
+    if target.contains("..") {
+        return Err(AppError::BadRequest("Invalid target path".into()));
+    }
+    Ok(target)
+}
+
 async fn promote_from_message(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -929,14 +947,10 @@ async fn promote_from_message(
         .clone()
         .or_else(|| binding.as_ref().map(|b| b.path.clone()))
         .unwrap_or_else(|| "/".into());
-    let target_path = format!(
-        "{}/{}",
-        base_path.trim_end_matches('/'),
-        attachment.file_name.replace(['/', '\\', '\0'], "_")
-    );
-    if target_path.contains("..") {
-        return Err(AppError::BadRequest("Invalid target path".into()));
-    }
+    let target_path = promote_target_path(&base_path, &attachment.file_name)?;
+    // Stored records, citations and responses keep the "/"-rooted form; only
+    // the engine call takes the repo-relative `target_path`.
+    let display_path = format!("/{target_path}");
     let branch = payload
         .branch
         .clone()
@@ -984,13 +998,13 @@ async fn promote_from_message(
 
     // Collision guard (spec D2): the engine's upload_file overwrites silently,
     // so we check the working tree first and force an explicit choice.
-    let rel = target_path.trim_start_matches('/');
+    let rel = target_path.as_str();
     if payload.collision.as_deref() != Some("overwrite") {
         if let Some(tree) = lore.repo_working_tree(repo_channel_id).await {
             if tree.join(rel).exists() {
                 return Ok(Json(serde_json::json!({
                     "collision": true,
-                    "path": target_path,
+                    "path": display_path,
                     "message_id": payload.message_id,
                     "file_url": payload.file_url,
                     "options": ["overwrite", "rename", "cancel"]
@@ -1026,48 +1040,31 @@ async fn promote_from_message(
         channel_id, auth.user_id, attachment.file_name, payload.message_id
     );
 
-    let (result, pending_review, review_branch) = if mode == "stage" {
-        // Review-gated: commit on a dedicated branch; a reviewer merges via the
-        // existing approve_review_branch flow.
-        let branch_name = format!(
+    // One service call performs create/switch/upload/switch-back under a single
+    // io_gate hold and restores the branch that was current, even on error.
+    let review_name = (mode == "stage").then(|| {
+        format!(
             "chat/u{}-{}",
             auth.user_id,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0)
-        );
-        lore.create_branch(repo_channel_id, &branch_name, None)
-            .await?;
-        lore.switch_branch(repo_channel_id, &branch_name).await?;
-        let result = lore
-            .upload_file(
-                repo_channel_id,
-                local_path.to_str().unwrap_or_default(),
-                &target_path,
-                &commit_message,
-                auth.user_id,
-            )
-            .await?;
-        (result, true, Some(branch_name))
-    } else {
-        if branch != "main" {
-            lore.switch_branch(repo_channel_id, &branch).await?;
-        }
-        let result = lore
-            .upload_file(
-                repo_channel_id,
-                local_path.to_str().unwrap_or_default(),
-                &target_path,
-                &commit_message,
-                auth.user_id,
-            )
-            .await?;
-        if branch != "main" {
-            lore.switch_branch(repo_channel_id, "main").await?;
-        }
-        (result, false, None)
-    };
+        )
+    });
+    let result = lore
+        .promote_file(
+            repo_channel_id,
+            local_path.to_str().unwrap_or_default(),
+            &target_path,
+            &commit_message,
+            auth.user_id,
+            &branch,
+            review_name.as_deref(),
+        )
+        .await?;
+    let pending_review = result.pending_review;
+    let review_branch = result.review_branch.clone();
 
     let record = wabidb::projections::lore::LorePromoteRecord {
         message_id: payload.message_id.clone(),
@@ -1075,7 +1072,7 @@ async fn promote_from_message(
         repo_channel_id,
         file_url: attachment.file_url.clone(),
         file_name: attachment.file_name.clone(),
-        path: target_path.clone(),
+        path: display_path.clone(),
         branch: review_branch.clone().unwrap_or_else(|| branch.clone()),
         mode: mode.clone(),
         revision_hash: result.revision.hash.clone(),
@@ -1093,14 +1090,14 @@ async fn promote_from_message(
         format!(
             "📋 Staged `{}` for review → ^c{} (branch {}, rev {})",
             attachment.file_name,
-            target_path,
+            display_path,
             review_branch.clone().unwrap_or_default(),
             short_rev
         )
     } else {
         format!(
             "📦 Promoted `{}` → ^c{} (rev {})",
-            attachment.file_name, target_path, short_rev
+            attachment.file_name, display_path, short_rev
         )
     };
     let retention_guard = state.retention_policy_lock.lock().await;
@@ -1133,10 +1130,10 @@ async fn promote_from_message(
     }
     drop(retention_guard);
 
-    info!(channel_id, repo_channel_id, path = %target_path, pending_review, "Attachment promoted to Lore from chat");
+    info!(channel_id, repo_channel_id, path = %display_path, pending_review, "Attachment promoted to Lore from chat");
     Ok(Json(serde_json::json!({
         "revision": result.revision,
-        "path": target_path,
+        "path": display_path,
         "branch": record.branch,
         "mode": mode,
         "pending_review": pending_review,
@@ -2886,6 +2883,24 @@ mod tests {
             100,
             "not hex"
         ));
+    }
+
+    #[tokio::test]
+    async fn binding_path_with_leading_slash_promotes_successfully() {
+        let tmp = tempfile::tempdir().unwrap();
+        let service = stub_service(tmp.path());
+        service.create_repo(226, 1, "bound").await.unwrap();
+        let src = tmp.path().join("src.txt");
+        tokio::fs::write(&src, b"hello").await.unwrap();
+        // Bindings are stored as "/assets"; that is what the handler receives.
+        let target = promote_target_path("/assets", "a.txt").unwrap();
+        assert_eq!(target, "assets/a.txt");
+        service
+            .upload_file(226, src.to_str().unwrap(), &target, "promote", 7)
+            .await
+            .expect("a binding path with a leading slash must reach the engine as a relative path");
+        assert_eq!(promote_target_path("/", "a.txt").unwrap(), "a.txt");
+        assert!(promote_target_path("/a/../b", "a.txt").is_err());
     }
 
     // -- If-Match / ETag decision logic --
