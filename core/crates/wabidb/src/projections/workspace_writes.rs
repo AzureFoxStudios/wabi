@@ -167,7 +167,13 @@ pub(crate) mod tests {
             is_solution: false,
             category: None,
         });
-        let vote = postcard::to_allocvec(&("post_a", "thread_a", room, "up", 1u64)).unwrap();
+        let vote = forum::encode_vote(&forum::VotePayload {
+            post_id: "post_a".into(),
+            thread_id: "thread_a".into(),
+            channel_id: room.into(),
+            direction: "up".into(),
+            actor_user_id: 1,
+        });
         let solution = postcard::to_allocvec(&("post_a", "thread_a", room, 1u64)).unwrap();
         let incident = incidents::encode_record(&incidents::IncidentRecord {
             incident_id: "incident_a".into(),
