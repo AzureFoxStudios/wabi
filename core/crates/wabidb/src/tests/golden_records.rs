@@ -651,7 +651,7 @@ fn golden_forum_post_record() {
 
 #[test]
 fn golden_incident_record() {
-    unchanged_today(INCIDENT_LEGACY, &incident(), incidents::encode_record, incidents::decode_record);
+    converted(INCIDENT_LEGACY, b"INCD", &incident(), incidents::encode_record, incidents::decode_record);
 }
 
 #[test]
