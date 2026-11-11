@@ -994,6 +994,7 @@ impl LoreService {
                     stderr.trim()
                 );
             }
+            cache_dir.validate_mirror_cache()?;
             cache_dir.publish_internal(InternalFile::MirrorFetched,
                 chrono::Utc::now().timestamp().to_string().as_bytes())?;
             info!(
@@ -3404,6 +3405,38 @@ mod tests {
         assert_eq!(files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(), vec!["normal.txt"]);
         service.refresh_mirror_cache(42).await.unwrap();
         assert_eq!(service.get_file_content(42, "normal.txt").await.unwrap(), "second");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mirror_with_symlink_survives_service_restart() {
+        let data = tempfile::tempdir().unwrap();
+        let source = tempfile::tempdir().unwrap();
+        std::fs::write(source.path().join("normal.txt"), b"hello").unwrap();
+        std::os::unix::fs::symlink("normal.txt", source.path().join("link")).unwrap();
+        fixture_git_repo(source.path()).await;
+        let config = LoreConfig { lore_data_dir: data.path().to_path_buf(), ..LoreConfig::default() };
+        let service = LoreService::new(config.clone());
+        let repo = service.register_external_mirror(42, 1, "Source", source.path().to_str().unwrap()).await.unwrap();
+        assert_eq!(service.get_file_content(42, "normal.txt").await.unwrap(), "hello");
+        // The clone now lives in .mirror-cache and contains a symlink.
+        assert!(std::fs::symlink_metadata(repo.working_tree.join(".mirror-cache/link")).unwrap().file_type().is_symlink());
+
+        // Restart: a fresh service rehydrates from the durable seed.
+        let restarted = LoreService::new(config);
+        restarted.load_existing_repos(vec![LoreRepoSeed {
+            channel_id: 42,
+            lore_server_url: repo.lore_server_url.clone(),
+            repo_name: repo.repo_name.clone(),
+            created_by: 1,
+            created_at_micros: repo.created_at.timestamp_micros(),
+        }]).await;
+        assert!(restarted.get_repo(42).await.is_some(), "mirror vanished after restart");
+        assert_eq!(restarted.get_file_content(42, "normal.txt").await.unwrap(), "hello");
+        assert!(restarted.get_file_content(42, "link").await.is_err());
+        // Re-registering after a refresh must also keep working.
+        restarted.refresh_mirror_cache(42).await.unwrap();
+        assert_eq!(restarted.get_file_content(42, "normal.txt").await.unwrap(), "hello");
     }
 
     #[cfg(unix)]
