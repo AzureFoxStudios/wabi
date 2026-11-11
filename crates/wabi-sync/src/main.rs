@@ -235,8 +235,8 @@ async fn main() -> Result<()> {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link);
+            // The engine saves its state, also when this fails part-way.
             let report = engine.push().await?;
-            engine.save_state()?;
             if report.is_empty() {
                 println!("Nothing to push.");
             } else {
@@ -248,8 +248,8 @@ async fn main() -> Result<()> {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link);
+            // The engine saves its state, also when this fails part-way.
             let report = engine.pull().await?;
-            engine.save_state()?;
             if report.is_empty() {
                 println!("Up to date.");
             } else {

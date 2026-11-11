@@ -303,18 +303,12 @@ impl Folder {
 
     /// One `wabi-sync push`.
     async fn push(&self) -> anyhow::Result<SyncReport> {
-        let mut engine = SyncEngine::new(&self.client, self.path(), &self.link);
-        let report = engine.push().await?;
-        engine.save_state()?;
-        Ok(report)
+        SyncEngine::new(&self.client, self.path(), &self.link).push().await
     }
 
     /// One `wabi-sync pull`.
     async fn pull(&self) -> anyhow::Result<SyncReport> {
-        let mut engine = SyncEngine::new(&self.client, self.path(), &self.link);
-        let report = engine.pull().await?;
-        engine.save_state()?;
-        Ok(report)
+        SyncEngine::new(&self.client, self.path(), &self.link).pull().await
     }
 
     fn write(&self, rel: &str, bytes: impl AsRef<[u8]>) {
@@ -917,6 +911,28 @@ async fn state_is_saved_after_the_push_when_the_pull_fails() {
 
     assert_quiet(&mine.sync().await.unwrap());
     assert_eq!(mine.recorded("n.txt", "upload").await, 1, "the retry uploaded it again");
+}
+
+/// A folder that holds the server's bytes with no record of it (a round was
+/// killed before it saved, or the folder was filled by hand before linking):
+/// the pull adopts the file and makes no conflict copy of identical bytes.
+#[tokio::test]
+async fn pull_adopts_a_file_that_already_matches_the_server() {
+    let server = server().await;
+    let (mine, _theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    // My baseline says "v1"; the file was replaced by the server's version
+    // and the state was not saved.
+    mine.write("a.txt", "theirs");
+    assert_quiet(&mine.pull().await.unwrap());
+    assert!(mine.conflict_copies().is_empty(), "{:?}", mine.conflict_copies());
+    assert_eq!(mine.state().baselines.get("a.txt"), Some(&Some(etag_for_bytes(b"theirs"))));
+
+    let fresh = server.owner_folder().await;
+    fresh.write("a.txt", "theirs");
+    assert_quiet(&fresh.pull().await.unwrap());
+    assert!(fresh.conflict_copies().is_empty(), "{:?}", fresh.conflict_copies());
+    assert_quiet(&fresh.sync().await.unwrap());
+    assert_eq!(fresh.recorded("a.txt", "upload").await, 2, "v1 and theirs only");
 }
 
 // -- A member who may read and not write -------------------------------------
