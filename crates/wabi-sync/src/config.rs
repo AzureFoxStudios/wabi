@@ -175,7 +175,12 @@ impl SyncState {
     pub fn save(&self, folder: &Path) -> anyhow::Result<()> {
         let path = Self::path_for(folder);
         std::fs::create_dir_all(path.parent().unwrap_or(folder))?;
-        std::fs::write(&path, serde_json::to_string_pretty(self)?)?;
+        // Written beside the state file and renamed over it: a crash leaves
+        // the old state or the new one, never half a file (which would load
+        // as "nothing was ever synced").
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(&temporary, serde_json::to_string_pretty(self)?)?;
+        std::fs::rename(&temporary, &path)?;
         Ok(())
     }
 }

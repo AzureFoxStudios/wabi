@@ -163,6 +163,39 @@ fn conflict_path(local: &Path, tag: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// Put the bytes of `local` in a conflict copy next to it and return the
+/// copy's path. A file that is already there is never written over: it may
+/// be the only place an earlier version of the user's work exists. The name
+/// is `<file>.wabi-conflict-<tag>`, then `-2`, `-3`, … until one is free. A
+/// name whose file already holds exactly these bytes is used as it is, so a
+/// round repeated after a failure does not pile up identical copies.
+fn save_conflict_copy(local: &Path, tag: &str) -> anyhow::Result<PathBuf> {
+    use std::io::Write;
+    let bytes = std::fs::read(local)?;
+    let mut n = 1u32;
+    loop {
+        let candidate = if n == 1 {
+            conflict_path(local, tag)
+        } else {
+            conflict_path(local, &format!("{tag}-{n}"))
+        };
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(mut file) => {
+                file.write_all(&bytes)?;
+                file.sync_all()?;
+                return Ok(candidate);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if std::fs::read(&candidate).is_ok_and(|existing| existing == bytes) {
+                    return Ok(candidate);
+                }
+                n += 1;
+            }
+            Err(e) => return Err(e).with_context(|| format!("writing {}", candidate.display())),
+        }
+    }
+}
+
 pub struct SyncReport {
     pub downloaded: Vec<String>,
     pub uploaded: Vec<String>,
@@ -256,11 +289,12 @@ impl<'a> SyncEngine<'a> {
         let local_file = self.folder.join(path);
         let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let Some(server_etag) = server_etag else {
-            let copy = conflict_path(&local_file, "deleted");
-            std::fs::copy(&local_file, &copy)?;
+            let copy = save_conflict_copy(&local_file, "deleted")?;
             std::fs::remove_file(&local_file)?;
             self.state.baselines.remove(path);
+            self.state.pending_review.remove(path);
             self.state.local_fingerprints.remove(path);
+            self.save_state()?;
             return Ok(format!(
                 "{path} (deleted on the server; your version is saved as {})",
                 name(&copy)
@@ -274,18 +308,32 @@ impl<'a> SyncEngine<'a> {
             .await?
             .context("conflict download failed")?;
         let tag = server_etag.chars().take(8).collect::<String>();
-        let copy = conflict_path(&local_file, &tag);
-        std::fs::copy(&local_file, &copy)?;
+        let copy = save_conflict_copy(&local_file, &tag)?;
         std::fs::write(&local_file, &bytes)?;
+        self.state.pending_review.remove(path);
         self.record_download(path, &bytes, server_etag)?;
+        // On disk at once: a round that fails later must not find this
+        // conflict a second time.
+        self.save_state()?;
         Ok(format!(
             "{path} (changed on the server too; {path} now holds the server's version, yours is saved as {})",
             name(&copy)
         ))
     }
 
-    /// Pull remote changes down (three-way against baselines).
+    /// Pull remote changes down (three-way against baselines). The state is
+    /// saved before this returns, also when the pull fails part-way: every
+    /// step records itself as soon as it is done, so the saved state is what
+    /// actually happened and a retry starts from there.
     pub async fn pull(&mut self) -> anyhow::Result<SyncReport> {
+        let result = self.pull_steps().await;
+        let saved = self.save_state();
+        let report = result?;
+        saved?;
+        Ok(report)
+    }
+
+    async fn pull_steps(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
         let manifest = self.client.manifest(self.link.channel_id).await?;
         if manifest.read_only {
@@ -312,6 +360,15 @@ impl<'a> SyncEngine<'a> {
             let local_etag = local.get(*path);
             let remote_changed = baseline.as_deref().unwrap_or("") != remote_etag;
             let local_has = local_etag.is_some();
+            if remote_changed && !remote_etag.is_empty() && local_etag.map(String::as_str) == Some(remote_etag) {
+                // The folder already holds the server's bytes: a download or
+                // a conflict that an interrupted round did not get to
+                // record, or the same edit made in two places.
+                self.state.pending_review.remove(*path);
+                self.state.local_fingerprints.remove(*path);
+                self.state.baselines.insert(path.to_string(), Some(remote_etag.to_string()));
+                continue;
+            }
             if remote_changed {
                 // The mainline moved to something other than what is waiting
                 // for review; the branches below settle the path (a pending
@@ -337,22 +394,9 @@ impl<'a> SyncEngine<'a> {
                     report.downloaded.push(path.to_string());
                     self.record_download(path, &bytes, remote_etag)?;
                 } else {
-                    // Both sides changed → keep both, server wins the canonical name.
-                    let tag = remote_etag.chars().take(8).collect::<String>();
-                    let local_file = self.folder.join(path);
-                    let copy = conflict_path(&local_file, &tag);
-                    std::fs::rename(&local_file, &copy)?;
-                    let bytes = self
-                        .client
-                        .download(self.link.channel_id, path, None)
-                        .await?
-                        .context("conflict download failed")?;
-                    std::fs::write(&local_file, &bytes)?;
-                    report.conflicts.push(format!(
-                        "{path} (your version saved as {})",
-                        copy.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-                    ));
-                    self.record_download(path, &bytes, remote_etag)?;
+                    // Both sides changed.
+                    let line = self.keep_both(path, Some(remote_etag)).await?;
+                    report.conflicts.push(line);
                 }
             }
         }
@@ -381,14 +425,9 @@ impl<'a> SyncEngine<'a> {
                 }
                 self.state.baselines.remove(&path);
             } else {
-                // Deleted remotely, edited locally → keep as conflict copy.
-                let tag = baseline.map(|b| b.chars().take(8).collect::<String>()).unwrap_or_default();
-                let copy = conflict_path(&local_file, &tag);
-                std::fs::rename(&local_file, &copy).ok();
-                report.conflicts.push(format!(
-                    "{path} (deleted on server; your version saved as conflict copy)"
-                ));
-                self.state.baselines.remove(&path);
+                // Deleted remotely, edited locally.
+                let line = self.keep_both(&path, None).await?;
+                report.conflicts.push(line);
             }
         }
 
@@ -414,8 +453,17 @@ impl<'a> SyncEngine<'a> {
         Ok(report)
     }
 
-    /// Push local changes up (three-way against baselines).
+    /// Push local changes up (three-way against baselines). Saves the state
+    /// before returning, as `pull` does.
     pub async fn push(&mut self) -> anyhow::Result<SyncReport> {
+        let result = self.push_steps().await;
+        let saved = self.save_state();
+        let report = result?;
+        saved?;
+        Ok(report)
+    }
+
+    async fn push_steps(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
         let local = scan_local(self.folder)?;
 
