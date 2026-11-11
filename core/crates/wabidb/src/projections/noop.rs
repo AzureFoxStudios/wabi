@@ -1,14 +1,15 @@
-//! No-op projection handler for event types that have no persisted state.
+//! No-op projection handler for event types that keep no read-model state.
 //!
-//! These handlers exist so the dispatch table can route the event during
-//! replay without failing. Each handler simply logs the event and returns
-//! `Ok(())`. The events are still discoverable via the generic "events"
-//! index for subscription delivery and audit purposes.
+//! `build_type_registry` registers `member_joined`, `member_left` and
+//! `channel_renamed` to this handler so the dispatch table routes them (test:
+//! `projections::handler::tests::dispatch_routes_by_event_type` covers routing
+//! in general). `apply` returns `Ok(())` without touching state and without
+//! logging. No projection reads these three event types today. No test targets
+//! this handler specifically; that coverage is planned.
 //!
-//! The event types below have no projection state because their
-//! effects are purely ephemeral (presence, renames).
-//! They are kept for wire-format compatibility with WDB-era events.
-//! (`reaction_removed` is NOT here: `ReactionsProjection` applies it.)
+//! `reaction_removed` is NOT here: `ReactionsProjection` applies it (tests:
+//! `projections::reactions::tests::reaction_removed_deletes_only_its_composite_key`,
+//! `engine::message_admission_tests::removed_reaction_stays_removed_after_reopen_and_replay`).
 
 use crate::error::Result;
 use crate::projections::handler::{DurableEvent, Projection};

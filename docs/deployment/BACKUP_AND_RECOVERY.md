@@ -281,11 +281,11 @@ corrupt projection message_created at commit 1234: replay failed: ...; repair re
 corrupt projection message_created at commit 1234: handler panicked: ...; repair required before startup (...)
 ```
 
-The first means the projection code rejected that event. The second means it panicked; startup now reports the panic as this error instead of crashing. Both usually point at a server bug rather than disk damage. While the server was running, the same event halted the engine (the log said "engine halted, repair required before retry").
+The first means the projection code rejected that event. The second means it panicked; startup now reports the panic as this error instead of crashing (tests: `core/crates/wabidb/src/engine/quarantine_tests.rs` `failing_handler_is_named_at_startup_and_quarantine_skips_it`, `panicking_handler_is_named_at_startup_and_quarantine_skips_it`). Both usually point at a server bug rather than disk damage. While the server was running, the same event halted the engine (the log said "engine halted, repair required before retry").
 
-Quarantine also skips a commit whose stored records are damaged ("commit N: not all indexed events could be recovered"). That is real data damage, so restore a backup if you can.
+Quarantine also skips a commit whose stored records are damaged ("commit N: not all indexed events could be recovered") (test: `cli::check::tests::quarantined_corrupt_commit_is_reported_as_quarantined`). That is real data damage, so restore a backup if you can.
 
-**What it costs.** A quarantined commit stays in the log, but no part of the server's state ever applies it again. Whatever that command did (a message, an edit, a membership or settings change) is gone from what users see, and later commands that depended on it may behave differently. Keep `quarantine.json`. Deleting it does not bring the commit back, and it can make a later startup refuse the same commit again.
+**What it costs.** A quarantined commit stays in the log, but no part of the server's state ever applies it again. Whatever that command did (a message, an edit, a membership or settings change) is gone from what users see, and later commands that depended on it may behave differently. Keep `quarantine.json`. Deleting it does not bring the commit back, and it can make a later startup refuse the same commit again (test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it` refuses before the file exists and starts after).
 
 **Procedure.**
 
@@ -299,13 +299,13 @@ Quarantine also skips a commit whose stored records are damaged ("commit N: not 
    target/release/wabidb-cli quarantine --seq N data/wabi-server/wabidb
    ```
 
-   It takes the engine's advisory lock while it runs, so it fails with `AlreadyRunning` if anything still holds the data directory open. It refuses a directory without `data/wabi-server/wabidb/.lock`, and refuses an N that is not in the commit index. It adds N to `data/wabi-server/wabidb/global/quarantine.json` atomically. It never creates or deletes `.lock`; never delete it yourself (step 6 of [restore onto a clean Authority](#restore-onto-a-clean-authority)).
-6. Optional: `target/release/wabidb-cli check data/wabi-server/wabidb` lists N under `quarantined_commits`. `check` and `verify` report a quarantined commit as quarantined, not as damage.
-7. Start the Authority and verify `/livez` and `/readyz`. Its log shows a warning for every quarantined commit it skips: `replay: skipping quarantined commit N`.
+   It takes the engine's advisory lock while it runs, so it fails with `AlreadyRunning` if anything still holds the data directory open (test: `cli::quarantine::tests::quarantine_fails_while_the_lock_is_held`). It refuses a directory without `data/wabi-server/wabidb/.lock` (test: `cli::quarantine::tests::quarantine_refuses_a_directory_without_a_lock_file`), and refuses an N that is not in the commit index (test: `cli::quarantine::tests::quarantine_appends_once_and_refuses_unindexed_seqs`). It adds N to `data/wabi-server/wabidb/global/quarantine.json` atomically (same test). It never creates or deletes `.lock` (test: `cli::quarantine::tests::quarantine_fails_while_the_lock_is_held` checks the lock inode is unchanged); never delete it yourself (step 6 of [restore onto a clean Authority](#restore-onto-a-clean-authority)).
+6. Optional: `target/release/wabidb-cli check data/wabi-server/wabidb` lists N under `quarantined_commits`. `check` and `verify` report a quarantined commit as quarantined, not as damage (tests: `cli::check::tests::quarantined_corrupt_commit_is_reported_as_quarantined`, `cli::check::tests::quarantine_entry_above_every_commit_is_not_ok`). Of the `wabidb-cli` commands, `check`, `verify`, `status` and `list-streams` only read, and `quarantine` is the one that writes (test: `cli::tests::commands_are_read_only_and_never_touch_the_lock`).
+7. Start the Authority and verify `/livez` and `/readyz`. Its log shows a warning for every quarantined commit it skips: `replay: skipping quarantined commit N` (test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`).
 
 If startup then refuses a different commit, it is safe to repeat the procedure for that commit. If more than one or two commits fail, stop: a bad build or wider damage is more likely than a few bad events, so restore the backup instead.
 
-The Authority refuses to start if `quarantine.json` cannot be parsed, or if it lists a commit above every commit on disk (the next write would receive that number and be skipped). Restore the file from the copy taken in step 2.
+The Authority refuses to start if `quarantine.json` cannot be parsed, or if it lists a commit above every commit on disk (the next write would receive that number and be skipped) (tests: `engine::quarantine_tests::unparseable_quarantine_file_refuses_startup`, `engine::quarantine_tests::quarantine_file_listing_a_future_seq_refuses_startup`). Restore the file from the copy taken in step 2.
 
 ## Future HA acceptance gate
 
