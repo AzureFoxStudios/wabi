@@ -151,15 +151,15 @@ impl RecordCodec for GalleryFeedbackRecord {
     }
 }
 
+/// Versioned durable layout of [`GalleryFeedbackRecord`]; see `format::versioned`.
+const FEEDBACK_FORMAT: RecordFormat = RecordFormat::new(*b"GFBK", "gallery feedback projection");
+
 pub fn encode_feedback_record(r: &GalleryFeedbackRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FEEDBACK_FORMAT, r)
 }
 
 pub fn decode_feedback_record(buf: &[u8]) -> Result<GalleryFeedbackRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "gallery feedback projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FEEDBACK_FORMAT, buf)
 }
 
 pub fn encode_feedback_key(channel_id: &str, work_id: &str, feedback_id: &str) -> Vec<u8> {
