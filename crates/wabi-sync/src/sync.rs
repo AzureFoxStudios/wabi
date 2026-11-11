@@ -588,8 +588,7 @@ impl<'a> SyncEngine<'a> {
     pub async fn sync(&mut self) -> anyhow::Result<SyncReport> {
         let mut pushed = self.push().await?;
         let mut pulled = self.pull().await?;
-        let changes = self.client.changes(self.link.channel_id, 0).await?;
-        self.state.cursor = changes.latest_seq;
+        self.state.cursor = self.client.feed_end(self.link.channel_id, self.state.cursor).await?;
         self.save_state()?;
         pushed.uploaded.extend(pulled.uploaded);
         pushed.downloaded.extend(pulled.downloaded);

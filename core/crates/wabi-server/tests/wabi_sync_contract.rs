@@ -1041,6 +1041,22 @@ async fn cursor_reaches_the_end_of_a_feed_longer_than_one_page() {
 
     folder.sync().await.unwrap();
     assert_eq!(folder.state().cursor, head, "the cursor stopped at the end of the first page");
+
+    // What `watch` asks between rounds: is there anything after my cursor?
+    assert!(!folder.client.remote_moved(repo, head).await.unwrap());
+    let theirs = server.artist_folder().await;
+    theirs.write("b.txt", "from the artist");
+    theirs.push().await.unwrap();
+    assert!(folder.client.remote_moved(repo, head).await.unwrap(), "a change past entry 1000 goes unnoticed");
+    let report = folder.sync().await.unwrap();
+    assert_eq!(report.downloaded, vec!["b.txt"], "{}", describe(&report));
+    let cursor = folder.state().cursor;
+    assert!(cursor > head);
+    assert!(!folder.client.remote_moved(repo, cursor).await.unwrap());
+
+    // A folder that starts at 0 pages through the whole feed.
+    theirs.sync().await.unwrap();
+    assert_eq!(theirs.state().cursor, cursor);
 }
 
 // -- Routes outside the sync round -------------------------------------------
