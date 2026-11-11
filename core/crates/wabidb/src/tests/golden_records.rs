@@ -586,7 +586,7 @@ fn golden_channel_member_record() {
 
 #[test]
 fn golden_dm_message_record() {
-    unchanged_today(DM_MESSAGE_LEGACY, &dm_message(), dm_messages::encode_record, dm_messages::decode_record);
+    converted(DM_MESSAGE_LEGACY, b"DMSG", &dm_message(), dm_messages::encode_record, dm_messages::decode_record);
 }
 
 #[test]
