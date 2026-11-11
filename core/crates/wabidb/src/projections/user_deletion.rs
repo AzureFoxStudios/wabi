@@ -1,6 +1,7 @@
 use crate::domain::UserDeleted;
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
+use crate::format::versioned::{self, RecordFormat};
 use crate::projections::handler::{DurableEvent, Projection};
 use crate::projections::users::{decode_record as decode_user, encode_key as encode_user_key};
 
@@ -28,13 +29,7 @@ impl Projection for UserDeletionProjection {
     }
 
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
-        let payload: UserDeleted = postcard::from_bytes(&event.payload).map_err(|e| {
-            crate::error::WabiError::Corrupt {
-                location: "user_deletion projection".into(),
-                detail: format!("postcard decode failed for UserDeleted: {e}"),
-            }
-        })?;
-        let user_id = payload.user_id;
+        let user_id = decode_payload(&event.payload)?.user_id;
 
         // 1. The account row.
         state.remove("users", &encode_user_key(user_id));
@@ -71,6 +66,21 @@ impl Projection for UserDeletionProjection {
     }
 }
 
+/// Versioned durable layout of the `user_deleted` payload; see
+/// `format::versioned`. The first field is a `u64`, so legacy bytes never
+/// start with the marker.
+const FORMAT: RecordFormat = RecordFormat::new(*b"UDEL", "user_deletion projection");
+
+/// Encode a `user_deleted` event payload. The adapter writes it with this.
+pub fn encode_payload(payload: &UserDeleted) -> Vec<u8> {
+    versioned::encode_v1(&FORMAT, payload)
+}
+
+/// Decode a `user_deleted` event payload, versioned or raw postcard.
+pub fn decode_payload(buf: &[u8]) -> Result<UserDeleted> {
+    versioned::decode_v1(&FORMAT, buf)
+}
+
 /// Re-exported so callers (tests, server sweep code) can verify a deletion
 /// took effect without reaching into projection internals.
 pub fn user_exists(state: &ProjectionState, user_id: u64) -> bool {
@@ -98,8 +108,7 @@ mod tests {
             commit_seq: 100,
             stream_id: "users".into(),
             event_type: "user_deleted".into(),
-            payload: postcard::to_allocvec(&UserDeleted { user_id })
-                .expect("postcard serialize failed"),
+            payload: encode_payload(&UserDeleted { user_id }),
         }
     }
 
