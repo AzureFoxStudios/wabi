@@ -656,7 +656,7 @@ fn golden_incident_record() {
 
 #[test]
 fn golden_gallery_work_record() {
-    unchanged_today(GALLERY_WORK_LEGACY, &gallery_work(), gallery::encode_record, gallery::decode_record);
+    converted(GALLERY_WORK_LEGACY, b"GWRK", &gallery_work(), gallery::encode_record, gallery::decode_record);
 }
 
 #[test]
