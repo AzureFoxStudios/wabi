@@ -596,7 +596,7 @@ fn golden_dm_recipient_record() {
 
 #[test]
 fn golden_dm_identity_record() {
-    unchanged_today(DM_IDENTITY_LEGACY, &dm_identity(), dm_identities::encode_record, dm_identities::decode_record);
+    converted(DM_IDENTITY_LEGACY, b"DIDN", &dm_identity(), dm_identities::encode_record, dm_identities::decode_record);
 }
 
 #[test]
