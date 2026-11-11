@@ -9,24 +9,14 @@
 //!
 //! Get a token from the channel's Connect panel (minted server-side).
 
-mod api;
-mod config;
-mod etag;
-#[cfg(test)]
-mod large_file_tests;
-#[cfg(test)]
-mod review_tests;
-mod sync;
-
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use config::{GlobalConfig, LinkConfig, SyncState};
-
-use crate::api::WabiClient;
-use crate::sync::{print_report, SyncEngine};
+use wabi_sync::api::WabiClient;
+use wabi_sync::config::{GlobalConfig, LinkConfig, SyncState};
+use wabi_sync::sync::{self, print_report, SyncEngine};
 
 #[derive(Parser)]
 #[command(
