@@ -32,7 +32,7 @@ The one encode/decode pair is `stream_dir_name` / `stream_id_from_dir_name` in `
 
 ## Stream segment format (.wseg)
 
-Append-only, max ~64 MiB each (test: `stream_log::segment_writer::tests::segment_rotation_on_full`). Each record:
+Append-only, max ~64 MiB each (test: `stream_log::segment_writer::tests::segment_rotation_on_full`; the test writes until `is_full()`, checks the file is within two records of 64 MiB and opens the next segment by hand; the sequencer's own rotation check (`writer.is_full()` in `sequencer/mod.rs`) has no test). Each record:
 
 ```
 48-byte RecordHeader + variable payload + zero padding up to the next 16-byte boundary
@@ -52,13 +52,13 @@ Header fields:
 - Header CRC32C: covers bytes 0-39
 - Payload CRC32C: covers the payload; `0` means "not checked" (encrypted records rely on the GCM tag instead)
 
-(test: `format::record::tests::round_trip_event`, `format::record::tests::header_crc_mismatch_rejected`, `format::record::tests::payload_crc_verification`, `stream_log::segment_reader::tests::non_zero_payload_crc_verified_by_reader`)
+(test: `format::record::tests::round_trip_event`, `format::record::tests::header_crc_mismatch_rejected`, `format::record::tests::payload_crc_verification`, `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`; the header-CRC test flips only byte 12, and `non_zero_payload_crc_verified_by_reader` was removed from this list because it reads back one correct record and detects nothing; see `STORAGE_FORMAT.md` §2)
 
 Record kinds: the header decoder accepts 1=event, 2=snapshot, 3=tombstone, 4=checkpoint (test: `format::record::tests::round_trip_all_kinds`). Kinds 2 to 4 are reserved and planned; this document specifies no behavior for a snapshot, tombstone or checkpoint record.
 
-Event payload: AES-256-GCM, 12-byte nonce from `commit_seq`, header bytes as AAD, tag appended (tests: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`, `crypto::aes_gcm_record::tests::nonce_construction`, `crypto::aes_gcm_record::tests::bit_flip_in_aad_fails_auth`).
+Event payload: AES-256-GCM, 12-byte nonce from `commit_seq`, header bytes as AAD, tag appended (tests: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`, `crypto::aes_gcm_record::tests::nonce_construction`, and `crypto::aes_gcm_record::tests::bit_flip_in_aad_fails_auth`, which flips a bit in a zero-filled 48-byte header given as AAD). That the engine passes the full encoded header with `payload_crc32c` set to 0 is read from `sequencer/mod.rs`; no test covers it (see `STORAGE_FORMAT.md` §2).
 
-Reading a segment: the reader stops at the first invalid header, truncated tail or non-zero padding, and skips a record whose payload CRC fails (tests: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`, `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). Valid records that the commit index does not reference are orphans and are skipped (tests: `stream_log::segment_reader::tests::orphan_records_skipped_when_filter_rejects`, `sequencer::tests::orphan_records_tolerated`). The engine does not physically truncate a segment at startup. A helper that does (`stream_log::recovery::scan_segment_file`, test: `stream_log::recovery::tests::recovery_truncates_at_corrupt_record`) is not part of engine startup.
+Reading a segment: a file cut at a record boundary yields the records before the cut (test: `stream_log::segment_reader::tests::truncated_tail_returns_valid_prefix`), and a record whose payload CRC fails is skipped (test: `stream_log::segment_reader::tests::corrupted_middle_record_is_skipped`). The reader also stops at an invalid header, at a record cut mid-way and at non-zero padding; no test covers those three (read `stream_log/segment_reader.rs`). Valid records that the commit index does not reference are orphans and are skipped (tests: `stream_log::segment_reader::tests::orphan_records_skipped_when_filter_rejects`, `sequencer::tests::orphan_records_tolerated`). The engine does not physically truncate a segment at startup. A helper that does (`stream_log::recovery::scan_segment_file`, test: `stream_log::recovery::tests::recovery_truncates_at_corrupt_record`) is not part of engine startup.
 
 ## Commit index format (.widx)
 
@@ -89,7 +89,7 @@ Entry structure (variable length):
 
 StreamRef (33 bytes): stream ID hash (16), stream kind (1), segment ID (8), offset (4), length (4) (test: `commit_index::record::tests::stream_ref_round_trip`).
 
-File trailer (32 bytes): highest commit sequence, file CRC32C, reserved. Written when a file is sealed, after 10,000 entries or at clean shutdown (tests: `commit_index::batcher::tests::file_rotation_at_10000_entries`, `commit_index::batcher::tests::graceful_shutdown_flushes_remaining`).
+File trailer (32 bytes): highest commit sequence, file CRC32C, reserved. Written when a file is sealed. A clean shutdown sets the sealed flag in the header (test: `commit_index::batcher::tests::corrupt_middle_entry_in_sealed_file_refuses_to_open` asserts it) and a new file starts after 10,000 entries (test: `commit_index::batcher::tests::file_rotation_at_10000_entries`). No test reads the trailer bytes or checks that a rotated file is sealed; read `seal_file` in `commit_index/batcher.rs`.
 
 Reading the index at startup:
 - A tail of all zero bytes, or a partial final entry in a file that was never sealed, is tolerated: the entries before it are used and the offset is logged (tests: `commit_index::batcher::tests::zero_filled_tail_keeps_entries_and_engine_opens`, `commit_index::batcher::tests::partial_final_entry_in_unsealed_file_keeps_prior_entries_and_engine_opens`, `commit_index::batcher::tests::partial_final_entry_survives_a_second_restart_after_new_commits`).
@@ -103,12 +103,12 @@ Planned / unused. `snapshots::writer::SnapshotWriter` can write a `{seq:08}.wsna
 ## Blob storage
 
 Unused: nothing in the engine or the server calls `wabidb::blobs`, the engine never creates `blobs/`, and wabi-server keeps uploads in its own registry. What the tested writer produces is a two-file system:
-- `.bin` — raw blob data at `blobs/<hash[0..2]>/<rest>.bin` (test: `blobs::write::tests::canonical_path_layout`)
+- `.bin` — raw blob data at `blobs/<hash[0..2]>/<rest>.bin` (no test asserts this layout; `blobs::write::tests::canonical_path_layout` checks only that the path contains "blobs", ends in ".bin" and is under the data directory; read `BlobWriter::canonical_path`)
 - `.meta` — a text sidecar, `blake3=<hex>`, `size=<bytes>`, `created_at_micros=<n>`, one per line (test: `blobs::write::tests::metadata_sidecar_written`). Earlier text described a binary `b"BMTA"` file; the writer does not produce one.
 
 ## Storage manifest (JSON)
 
-`$DATA_DIR/storage-manifest.json` (test: `engine::tests::open_creates_storage_manifest`). The engine writes only these fields; `highest_commit_seq` is refreshed at open:
+`$DATA_DIR/storage-manifest.json` (test: `engine::tests::open_creates_storage_manifest` asserts the file exists with `"schema_version": 1` and `"engine_version": "0.1.0"`). The engine writes these fields and raises `highest_commit_seq` at open when replay finds a higher commit; no test covers the field list or the raise (read `open` and `update_manifest_high_seq` in `engine/mod.rs`):
 
 ```json
 {

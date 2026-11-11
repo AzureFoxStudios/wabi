@@ -5,16 +5,21 @@
 //! The on-disk layout and a test for each format rule are in
 //! `docs/architecture/STORAGE_FORMAT.md`.
 //!
-//! The engine starts and serves a command (test: `tests::integration::engine_starts_and_serves_a_command`)
-//! and one process owns a data directory at a time (test:
+//! Opening an engine creates its lock file, storage manifest and commit-index directory
+//! (test: `tests::integration::engine_starts_and_serves_a_command` asserts those three
+//! exist; the command it then sends goes through a sequencer the test builds by hand, not
+//! through the engine). The engine accepts a command through `run_command` and projects
+//! it (test: `engine::tests::room_placement_event_is_projected_and_restored_after_restart`).
+//! One process owns a data directory at a time (test:
 //! `tests::integration::two_engines_cannot_share_a_data_dir`).
 //!
 //! ## Architecture overview
 //!
 //! - **Per-stream segments** (`stream_log`): append-only `.wseg` files in one directory
 //!   per stream, rotating at about 64 MiB. Event records are AES-256-GCM encrypted with
-//!   the stream's key (tests: `stream_log::segment_writer::tests::segment_rotation_on_full`,
-//!   `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`). Each record carries a
+//!   the stream's key (tests: `stream_log::segment_writer::tests::segment_rotation_on_full`
+//!   fills one segment and reopens the next by hand; the sequencer's own rotation check
+//!   has no test; `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`). Each record carries a
 //!   `commit_seq`.
 //! - **Global commit index** (`commit_index`): the canonical ordering of all commits, one
 //!   entry per commit (test: `engine::replay::tests::replay_applies_events_in_global_commit_seq_order`).
@@ -30,8 +35,15 @@
 //!   `sequencer::tests::completion_waits_for_projection_application`).
 //! - **Projections** (`projections`): in-memory read model of the commit log. Indexes are
 //!   `crossbeam-skiplist::SkipMap`s behind an outer `RwLock`; writes take the write lock
-//!   (see `engine::locks`). They are rebuilt from `projections/snapshot.json` plus the
-//!   commit index on start (tests: `tests::integration::engine_rebuilds_projections_on_startup`,
+//!   (no test shows which lock a path takes; read `engine::locks` `ProjectionState::insert`
+//!   and `get`). On start the engine loads `projections/snapshot.json` when one
+//!   exists and replays the log from the commit index. A restart with the snapshot present,
+//!   and one with it deleted so the whole log is replayed, both leave a removed reaction
+//!   removed (test:
+//!   `engine::message_admission_tests::removed_reaction_stays_removed_after_reopen_and_replay`).
+//!   No test checks that replay skips the commits a snapshot already covers; that is read
+//!   from `engine/mod.rs` (`open`) and `engine/replay.rs` (`replay_projections`). A snapshot
+//!   never claims more than its rows hold (test:
 //!   `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). A persistent
 //!   read model is *planned* (`docs/architecture/ADR-0001-projection-storage.md`).
 //! - **Retention** (`retention`): backup helpers that copy and hash files (tests:
@@ -40,8 +52,10 @@
 //!   route runs them. There is no retention engine, reaper, key destruction or compaction;
 //!   those are *planned*.
 //! - **Blob store** (`blobs`): BLAKE3 content-addressed files written by temp file, fsync
-//!   and rename, with a range read (tests: `blobs::write::tests::write_creates_canonical_file`,
-//!   `blobs::range_read::tests::range_read_partial`). Nothing in the engine or the server
+//!   and rename, with a range read (a written blob exists and reads back: test
+//!   `blobs::write::tests::write_creates_canonical_file`; the range read: test
+//!   `blobs::range_read::tests::range_read_partial`; no test covers the temp-file, fsync
+//!   and rename order, which is read from `blobs/write.rs::BlobWriter::write`). Nothing in the engine or the server
 //!   calls it; uploads are stored by wabi-server, outside this crate.
 //! - **Storage CLI** (`cli`): `wabidb-cli` commands `check`, `verify`, `status` and
 //!   `list-streams` only read and never take the lock (test:

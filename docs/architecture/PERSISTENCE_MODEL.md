@@ -10,7 +10,7 @@
 
 **"Signal + Self-Host Flexibility"**
 
-Wabi defaults to client-side storage (like Signal), but server operators can opt into varying levels of persistence per channel. Self-host means **their data, their rules, their risk**.
+The server owns the shared state: every durable write goes through the operator's WabiDB, and the operator chooses how long each channel's messages are kept (section 3). Browsers also keep local copies (IndexedDB: `frontend/src/lib/storageDb.ts`, `frontend/src/lib/wabidb/queue/db.ts`) for offline access and drafts; no test in this repository's Rust suites covers that, and it does not make the server optional. Wabi is not a client-side-storage design like Signal. Self-host means **their data, their rules, their risk**. (An earlier version of this paragraph said Wabi defaults to client-side storage; it contradicted the tier table below.)
 
 WabiDB's state lives inside the operator's `./data/wabi-server/wabidb/` directory; other server state (sidecar files, uploads) is listed in `docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`. Only one engine process can own a data directory at a time (tests: `tests::integration::two_engines_cannot_share_a_data_dir`, `engine::process_lock_tests::process_lock_excludes_another_engine_and_releases_after_kill`). `wabi-server` reads and writes through the engine. The `wabidb-cli` commands `check`, `verify`, `status` and `list-streams` only read and never take or touch the lock (test: `cli::tests::commands_are_read_only_and_never_touch_the_lock`); `wabidb-cli quarantine` writes `global/quarantine.json` while holding the lock (tests: `cli::quarantine::tests::quarantine_fails_while_the_lock_is_held`, `cli::quarantine::tests::quarantine_appends_once_and_refuses_unindexed_seqs`). `wabidb-cli` has no backup or migration command; a stopped instance is archived with `wabi-instance-snapshot` (`docs/deployment/BACKUP_AND_RECOVERY.md`).
 
@@ -23,7 +23,7 @@ WabiDB's state lives inside the operator's `./data/wabi-server/wabidb/` director
 | **Client (IndexedDB)** | Always | User | Personal history, offline access, draft state |
 | **Server (Wabidb streams)** | Always | Server admin | Real-time sync, active sessions, shared state |
 | **`wabidb::blobs` (BLAKE3 blob writer)** | Not used | n/a | *Planned* for uploads and large media. The writer exists and is tested (`blobs::write::tests::write_is_idempotent`), but nothing calls it: wabi-server keeps uploads in its own registry outside WabiDB (`docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`) |
-| **Projection checkpoint** (`projections/snapshot.json`) | Automatic | Engine | Fast recovery without replaying the full commit log (tests: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`, `tests::integration::engine_rebuilds_projections_on_startup`) |
+| **Projection checkpoint** (`projections/snapshot.json`) | Automatic | Engine | Intended to shorten recovery by saving the read model so replay need not start from zero. A restart with the checkpoint present and one without it both give the same state (test: `engine::message_admission_tests::removed_reaction_stays_removed_after_reopen_and_replay`); a checkpoint never claims more than its rows hold (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). No test shows that replay skips the commits a checkpoint covers or measures replay time |
 | **Operator archives** | Manual | Server admin | Offsite backup, disaster recovery; see `docs/deployment/BACKUP_AND_RECOVERY.md` |
 
 All tiers run on the same filesystem. There is no separate database server to provision.
@@ -36,19 +36,19 @@ There is no per-stream persistence mode in WabiDB and no per-stream TOML configu
 
 What the server does today is set per channel, by the server, before the durable write:
 
-- **`live`**: messages are held in the server's live cache for the session and are not written to WabiDB. It is "not retained", not private or confidential (test: `core/crates/wabi-server/tests/channel_access_contract.rs::durable_delete_waits_for_commit_but_live_delete_remains_session_only`).
-- **Timed**: the message is written, and after N days the server's sweep appends a `message_deleted` event that hides it from the read model. The encrypted record stays in the append-only segment until a future compaction feature exists. This is a soft delete. Which messages count as expired is tested (`core/crates/wabi-server/src/api/retention_policy.rs::tests::policy_changes_only_affect_messages_created_after_each_boundary`, `::fast_sweep_includes_short_timers_and_excludes_long_or_disabled_channels`). No test checks that the encrypted record is still in the segment after the hide; that sentence rests on reading the delete path in `adapter/mod.rs`.
+- **`live`**: a message sent to a channel in live mode is accepted and is not stored in WabiDB's message read model (test: `core/crates/wabi-server/tests/channel_access_contract.rs::exact_retention_loads_before_requests_and_corruption_cannot_change_live_mode` sets a channel to `live`, restarts, POSTs a message, gets 200, and finds no message with the returned id through `get_message_typed`). That the message is held in the server's session cache is read from the send path, not shown by that test. "Not retained" is not private or confidential: no test covers confidentiality, and none is claimed (AGENTS.md golden rule 13). `durable_delete_waits_for_commit_but_live_delete_remains_session_only` is about deletes and is not cited for this.
+- **Timed**: the message is written, and after N days the server's sweep appends a `message_deleted` event that hides it from the read model. The encrypted record stays in the append-only segment until a future compaction feature exists. This is a soft delete. Which messages count as expired is tested (`core/crates/wabi-server/src/api/retention_policy.rs::tests::policy_changes_only_affect_messages_created_after_each_boundary`, `core/crates/wabi-server/src/api/retention_policy.rs::tests::fast_sweep_includes_short_timers_and_excludes_long_or_disabled_channels`). No test checks that the encrypted record is still in the segment after the hide; that sentence rests on reading the delete path in `adapter/mod.rs`.
 - **`forever`**: the message is written and not swept.
 
-(The policy files and their loading are covered by `core/crates/wabi-server/tests/channel_access_contract.rs::exact_retention_loads_before_requests_and_corruption_cannot_change_live_mode` and `::socket_retention_persists_exact_modes_and_ignores_unrelated_updates`.)
+(The policy files and their loading are covered by `core/crates/wabi-server/tests/channel_access_contract.rs::exact_retention_loads_before_requests_and_corruption_cannot_change_live_mode` and `core/crates/wabi-server/tests/channel_access_contract.rs::socket_retention_persists_exact_modes_and_ignores_unrelated_updates`.)
 
 ### 3.1 How a durable write is stored
 
-- Writes are append-only to per-stream segments (tests: `stream_log::segment_writer::tests::write_multiple_records`, `stream_log::segment_writer::tests::flush_and_close_persist_data`).
+- Records are appended to per-stream segments at strictly increasing offsets, and the file length after a flush equals the sum of the record sizes (tests: `stream_log::segment_writer::tests::write_multiple_records`, `stream_log::segment_writer::tests::flush_and_close_persist_data`). Neither test checks that an existing record is never rewritten; "append-only" is read from `stream_log/segment_writer.rs`, which has no seek-and-overwrite path.
 - Segment records are AES-256-GCM encrypted under the stream's key (tests: `crypto::aes_gcm_record::tests::encrypt_decrypt_round_trip`, `crypto::aes_gcm_record::tests::wrong_key_fails_auth`).
-- The commit is acknowledged only after its segment writes and its commit-index entry are flushed (tests: `sequencer::tests::durability_await`, `tests::power_loss::simulate_crash_between_segment_write_and_commit_index`, `tests::power_loss::simulate_power_loss_before_fsync`).
+- When a command is acknowledged its commit-index entry is already readable from disk (test: `sequencer::tests::durability_await`), and segment records that have no commit-index entry are not treated as committed (test: `tests::power_loss::simulate_crash_between_segment_write_and_commit_index`). That the acknowledgment waits for the fsyncs is not shown by either test; `tests::power_loss::simulate_power_loss_before_fsync` is not cited because its own comment says it checks same-system readability before fsync, not durability.
 - The commit index is the canonical ordering of all writes (test: `engine::replay::tests::replay_applies_events_in_global_commit_seq_order`).
-- A projection checkpoint is saved every N dispatched commits, which bounds replay time (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). Per-stream snapshots are *planned*; none are written.
+- A projection checkpoint is saved every N dispatched commits (`ProjectionState::checkpoint_if_due` in `engine/locks.rs`, called by the dispatcher) and when the engine is dropped (`impl Drop for WabiDbEngine` in `engine/mod.rs`). No test covers the every-N rule, and nothing measures that it bounds replay time; the one test of the shutdown save is the reopen-with-checkpoint half of `engine::message_admission_tests::removed_reaction_stays_removed_after_reopen_and_replay`. `engine::locks::tests::snapshot_never_overclaims_watermark_coverage` calls save and load by hand and shows only that a saved checkpoint never claims more than its rows hold. Per-stream snapshots are *planned*; none are written.
 - The process-exit crash tests do not discard the operating system's page cache, so fsync ordering is established by code review, not by a test.
 
 ---
@@ -60,11 +60,11 @@ All on-disk formats are specified in `docs/architecture/STORAGE_FORMAT.md`, whic
 | File | Format | Purpose |
 |------|--------|---------|
 | `*.wseg` | 48-byte header + payload + zero padding to a 16-byte boundary | Encrypted stream segment (test: `format::record::tests::total_size_includes_alignment_padding`) |
-| `*.widx` | 16-byte header + entries + 32-byte trailer on sealed files | Commit index file (test: `commit_index::batcher::tests::file_rotation_at_10000_entries`) |
+| `*.widx` | 16-byte header + entries + 32-byte trailer on sealed files | Commit index file (a new file starts after 10,000 entries: test `commit_index::batcher::tests::file_rotation_at_10000_entries`; the trailer is not read by any test, see `STORAGE_FORMAT.md` §3) |
 | `projections/snapshot.json` | JSON | Projection checkpoint (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`) |
-| `*.bin` | raw bytes | BLAKE3 content-addressed blob (test: `blobs::write::tests::canonical_path_layout`). No production caller writes one |
+| `*.bin` | raw bytes | BLAKE3 content-addressed blob (no test asserts its path layout; see `STORAGE_FORMAT.md` §5.1). No production caller writes one |
 | `*.meta` | three text lines: `blake3=`, `size=`, `created_at_micros=` | Blob metadata sidecar (test: `blobs::write::tests::metadata_sidecar_written`). No production caller writes one |
-| `storage-manifest.json` | JSON | Format version and commit watermark (test: `engine::tests::open_creates_storage_manifest`) |
+| `storage-manifest.json` | JSON | Format version and commit watermark (test: `engine::tests::open_creates_storage_manifest` asserts the file exists with `schema_version` 1 and `engine_version` "0.1.0"; the watermark field has no test) |
 | `global/quarantine.json` | JSON | Commits replay must skip (test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`) |
 
 `*.wsnap` files and a binary `BMTA` blob header were described here before; no code writes either (see `STORAGE_FORMAT.md` §4 and §5).
@@ -75,7 +75,7 @@ All CRCs are CRC32C (Castagnoli) and all multi-byte integers are little-endian (
 
 ## 5. Storage Manifest
 
-`$DATA_DIR/storage-manifest.json` holds `schema_version`, `format_version`, `engine_version`, `created_at_micros` and `highest_commit_seq`. It is created on first open, and `highest_commit_seq` is refreshed when the engine opens (test: `engine::tests::open_creates_storage_manifest`). `wabidb-cli verify` reads it (test: `cli::verify::tests::real_engine_tree_verifies`).
+`$DATA_DIR/storage-manifest.json` holds `schema_version`, `format_version`, `engine_version`, `created_at_micros` and `highest_commit_seq`. It is created on first open (test: `engine::tests::open_creates_storage_manifest` asserts it exists and contains `schema_version` 1 and `engine_version` "0.1.0"). `highest_commit_seq` is raised when the engine opens and replay finds a higher commit; no test covers the field list or the raise (read `update_manifest_high_seq` in `engine/mod.rs`). `wabidb-cli verify` reads it (test: `cli::verify::tests::real_engine_tree_verifies`).
 
 *Planned, not implemented:* a per-stream list and a `config` block in the manifest, and using the manifest as a backup verification artifact ("a backup is valid iff its manifest matches the live data directory"). Nothing compares manifests, and the engine does not refuse to start on a manifest mismatch.
 
@@ -101,14 +101,14 @@ An expiry mode built on this (a reaper that deletes keys) is planned; no reaper 
 
 ### 7.1 What to Back Up
 
-The full `data/wabi-server/` directory plus the `storage-manifest.json` are the backup unit. Specifically:
+The full `data/wabi-server/` directory is the backup unit (`storage-manifest.json` is inside it, at `wabidb/storage-manifest.json`). No test restores a copied directory end to end; the list below is the layout described in `STORAGE_FORMAT.md` §1, whose tests are cited there, plus the procedure in `docs/deployment/BACKUP_AND_RECOVERY.md`. Specifically:
 
 - `streams/` — all segments
-- `global/commit-index/` — the index, and `global/quarantine.json` if it exists (without it, startup refuses the quarantined commit again; test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`)
+- `global/commit-index/` — the index, and `global/quarantine.json` if it exists (without it, startup can refuse the quarantined commit again whenever replay covers that commit, for example when no checkpoint covers it; test: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it` refuses with the file absent because replay reaches the bad commit, then starts once the file lists it. Once a checkpoint covers the commit, startup does not replay it and does not refuse)
 - `storage-manifest.json` — the manifest
 - `projections/snapshot.json` — the projection checkpoint
 - `blobs/` — where `wabidb::blobs` would write. Nothing writes it today; uploads live outside this directory (`docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`)
-- The Wabidb engine's bootstrap key material (stored separately; see `wabidb::crypto::bootstrap`)
+- The root key: unless `WABIDB_ROOT_KEY` is set, the server generates it into `wabidb/root_key` inside the data directory (tests: `core/crates/wabi-server/src/secrets.rs::tests::root_key_generates_persists_and_reuses`, `core/crates/wabi-server/src/secrets.rs::tests::root_key_env_wins_over_file`). That the server passes the `wabidb/` directory is read from `AppState::new` in `state.rs` and `WdbAdapter::resolved_config`. If `WABIDB_ROOT_KEY` is set, the key is not in the data directory and must be backed up separately (`docs/deployment/BACKUP_AND_RECOVERY.md`). The engine itself never persists the key (`wabidb::crypto::bootstrap`)
 
 The full recovery unit, including sidecar files and uploads, is in `docs/architecture/INSTANCE_RECOVERY_INVENTORY.md`.
 
