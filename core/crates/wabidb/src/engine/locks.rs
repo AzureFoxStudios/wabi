@@ -33,7 +33,7 @@
 //!    with checkpoints, not ordinary reads (test:
 //!    `engine::locks::tests::checkpoint_copy_holds_the_snapshot_writer_and_releases_on_an_error_result`
 //!    asserts the application lock is held during the checkpoint copy and released
-//!    after; no test shows that ordinary reads do not take it). A snapshot never claims
+//!    after, and that a `get` returns while it is held). A snapshot never claims
 //!    more than the applied watermark covers (test:
 //!    `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`).
 //!
