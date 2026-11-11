@@ -1,4 +1,5 @@
 use crate::domain::Emote;
+use crate::format::versioned::{self, RecordFormat};
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
@@ -10,15 +11,15 @@ impl RecordCodec for Emote {
     }
 }
 
+/// Versioned durable layout of [`Emote`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"EMOT", "emotes projection");
+
 pub fn encode_record(e: &Emote) -> Vec<u8> {
-    postcard::to_allocvec(e).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, e)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<Emote> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "emotes projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(emote_id: &str) -> Vec<u8> {
