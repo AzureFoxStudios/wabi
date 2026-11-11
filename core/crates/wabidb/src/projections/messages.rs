@@ -826,11 +826,7 @@ impl SecondaryIndex for MessagesByChannelIndex {
             Ok(r) => r,
             Err(_) => return vec![],
         };
-        let message_id = if event.event_type == "message_created" {
-            format!("msg_{:x}", event.commit_seq)
-        } else {
-            record.message_id.clone()
-        };
+        let message_id = resolved_message_id(event, &record);
         vec![encode_key(&record.channel_id, &message_id)]
     }
 
@@ -862,11 +858,7 @@ impl SecondaryIndex for MessagesByAuthorIndex {
             Ok(r) => r,
             Err(_) => return vec![],
         };
-        let message_id = if event.event_type == "message_created" {
-            format!("msg_{:x}", event.commit_seq)
-        } else {
-            record.message_id.clone()
-        };
+        let message_id = resolved_message_id(event, &record);
         let mut buf = Vec::new();
         buf.extend_from_slice(&(record.author_user_id as u64).to_le_bytes());
         buf.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
@@ -878,6 +870,17 @@ impl SecondaryIndex for MessagesByAuthorIndex {
         for key in self.extract_keys(event) {
             index.insert(key, reencoded_payload(event));
         }
+    }
+}
+
+/// Message id as `apply_created` stores it: the writer-stamped id, or the
+/// `msg_{commit_seq:x}` fallback when a created event left it empty. Every
+/// index key must use this so primary and secondary rows agree.
+fn resolved_message_id(event: &DurableEvent, record: &MessageRecord) -> String {
+    if event.event_type == "message_created" && record.message_id.trim().is_empty() {
+        format!("msg_{:x}", event.commit_seq)
+    } else {
+        record.message_id.clone()
     }
 }
 
@@ -925,12 +928,7 @@ impl SecondaryIndex for MessagesByChannelTimeIndex {
         // Mirror reencoded_payload's id handling: prefer the writer-stamped
         // id; fall back to commit_seq only when the writer left it empty, so
         // the trailing id disambiguator matches the primary record's id.
-        let message_id =
-            if event.event_type == "message_created" && record.message_id.trim().is_empty() {
-                format!("msg_{:x}", event.commit_seq)
-            } else {
-                record.message_id.clone()
-            };
+        let message_id = resolved_message_id(event, &record);
         let mut buf =
             Vec::with_capacity(8 + 2 + record.channel_id.len() + 8 + 8 + 2 + message_id.len());
         buf.extend_from_slice(&(record.channel_id.len() as u64).to_le_bytes());
@@ -2043,4 +2041,69 @@ mod tests {
         assert_eq!(MessagesProjection::list_messages_expired(&state, "a", i64::MAX, 10).unwrap().len(), 1);
     }
 
+    fn index_count(state: &ProjectionState, index: &str, prefix: &[u8]) -> usize {
+        let mut n = 0;
+        state.prefix_scan(index, prefix, |_k, _v| n += 1);
+        n
+    }
+
+    fn uuid_message() -> MessageRecord {
+        MessageRecord {
+            message_id: "0b9d6c1e-1111-4222-8333-444455556666".into(),
+            channel_id: "ch_01".into(),
+            author_user_id: 7,
+            edit_history: vec![],
+            edited_at_micros: None,
+            is_deleted: false,
+            ..sample_msg()
+        }
+    }
+
+    #[test]
+    fn uuid_message_leaves_no_index_entries_after_delete_and_compact() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        let mut rec = uuid_message();
+        proj.apply(&make_event(5, "message_created", &rec), &state)
+            .unwrap();
+        rec.encrypted_body_ref = "edited".into();
+        proj.apply(&make_event(6, "message_edited", &rec), &state)
+            .unwrap();
+        rec.is_deleted = true;
+        proj.apply(&make_event(7, "message_deleted", &rec), &state)
+            .unwrap();
+
+        MessagesProjection::compact(&state);
+
+        let mut ch_prefix = Vec::new();
+        ch_prefix.extend_from_slice(&("ch_01".len() as u64).to_le_bytes());
+        ch_prefix.extend_from_slice(b"ch_01");
+        assert_eq!(index_count(&state, "messages", &ch_prefix), 0);
+        assert_eq!(index_count(&state, "messages_by_channel", &ch_prefix), 0);
+        assert_eq!(
+            index_count(&state, "messages_by_author", &7u64.to_le_bytes()),
+            0
+        );
+    }
+
+    #[test]
+    fn author_query_after_edit_returns_only_current_version() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        let mut rec = uuid_message();
+        proj.apply(&make_event(5, "message_created", &rec), &state)
+            .unwrap();
+        rec.encrypted_body_ref = "edited".into();
+        proj.apply(&make_event(6, "message_edited", &rec), &state)
+            .unwrap();
+
+        let filter = MessagesFilter {
+            author_id: Some(7),
+            ..Default::default()
+        };
+        let results = proj.query(&state, &filter).unwrap();
+        assert_eq!(results.len(), 1, "stale msg_<seq> row must not appear");
+        assert_eq!(results[0].message_id, rec.message_id);
+        assert_eq!(results[0].encrypted_body_ref, "edited");
+    }
 }
