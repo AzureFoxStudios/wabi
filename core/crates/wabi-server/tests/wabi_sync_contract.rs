@@ -671,6 +671,7 @@ async fn large_file_round_trip_is_quiet() {
     mine.write(BIG, big(1));
     let first = mine.sync().await.unwrap();
     assert_eq!(first.uploaded, vec![BIG], "{}", describe(&first));
+    assert!(first.downloaded.is_empty(), "downloaded its own upload: {}", describe(&first));
     let server_etag = mine.manifest_etag(BIG).await.unwrap();
     assert!(server_etag.starts_with("q-"), "the manifest etag of a large file is sampled: {server_etag}");
 
