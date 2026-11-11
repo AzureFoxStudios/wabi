@@ -12,6 +12,8 @@
 mod api;
 mod config;
 mod etag;
+#[cfg(test)]
+mod review_tests;
 mod sync;
 
 use std::path::PathBuf;

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
 
-use crate::api::{UploadOutcome, WabiClient};
+use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
 use crate::config::{LinkConfig, SyncState, LINK_FILE, STATE_DIR};
 use crate::etag::{etag_for_bytes, etag_for_file};
 
@@ -151,6 +151,10 @@ pub struct SyncReport {
     pub deleted_local: Vec<String>,
     pub deleted_remote: Vec<String>,
     pub conflicts: Vec<String>,
+    /// Uploaded to a review branch and not yet on the mainline.
+    pub waiting_review: Vec<String>,
+    /// Local deletions the server refused (403).
+    pub not_deleted: Vec<String>,
 }
 
 impl SyncReport {
@@ -161,6 +165,8 @@ impl SyncReport {
             deleted_local: Vec::new(),
             deleted_remote: Vec::new(),
             conflicts: Vec::new(),
+            waiting_review: Vec::new(),
+            not_deleted: Vec::new(),
         }
     }
 
@@ -170,6 +176,8 @@ impl SyncReport {
             && self.deleted_local.is_empty()
             && self.deleted_remote.is_empty()
             && self.conflicts.is_empty()
+            && self.waiting_review.is_empty()
+            && self.not_deleted.is_empty()
     }
 }
 
@@ -211,11 +219,22 @@ impl<'a> SyncEngine<'a> {
         // Remote files: download new/changed when we have no diverging local edit.
         for (path, remote_etag) in &remote {
             let remote_etag = remote_etag.as_deref().unwrap_or("");
+            // A review upload was approved: the mainline now has the etag we
+            // uploaded, so it becomes the ordinary baseline.
+            if self.state.pending_review.get(*path).map(String::as_str) == Some(remote_etag) {
+                self.state.pending_review.remove(*path);
+                self.state.baselines.insert(path.to_string(), Some(remote_etag.to_string()));
+            }
             let baseline = self.state.baselines.get(*path).cloned().flatten();
             let local_etag = local.get(*path);
             let remote_changed = baseline.as_deref().unwrap_or("") != remote_etag;
             let local_has = local_etag.is_some();
             if remote_changed {
+                // The mainline moved to something other than what is waiting
+                // for review; the branches below settle the path (a pending
+                // local file differs from its baseline, so it is kept as a
+                // conflict copy).
+                self.state.pending_review.remove(*path);
                 let local_clean = match (local_etag, &baseline) {
                     (Some(le), Some(b)) => Some(le.as_str()) == Some(b.as_str()),
                     (None, b) => b.is_none(), // both absent → clean
@@ -272,6 +291,7 @@ impl<'a> SyncEngine<'a> {
                 self.state.baselines.remove(&path);
                 continue;
             }
+            self.state.pending_review.remove(&path);
             let local_etag = local.get(&path);
             let local_clean = local_etag.map(|le| Some(le.as_str()) == baseline.as_deref()).unwrap_or(true);
             let local_file = self.folder.join(&path);
@@ -324,7 +344,15 @@ impl<'a> SyncEngine<'a> {
         for (path, local_etag) in &local {
             let baseline = self.state.baselines.get(path).cloned().flatten();
             if baseline.as_deref() == Some(local_etag.as_str()) {
-                continue; // unchanged since last sync
+                // Unchanged since last sync (or put back to the mainline
+                // version while an edit was waiting for review).
+                self.state.pending_review.remove(path);
+                continue;
+            }
+            if self.state.pending_review.get(path) == Some(local_etag) {
+                // Already uploaded to a review branch; nothing new to send.
+                report.waiting_review.push(path.clone());
+                continue;
             }
             let bytes = std::fs::read(self.folder.join(path))?;
             let message = format!("wabi-sync: update {path}");
@@ -341,17 +369,23 @@ impl<'a> SyncEngine<'a> {
             match outcome {
                 UploadOutcome::Ok { etag, revision, pending_review } => {
                     report.uploaded.push(path.clone());
-                    if pending_review {
-                        println!("  ↑ {} (pending review on a review branch)", path);
-                    } else if !revision.is_empty() {
-                        let _ = revision;
-                    }
+                    let _ = revision;
                     // Adopt the server's canonical etag (handles q- sampling
                     // mismatches on huge files).
                     let adopted = if etag.is_empty() { local_etag.clone() } else { etag };
-                    self.state.baselines.insert(path.clone(), Some(adopted));
+                    if pending_review {
+                        // The bytes went to a review branch, not the mainline:
+                        // the baseline stays the mainline's so the pull does
+                        // not take this file for a clean copy of it.
+                        report.waiting_review.push(path.clone());
+                        self.state.pending_review.insert(path.clone(), adopted);
+                    } else {
+                        self.state.pending_review.remove(path);
+                        self.state.baselines.insert(path.clone(), Some(adopted));
+                    }
                 }
                 UploadOutcome::Conflict(conflict) => {
+                    self.state.pending_review.remove(path);
                     let tag = conflict
                         .current_etag
                         .as_deref()
@@ -372,6 +406,9 @@ impl<'a> SyncEngine<'a> {
             }
         }
 
+        // A file removed locally is no longer waiting for review.
+        self.state.pending_review.retain(|path, _| local.contains_key(path));
+
         // Baseline files deleted locally → delete remotely.
         let baseline_paths: Vec<String> = self.state.baselines.keys().cloned().collect();
         for path in baseline_paths {
@@ -387,14 +424,18 @@ impl<'a> SyncEngine<'a> {
                 .delete(self.link.channel_id, &path, baseline.as_deref())
                 .await
             {
-                Ok(true) => {
+                Ok(DeleteOutcome::Deleted) => {
                     report.deleted_remote.push(path.clone());
                     self.state.baselines.insert(path.clone(), None);
                 }
-                Ok(false) => {
+                Ok(DeleteOutcome::Conflict) => {
                     report.conflicts.push(format!(
                         "{path} (changed on server after your baseline; not deleted)"
                     ));
+                }
+                Ok(DeleteOutcome::Forbidden) => {
+                    // Baseline stays: the file is still on the server.
+                    report.not_deleted.push(path.clone());
                 }
                 Err(e) => return Err(e),
             }
@@ -415,6 +456,9 @@ impl<'a> SyncEngine<'a> {
         pushed.deleted_local.extend(pulled.deleted_local);
         pushed.deleted_remote.extend(pulled.deleted_remote);
         pushed.conflicts.extend(pulled.conflicts);
+        // Only what is still pending after the pull (not approved or
+        // conflicted in this same round).
+        pushed.waiting_review.retain(|p| self.state.pending_review.contains_key(p));
         Ok(pushed)
     }
 }
@@ -434,6 +478,12 @@ pub fn print_report(prefix: &str, report: &SyncReport) {
     }
     for p in &report.conflicts {
         println!("{prefix} ⚠ conflict: {p}");
+    }
+    for p in &report.waiting_review {
+        println!("{prefix} … {p} (waiting for review; not on the mainline yet)");
+    }
+    for p in &report.not_deleted {
+        println!("{prefix} ⚠ {p} (not deleted: you do not have permission)");
     }
 }
 

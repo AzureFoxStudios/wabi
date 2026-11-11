@@ -97,10 +97,21 @@ impl LinkConfig {
 /// Mutable sync state: the last-synced etag per path (the three-way baseline)
 /// plus the change-feed cursor. None = the file did not exist remotely at
 /// last sync.
+///
+/// The file is plain JSON with no version field; unknown keys are ignored on
+/// load. `pending_review` is therefore optional on read (state files written
+/// before it existed) and left out when empty (so a state file with nothing
+/// pending is byte-identical to what older builds write).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncState {
     pub cursor: u64,
     pub baselines: BTreeMap<String, Option<String>>,
+    /// Paths whose last upload the server routed to a review branch, with the
+    /// etag that was uploaded. The mainline does not have those bytes until
+    /// someone approves, so `baselines` keeps the mainline etag (or no entry
+    /// for a new file) and this map records what is waiting.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pending_review: BTreeMap<String, String>,
 }
 
 impl SyncState {
@@ -148,5 +159,34 @@ mod tests {
         assert_eq!(loaded.cursor, 42);
         assert_eq!(loaded.baselines.get("a.txt"), Some(&Some("etag-a".into())));
         assert_eq!(loaded.baselines.get("b.txt"), Some(&None));
+    }
+
+    #[test]
+    fn state_file_without_pending_review_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(STATE_DIR)).unwrap();
+        std::fs::write(
+            dir.path().join(STATE_DIR).join("state.json"),
+            r#"{"cursor": 7, "baselines": {"a.txt": "etag-a"}}"#,
+        )
+        .unwrap();
+        let loaded = SyncState::load(dir.path()).unwrap();
+        assert_eq!(loaded.cursor, 7);
+        assert!(loaded.pending_review.is_empty());
+
+        // Nothing pending → the key is not written at all.
+        loaded.save(dir.path()).unwrap();
+        let raw = std::fs::read_to_string(dir.path().join(STATE_DIR).join("state.json")).unwrap();
+        assert!(!raw.contains("pending_review"));
+    }
+
+    #[test]
+    fn pending_review_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = SyncState::default();
+        state.pending_review.insert("a.txt".into(), "etag-new".into());
+        state.save(dir.path()).unwrap();
+        let loaded = SyncState::load(dir.path()).unwrap();
+        assert_eq!(loaded.pending_review.get("a.txt").map(String::as_str), Some("etag-new"));
     }
 }
