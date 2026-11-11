@@ -325,10 +325,12 @@ impl RepoDir {
             // The mirror cache is validated by `validate_mirror_cache`; its
             // clone legitimately holds symlinks. The working tree proper is
             // still validated strictly.
-            if !importing && root && name == OsStr::new(".mirror-cache") {
+            let metadata = self.dir.symlink_metadata(&name)?;
+            // Only a real directory is exempt: a symlink or file of that name
+            // falls through to the checks below.
+            if !importing && root && metadata.is_dir() && name == OsStr::new(".mirror-cache") {
                 continue;
             }
-            let metadata = self.dir.symlink_metadata(&name)?;
             if metadata.file_type().is_symlink() {
                 return Err(denied("repository symlinks are not supported"));
             }
@@ -468,6 +470,29 @@ mod tests {
             b"canary"
         );
         assert!(repo.validate_import().is_err());
+        assert!(repo.validate_cli_tree().is_err());
+    }
+
+    /// Only a real `.mirror-cache` directory is left to `validate_mirror_cache`.
+    /// A symlink of that name at the root is still a repository symlink and is
+    /// refused, so it cannot point the cache somewhere else.
+    #[cfg(unix)]
+    #[test]
+    fn only_a_mirror_cache_directory_is_exempt_from_the_tree_walk() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("target"), b"outside").unwrap();
+
+        let linked = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), linked.path().join(".mirror-cache")).unwrap();
+        assert!(RepoDir::open(linked.path()).unwrap().validate_cli_tree().is_err());
+
+        let cloned = tempfile::tempdir().unwrap();
+        std::fs::create_dir(cloned.path().join(".mirror-cache")).unwrap();
+        std::os::unix::fs::symlink("target", cloned.path().join(".mirror-cache/link")).unwrap();
+        let repo = RepoDir::open(cloned.path()).unwrap();
+        assert!(repo.validate_cli_tree().is_ok());
+        // The same symlink anywhere else in the tree is still refused.
+        std::os::unix::fs::symlink("target", cloned.path().join("link")).unwrap();
         assert!(repo.validate_cli_tree().is_err());
     }
 
