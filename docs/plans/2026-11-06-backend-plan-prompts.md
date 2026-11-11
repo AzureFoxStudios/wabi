@@ -929,3 +929,64 @@ All Lore tests here run against a shell stand-in for the lore binary; say so in 
 ```
 
 You check: the tests assert on the CLI call log, and the PR description states what changes for the artist role.
+
+---
+
+### Task 4.8c wabi-sync must not lose local work on a review upload
+
+Added 2026-11-11 from the review of PR 329. Started the same day with the prompt below.
+
+```
+TASK 4.8c. Change only crates/wabi-sync (and its tests).
+
+A Lore upload can go to a review branch: the server answers 200 with "pendingReview": true, and the mainline (manifest, downloads) does not hold the uploaded bytes until someone approves. In crates/wabi-sync/src/sync.rs, push() takes the returned etag as the baseline for the path, then sync() pulls. A new file is then absent from the mainline and "clean" locally, so the pull deletes it. An edited file differs from the mainline and is "clean", so the pull overwrites the edit with the old mainline bytes. A DELETE answered 403 makes push() return Err, so every later sync aborts.
+
+Reproduce each of the three with a failing test first. Then: remember a path whose last upload answered pendingReview (with the uploaded etag), persisted with the baselines, with older state files still loading. While it is pending and unchanged locally, do not re-upload, delete or overwrite it; report it as waiting for review. When the mainline has that etag, it is clean again. When the mainline changed to something else, treat it as a conflict with a conflict copy, never a silent overwrite. When the user edits again, upload again. A 403 on DELETE is reported per path and does not abort the sync. Do not change the wire protocol or the etag algorithm.
+
+Report whether src-tauri/src/lore_local.rs has the same problem (read it, do not change it).
+```
+
+You check: three tests reproduce the three losses, and they fail on main.
+
+---
+
+### Task 4.9 A failed or interrupted upload must not leave the mainline changed
+
+Added 2026-11-11 from the review of PR 329. Do not start before the real-program checks in docs/testing/LORE_REAL_BINARY_CHECKS.md have been run; their answers decide the design.
+
+```
+TASK 4.9. Build and test with --features wabi-lore. Read docs/testing/LORE_REAL_BINARY_CHECKS.md and the recorded answers to its checks first; if no answers are recorded, stop and say so.
+
+Problems, in core/addons/lore/backend/src/lib.rs:
+1. upload_file_locked writes the file into the shared working tree (root.write_from) and only then runs `lore stage` and `lore commit`. If either fails or times out, nothing removes or restores the file. Everyone reads that tree, so a caller without lore.commit can put bytes in front of other members with a failed upload.
+2. "Mainline" is never stored. It is whatever `lore branch list` marks as current (current_branch_name). If the switch back after a review upload fails, or the process stops while the tree is on a review branch, the tree stays there: the next direct upload by a commit holder lands on that review branch, and nothing recovers at startup (load_existing_repos does not look at the branch).
+3. promote_file and the handler default the branch to the literal "main".
+
+Fix, tests first, each failing on main against a branch-tracking CLI stand-in (see branch_tracking_cli in the lib tests):
+- Store the mainline branch name per repo when the repo is created or first loaded. Persisted with the repo record: LoreRepoRecord is a durable postcard record, so follow AGENTS.md golden rule 5 (format::versioned, golden bytes first, keep the old decoder). If that is too large for this task, keep the name in a sidecar file inside the repo's data directory and say so.
+- Before every write operation, and at startup, put the tree back on the stored mainline if it is elsewhere, and log it.
+- When an upload fails after the write, restore the previous bytes of that path, or remove the file if it did not exist. Decide how to hold the previous bytes without copying a 1 GiB file into memory.
+- Use the stored name where the code says "main".
+
+Say what the real-program answers changed in your design.
+```
+
+You check: a test fails the commit after the write and then reads the old bytes back from the tree.
+
+---
+
+### Task 4.10 Review uploads in history, the change feed and the manifest
+
+Added 2026-11-11 from the review of PR 329.
+
+```
+TASK 4.10. Build and test with --features wabi-lore.
+
+Today an upload that goes to a review branch is recorded like any other (core/crates/wabi-server/src/api/lore.rs, record_lore_commit_and_change with action "upload"): the lore_commit record has no branch, GET /history and GET /history/{path} list it, GET /changes says "upload", and the manifest's headRevision is the review revision. Approving a review branch (approve_review_branch handler) records nothing: no commit, no change entry, no socket event. So the feed announces a file that is not on the mainline and stays silent when it lands. wabi-sync and the desktop client read the manifest and the change feed.
+
+Decide and implement, and say why: a review upload must be told apart from a mainline commit in the change feed and must not become the manifest's headRevision; approval must record the commit and announce the change. Adding a field to LoreCommitRecord is a durable-record change: follow AGENTS.md golden rule 5 (format::versioned, golden bytes first, bump the version, keep every decoder). Keep older clients working: say what an old wabi-sync does with the new feed entries.
+
+Tests first, failing on main: after a review upload the manifest's headRevision is unchanged and the change feed entry is marked as review; after approval the feed has an entry and the manifest moves.
+```
+
+You check: a test reads the manifest before and after a review upload and asserts headRevision did not move.

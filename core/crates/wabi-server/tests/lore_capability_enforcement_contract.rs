@@ -480,12 +480,18 @@ async fn stage_only_upload_lands_on_a_review_branch() {
 #[tokio::test]
 async fn stage_only_delete_is_refused_and_never_reaches_the_cli() {
     let f = fixture().await;
+    // A file that exists, put there by someone who may commit.
+    let (status, body) =
+        call_bytes(&f, &f.tokens["committer"], Method::PUT, &upload_uri(&f, "gone.txt"), b"x").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let log_before = std::fs::read_to_string(&f.commit_log).unwrap_or_default();
+
     let response = f.app.clone().oneshot(delete_body(&f, "stager")).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert!(
-        commit_branches(&f).is_empty(),
-        "refused delete reached the CLI: {:?}",
-        std::fs::read_to_string(&f.commit_log)
+    assert_eq!(
+        std::fs::read_to_string(&f.commit_log).unwrap_or_default(),
+        log_before,
+        "a refused delete must not run any lore command"
     );
 }
 
@@ -512,8 +518,9 @@ async fn staging_a_batch_requires_lore_commit() {
 #[tokio::test]
 async fn commit_holder_upload_and_delete_still_commit_directly() {
     let f = fixture().await;
+    // The same path the delete below removes, so the delete acts on a real file.
     let (status, body) =
-        call_bytes(&f, &f.tokens["committer"], Method::PUT, &upload_uri(&f, "a.txt"), b"x").await;
+        call_bytes(&f, &f.tokens["committer"], Method::PUT, &upload_uri(&f, "gone.txt"), b"x").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["pendingReview"], false, "{body}");
     let response = f.app.clone().oneshot(delete_body(&f, "committer")).await.unwrap();
@@ -533,11 +540,10 @@ async fn write_connect_token_of_a_stage_only_user_behaves_like_that_user() {
     let (status, body) =
         call_bytes(&f, &token, Method::PUT, &upload_uri(&f, "tool.txt"), b"x").await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(
-        commit_branches(&f).iter().all(|b| b != "main"),
-        "token upload committed on the mainline: {:?}",
-        std::fs::read_to_string(&f.commit_log)
-    );
+    assert_eq!(body["pendingReview"], true, "{body}");
+    let branches = commit_branches(&f);
+    assert_eq!(branches.len(), 1, "one commit expected: {branches:?}");
+    assert_ne!(branches[0], "main", "token upload committed on the mainline: {branches:?}");
     let request = Request::builder()
         .method(Method::DELETE)
         .uri(upload_uri(&f, "tool.txt"))

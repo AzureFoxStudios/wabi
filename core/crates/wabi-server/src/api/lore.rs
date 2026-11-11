@@ -1061,13 +1061,15 @@ async fn promote_from_message(
     // One service call performs create/switch/upload/switch-back under a single
     // io_gate hold and restores the branch that was current, even on error.
     let review_name = (mode == "stage").then(|| {
+        // The random part keeps two promotes in one second apart.
         format!(
-            "chat/u{}-{}",
+            "chat/u{}-{}-{}",
             auth.user_id,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
-                .unwrap_or(0)
+                .unwrap_or(0),
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
         )
     });
     let result = lore
@@ -2204,6 +2206,7 @@ async fn upload_recording(
                 &message,
             )
             .await?;
+            let (pending_review, review_branch) = (result.pending_review, result.review_branch);
             let (revision, file_info) = (result.revision, result.file_info);
 
             let mut wdb_recorded = false;
@@ -2232,6 +2235,8 @@ async fn upload_recording(
                     "etag": etag,
                     "revision": revision.hash,
                     "authorUserId": auth.user_id,
+                    "pendingReview": pending_review,
+                    "reviewBranch": review_branch,
                 }),
             )
             .await;
@@ -2241,6 +2246,8 @@ async fn upload_recording(
                 "file": file_info,
                 "path": repo_path,
                 "etag": etag,
+                "pendingReview": pending_review,
+                "reviewBranch": review_branch,
                 "wdbRecorded": wdb_recorded,
             }))
             .into_response())

@@ -1226,7 +1226,12 @@ impl LoreService {
         let mainline_branch = if repo.auto_branch_on_upload {
             let mainline = self.current_branch_name(&repo).await?;
             let safe_user = sanitize_username(author_id);
-            let branch = format!("uploads/{safe_user}-{}", chrono::Utc::now().timestamp());
+            // The random part keeps two uploads in one second apart.
+            let branch = format!(
+                "uploads/{safe_user}-{}-{}",
+                chrono::Utc::now().timestamp(),
+                &uuid::Uuid::new_v4().simple().to_string()[..8]
+            );
             run_lore(
                 &self.config.lore_binary_path,
                 &repo.working_tree,

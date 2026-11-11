@@ -1,5 +1,6 @@
 import { getApiBase, fetchWithTimeout } from './utils';
 import { getSocket } from '$lib/socketConnection';
+import { withReviewFields } from './loreUploadResult';
 
 export interface LoreRepo {
 	channelId: number;
@@ -240,7 +241,7 @@ export interface LoreUploadResult {
 	cursor?: number;
 	/** False when the WDB event write failed (the lore write itself succeeded). */
 	wdbRecorded?: boolean;
-	/** Set when auto_branch_on_upload routed the upload into an uploads/* review line. */
+	/** Set when the upload went to an uploads/* review line: the repo's review setting is on, or the caller has no lore.commit. Filled by withReviewFields from the route's pendingReview/reviewBranch. */
 	pending_review?: boolean;
 	review_branch?: string;
 }
@@ -272,7 +273,7 @@ export async function uploadLoreFile(
 		if (res.status === 409) throw new LoreConflictError((err as any).currentEtag ?? null);
 		throw new Error((err as any).error || 'Failed to upload file');
 	}
-	return (await res.json()) as LoreUploadResult;
+	return withReviewFields(await res.json()) as LoreUploadResult;
 }
 
 /**
@@ -1200,7 +1201,7 @@ export const CAPABILITY_LABELS: Record<string, string> = {
 /** One-line tooltips for the capability checkboxes. */
 export const CAPABILITY_DESCRIPTIONS: Record<string, string> = {
 	'lore.stage': 'Upload files for review (without Commit, uploads go to a review branch; deletes and batch staging are refused)',
-	'lore.commit': 'Change the mainline directly: commit uploads and deletes, stage batches, promote directly',
+	'lore.commit': 'Change the mainline directly. With Stage: uploads and deletes commit without review, and batches can be staged. Promotes can commit directly',
 	'lore.approve': 'Approve or reject review branches',
 	'lore.lock': 'Lock and unlock files',
 	'lore.manage-binding': 'Change the repo↔channel binding',

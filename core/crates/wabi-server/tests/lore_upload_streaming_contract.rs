@@ -421,13 +421,13 @@ async fn upload_under_the_cap_commits_a_new_revision_with_the_content_etag() {
     let mut revisions = Vec::new();
     for content in [b"version one".to_vec(), vec![3u8; CAP]] {
         let body = counted_body(content.clone(), Arc::new(AtomicUsize::new(0)), false);
+        // The owner may commit, so these land on the mainline and the bytes
+        // in the working tree below are the mainline's.
         let (status, response) =
-            send(&f.app, upload_request(Method::PUT, &uri, &f.member_token, body)).await;
+            send(&f.app, upload_request(Method::PUT, &uri, &f.owner_token, body)).await;
         assert_eq!(status, StatusCode::OK, "{response}");
         assert_eq!(response["etag"], wabi_lore::etag_for_bytes(&content));
-        // The seeded Artist role has no lore.commit, so its upload waits on a
-        // review branch instead of landing on the mainline.
-        assert_eq!(response["pendingReview"], true, "{response}");
+        assert_eq!(response["pendingReview"], false, "{response}");
         assert_eq!(response["wdbRecorded"], true, "{response}");
         let revision = response["revision"]["hash"].as_str().unwrap().to_string();
         assert!(!revision.is_empty(), "{response}");
@@ -439,6 +439,25 @@ async fn upload_under_the_cap_commits_a_new_revision_with_the_content_etag() {
         );
     }
     assert_ne!(revisions[0], revisions[1], "each upload is a new revision");
+
+    // The seeded Artist role has no lore.commit, so its upload waits on a
+    // review branch. This CLI stand-in ignores `branch switch`, so nothing is
+    // asserted about the working tree here: whether the real program takes
+    // the bytes back out of the mainline's tree is not something it can show.
+    let body = counted_body(b"for review".to_vec(), Arc::new(AtomicUsize::new(0)), false);
+    let (status, response) = send(
+        &f.app,
+        upload_request(
+            Method::PUT,
+            &file_uri(f.asset_channel, "docs/review.txt"),
+            &f.member_token,
+            body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert_eq!(response["pendingReview"], true, "{response}");
+    assert_eq!(response["etag"], wabi_lore::etag_for_bytes(b"for review"));
 
     // Stage-only needs lore.commit, which the Artist role lacks: refused
     // before the body is read, and nothing reaches the working tree.
@@ -488,7 +507,7 @@ async fn upload_under_the_cap_commits_a_new_revision_with_the_content_etag() {
         upload_request(
             Method::POST,
             "/addons/lore/recordings?filename=call.webm",
-            &f.member_token,
+            &f.owner_token,
             body,
         ),
     )
@@ -496,10 +515,31 @@ async fn upload_under_the_cap_commits_a_new_revision_with_the_content_etag() {
     assert_eq!(status, StatusCode::OK, "{response}");
     assert_eq!(response["path"], "recordings/call.webm");
     assert_eq!(response["etag"], wabi_lore::etag_for_bytes(b"webm-bytes"));
+    assert_eq!(response["pendingReview"], false, "{response}");
     assert_eq!(response["wdbRecorded"], true, "{response}");
     assert_eq!(
         std::fs::read(f.recordings_tree.join("recordings/call.webm")).unwrap(),
         b"webm-bytes"
+    );
+
+    // An Artist's recording goes to review like any other upload of theirs,
+    // and the answer says so.
+    let body = counted_body(b"webm-two".to_vec(), Arc::new(AtomicUsize::new(0)), false);
+    let (status, response) = send(
+        &f.app,
+        upload_request(
+            Method::POST,
+            "/addons/lore/recordings?filename=artist.webm",
+            &f.member_token,
+            body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert_eq!(response["pendingReview"], true, "{response}");
+    assert!(
+        response["reviewBranch"].as_str().is_some_and(|b| b.starts_with("uploads/")),
+        "{response}"
     );
 
     assert_eq!(
