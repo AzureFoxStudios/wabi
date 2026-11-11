@@ -278,3 +278,124 @@ async fn borrowed_lock_requires_this_tree_and_stays_owned_after_inspection() {
     FileExt::unlock(&lock).unwrap();
     assert!(FileExt::try_lock_exclusive(&competing).unwrap());
 }
+
+/// A stopped tree with one message and one event of the generic kind.
+async fn fixture_with_message(root: &Path) -> (u64, String) {
+    use crate::projections::messages::{encode_record, MessageRecord};
+    let mut config = WabiDbConfig::new(root.to_owned(), BootstrapSource::Provided(KEY));
+    config.allow_init = true;
+    let engine = WabiDbEngine::open(config).await.unwrap();
+    let message = MessageRecord {
+        message_id: "msg_inspected".into(),
+        channel_id: "ch_inspect".into(),
+        author_user_id: 7,
+        author_device_id: "fixture".into(),
+        created_at_micros: 1,
+        encrypted_body_ref: "inspected body".into(),
+        idempotency_key: None,
+        edit_history: vec![],
+        edited_at_micros: None,
+        is_deleted: false,
+        is_spoiler: false,
+        files: vec![],
+    };
+    for (stream, kind, event_type, plaintext) in [
+        ("ch_inspect", 1, "message_created", encode_record(&message)),
+        ("inspection-fixture", 6, "inspection_fixture", b"latest".to_vec()),
+    ] {
+        engine.get_or_create_stream_key(stream).await.unwrap();
+        engine
+            .run_command(CommandCommit {
+                room_owner_precondition: None,
+                caller_user_id: 1,
+                caller_device_id: "fixture".into(),
+                command_name: "inspection_fixture".into(),
+                idempotency_key: None,
+                essential: true,
+                response_tx: tokio::sync::oneshot::channel().0,
+                events: vec![EventToWrite {
+                    stream_id: stream.into(),
+                    stream_kind: kind,
+                    event_type: event_type.into(),
+                    record_kind: RecordKind::Event,
+                    plaintext,
+                }],
+            })
+            .await
+            .unwrap();
+    }
+    let sequence = engine.barrier().current();
+    drop(engine);
+    drop(crate::tests::wait_for_stopped_engine(root).await);
+    let indexed =
+        crate::commit_index::batcher::read_all_entries(&root.join("global/commit-index")).unwrap();
+    (
+        sequence,
+        crate::replication::commit_prefix_fingerprint(&indexed, sequence),
+    )
+}
+
+/// What inspection compares for messages (Task 3.5): the rows of the SQLite
+/// read model, when the tree holds one the engine would use as it is. A
+/// changed row is refused, and nothing in the tree is created or changed.
+#[tokio::test]
+async fn read_model_rows_are_compared_and_a_changed_message_is_refused() {
+    let temp = tempfile::tempdir().unwrap();
+    let (seq, prefix) = fixture_with_message(temp.path()).await;
+    let limits = InspectionLimits::default();
+    let before = inventory(temp.path(), &limits, Instant::now() + limits.timeout).unwrap();
+    assert!(before.contains_key(Path::new("projections/read-model.sqlite3")));
+
+    let inspected = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits.clone())
+        .await
+        .unwrap();
+    assert!(inspected.receipt.persisted_projection_matches);
+    assert!(inspected.receipt.read_model_compared);
+    assert!(before == inventory(temp.path(), &limits, Instant::now() + limits.timeout).unwrap());
+    let rebuilt = crate::projections::messages::MessagesProjection::get_message(
+        inspected.projection_state(),
+        "ch_inspect",
+        "msg_inspected",
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(rebuilt.encrypted_body_ref, "inspected body");
+
+    // The same row with another body: same key, valid record, wrong content.
+    let mut changed = rebuilt;
+    changed.encrypted_body_ref = "invented body".into();
+    let model = temp.path().join("projections/read-model.sqlite3");
+    let original = fs::read(&model).unwrap();
+    {
+        let conn = rusqlite::Connection::open(&model).unwrap();
+        let updated = conn
+            .execute(
+                "UPDATE messages SET record = ?1",
+                [crate::projections::messages::encode_record(&changed)],
+            )
+            .unwrap();
+        assert_eq!(updated, 1);
+    }
+    let refused = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits.clone()).await;
+    assert!(
+        matches!(&refused, Err(error) if error.to_string().contains("differs from persisted projection")),
+        "{:?}",
+        refused.map(|inspected| inspected.receipt)
+    );
+
+    // Without a read model there is no saved state of the messages: the
+    // engine would rebuild them from the log, which is what replay just did.
+    // Inspection still passes on the snapshot's indexes, and says so.
+    fs::write(&model, &original).unwrap();
+    assert!(inspect_frozen(temp.path(), &KEY, seq, &prefix, limits.clone())
+        .await
+        .unwrap()
+        .receipt
+        .read_model_compared);
+    fs::remove_file(&model).unwrap();
+    let inspected = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits)
+        .await
+        .unwrap();
+    assert!(inspected.receipt.persisted_projection_matches);
+    assert!(!inspected.receipt.read_model_compared);
+}

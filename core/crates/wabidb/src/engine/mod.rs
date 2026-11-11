@@ -303,44 +303,90 @@ impl WabiDbEngine {
         let type_registry = build_type_registry()?;
         let dispatch_table = type_registry.dispatch_table().clone();
 
-        // 7. Load projection state (with optional snapshot)
-        let projection_state =
-            if let Some((state, _watermark)) = ProjectionState::load_snapshot(data_dir)? {
-                Arc::new(state)
-            } else {
-                Arc::new(ProjectionState::new())
+        // 7. Load the saved projections: the snapshot of the in-memory ones,
+        // and the SQLite read model (messages). Each has its own watermark.
+        // Replay starts at the snapshot's. The read model is normally ahead
+        // of it (it commits every commit; the snapshot is written every
+        // 1,000), and replay then skips the message events it already holds.
+        //
+        // If the read model is behind the snapshot (no file yet, a file from
+        // another build, a deleted or restored file), the snapshot is not
+        // used and every projection is rebuilt from the whole log. The same
+        // happens when the read model claims commits the log does not have.
+        // A rebuild writes nothing to the snapshot file before replay has
+        // succeeded, so a directory that fails to replay is left as it was.
+        let read_model = Arc::new(crate::projections::read_model::ReadModel::open(data_dir)?);
+        let mut rebuild = false;
+        let (projection_state, barrier, replay_high_seq, snapshot_watermark) = loop {
+            let model_seq = read_model.messages_applied_seq();
+            let mut state = ProjectionState::load_snapshot(data_dir)?
+                .map_or_else(ProjectionState::new, |(state, _watermark)| state);
+            if !rebuild && model_seq < state.applied_commit_seq() {
+                tracing::warn!(
+                    "projection read model covers commit {model_seq}, the snapshot covers {}; \
+                     rebuilding every projection from the log",
+                    state.applied_commit_seq()
+                );
+                rebuild = true;
+            }
+            if rebuild {
+                state = ProjectionState::new();
+            }
+            state.attach_read_model(Arc::clone(&read_model));
+            let projection_state = Arc::new(state);
+            // Older snapshots may lack the album ID lookup. Rebuild it before
+            // the dispatcher or sequencer can use the state.
+            let rebuilt_albums =
+                crate::projections::albums::AlbumProjection::rebuild_id_index(&projection_state)?;
+            if rebuilt_albums > 0 {
+                projection_state.save_snapshot(data_dir)?;
+            }
+            let snapshot_watermark = projection_state.applied_commit_seq();
+
+            // 7.1 Create barrier. Replay/validation must finish before any writer
+            // task is spawned, so a failed open releases its own process lock.
+            let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&projection_state)));
+
+            // 7.2 Replay events after the snapshot watermark. Replay applies
+            // events while it validates the log, so everything it writes to
+            // the read model is one transaction: committed only when the
+            // whole log replayed, rolled back otherwise.
+            // Returns the highest commit_seq observed on disk (orphans included).
+            read_model.begin_startup(rebuild)?;
+            let replayed = replay::replay_projections(
+                data_dir,
+                &key_registry,
+                &bootstrap_key,
+                &projection_state,
+                &dispatch_table,
+                &barrier,
+                snapshot_watermark,
+            )
+            .await;
+            let replay_high_seq = match replayed {
+                Ok(high) => high,
+                Err(error) => {
+                    read_model.rollback();
+                    return Err(error);
+                }
             };
-        // Older snapshots may lack derived ID lookups. Rebuild them before
-        // the dispatcher or sequencer can use the state; validate message
-        // pointers even when their count matches the primary index.
-        let rebuilt_albums =
-            crate::projections::albums::AlbumProjection::rebuild_id_index(&projection_state)?;
-        let rebuilt_messages = crate::projections::message_lookup::rebuild(&projection_state)?;
-        // Builds before Task 3.4 saved some message index entries under the
-        // wrong key. Replay no longer writes those, so rebuild them here.
-        let rekeyed_messages =
-            crate::projections::messages::rekey_legacy_index_entries(&projection_state);
-        if rebuilt_albums > 0 || rebuilt_messages > 0 || rekeyed_messages > 0 {
-            projection_state.save_snapshot(data_dir)?;
-        }
-        let snapshot_watermark = projection_state.applied_commit_seq();
-
-        // 7.1 Create barrier. Replay/validation must finish before any writer
-        // task is spawned, so a failed open releases its own process lock.
-        let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&projection_state)));
-
-        // 7.2 Replay events after the snapshot watermark.
-        // Returns the highest commit_seq observed on disk (orphans included).
-        let replay_high_seq = replay::replay_projections(
-            data_dir,
-            &key_registry,
-            &bootstrap_key,
-            &projection_state,
-            &dispatch_table,
-            &barrier,
-            snapshot_watermark,
-        )
-        .await?;
+            let applied_seq = barrier.current();
+            if !rebuild && model_seq > applied_seq {
+                // A derived store cannot be ahead of its source.
+                read_model.rollback();
+                tracing::warn!(
+                    "projection read model covers commit {model_seq} but the log ends at \
+                     {applied_seq}; rebuilding every projection from the log"
+                );
+                rebuild = true;
+                continue;
+            }
+            if let Err(error) = read_model.commit_startup(applied_seq) {
+                read_model.rollback();
+                return Err(error);
+            }
+            break (projection_state, barrier, replay_high_seq, snapshot_watermark);
+        };
 
         // 8. Create commit-index batcher
         let commit_index_dir = data_dir.join("global").join("commit-index");
@@ -827,9 +873,12 @@ impl WabiDbEngine {
                     );
                 }
             }
+            // One read-model transaction per commit, as in the dispatcher.
+            self.projection_state.read_model().finish_commit(entry.commit_seq)?;
             self.barrier.advance(entry.commit_seq)
         })();
         if applied.is_err() {
+            self.projection_state.read_model().rollback();
             self.replication_poisoned.store(true, Ordering::SeqCst);
         }
         applied

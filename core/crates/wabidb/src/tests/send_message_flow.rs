@@ -218,8 +218,7 @@ async fn projection_state_is_empty_for_fresh_engine() {
         "fresh engine should have 0 channels in projection"
     );
 
-    count = 0;
-    state.for_each("messages", |_, _| count += 1);
+    count = crate::projections::messages::stored_message_count(&state);
     assert_eq!(
         count, 0,
         "fresh engine should have 0 messages in projection"
