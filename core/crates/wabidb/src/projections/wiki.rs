@@ -37,11 +37,27 @@ impl RecordCodec for WikiRevisionRecord {
     fn codec_name() -> &'static str {
         "wiki_revisions"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_revision_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_revision_record(buf)
+    }
 }
 
 impl RecordCodec for WikiPageRecord {
     fn codec_name() -> &'static str {
         "wiki_pages"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
     }
 }
 

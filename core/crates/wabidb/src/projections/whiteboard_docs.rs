@@ -9,6 +9,14 @@ impl RecordCodec for WhiteboardDoc {
     fn codec_name() -> &'static str {
         "whiteboard_docs"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`WhiteboardDoc`]; see `format::versioned`.
