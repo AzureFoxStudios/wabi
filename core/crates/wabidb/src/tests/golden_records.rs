@@ -611,7 +611,7 @@ fn golden_emote() {
 
 #[test]
 fn golden_webhook() {
-    unchanged_today(WEBHOOK_LEGACY, &webhook(), webhooks::encode_record, webhooks::decode_record);
+    converted(WEBHOOK_LEGACY, b"WHOK", &webhook(), webhooks::encode_record, webhooks::decode_record);
 }
 
 #[test]
