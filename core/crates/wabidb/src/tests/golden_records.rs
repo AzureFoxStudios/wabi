@@ -591,7 +591,7 @@ fn golden_dm_message_record() {
 
 #[test]
 fn golden_dm_recipient_record() {
-    unchanged_today(DM_RECIPIENT_LEGACY, &dm_recipient(), dm_message_recipients::encode_record, dm_message_recipients::decode_record);
+    converted(DM_RECIPIENT_LEGACY, b"DRCP", &dm_recipient(), dm_message_recipients::encode_record, dm_message_recipients::decode_record);
 }
 
 #[test]
