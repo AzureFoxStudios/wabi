@@ -2,6 +2,8 @@
 
 > Source: User correction to the "fully custom" answer. Verdict: pull is correct, but the previous answer overclaimed in three specific ways.
 
+> **Status:** historical correction note. The CLI, retention and snapshot components it lists are not as built; `docs/PROJECT_STATUS.md` and `docs/architecture/STORAGE_FORMAT.md` are the status of record.
+
 ## The pull is correct
 
 Wabi should own the storage format. The privacy, retention, and replay stories need custom storage. SQLite is gone.
@@ -56,7 +58,7 @@ WabiDB
 ├── subscription engine       (removed in PR 306)
 ├── ephemeral bus             (removed in PR 302)
 ├── blob store                (content-addressed immutable files)
-└── storage CLI               (check, inspect, recover, backup, rebuild-indexes)
+└── storage CLI               (as built: `wabidb-cli` check, verify, status, list-streams (read-only) and quarantine (writes `global/quarantine.json`). The inspect, recover, backup and rebuild-indexes commands were proposed here and do not exist; backup and rebuild-indexes code was removed in PR 302)
 ```
 
 ## Load-bearing invariants
@@ -110,7 +112,7 @@ The first vertical slice is still small in feature scope (storage layer + event 
 - Section 5 (subscriptions): now per-stream log with global index, not single log
 - Section 6 (encryption): per-stream keys, key destruction on retention
 - Section 11 (storage): entire section rewritten — per-stream segment log + global commit index + projection engine + snapshot manager + retention/compaction
-- New section: storage CLI design (sqlite3 equivalents: check, inspect, recover, backup, rebuild-indexes)
+- New section: storage CLI design (sqlite3 equivalents: check, inspect, recover, backup, rebuild-indexes) — proposed only; the CLI that exists has check, verify, status, list-streams and quarantine
 - New section: "per-stream vs global log" design fork and why Option B
 - Backup section: manifest-based, unified restore point
 - Migration section: data export from STDB no longer has SQL as stable intermediate

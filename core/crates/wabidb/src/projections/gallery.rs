@@ -25,6 +25,14 @@ impl RecordCodec for GalleryWorkRecord {
     fn codec_name() -> &'static str {
         "gallery_works"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`GalleryWorkRecord`]; see `format::versioned`.
@@ -148,6 +156,14 @@ pub struct GalleryFeedbackRecord {
 impl RecordCodec for GalleryFeedbackRecord {
     fn codec_name() -> &'static str {
         "gallery_feedback"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_feedback_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_feedback_record(buf)
     }
 }
 

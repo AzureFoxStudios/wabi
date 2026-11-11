@@ -342,28 +342,38 @@ mod tests {
         assert!(matches!(err, WabiError::Corrupt { .. }), "got {err:?}");
     }
 
+    /// Recompute the header CRC after a test alters header bytes. Without
+    /// this, `decode` stops at the CRC check and never reaches the field
+    /// check the test is named after.
+    fn reseal(bytes: &mut [u8; HEADER_LEN as usize]) {
+        let crc = crc32c::crc32c(&bytes[0..40]);
+        bytes[40..44].copy_from_slice(&crc.to_le_bytes());
+    }
+
     #[test]
     fn header_crc_mismatch_rejected() {
         let mut bytes = sample_header().encode();
         bytes[12] ^= 0x01; // flip a bit in commit_seq
         let err = RecordHeader::decode(&bytes).unwrap_err();
-        assert!(matches!(err, WabiError::Corrupt { .. }), "got {err:?}");
+        assert!(err.to_string().contains("header CRC mismatch"), "got {err}");
     }
 
     #[test]
     fn non_zero_flags_rejected() {
         let mut bytes = sample_header().encode();
         bytes[10..12].copy_from_slice(&1u16.to_le_bytes());
+        reseal(&mut bytes);
         let err = RecordHeader::decode(&bytes).unwrap_err();
-        assert!(matches!(err, WabiError::Corrupt { .. }), "got {err:?}");
+        assert!(err.to_string().contains("non-zero flags"), "got {err}");
     }
 
     #[test]
     fn unknown_record_kind_rejected() {
         let mut bytes = sample_header().encode();
         bytes[8..10].copy_from_slice(&99u16.to_le_bytes());
+        reseal(&mut bytes);
         let err = RecordHeader::decode(&bytes).unwrap_err();
-        assert!(matches!(err, WabiError::Corrupt { .. }), "got {err:?}");
+        assert!(err.to_string().contains("unsupported record_kind"), "got {err}");
     }
 
     #[test]

@@ -26,6 +26,14 @@ impl RecordCodec for AlbumRecord {
     fn codec_name() -> &'static str {
         "albums"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`AlbumRecord`]; see `format::versioned`.

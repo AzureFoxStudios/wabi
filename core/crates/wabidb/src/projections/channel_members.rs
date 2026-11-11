@@ -61,6 +61,14 @@ impl RecordCodec for ChannelMemberRecord {
     fn codec_name() -> &'static str {
         "channel_members"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 impl From<ChannelMemberRecord> for crate::domain::ChannelMember {

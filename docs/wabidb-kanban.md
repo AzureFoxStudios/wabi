@@ -1192,7 +1192,7 @@
 - [x] wabidb-78 — X3DH initial handshake (`crypto/x3dh_handshake.rs`) — removed in PR 302
 - [x] wabidb-79 — Double Ratchet session (`crypto/double_ratchet.rs`) — removed in PR 302
 - [x] wabidb-80 — Per-device DM envelopes (`crypto/dm_envelope.rs`) — removed in PR 302
-- [x] wabidb-81 — send_dm_message command (`commands/send_dm_message.rs`)
+- [x] wabidb-81 — send_dm_message command (`commands/send_dm_message.rs`) — removed in commit 2e19dfd (2026-09-05, "whole-command write completion with applied acknowledgment"); I found no pull request number for it, the commit message says "Removes unused experimental send_dm_message path"
 - *(17 total files in `crypto/` — fully stocked module including rekey, re-encrypt, version_skew, helper_revocation, etc.)* — `rekey`, `re_encrypt`, `dm_rekey` and `place_rekey` were removed in PR 302; the file count is no longer 17
 
 ### Phase 13: Helper Node Protocol (2/5 source files exist)

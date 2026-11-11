@@ -57,6 +57,14 @@ impl RecordCodec for Reaction {
     fn codec_name() -> &'static str {
         "reactions"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_reaction(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_reaction(buf)
+    }
 }
 
 impl From<Reaction> for crate::domain::Reaction {
