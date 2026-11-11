@@ -387,3 +387,54 @@ async fn pre_versioning_log_replays_to_the_same_state() {
     assert_eq!(state.applied_commit_seq(), fixture_events().len() as u64);
     assert_eq!(describe_state(&state), expected());
 }
+
+/// An upgraded server: old events, then new versioned ones in the same log.
+/// A full replay must read both, and the old entries must be unchanged.
+#[tokio::test]
+async fn pre_versioning_log_with_new_writes_replays() {
+    let scratch = scratch_copy();
+    let data = scratch.path().join("data");
+    let engine = reopen(&data).await;
+    let mut member = sample::channel_member();
+    member.user_id = 4_200_000_002;
+    member.nick = None;
+    let new_event = event(
+        "channel_members:ch_general",
+        1,
+        "channel_member_added",
+        channel_members::encode_record(&member),
+    );
+    assert!(crate::format::versioned::is_versioned(&new_event.plaintext));
+    engine.get_or_create_stream_key(&new_event.stream_id).await.unwrap();
+    let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+    engine
+        .run_command(CommandCommit {
+            room_owner_precondition: None,
+            caller_user_id: 7,
+            caller_device_id: "fixture".into(),
+            command_name: "fixture_new_member".into(),
+            idempotency_key: None,
+            events: vec![new_event],
+            essential: true,
+            response_tx,
+        })
+        .await
+        .unwrap();
+    drop(engine);
+    drop(super::wait_for_stopped_engine(&data).await);
+    std::fs::remove_file(ProjectionState::snapshot_path(&data)).unwrap();
+
+    let engine = reopen(&data).await;
+    let state = engine.projection_state();
+    assert_eq!(state.applied_commit_seq(), fixture_events().len() as u64 + 1);
+    let mut members = channel_members::ChannelMembersProjection::list_members(&state, "ch_general")
+        .unwrap();
+    members.sort_by_key(|m| m.user_id);
+    assert_eq!(members, vec![sample::channel_member(), member]);
+    let described = describe_state(&state);
+    let lines: Vec<&str> = described.lines().collect();
+    for old in expected().lines().filter(|line| !line.starts_with("channel_membership_versions ")) {
+        assert!(lines.contains(&old), "old entry changed or missing: {old}");
+    }
+    assert!(!described.contains("DECODE ERROR"), "{described}");
+}
