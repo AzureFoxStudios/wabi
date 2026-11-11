@@ -98,11 +98,11 @@ Reading the index at startup:
 
 ## Snapshot format (.wsnap)
 
-Planned / unused. `snapshots::writer::SnapshotWriter` can write a `{seq:08}.wsnap` file (magic `b"WSNAP"`, version u8, flags u16, commit_seq u64, 32-byte projection state hash, commit_seq again, CRC32C) and read it back (tests: `snapshots::writer::tests::write_and_read_back`, `snapshots::writer::tests::crc_mismatch_detected`), but nothing in the server or engine calls it, and the file carries a hash, not projection state. The checkpoint the engine actually uses is `projections/snapshot.json` (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). Earlier text here described a `b"WSNP"` layout with BSATN state; no code writes that.
+Planned / unused. `snapshots::writer::SnapshotWriter` can write a `{seq:08}.wsnap` file (magic `b"WSNAP"`, version u8, flags u16, commit_seq u64, 32-byte projection state hash, commit_seq again, CRC32C), and a test-only helper reads it back (tests: `snapshots::writer::tests::write_and_read_back`, `snapshots::writer::tests::crc_mismatch_detected`), but nothing in the server or engine calls it, and the file carries a hash, not projection state. The checkpoint the engine actually uses is `projections/snapshot.json` (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). Earlier text here described a `b"WSNP"` layout with BSATN state; no code writes that.
 
 ## Blob storage
 
-Two-file system:
+Unused: nothing in the engine or the server calls `wabidb::blobs`, the engine never creates `blobs/`, and wabi-server keeps uploads in its own registry. What the tested writer produces is a two-file system:
 - `.bin` — raw blob data at `blobs/<hash[0..2]>/<rest>.bin` (test: `blobs::write::tests::canonical_path_layout`)
 - `.meta` — a text sidecar, `blake3=<hex>`, `size=<bytes>`, `created_at_micros=<n>`, one per line (test: `blobs::write::tests::metadata_sidecar_written`). Earlier text described a binary `b"BMTA"` file; the writer does not produce one.
 

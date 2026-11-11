@@ -41,7 +41,8 @@
 //!   those are *planned*.
 //! - **Blob store** (`blobs`): BLAKE3 content-addressed files written by temp file, fsync
 //!   and rename, with a range read (tests: `blobs::write::tests::write_creates_canonical_file`,
-//!   `blobs::range_read::tests::range_read_partial`).
+//!   `blobs::range_read::tests::range_read_partial`). Nothing in the engine or the server
+//!   calls it; uploads are stored by wabi-server, outside this crate.
 //! - **Storage CLI** (`cli`): `wabidb-cli` commands `check`, `verify`, `status` and
 //!   `list-streams` only read and never take the lock (test:
 //!   `cli::tests::commands_are_read_only_and_never_touch_the_lock`). `quarantine` is the

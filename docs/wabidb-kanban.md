@@ -1151,7 +1151,7 @@
 - [ ] wabidb-54 — WebSocket adapter (WebSocket split across 4 files: `ws_subscribe.rs`, `ws_send.rs`, `ws_unsubscribe.rs`, `ws_resume.rs`)
 - [x] wabidb-55 — WebSocket ticket auth (`ticket_auth.rs` — TicketStore + handshake, 5 tests) — removed in PR 306 (with `subscription/`)
 - [x] wabidb-56 — ws_tickets table + atomic redemption (`ws_tickets.rs` — WsTicketsTable, 8 tests) — removed in PR 306 (with `subscription/`)
-- [x] wabidb-57 — Membership Change Revalidation (`membership_revalidation.rs` — MembershipStore, 4 tests) — removed in PR 302
+- [x] wabidb-57 — Membership Change Revalidation (`membership_revalidation.rs` — MembershipStore, 4 tests) — removed in PR 306
 - *(Extra)* `subscription/engine.rs` — SubscriptionEngine core (subscribe/deliver/ack, 6 tests) — removed in PR 306
 - *(Extra)* `subscription/consumer_offsets.rs` — ConsumerOffsetsTable (upsert/lookup/checkpoint, 5 tests) — removed in PR 306
 - *(Extra)* `subscription/presence.rs` — PresenceTracker (RwLock-backed, 5 tests) — removed in PR 306
@@ -1262,7 +1262,7 @@
 - **wabidb-20**: Concurrency and Lock Manager. Required to prevent write starvation.
 - **wabidb-32**: Projection Write Barrier. Ensures linearizability (reads see writes).
 - **wabidb-42**: Segment Compaction and GC. Prevents unbounded disk growth. (Removed in PR 302.)
-- **wabidb-57**: Membership Change Revalidation. Prevents security leaks when users are banned/removed. (Removed in PR 302.)
+- **wabidb-57**: Membership Change Revalidation. Prevents security leaks when users are banned/removed. (Removed in PR 306.)
 - **wabidb-97**: Engine Configuration and Limits. Required for tuning.
 - **wabidb-98**: Metrics and Health Endpoint. Required for production observability.
 - **wabidb-99**: Power-Loss Simulation Test. Validates the custom storage engine's crash safety.
