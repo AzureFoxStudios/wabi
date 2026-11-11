@@ -242,12 +242,17 @@ async fn new_file_sent_to_review_is_not_deleted_locally() {
     h.server(|f| f.route_to_review = true);
     h.write("new.txt", "my new work");
 
-    h.sync().await.unwrap();
+    let first = h.sync().await.unwrap();
     assert_eq!(h.read("new.txt").as_deref(), Some("my new work"));
+    assert_eq!(first.uploaded, vec!["new.txt"]);
+    assert_eq!(first.waiting_review, vec!["new.txt"]);
+    assert!(first.deleted_local.is_empty());
 
-    h.sync().await.unwrap();
+    let second = h.sync().await.unwrap();
     assert_eq!(h.read("new.txt").as_deref(), Some("my new work"));
     assert_eq!(h.server(|f| f.puts.clone()), vec!["new.txt"], "uploaded once only");
+    assert!(second.uploaded.is_empty());
+    assert_eq!(second.waiting_review, vec!["new.txt"]);
 }
 
 /// Case 3: an edit uploaded to a review branch must not be overwritten with
@@ -261,10 +266,16 @@ async fn edit_sent_to_review_is_not_overwritten_from_mainline() {
     h.sync().await.unwrap();
     assert_eq!(h.read("a.txt").as_deref(), Some("my edit"));
 
-    h.sync().await.unwrap();
+    let second = h.sync().await.unwrap();
     assert_eq!(h.read("a.txt").as_deref(), Some("my edit"));
     assert_eq!(h.server(|f| f.puts.clone()), vec!["a.txt"], "uploaded once only");
     assert!(h.conflict_copies().is_empty());
+    assert!(second.downloaded.is_empty());
+    assert_eq!(second.waiting_review, vec!["a.txt"]);
+    // The baseline is still the mainline's, and the pending etag is on disk.
+    let state = h.state();
+    assert_eq!(state.baselines.get("a.txt"), Some(&Some(etag_for_bytes(b"old"))));
+    assert_eq!(state.pending_review.get("a.txt"), Some(&etag_for_bytes(b"my edit")));
 }
 
 /// Case 4: a DELETE answered 403 must not abort the round; the pull still runs.
@@ -279,8 +290,132 @@ async fn forbidden_delete_does_not_abort_the_sync() {
     });
 
     let result = h.sync().await;
-    assert!(result.is_ok(), "sync aborted: {:?}", result.err());
+    assert!(result.is_ok(), "sync aborted: {:?}", result.as_ref().err());
+    let report = result.unwrap();
+    assert_eq!(report.not_deleted, vec!["a.txt"]);
+    assert!(report.deleted_remote.is_empty());
+    assert!(!h.folder().join("a.txt").exists(), "the pull does not bring it back");
     assert_eq!(h.read("b.txt").as_deref(), Some("from server"), "pull still ran");
     assert_eq!(h.state().baselines.get("a.txt").cloned(), baseline, "baseline untouched");
     assert!(h.server(|f| f.mainline.contains_key("a.txt")));
+}
+
+/// 409 on DELETE keeps its existing meaning (a conflict, not a permission note).
+#[tokio::test]
+async fn stale_delete_is_still_reported_as_a_conflict() {
+    let h = Harness::with_synced_file().await;
+    std::fs::remove_file(h.folder().join("a.txt")).unwrap();
+    h.server(|f| f.mainline.insert("a.txt".into(), b"changed on server".to_vec()));
+
+    let mut engine = SyncEngine::new(&h.client, h.folder(), &h.link);
+    let report = engine.push().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1);
+    assert!(report.not_deleted.is_empty());
+    assert!(h.server(|f| f.deletes.is_empty()));
+}
+
+// -- Behaviour of a pending path ---------------------------------------------
+
+/// A linked folder whose edit of `a.txt` ("old" → "my edit") is waiting for review.
+async fn with_pending_edit() -> Harness {
+    let h = Harness::with_synced_file().await;
+    h.server(|f| f.route_to_review = true);
+    h.write("a.txt", "my edit");
+    h.sync().await.unwrap();
+    assert_eq!(h.state().pending_review.len(), 1);
+    h
+}
+
+/// Approved later: the mainline gets the uploaded etag and the path is an
+/// ordinary clean file again, without a second upload.
+#[tokio::test]
+async fn approved_upload_becomes_a_clean_file() {
+    let h = with_pending_edit().await;
+    h.server(|f| {
+        let bytes = f.review.remove("a.txt").unwrap();
+        f.mainline.insert("a.txt".into(), bytes);
+    });
+
+    let report = h.sync().await.unwrap();
+    assert!(report.is_empty(), "nothing to report once approved");
+    assert_eq!(h.read("a.txt").as_deref(), Some("my edit"));
+    assert_eq!(h.server(|f| f.puts.len()), 1, "no re-upload");
+    assert!(h.conflict_copies().is_empty());
+    let state = h.state();
+    assert!(state.pending_review.is_empty());
+    assert_eq!(state.baselines.get("a.txt"), Some(&Some(etag_for_bytes(b"my edit"))));
+
+    // Ordinary clean file: a later mainline change is simply downloaded.
+    h.server(|f| f.mainline.insert("a.txt".into(), b"someone else".to_vec()));
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.downloaded, vec!["a.txt"]);
+    assert_eq!(h.read("a.txt").as_deref(), Some("someone else"));
+    assert!(h.conflict_copies().is_empty());
+}
+
+/// A new file approved later is adopted the same way.
+#[tokio::test]
+async fn approved_new_file_becomes_a_clean_file() {
+    let h = Harness::start().await;
+    h.server(|f| f.route_to_review = true);
+    h.write("new.txt", "my new work");
+    h.sync().await.unwrap();
+    h.server(|f| {
+        let bytes = f.review.remove("new.txt").unwrap();
+        f.mainline.insert("new.txt".into(), bytes);
+    });
+
+    let report = h.sync().await.unwrap();
+    assert!(report.is_empty());
+    assert_eq!(h.server(|f| f.puts.len()), 1);
+    assert!(h.state().pending_review.is_empty());
+    assert_eq!(h.state().baselines.get("new.txt"), Some(&Some(etag_for_bytes(b"my new work"))));
+}
+
+/// Edited again while pending: upload again, against the mainline baseline.
+#[tokio::test]
+async fn editing_a_pending_file_uploads_again() {
+    let h = with_pending_edit().await;
+    h.write("a.txt", "my second edit");
+
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.uploaded, vec!["a.txt"]);
+    assert_eq!(report.waiting_review, vec!["a.txt"]);
+    assert!(report.conflicts.is_empty());
+    assert_eq!(h.server(|f| f.puts.clone()), vec!["a.txt", "a.txt"]);
+    assert_eq!(h.server(|f| f.review.get("a.txt").cloned()), Some(b"my second edit".to_vec()));
+    assert_eq!(h.read("a.txt").as_deref(), Some("my second edit"));
+    assert_eq!(h.state().pending_review.get("a.txt"), Some(&etag_for_bytes(b"my second edit")));
+}
+
+/// The mainline changed to something else while pending: a conflict, with the
+/// local version kept as a conflict copy.
+#[tokio::test]
+async fn mainline_change_while_pending_is_a_conflict_copy() {
+    let h = with_pending_edit().await;
+    h.server(|f| f.mainline.insert("a.txt".into(), b"someone else".to_vec()));
+
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{:?}", report.conflicts);
+    assert!(report.waiting_review.is_empty());
+    assert_eq!(h.read("a.txt").as_deref(), Some("someone else"));
+    let copies = h.conflict_copies();
+    assert_eq!(copies.len(), 1);
+    assert_eq!(h.read(&copies[0]).as_deref(), Some("my edit"), "local work survives");
+    assert_eq!(h.server(|f| f.puts.len()), 1, "no silent re-upload over the mainline");
+    assert!(h.state().pending_review.is_empty());
+}
+
+/// The mainline deleted the file while an edit was pending: also a conflict copy.
+#[tokio::test]
+async fn mainline_delete_while_pending_keeps_the_local_version() {
+    let h = with_pending_edit().await;
+    h.server(|f| f.mainline.remove("a.txt"));
+
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{:?}", report.conflicts);
+    let copies = h.conflict_copies();
+    assert_eq!(copies.len(), 1);
+    assert_eq!(h.read(&copies[0]).as_deref(), Some("my edit"));
+    assert!(h.state().pending_review.is_empty());
 }

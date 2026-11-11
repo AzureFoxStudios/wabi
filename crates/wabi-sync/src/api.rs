@@ -56,6 +56,15 @@ pub enum UploadOutcome {
     Conflict(Conflict),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum DeleteOutcome {
+    Deleted,
+    /// 409: the file changed on the server after the caller's baseline.
+    Conflict,
+    /// 403: the caller may not delete on the mainline.
+    Forbidden,
+}
+
 /// Minimal percent-encoding for query components (keep unreserved chars).
 fn enc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -196,7 +205,7 @@ impl WabiClient {
         })
     }
 
-    pub async fn delete(&self, channel_id: i64, path: &str, if_match: Option<&str>) -> anyhow::Result<bool> {
+    pub async fn delete(&self, channel_id: i64, path: &str, if_match: Option<&str>) -> anyhow::Result<DeleteOutcome> {
         let mut req = self
             .http
             .delete(self.url(&format!(
@@ -210,10 +219,13 @@ impl WabiClient {
         }
         let resp = req.send().await?;
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            return Ok(false);
+            return Ok(DeleteOutcome::Conflict);
+        }
+        if resp.status() == reqwest::StatusCode::FORBIDDEN {
+            return Ok(DeleteOutcome::Forbidden);
         }
         self.check_status(resp).await?;
-        Ok(true)
+        Ok(DeleteOutcome::Deleted)
     }
 
     pub async fn set_lock(&self, channel_id: i64, path: &str, lock: bool) -> anyhow::Result<()> {
