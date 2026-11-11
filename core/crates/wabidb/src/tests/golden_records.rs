@@ -681,7 +681,7 @@ fn golden_lore_file_change_record() {
 
 #[test]
 fn golden_lore_token_record() {
-    unchanged_today(LORE_TOKEN_LEGACY, &lore_token(), lore::encode_token_record, lore::decode_token_record);
+    converted(LORE_TOKEN_LEGACY, b"LTOK", &lore_token(), lore::encode_token_record, lore::decode_token_record);
 }
 
 #[test]

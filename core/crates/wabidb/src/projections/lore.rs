@@ -314,15 +314,15 @@ impl RecordCodec for LoreTokenRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreTokenRecord`]; see `format::versioned`.
+const TOKEN_FORMAT: RecordFormat = RecordFormat::new(*b"LTOK", "lore token projection");
+
 pub fn encode_token_record(r: &LoreTokenRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&TOKEN_FORMAT, r)
 }
 
 pub fn decode_token_record(buf: &[u8]) -> Result<LoreTokenRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore token projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&TOKEN_FORMAT, buf)
 }
 
 pub fn encode_token_key(token_hash: &str) -> Vec<u8> {
