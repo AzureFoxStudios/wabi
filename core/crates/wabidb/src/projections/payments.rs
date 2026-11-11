@@ -140,9 +140,20 @@ impl RecordCodec for PaymentAccountLinkRecord {
         versioned::decode_v1(&ACCOUNT_LINK_FORMAT, buf)
     }
 }
+/// Versioned durable layout of [`PaymentIntentRecord`]; see `format::versioned`.
+const INTENT_FORMAT: RecordFormat = RecordFormat::new(*b"PINT", "payment_intent");
+
 impl RecordCodec for PaymentIntentRecord {
     fn codec_name() -> &'static str {
         "payment_intent"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&INTENT_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&INTENT_FORMAT, buf)
     }
 }
 impl RecordCodec for PaymentPolicyRecord {
