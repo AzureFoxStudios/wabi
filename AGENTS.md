@@ -104,7 +104,7 @@ These are repository invariants that have caused real regressions when ignored.
 
 4. **`packages/wabi-protocol` is generated.** `cargo test -p wabi-core --features ts` regenerates TypeScript. Do not depend on manual edits surviving codegen. If a compatibility patch is still required, follow the current documented generation workflow rather than editing generated output casually.
 
-5. **Postcard-encoded persistent records require compatibility planning.** Do not add/remove/reorder fields on durable record types without a versioned/dual-decode migration path. Breaking replay can destroy access to real stored state.
+5. **Postcard-encoded persistent records require compatibility planning.** Do not add/remove/reorder fields on durable record types without a versioned/dual-decode migration path. Breaking replay can destroy access to real stored state. The path is `wabidb::format::versioned` (`docs/architecture/STORAGE_FORMAT.md` §7.1): capture golden bytes from the current encoder first, keep the old layout as its own struct, bump the version, and keep a decoder for every version ever written. A record type not yet on that helper gets converted before its fields change.
 
 6. **Lore is an optional external integration, but the Wabi Lore workspace is real product UI.** The backend may depend on an external Lore service/CLI; do not pretend that dependency is bundled. Equally, do not dismiss the existing Wabi workspace as “out of scope” when the task is explicitly about Lore UX/integration.
 
