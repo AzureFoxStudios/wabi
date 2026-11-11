@@ -215,10 +215,9 @@ async fn main() -> Result<()> {
                 }
 
                 // Push local work when the FS moved; always poll the feed.
-                match client.changes(link.channel_id, 0).await {
-                    Ok(changes) => {
-                        let state = SyncState::load(&folder).unwrap_or_default();
-                        let remote_moved = changes.latest_seq > state.cursor;
+                let cursor = SyncState::load(&folder).unwrap_or_default().cursor;
+                match client.remote_moved(link.channel_id, cursor).await {
+                    Ok(remote_moved) => {
                         if fs_nudge || remote_moved {
                             let prefix = if fs_nudge { "[local]" } else { "[remote]" };
                             if let Err(e) = run_sync_round(&client, &folder, prefix).await {

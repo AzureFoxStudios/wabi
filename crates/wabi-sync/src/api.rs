@@ -179,6 +179,27 @@ impl WabiClient {
         self.check_status(resp).await?.json().await.context("changes")
     }
 
+    /// Where the change feed ends, starting from the stored cursor `since`.
+    /// The server sends at most 1000 entries per page and `latestSeq` is the
+    /// end of that page, so this asks again from each page's end until a page
+    /// comes back empty.
+    pub async fn feed_end(&self, channel_id: i64, since: u64) -> anyhow::Result<u64> {
+        let mut cursor = since;
+        loop {
+            let page = self.changes(channel_id, cursor).await?;
+            if page.changes.is_empty() || page.latest_seq <= cursor {
+                return Ok(cursor);
+            }
+            cursor = page.latest_seq;
+        }
+    }
+
+    /// Has anything been recorded in the change feed after `cursor`? One
+    /// page answers that, however long the feed is.
+    pub async fn remote_moved(&self, channel_id: i64, cursor: u64) -> anyhow::Result<bool> {
+        Ok(!self.changes(channel_id, cursor).await?.changes.is_empty())
+    }
+
     /// Download a file. `if_none_match` enables a cheap 304 round-trip.
     pub async fn download(
         &self,
