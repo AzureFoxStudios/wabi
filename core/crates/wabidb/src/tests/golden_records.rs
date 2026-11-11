@@ -874,9 +874,16 @@ pub(crate) fn forum_solution() -> forum::SolutionPayload {
 
 #[test]
 fn golden_user_deleted() {
-    let encoded =
-        postcard::to_allocvec(&crate::domain::UserDeleted { user_id: 4_200_000_001 }).unwrap();
-    assert_eq!(hex::encode(&encoded), USER_DELETED_LEGACY);
+    let sample = crate::domain::UserDeleted { user_id: 4_200_000_001 };
+    assert_eq!(hex::encode(postcard::to_allocvec(&sample).unwrap()), USER_DELETED_LEGACY);
+    use crate::projections::user_deletion;
+    converted(
+        USER_DELETED_LEGACY,
+        b"UDEL",
+        &sample,
+        user_deletion::encode_payload,
+        user_deletion::decode_payload,
+    );
     // Decoded by the handler, which removes the sample member (that user id).
     use crate::engine::locks::ProjectionState;
     use crate::projections::handler::{DurableEvent, Projection};
