@@ -77,6 +77,14 @@ impl RecordCodec for ForumPostRecord {
     fn codec_name() -> &'static str {
         "forum_posts"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`ForumPostRecord`]; see `format::versioned`.

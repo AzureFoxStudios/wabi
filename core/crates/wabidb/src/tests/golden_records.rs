@@ -954,3 +954,54 @@ pub(crate) fn dm_prekey_consumed() -> dm_identities::ConsumedPayload {
         prekey_public: "otk1".into(),
     }
 }
+
+/// Writing through the `RecordCodec` trait must produce the same versioned
+/// record as the module encoder. The trait once had raw-postcard default
+/// bodies, so an implementor that did not override them wrote unversioned
+/// bytes through `payments::encode_record` or any other `T: RecordCodec` path.
+#[test]
+fn record_codec_never_writes_unversioned_bytes() {
+    fn check<T: RecordCodec + PartialEq + Debug>(
+        name: &'static str,
+        sample: T,
+        failed: &mut Vec<&'static str>,
+    ) {
+        let encoded = RecordCodec::encode(&sample);
+        let round_trips = <T as RecordCodec>::decode(&encoded).ok().as_ref() == Some(&sample);
+        if !crate::format::versioned::is_versioned(&encoded) || !round_trips {
+            failed.push(name);
+        }
+    }
+    let mut failed = Vec::new();
+    check("ChannelMemberRecord", channel_member(), &mut failed);
+    check("DmMessageRecord", dm_message(), &mut failed);
+    check("DmRecipientRecord", dm_recipient(), &mut failed);
+    check("DmIdentityRecord", dm_identity(), &mut failed);
+    check("Reaction", reaction(), &mut failed);
+    check("Emote", emote(), &mut failed);
+    check("Webhook", webhook(), &mut failed);
+    check("UserLayout", user_layout(), &mut failed);
+    check("WhiteboardDoc", whiteboard_doc(), &mut failed);
+    check("AlbumRecord", album(), &mut failed);
+    check("AlbumItemRecord", album_item(), &mut failed);
+    check("WikiPageRecord", wiki_page(), &mut failed);
+    check("WikiRevisionRecord", wiki_revision(), &mut failed);
+    check("ForumPostRecord", forum_post(), &mut failed);
+    check("IncidentRecord", incident(), &mut failed);
+    check("GalleryWorkRecord", gallery_work(), &mut failed);
+    check("GalleryFeedbackRecord", gallery_feedback(), &mut failed);
+    check("LoreRepoRecord", lore_repo(), &mut failed);
+    check("LoreCommitRecord", lore_commit(), &mut failed);
+    check("LoreFileChangeRecord", lore_file_change(), &mut failed);
+    check("LoreTokenRecord", lore_token(), &mut failed);
+    check("LoreBindingRecord", lore_binding(), &mut failed);
+    check("LorePromoteRecord", lore_promote(), &mut failed);
+    check("PaymentAccountLinkRecord", payment_account_link(), &mut failed);
+    check("PaymentIntentRecord", payment_intent(), &mut failed);
+    check("PaymentPolicyRecord", payment_policy(), &mut failed);
+    check("PaymentUserBlockRecord", payment_user_block(), &mut failed);
+    check("PaymentDeleteKey", payment_delete_key(), &mut failed);
+    check("MessageRecord", message(), &mut failed);
+    check("UserRecord", user(), &mut failed);
+    assert!(failed.is_empty(), "RecordCodec writes unversioned or unreadable bytes for {failed:?}");
+}

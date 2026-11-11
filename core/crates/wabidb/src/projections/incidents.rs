@@ -26,6 +26,14 @@ impl RecordCodec for IncidentRecord {
     fn codec_name() -> &'static str {
         "incidents"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 /// Versioned durable layout of [`IncidentRecord`]; see `format::versioned`.

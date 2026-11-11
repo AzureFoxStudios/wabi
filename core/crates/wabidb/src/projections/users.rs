@@ -27,6 +27,14 @@ impl RecordCodec for UserRecord {
     fn codec_name() -> &'static str {
         "users"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        encode_record(self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        decode_record(buf)
+    }
 }
 
 impl From<UserRecord> for crate::domain::User {
