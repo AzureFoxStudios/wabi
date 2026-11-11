@@ -602,6 +602,29 @@ impl<'a> SyncEngine<'a> {
     }
 }
 
+/// What `wabi-sync status` says about the files in the folder.
+pub struct LocalStatus {
+    /// Changed since the last sync and not sent anywhere yet.
+    pub changed: Vec<String>,
+    /// Sent to a review branch, unchanged since, and not on the mainline.
+    pub waiting_review: Vec<String>,
+}
+
+pub fn local_status(state: &SyncState, local: &BTreeMap<String, String>) -> LocalStatus {
+    let mut status = LocalStatus { changed: Vec::new(), waiting_review: Vec::new() };
+    for (path, etag) in local {
+        if state.local_matches_baseline(path, etag) {
+            continue;
+        }
+        if state.local_matches_pending(path, etag) {
+            status.waiting_review.push(path.clone());
+        } else {
+            status.changed.push(path.clone());
+        }
+    }
+    status
+}
+
 pub fn print_report(prefix: &str, report: &SyncReport) {
     for p in &report.downloaded {
         println!("{prefix} ↓ {p}");
