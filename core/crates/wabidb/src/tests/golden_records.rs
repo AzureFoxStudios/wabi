@@ -646,7 +646,7 @@ fn golden_wiki_revision_record() {
 
 #[test]
 fn golden_forum_post_record() {
-    unchanged_today(FORUM_POST_LEGACY, &forum_post(), forum::encode_record, forum::decode_record);
+    converted(FORUM_POST_LEGACY, b"FPST", &forum_post(), forum::encode_record, forum::decode_record);
 }
 
 #[test]
