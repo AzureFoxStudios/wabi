@@ -42,6 +42,8 @@ $env:WABI_LORE_REAL_BINARY = (Get-Command lore).Source; cargo test -p wabi-lore 
 
 The answers are the lines that start with `OBSERVED`.
 
+In every check, look at the `status` output printed after a review upload. If it lists the uploaded file as modified, untracked or staged while the tree is back on the mainline, the review bytes stayed in the files everyone reads, which is the main thing these checks exist to find out.
+
 If `lore` only exists inside a container, run the same command inside it from a checkout of this repository, or copy the program out. Say which you did.
 
 ## What each check answers
@@ -53,6 +55,7 @@ If `lore` only exists inside a container, run the same command inside it from a 
 | `q3_first_branch_name_and_direct_promote_to_main` | What is a new repository's first branch called? The promote handler and `set_binding` default to the literal `main`. | If it is not `main`, a default promote fails at the branch switch. The default has to come from the repository. |
 | `q2_observe_a_staged_file_across_a_branch_switch` | Does a staged, uncommitted file follow a branch switch? What does a retry of the same path do afterwards? | Observation only. If the file follows, a promote that fails after staging leaves it on the mainline. |
 | `q5_observe_a_restart_while_on_a_review_branch` | If the server stops while the tree is on a review branch, where does the next direct upload land? | Observation only. Known gap: nothing puts the tree back at startup. |
+| `q6_observe_a_review_upload_during_a_staged_batch` | A commit holder has staged a batch and not sealed it. A member without `lore.commit` uploads, which goes to a review branch. Is the staged file swept into the review commit, is the branch switch refused, or are the two kept apart? Does sealing the batch afterwards pick up the review bytes? | Observation only. Either of the first two is a way for one member to disturb another's work, and review bytes in the sealed batch would be a leak to the mainline. |
 | `basic_direct_operations_work` | Upload, second revision, identical bytes again, delete, health check. | The basics differ from what the stand-in pretends. |
 
 ## Checks in the running app (need a browser, not covered above)
@@ -78,6 +81,7 @@ q1 mainline untouched: yes / no, with the OBSERVED lines
 approve: worked / failed, with the OBSERVED lines
 q2 staged file follows a branch switch: yes / no; retry of the same path: <what happened>
 q5 upload after restart landed on: mainline / the left-behind branch / failed
+q6 review upload during a staged batch: succeeded / refused; batch file ended up in: the batch / the review commit; review bytes on the mainline after sealing: yes / no
 basic: identical-bytes upload: <what happened>
 
 anything that failed because of HOME=/var/wabi/lore or another environment reason:

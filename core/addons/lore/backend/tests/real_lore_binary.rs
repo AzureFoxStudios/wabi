@@ -347,6 +347,48 @@ async fn q5_observe_a_restart_while_on_a_review_branch() {
     );
 }
 
+/// Q6. Someone with `lore.commit` has staged a batch on the mainline and not
+/// sealed it yet. A member without `lore.commit` then uploads, which goes to a
+/// review branch. Does the real program sweep the staged file into the review
+/// commit, refuse the branch switch, or keep the two apart? Observation only.
+#[tokio::test]
+#[ignore = "needs the real lore program: set WABI_LORE_REAL_BINARY"]
+async fn q6_observe_a_review_upload_during_a_staged_batch() {
+    let repo = Repo::new().await;
+    let mainline = repo.current_branch().await;
+    let source = repo.source(b"batch file, staged and not sealed");
+    repo.service
+        .stage_file(CHANNEL, source.to_str().unwrap(), "batch-a.txt")
+        .await
+        .expect("stage_file on the mainline");
+    println!("OBSERVED q6: status with the batch staged\n{}", repo.status().await);
+
+    let review = repo.promote("b.txt", b"for review", "", Some("uploads/check-batch")).await;
+    println!(
+        "OBSERVED q6: review upload during the batch: {:?}",
+        review.as_ref().map(|r| (r.pending_review, r.revision.hash.clone())).map_err(|e| format!("{e:#}"))
+    );
+    println!("OBSERVED q6: current branch afterwards {:?} (mainline is {mainline:?})", repo.current_branch().await);
+    println!(
+        "OBSERVED q6: in the tree afterwards: batch-a.txt={} b.txt={}",
+        repo.read("batch-a.txt").is_some(),
+        repo.read("b.txt").is_some()
+    );
+    println!("OBSERVED q6: status afterwards\n{}", repo.status().await);
+
+    // Seal the batch the way POST /snapshot does, and see what it holds.
+    let sealed = repo.service.commit_staged(CHANNEL, "seal the batch", AUTHOR).await;
+    println!(
+        "OBSERVED q6: sealing the batch afterwards: {:?}",
+        sealed.as_ref().map(|r| r.hash.clone()).map_err(|e| format!("{e:#}"))
+    );
+    println!(
+        "OBSERVED q6: after sealing: batch-a.txt={} b.txt={} (b.txt on the mainline would mean the review bytes leaked)",
+        repo.read("batch-a.txt").is_some(),
+        repo.read("b.txt").is_some()
+    );
+}
+
 /// Basic operations the stand-in only pretends to do: delete, a second
 /// revision of one path, and the health check.
 #[tokio::test]
