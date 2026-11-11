@@ -125,15 +125,15 @@ impl RecordCodec for LoreCommitRecord {
     }
 }
 
+/// Versioned durable layout of [`LoreCommitRecord`]; see `format::versioned`.
+const COMMIT_FORMAT: RecordFormat = RecordFormat::new(*b"LCOM", "lore projection");
+
 pub fn encode_record(r: &LoreCommitRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&COMMIT_FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<LoreCommitRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "lore projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&COMMIT_FORMAT, buf)
 }
 
 pub fn encode_key(channel_id: i64, commit_hash: &str) -> Vec<u8> {
