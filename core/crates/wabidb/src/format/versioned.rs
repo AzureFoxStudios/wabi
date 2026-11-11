@@ -138,6 +138,24 @@ pub fn legacy_postcard<T: DeserializeOwned>(format: &RecordFormat, bytes: &[u8])
     postcard::from_bytes(bytes).map_err(|e| format.corrupt(format!("postcard decode failed: {e}")))
 }
 
+/// Encode layout version 1. Every record type starts here when it is first
+/// versioned; a later field change moves its encoder to [`encode`] with 2.
+pub fn encode_v1<T: Serialize + ?Sized>(format: &RecordFormat, value: &T) -> Vec<u8> {
+    encode(format, 1, value)
+}
+
+/// Decode a record type whose only versioned layout is version 1 and whose
+/// legacy bytes are raw postcard of the same struct. When the type gets a
+/// version 2, replace this call with [`decode`] and keep an arm for 1.
+pub fn decode_v1<T: DeserializeOwned>(format: &RecordFormat, bytes: &[u8]) -> Result<T> {
+    decode(
+        format,
+        bytes,
+        |version, body| (version == 1).then(|| payload(format, body)),
+        |raw| legacy_postcard(format, raw),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +197,16 @@ mod tests {
 
     fn sample_v1() -> V1 {
         V1 { id: "abc".into(), n: 300 }
+    }
+
+    #[test]
+    fn v1_shorthand_matches_the_general_form() {
+        let bytes = encode_v1(&FORMAT, &sample_v1());
+        assert_eq!(bytes, encode(&FORMAT, 1, &sample_v1()));
+        assert_eq!(decode_v1::<V1>(&FORMAT, &bytes).unwrap(), sample_v1());
+        let raw = postcard::to_allocvec(&sample_v1()).unwrap();
+        assert_eq!(decode_v1::<V1>(&FORMAT, &raw).unwrap(), sample_v1());
+        assert!(decode_v1::<V1>(&FORMAT, &encode(&FORMAT, 2, &sample_v1())).is_err());
     }
 
     #[test]
