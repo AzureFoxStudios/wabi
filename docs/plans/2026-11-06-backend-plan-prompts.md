@@ -504,7 +504,7 @@ You check: each CLI test opens a real engine before running the command.
 
 ### Task 2.3 Docs truth pass (Sonnet)
 
-Revised 2026-11-10 after Tasks 2.1, 2.1b, 2.2, 2.4 and 2.5: each of those PRs listed doc passages its change made false and left them for this task.
+Revised 2026-11-10 after Tasks 2.1, 2.1b, 2.2, 2.4 and 2.5: each of those PRs listed doc passages its change made false and left them for this task. Revised again 2026-11-11 after Task 3.2 (PR 315), which added the first CLI command that writes and a new file in the data directory.
 
 ```
 TASK 2.3. This task edits docs and doc comments only. Do not change any code or any test.
@@ -514,12 +514,14 @@ For each file below, find every sentence that states what the engine or addon DO
 Starting lists, all of which must be covered:
 - docs/plans/2026-11-06-backend-audit-wabidb-lore.md, sections "Documented claims the code does not back".
 - The descriptions of merged PRs 302, 305, 306, 307 and 309. Each has a section listing doc passages it made false and did not edit (for example kanban entries that mark removed commands as done, a `wabidb-cli backup` command that does not exist, the subscription and ephemeral bus, key destruction and compaction, and docs/audits/2026-11-authorization-matrix.md rows for removed Lore routes).
+- The description of merged PR 315, section "Doc claims now incomplete". It added `wabidb-cli quarantine` and the file `global/quarantine.json`; two docs that list what is in the data directory do not mention the file. The tests that prove the behavior are in core/crates/wabidb/src/engine/quarantine_tests.rs and core/crates/wabidb/src/cli/quarantine.rs.
 
 Files:
 - docs/architecture/STORAGE_FORMAT.md
 - docs/architecture/PERSISTENCE_MODEL.md
-- docs/ai/wabidb-engine.md and docs/ai/wabidb-storage.md
-- docs/deployment/BACKUP_AND_RECOVERY.md (only sentences about `wabidb-cli`; the commands are now check, verify, status and list-streams, and they are read-only)
+- docs/ai/wabidb-engine.md and docs/ai/wabidb-storage.md (the layout tree in wabidb-storage.md also needs `global/quarantine.json`)
+- docs/deployment/BACKUP_AND_RECOVERY.md (only sentences about `wabidb-cli`; the commands are now check, verify, status and list-streams, which are read-only, and quarantine, which writes `global/quarantine.json`. Any sentence that calls the whole CLI read-only is now false. Leave the section "Startup refuses one commit: quarantine it" as it is unless a sentence in it fails this task's test rule)
+- docs/architecture/INSTANCE_RECOVERY_INVENTORY.md (add one row for `wabidb/global/quarantine.json`, with a test reference: it is preserved with the database, and removing it can make startup refuse again. Change nothing else in this file)
 - docs/audits/2026-11-authorization-matrix.md (remove rows for routes that no longer exist; change nothing else)
 - docs/wabidb-kanban.md (do not rewrite history: where an entry marks as done something that has since been removed, add "removed in PR N" next to it)
 - core/crates/wabidb/src/lib.rs (module doc comment only)
@@ -535,7 +537,7 @@ Rules:
 Deliver a table at the end: sentence (shortened), file:line, what you did. No row may say "left as is" unless it already had a test reference. Then run `cargo doc -p wabidb --no-deps` to prove the doc comments still build.
 ```
 
-You check: the table has no "left as is" rows, and it has rows for the passages each of the five PRs listed.
+You check: the table has no "left as is" rows, and it has rows for the passages each of the six PRs listed (302, 305, 306, 307, 309, 315).
 
 ### Task 2.4 Retention wording (Sonnet)
 
