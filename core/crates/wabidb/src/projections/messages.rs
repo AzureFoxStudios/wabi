@@ -804,6 +804,17 @@ fn filter_since_and_limit(
     Ok(results)
 }
 
+/// Message id used by every index for this event: the writer-stamped id,
+/// or `msg_{commit_seq:x}` only when a created event left it empty. Mirrors
+/// `MessagesProjection::apply_created` so all indexes agree on the key.
+fn resolved_message_id(event: &DurableEvent, record: &MessageRecord) -> String {
+    if event.event_type == "message_created" && record.message_id.trim().is_empty() {
+        format!("msg_{:x}", event.commit_seq)
+    } else {
+        record.message_id.clone()
+    }
+}
+
 /// Secondary index: one entry per (channel_id, message_id) so a channel's
 /// messages can be enumerated without scanning the primary index. The key
 /// mirrors the primary `messages` key encoding; the value is the encoded
@@ -826,11 +837,7 @@ impl SecondaryIndex for MessagesByChannelIndex {
             Ok(r) => r,
             Err(_) => return vec![],
         };
-        let message_id = if event.event_type == "message_created" {
-            format!("msg_{:x}", event.commit_seq)
-        } else {
-            record.message_id.clone()
-        };
+        let message_id = resolved_message_id(event, &record);
         vec![encode_key(&record.channel_id, &message_id)]
     }
 
@@ -862,11 +869,7 @@ impl SecondaryIndex for MessagesByAuthorIndex {
             Ok(r) => r,
             Err(_) => return vec![],
         };
-        let message_id = if event.event_type == "message_created" {
-            format!("msg_{:x}", event.commit_seq)
-        } else {
-            record.message_id.clone()
-        };
+        let message_id = resolved_message_id(event, &record);
         let mut buf = Vec::new();
         buf.extend_from_slice(&(record.author_user_id as u64).to_le_bytes());
         buf.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
@@ -1687,6 +1690,79 @@ mod tests {
         assert!(MESSAGES_SECONDARY_INDEXES[0]
             .extract_keys(&non_msg)
             .is_empty());
+    }
+
+    // --- Task 3.4: indexes key on the writer-stamped id ---------------------
+
+    fn count_index(state: &ProjectionState, index: &str) -> usize {
+        let mut n = 0;
+        state.for_each(index, |_k, _v| n += 1);
+        n
+    }
+
+    #[test]
+    fn uuid_message_leaves_no_index_entries_after_delete_and_compact() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        let uuid = "7b0c6c1e-3f0e-4b8e-9d51-2f6f3a1c9a10";
+        let created = MessageRecord {
+            message_id: uuid.into(),
+            channel_id: "ch_01".into(),
+            author_user_id: 7,
+            ..sample_msg()
+        };
+        proj.apply(&make_event(1, "message_created", &created), &state)
+            .unwrap();
+
+        let mut edited = created.clone();
+        edited.encrypted_body_ref = "edited".into();
+        proj.apply(&make_event(2, "message_edited", &edited), &state)
+            .unwrap();
+
+        let mut deleted = edited.clone();
+        deleted.is_deleted = true;
+        proj.apply(&make_event(3, "message_deleted", &deleted), &state)
+            .unwrap();
+
+        // One entry per index, under the UUID, before compaction.
+        assert_eq!(count_index(&state, "messages_by_channel"), 1);
+        assert_eq!(count_index(&state, "messages_by_author"), 1);
+
+        MessagesProjection::compact(&state);
+
+        assert_eq!(count_index(&state, "messages_by_channel"), 0);
+        assert_eq!(count_index(&state, "messages_by_author"), 0);
+    }
+
+    #[test]
+    fn author_query_after_edit_returns_only_current_version() {
+        let state = ProjectionState::new();
+        let proj = MessagesProjection;
+        let created = MessageRecord {
+            message_id: "7b0c6c1e-3f0e-4b8e-9d51-2f6f3a1c9a11".into(),
+            channel_id: "ch_01".into(),
+            author_user_id: 42,
+            encrypted_body_ref: "original".into(),
+            ..sample_msg()
+        };
+        proj.apply(&make_event(1, "message_created", &created), &state)
+            .unwrap();
+        let mut edited = created.clone();
+        edited.encrypted_body_ref = "edited".into();
+        proj.apply(&make_event(2, "message_edited", &edited), &state)
+            .unwrap();
+
+        let results = proj
+            .query(
+                &state,
+                &MessagesFilter {
+                    author_id: Some(42),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].encrypted_body_ref, "edited");
     }
 
     // --- QueryableProjection tests -----------------------------------------
