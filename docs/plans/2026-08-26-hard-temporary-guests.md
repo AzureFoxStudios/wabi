@@ -19,7 +19,7 @@ the new event and performs cross-index cleanup itself.
 
 ### New event: `user_deleted`
 
-- Payload: postcard-encoded `wabidb::domain::UserDeleted { user_id: u64 }`.
+- Payload: postcard-encoded `wabidb::domain::UserDeleted { user_id: u64 }`. (Since 2026-11-11, PR 325, new events carry the `UDEL` version header in front of those bytes; events written before it still decode.)
 - Owner: `projections/user_deletion.rs` → `UserDeletionProjection`.
 - Cascade performed inside its `apply()`:
   - `users` — remove the account row (`user_id.to_be_bytes()` key).

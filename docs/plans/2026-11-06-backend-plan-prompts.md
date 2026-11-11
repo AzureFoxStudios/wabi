@@ -904,3 +904,26 @@ Tests first (must fail on main): a user whose role has lore.stage but not lore.l
 ```
 
 You check: three denial tests, one per newly enforced capability, and a fourth showing a `lore.stage`-only user cannot force a direct commit.
+
+### Task 4.8b A stage-only member must not change the mainline
+
+Added 2026-11-11 from the review of PR 324 (Task 4.8). Older than that PR; it became visible once `lore.commit` meant something.
+
+```
+TASK 4.8b. Build and test with --features wabi-lore. Read docs/addons/lore.md section 11.2 and the description of PR 324 first.
+
+Problem: lore.stage is described as "upload and stage files", and lore.commit as "write changes to the repository history". But a member whose role has lore.stage and not lore.commit changes the mainline in two ways (core/crates/wabi-server/src/api/lore.rs and core/addons/lore/backend/src/lib.rs):
+1. PUT /repos/{id}/files/{path} (upload_file). When the repo's auto_branch_on_upload is off, which is the default, upload_file stages and commits on the current branch. The reviewer saw: stager PUT -> 200, pendingReview=false, CLI calls "stage direct.txt" then "commit Upload via API".
+2. DELETE /repos/{id}/files/{path} (delete_file). It never branches, so it commits to the mainline even when review is on.
+POST /recordings (upload_recording) goes through the same upload path. A connect token acts as its minting user, so the same holds for external tools.
+
+Decide and implement one rule, and say why you chose it: a change made by a caller without lore.commit either (a) always lands on a review branch, whatever the repo's setting, or (b) is refused with 403. For upload, (a) is the closer fit: the service already has the review-branch path (auto_branch_on_upload), and promote_file shows how to request it per call. For delete there is no review path today; if you choose (a) you have to build it and test it, and if that is too large, choose (b) for delete and say so. Do not change what a lore.commit holder gets.
+
+Keep these as they are: the capability gates added in PR 324, the open-policy rule (it grants everything except lore.admin), and the seeded roles. The seeded artist role has lore.stage and lore.lock and no lore.commit, so this task changes what artists can do on a repo with review off: say that plainly in the PR description and in docs/addons/lore.md 11.2, and update the role editor's capability descriptions in the frontend to match.
+
+Tests first (must fail on main), in core/crates/wabi-server/tests/lore_capability_enforcement_contract.rs, using its fixture and CLI log: a lore.stage-only user's upload on a repo with review off does not produce a commit on the mainline; the same user's delete does not; a lore.commit holder's upload and delete still commit directly; a write-scope connect token minted by the stage-only user behaves like that user. Assert on the CLI log, not only on response fields.
+
+All Lore tests here run against a shell stand-in for the lore binary; say so in the report.
+```
+
+You check: the tests assert on the CLI call log, and the PR description states what changes for the artist role.
