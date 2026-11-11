@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -26,15 +27,15 @@ impl RecordCodec for GalleryWorkRecord {
     }
 }
 
+/// Versioned durable layout of [`GalleryWorkRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"GWRK", "gallery work projection");
+
 pub fn encode_record(r: &GalleryWorkRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<GalleryWorkRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "gallery work projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(channel_id: &str, work_id: &str) -> Vec<u8> {
@@ -76,7 +77,7 @@ impl GalleryWorkProjection {
     /// Remove all soft-deleted records from the `gallery_works` index.
     pub fn compact(state: &ProjectionState) -> usize {
         state.compact_index("gallery_works", |_key, value| {
-            postcard::from_bytes::<GalleryWorkRecord>(value)
+            decode_record(value)
                 .ok()
                 .map_or(false, |r| r.is_deleted)
         })
@@ -150,15 +151,15 @@ impl RecordCodec for GalleryFeedbackRecord {
     }
 }
 
+/// Versioned durable layout of [`GalleryFeedbackRecord`]; see `format::versioned`.
+const FEEDBACK_FORMAT: RecordFormat = RecordFormat::new(*b"GFBK", "gallery feedback projection");
+
 pub fn encode_feedback_record(r: &GalleryFeedbackRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FEEDBACK_FORMAT, r)
 }
 
 pub fn decode_feedback_record(buf: &[u8]) -> Result<GalleryFeedbackRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "gallery feedback projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FEEDBACK_FORMAT, buf)
 }
 
 pub fn encode_feedback_key(channel_id: &str, work_id: &str, feedback_id: &str) -> Vec<u8> {

@@ -16,6 +16,7 @@
 
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
+use crate::format::versioned::{self, RecordFormat};
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
 use serde::{Deserialize, Serialize};
@@ -123,29 +124,84 @@ pub struct PaymentDeleteKey {
     pub plugin_id: Option<String>,
 }
 
+/// Versioned durable layout of [`PaymentAccountLinkRecord`]; see `format::versioned`.
+const ACCOUNT_LINK_FORMAT: RecordFormat = RecordFormat::new(*b"PLNK", "payment_account_link");
+
 impl RecordCodec for PaymentAccountLinkRecord {
     fn codec_name() -> &'static str {
         "payment_account_link"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&ACCOUNT_LINK_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&ACCOUNT_LINK_FORMAT, buf)
+    }
 }
+/// Versioned durable layout of [`PaymentIntentRecord`]; see `format::versioned`.
+const INTENT_FORMAT: RecordFormat = RecordFormat::new(*b"PINT", "payment_intent");
+
 impl RecordCodec for PaymentIntentRecord {
     fn codec_name() -> &'static str {
         "payment_intent"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&INTENT_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&INTENT_FORMAT, buf)
+    }
 }
+/// Versioned durable layout of [`PaymentPolicyRecord`]; see `format::versioned`.
+const POLICY_FORMAT: RecordFormat = RecordFormat::new(*b"PPOL", "payment_policy");
+
 impl RecordCodec for PaymentPolicyRecord {
     fn codec_name() -> &'static str {
         "payment_policy"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&POLICY_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&POLICY_FORMAT, buf)
+    }
 }
+/// Versioned durable layout of [`PaymentUserBlockRecord`]; see `format::versioned`.
+const USER_BLOCK_FORMAT: RecordFormat = RecordFormat::new(*b"PBLK", "payment_user_block");
+
 impl RecordCodec for PaymentUserBlockRecord {
     fn codec_name() -> &'static str {
         "payment_user_block"
     }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&USER_BLOCK_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&USER_BLOCK_FORMAT, buf)
+    }
 }
+/// Versioned durable layout of [`PaymentDeleteKey`]; see `format::versioned`.
+const DELETE_KEY_FORMAT: RecordFormat = RecordFormat::new(*b"PDEL", "payment_delete_key");
+
 impl RecordCodec for PaymentDeleteKey {
     fn codec_name() -> &'static str {
         "payment_delete_key"
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        versioned::encode_v1(&DELETE_KEY_FORMAT, self)
+    }
+
+    fn decode(buf: &[u8]) -> Result<Self> {
+        versioned::decode_v1(&DELETE_KEY_FORMAT, buf)
     }
 }
 

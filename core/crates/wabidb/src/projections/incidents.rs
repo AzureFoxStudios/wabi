@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -27,15 +28,15 @@ impl RecordCodec for IncidentRecord {
     }
 }
 
+/// Versioned durable layout of [`IncidentRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"INCD", "incident projection");
+
 pub fn encode_record(r: &IncidentRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<IncidentRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "incident projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(channel_id: &str, incident_id: &str) -> Vec<u8> {
@@ -77,7 +78,7 @@ impl IncidentProjection {
     /// Remove all soft-deleted records from the `incidents` index.
     pub fn compact(state: &ProjectionState) -> usize {
         state.compact_index("incidents", |_key, value| {
-            postcard::from_bytes::<IncidentRecord>(value)
+            decode_record(value)
                 .ok()
                 .map_or(false, |r| r.is_deleted)
         })

@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -23,15 +24,15 @@ impl RecordCodec for DmMessageRecord {
     }
 }
 
+/// Versioned durable layout of [`DmMessageRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"DMSG", "dm_messages projection");
+
 pub fn encode_record(r: &DmMessageRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<DmMessageRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "dm_messages projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(dm_id: &str, message_id: &str) -> Vec<u8> {

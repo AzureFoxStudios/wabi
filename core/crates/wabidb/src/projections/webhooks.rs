@@ -1,4 +1,5 @@
 use crate::domain::Webhook;
+use crate::format::versioned::{self, RecordFormat};
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
@@ -10,15 +11,15 @@ impl RecordCodec for Webhook {
     }
 }
 
+/// Versioned durable layout of [`Webhook`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"WHOK", "webhooks projection");
+
 pub fn encode_record(w: &Webhook) -> Vec<u8> {
-    postcard::to_allocvec(w).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, w)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<Webhook> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "webhooks projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(webhook_id: &str) -> Vec<u8> {

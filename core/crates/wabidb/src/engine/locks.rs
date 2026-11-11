@@ -288,7 +288,11 @@ impl ProjectionState {
             hash.update(&u64::try_from(map.len()).map_err(|_| invalid())?.to_le_bytes());
             for entry in map.iter() {
                 entries = entries.checked_add(1).ok_or_else(invalid)?;
-                for bytes in [entry.key(), entry.value()] {
+                // A value is hashed without its version-1 record header, so a
+                // row saved as legacy postcard and the same row re-encoded by
+                // replay count as equal. See `versioned::fingerprint_bytes`.
+                let value = crate::format::versioned::fingerprint_bytes(entry.value());
+                for bytes in [entry.key().as_slice(), value] {
                     let length = u64::try_from(bytes.len()).map_err(|_| invalid())?;
                     record_bytes = record_bytes.checked_add(length).ok_or_else(invalid)?;
                     if entries > max_entries || record_bytes > max_record_bytes {

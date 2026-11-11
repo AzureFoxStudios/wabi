@@ -1,4 +1,5 @@
 use crate::engine::locks::ProjectionState;
+use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -65,15 +66,15 @@ impl RecordCodec for ForumPostRecord {
     }
 }
 
+/// Versioned durable layout of [`ForumPostRecord`]; see `format::versioned`.
+const FORMAT: RecordFormat = RecordFormat::new(*b"FPST", "forum projection");
+
 pub fn encode_record(r: &ForumPostRecord) -> Vec<u8> {
-    postcard::to_allocvec(r).expect("postcard serialization failed")
+    versioned::encode_v1(&FORMAT, r)
 }
 
 pub fn decode_record(buf: &[u8]) -> Result<ForumPostRecord> {
-    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
-        location: "forum projection".into(),
-        detail: format!("postcard decode failed: {e}"),
-    })
+    versioned::decode_v1(&FORMAT, buf)
 }
 
 pub fn encode_key(channel_id: &str, thread_id: &str, post_id: &str) -> Vec<u8> {
@@ -136,7 +137,7 @@ impl ForumProjection {
     /// Remove all soft-deleted records from the `forum_posts` index.
     pub fn compact(state: &ProjectionState) -> usize {
         state.compact_index("forum_posts", |_key, value| {
-            postcard::from_bytes::<ForumPostRecord>(value)
+            decode_record(value)
                 .ok()
                 .map_or(false, |r| r.is_deleted)
         })
@@ -218,7 +219,7 @@ impl ForumProjection {
         let v = decode_vote(&event.payload)?;
         let key = encode_key(&v.channel_id, &v.thread_id, &v.post_id);
         if let Some(bytes) = state.get("forum_posts", &key) {
-            if let Ok(mut record) = postcard::from_bytes::<ForumPostRecord>(&bytes) {
+            if let Ok(mut record) = decode_record(&bytes) {
                 match v.direction.as_str() {
                     "up" => record.votes_up += 1,
                     "down" => record.votes_down += 1,
@@ -242,7 +243,7 @@ impl ForumProjection {
         prefix.extend_from_slice(s.thread_id.as_bytes());
         let mut updates: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
         state.prefix_scan("forum_posts", &prefix, |key, value| {
-            if let Ok(mut record) = postcard::from_bytes::<ForumPostRecord>(value) {
+            if let Ok(mut record) = decode_record(value) {
                 if key != s.post_id.as_bytes() && record.is_solution {
                     record.is_solution = false;
                     updates.push((key.to_vec(), encode_record(&record)));
@@ -256,7 +257,7 @@ impl ForumProjection {
         // Set solution on the target post
         let key = encode_key(&s.channel_id, &s.thread_id, &s.post_id);
         if let Some(bytes) = state.get("forum_posts", &key) {
-            if let Ok(mut record) = postcard::from_bytes::<ForumPostRecord>(&bytes) {
+            if let Ok(mut record) = decode_record(&bytes) {
                 record.is_solution = true;
                 let value = encode_record(&record);
                 state.insert("forum_posts", key, value, event.commit_seq);
