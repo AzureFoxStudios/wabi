@@ -37,12 +37,15 @@ pub struct VotePayload {
     pub actor_user_id: u64,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SolutionPayload {
+/// Payload of `forum_post_solution_set`. The one definition of this durable
+/// layout: the adapter encodes it with [`encode_solution`], the projection and
+/// local write admission decode it with [`decode_solution`]. Never change its
+/// fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SolutionPayload {
     pub post_id: String,
     pub thread_id: String,
     pub channel_id: String,
-    #[allow(dead_code)]
     pub actor_user_id: u64,
 }
 
@@ -56,6 +59,10 @@ pub fn encode_vote(v: &VotePayload) -> Vec<u8> {
 
 pub(crate) fn decode_vote(buf: &[u8]) -> Result<VotePayload> {
     versioned::decode_v1(&VOTE_FORMAT, buf)
+}
+
+pub fn encode_solution(s: &SolutionPayload) -> Vec<u8> {
+    postcard::to_allocvec(s).expect("postcard serialization failed")
 }
 
 pub(crate) fn decode_solution(buf: &[u8]) -> Result<SolutionPayload> {
