@@ -55,7 +55,9 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
         });
     }
     let quarantine = super::quarantine_for_report(data_dir, &mut errors);
-    let snapshot_watermark = super::snapshot_watermark_for_report(data_dir, &mut errors);
+    let snapshot_watermark = // `verify` has no warnings list; `check` reports a read model that
+    // could not be examined.
+    super::snapshot_watermark_for_report(data_dir, &mut errors, &mut Vec::new());
 
     let manifest_raw = tokio::fs::read_to_string(&manifest_path).await.map_err(WabiError::Io)?;
     let manifest: ManifestSummary = serde_json::from_str(&manifest_raw).map_err(|e| {

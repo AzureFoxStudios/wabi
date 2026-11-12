@@ -179,7 +179,7 @@ async fn queued_message_parent_survives_rebind_refusal_and_event_replay() {
     drop(sender);
     drop(engine);
     let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = crate::tests::reopen_after_drop(config(dir.path()), None)
         .await
@@ -457,7 +457,7 @@ async fn removed_reaction_stays_removed_after_reopen_and_replay() {
     // Restart that must rebuild projections from the durable log.
     drop(reopened);
     let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let replayed = crate::tests::reopen_after_drop(config(dir.path()), None)
         .await

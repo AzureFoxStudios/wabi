@@ -4162,7 +4162,7 @@ mod breakout_channel_security_tests {
             "parent authority must be in the creation commit, not a later patch");
         assert_eq!(adapter.get_channel(&child).await.unwrap().unwrap().parent_id.as_deref(), Some(parent.as_str()));
         drop(adapter);
-        wabidb::engine::locks::ProjectionState::remove_snapshot(dir.path());
+        wabidb::engine::locks::ProjectionState::remove_saved_projections_for_tests(dir.path());
         let reopened = WdbAdapter::open(dir.path()).await.unwrap();
         assert_eq!(reopened.get_channel(&child).await.unwrap().unwrap().parent_id.as_deref(), Some(parent.as_str()));
     }

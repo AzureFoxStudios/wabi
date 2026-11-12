@@ -23,6 +23,7 @@ use crate::commit_index::record::CommitIndexEntry;
 use crate::crypto::bootstrap::{load_bootstrap_key, BootstrapSource};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
 use crate::engine::locks::{spawn_projection_dispatcher_with_lock, ProjectionState, SequencerPermit};
+use crate::projections::read_model::FileState;
 use crate::error::{ErrorCategory, Result, WabiError};
 use crate::projections::barrier::LinearizabilityBarrier;
 use crate::projections::handler::DispatchTable;
@@ -309,84 +310,95 @@ impl WabiDbEngine {
         // of it (it commits every commit; the snapshot is written every
         // 1,000), and replay then skips the message events it already holds.
         //
-        // If the read model is behind the snapshot (no file yet, a file from
-        // another build, a deleted or restored file), the snapshot is not
-        // used and every projection is rebuilt from the whole log. The same
-        // happens when the read model claims commits the log does not have.
-        // A rebuild writes nothing to the snapshot file before replay has
-        // succeeded, so a directory that fails to replay is left as it was.
-        let read_model = Arc::new(crate::projections::read_model::ReadModel::open(data_dir)?);
-        let mut rebuild = false;
-        let (projection_state, barrier, replay_high_seq, snapshot_watermark) = loop {
-            let model_seq = read_model.messages_applied_seq();
-            let mut state = ProjectionState::load_snapshot(data_dir)?
-                .map_or_else(ProjectionState::new, |(state, _watermark)| state);
-            if !rebuild && model_seq < state.applied_commit_seq() {
+        // A read model that is missing, unusable (another build's, damaged,
+        // or marked for rebuild) or behind the snapshot is rebuilt, together
+        // with every other projection, from the whole log. That is allowed
+        // only while the log still reaches both saved projections: see
+        // `plan_startup`. Nothing is deleted before that is decided, and a
+        // rebuild writes nothing to the snapshot file before replay succeeds.
+        let index_high_seq = crate::commit_index::batcher::read_all_entries(
+            &data_dir.join("global").join("commit-index"),
+        )?
+        .iter()
+        .map(|entry| entry.commit_seq)
+        .max()
+        .unwrap_or(0);
+        let saved = ProjectionState::load_snapshot(data_dir)?;
+        let saved_watermark = saved.as_ref().map_or(0, |(_, watermark)| *watermark);
+        let model_file = crate::projections::read_model::ReadModel::probe(data_dir)?;
+        let model_claimed_seq = match &model_file {
+            FileState::Missing => 0,
+            FileState::Usable { applied } | FileState::Unusable { applied, .. } => *applied,
+        };
+        let manifest_high_seq = manifest_high_seq(data_dir);
+        let rebuild = plan_startup(index_high_seq, saved_watermark, &model_file).map_err(
+            |detail| WabiError::Corrupt {
+                location: data_dir.join("projections").display().to_string(),
+                detail,
+            },
+        )?;
+        let read_model = Arc::new(match &model_file {
+            FileState::Unusable { reason, .. } => {
                 tracing::warn!(
-                    "projection read model covers commit {model_seq}, the snapshot covers {}; \
-                     rebuilding every projection from the log",
-                    state.applied_commit_seq()
+                    "projection read model is replaced and rebuilt from the log: {reason}"
                 );
-                rebuild = true;
+                crate::projections::read_model::ReadModel::recreate(data_dir)?
             }
-            if rebuild {
-                state = ProjectionState::new();
-            }
-            state.attach_read_model(Arc::clone(&read_model));
-            let projection_state = Arc::new(state);
-            // Older snapshots may lack the album ID lookup. Rebuild it before
-            // the dispatcher or sequencer can use the state.
-            let rebuilt_albums =
-                crate::projections::albums::AlbumProjection::rebuild_id_index(&projection_state)?;
-            if rebuilt_albums > 0 {
-                projection_state.save_snapshot(data_dir)?;
-            }
-            let snapshot_watermark = projection_state.applied_commit_seq();
-
-            // 7.1 Create barrier. Replay/validation must finish before any writer
-            // task is spawned, so a failed open releases its own process lock.
-            let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&projection_state)));
-
-            // 7.2 Replay events after the snapshot watermark. Replay applies
-            // events while it validates the log, so everything it writes to
-            // the read model is one transaction: committed only when the
-            // whole log replayed, rolled back otherwise.
-            // Returns the highest commit_seq observed on disk (orphans included).
-            read_model.begin_startup(rebuild)?;
-            let replayed = replay::replay_projections(
-                data_dir,
-                &key_registry,
-                &bootstrap_key,
-                &projection_state,
-                &dispatch_table,
-                &barrier,
-                snapshot_watermark,
-            )
-            .await;
-            let replay_high_seq = match replayed {
-                Ok(high) => high,
-                Err(error) => {
-                    read_model.rollback();
-                    return Err(error);
-                }
-            };
-            let applied_seq = barrier.current();
-            if !rebuild && model_seq > applied_seq {
-                // A derived store cannot be ahead of its source.
-                read_model.rollback();
+            _ => crate::projections::read_model::ReadModel::open(data_dir)?,
+        });
+        let state = match saved {
+            Some((state, _)) if !rebuild => state,
+            Some(_) => {
                 tracing::warn!(
-                    "projection read model covers commit {model_seq} but the log ends at \
-                     {applied_seq}; rebuilding every projection from the log"
+                    "projection read model covers commit {model_claimed_seq}, the snapshot \
+                     covers {saved_watermark}; rebuilding every projection from the log"
                 );
-                rebuild = true;
-                continue;
+                ProjectionState::new()
             }
-            if let Err(error) = read_model.commit_startup(applied_seq) {
+            None => ProjectionState::new(),
+        };
+        state.attach_read_model(Arc::clone(&read_model));
+        let projection_state = Arc::new(state);
+        // Older snapshots may lack the album ID lookup. Rebuild it before
+        // the dispatcher or sequencer can use the state.
+        let rebuilt_albums =
+            crate::projections::albums::AlbumProjection::rebuild_id_index(&projection_state)?;
+        if rebuilt_albums > 0 {
+            projection_state.save_snapshot(data_dir)?;
+        }
+        let snapshot_watermark = projection_state.applied_commit_seq();
+
+        // 7.1 Create barrier. Replay/validation must finish before any writer
+        // task is spawned, so a failed open releases its own process lock.
+        let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&projection_state)));
+
+        // 7.2 Replay events after the snapshot watermark. Replay applies
+        // events while it validates the log, so everything it writes to the
+        // read model is one transaction: committed only when the whole log
+        // replayed, rolled back otherwise.
+        // Returns the highest commit_seq observed on disk (orphans included).
+        read_model.begin_startup(rebuild)?;
+        let replayed = replay::replay_projections(
+            data_dir,
+            &key_registry,
+            &bootstrap_key,
+            &projection_state,
+            &dispatch_table,
+            &barrier,
+            snapshot_watermark,
+        )
+        .await;
+        let replay_high_seq = match replayed {
+            Ok(high) => high,
+            Err(error) => {
                 read_model.rollback();
                 return Err(error);
             }
-            break (projection_state, barrier, replay_high_seq, snapshot_watermark);
         };
+        if let Err(error) = read_model.commit_startup(barrier.current()) {
+            read_model.rollback();
+            return Err(error);
+        }
 
         // 8. Create commit-index batcher
         let commit_index_dir = data_dir.join("global").join("commit-index");
@@ -396,22 +408,26 @@ impl WabiDbEngine {
         let (batcher, batcher_fut) = new_batcher(commit_index_dir, None, None);
         let replication_batcher = Some(batcher.clone());
 
-        // 8.1 Recover the sequencer's high-water mark: the max commit_seq
-        // across the commit index, the on-disk segments (replay scan), and
-        // the snapshot watermark. The sequencer continues ABOVE this number
-        // so a restart never reuses a commit_seq that a prior incarnation
-        // already encrypted with the same derived stream key (nonce reuse,
-        // Council Review #1 §1.1) or recorded in the commit index.
-        let index_high_seq = crate::commit_index::batcher::read_all_entries(
-            &data_dir.join("global").join("commit-index"),
-        )
-        .map(|entries| entries.iter().map(|e| e.commit_seq).max().unwrap_or(0))
-        .unwrap_or(0);
-        let recovered_high_seq = replay_high_seq.max(index_high_seq).max(snapshot_watermark);
+        // 8.1 Recover the sequencer's high-water mark: the highest commit_seq
+        // any durable state names. That is the commit index, the on-disk
+        // segments (replay scan), and every saved projection as it was on
+        // disk before this open changed anything: the snapshot's watermark,
+        // the read model's applied_commit_seq (even of a file that was then
+        // replaced) and the manifest's recorded height. The sequencer
+        // continues ABOVE this number so a restart never reuses a commit_seq
+        // that a prior incarnation already encrypted with the same derived
+        // stream key (nonce reuse, Council Review #1 §1.1) or recorded in
+        // the commit index, whatever was rebuilt above.
+        let recovered_high_seq = replay_high_seq
+            .max(index_high_seq)
+            .max(saved_watermark)
+            .max(model_claimed_seq)
+            .max(manifest_high_seq);
         if recovered_high_seq > 0 {
             tracing::info!(
                 "sequencer continuing above commit_seq {recovered_high_seq} \
-                 (segments={replay_high_seq} index={index_high_seq} snapshot={snapshot_watermark})"
+                 (segments={replay_high_seq} index={index_high_seq} snapshot={saved_watermark} \
+                 read_model={model_claimed_seq} manifest={manifest_high_seq})"
             );
             // Keep the manifest's recorded high-water mark current (best-effort).
             update_manifest_high_seq(data_dir, recovered_high_seq);
@@ -1127,6 +1143,64 @@ async fn acquire_lock_file(lock_path: &std::path::Path) -> Result<Arc<std::fs::F
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+}
+
+/// What startup does with the saved projections, given how far the commit
+/// index reaches: `Ok(true)` to rebuild every projection from the whole log,
+/// `Ok(false)` to load the snapshot and keep the read model, `Err` with the
+/// reason when it must refuse to start.
+///
+/// The log is the source of truth, and both saved projections are derived
+/// from it. But when the log ends below what a saved projection covers, the
+/// log has lost commits and that projection is the only copy of their effect.
+/// Rebuilding from such a log would silently drop them, hand out their
+/// sequence numbers again, and overwrite the evidence at the next checkpoint.
+///
+/// - Log reaches both: rebuild when the read model is missing, unusable or
+///   behind the snapshot; otherwise keep both.
+/// - Log is shorter than one of them: keep both only if the read model is
+///   usable and at exactly the snapshot's watermark (a checkpoint that
+///   outlived its log, which the engine has always opened). Anything else is
+///   refused, and nothing on disk is changed.
+pub(crate) fn plan_startup(
+    index_high_seq: u64,
+    snapshot_watermark: u64,
+    model: &FileState,
+) -> std::result::Result<bool, String> {
+    let (usable, model_seq) = match model {
+        FileState::Missing => (false, 0),
+        FileState::Usable { applied } => (true, *applied),
+        FileState::Unusable { applied, .. } => (false, *applied),
+    };
+    if index_high_seq >= snapshot_watermark.max(model_seq) {
+        return Ok(!usable || model_seq < snapshot_watermark);
+    }
+    if usable && model_seq == snapshot_watermark {
+        return Ok(false);
+    }
+    let model_text = match model {
+        FileState::Missing => "there is no read model".to_string(),
+        FileState::Usable { applied } => format!("the read model covers commit {applied}"),
+        FileState::Unusable { reason, applied } => {
+            format!("the read model claims commit {applied} and cannot be used ({reason})")
+        }
+    };
+    Err(format!(
+        "the commit index ends at commit {index_high_seq}, but projections/snapshot.json covers \
+         commit {snapshot_watermark} and {model_text}; the log has lost commits, and rebuilding \
+         the projections from it would discard their effect. Repair required before startup: \
+         restore the missing files under streams/ and global/commit-index/ from a backup. \
+         Nothing was changed"
+    ))
+}
+
+/// `highest_commit_seq` recorded in the storage manifest, zero when absent.
+pub(crate) fn manifest_high_seq(data_dir: &std::path::Path) -> u64 {
+    std::fs::read_to_string(data_dir.join("storage-manifest.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get("highest_commit_seq").and_then(|v| v.as_u64()))
+        .unwrap_or(0)
 }
 
 /// Best-effort update of the manifest's `highest_commit_seq` so the backup

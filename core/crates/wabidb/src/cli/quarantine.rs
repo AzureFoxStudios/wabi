@@ -63,6 +63,17 @@ pub fn quarantine(data_dir: &Path, commit_seq: u64) -> Result<QuarantineReport> 
         });
     }
 
+    // The read model may already hold this commit's rows (it commits every
+    // commit; the snapshot does so every 1,000). Ask the next start to
+    // rebuild it, before the list is written: a crash in between then costs
+    // a rebuild, not a quarantined commit that is still served. The file is
+    // not deleted here; startup decides, knowing how far the log reaches.
+    if crate::engine::locks::ProjectionState::read_model_path(data_dir).exists() {
+        crate::projections::read_model::ReadModel::request_rebuild(
+            data_dir,
+            &format!("commit {commit_seq} was quarantined"),
+        )?;
+    }
     let (seqs, already_quarantined) = crate::engine::quarantine::append(data_dir, commit_seq)?;
     Ok(QuarantineReport {
         commit_seq,
