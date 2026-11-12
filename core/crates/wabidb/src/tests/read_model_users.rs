@@ -846,8 +846,11 @@ fn matrix_reads(state: &ProjectionState) -> String {
     let profiles: Vec<u64> = (1..=30u64)
         .filter(|id| state.get(game_profiles::INDEX, &id.to_be_bytes()).is_some())
         .collect();
+    // Set by every membership change, and since generation 4 (PR 349) by a
+    // user deletion that removes a member.
+    let revision = crate::projections::channel_members::ChannelMembersProjection::revision(state, "group-x").unwrap();
     format!(
-        "{}profiles {profiles:?}\nrecovery {:?}\nmembers {members:?}\nfingerprint {:?}\n",
+        "{}profiles {profiles:?}\nrecovery {:?}\nmembers {members:?} revision {revision}\nfingerprint {:?}\n",
         all_user_reads(state),
         recovery_rows(state),
         state.content_fingerprint(u64::MAX, u64::MAX).unwrap(),
@@ -884,7 +887,7 @@ async fn every_snapshot_and_read_model_pair_restarts_to_the_live_state() {
         saved.push((Some(std::fs::read(&snapshot).unwrap()), Some(std::fs::read(&file).unwrap())));
     }
     let digest = crate::engine::offline_inspect::read_model_content_digest(path).unwrap();
-    for expected in ["profiles [14]", "members []", "login alicia: [UserRecord { user_id: 20, username: \"ALICIA\""] {
+    for expected in ["profiles [14]", "members [] revision 19", "login alicia: [UserRecord { user_id: 20, username: \"ALICIA\""] {
         assert!(live.contains(expected), "{expected} missing from\n{live}");
     }
 

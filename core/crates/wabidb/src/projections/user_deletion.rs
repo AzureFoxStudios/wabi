@@ -11,10 +11,12 @@ use crate::projections::users::decode_record as decode_user;
 /// registration is a startup error), so this projection owns `user_deleted`
 /// and cascades the removal across every index that keys rows by user:
 ///
-/// - `users` — the account row itself.
+/// - `users` — the account row itself, in the SQLite read model.
 /// - `channel_members` — memberships in every channel, in the SQLite read
 ///   model (scan + targeted remove; the key is `[len][channel_id][user_id LE]`
-///   so it cannot be prefix-scanned by user). Startup replay skips this part
+///   so it cannot be prefix-scanned by user), and the revision of each
+///   channel it removed a row from, set to this commit as a membership event
+///   sets it. Startup replay skips this part
 ///   for commits the read model already holds, and a rebuild of the read
 ///   model applies only this part ([`Projection::apply_to_read_model`]).
 /// - `dm_identities` — all per-device identity/prekey bundles (keyed
@@ -38,7 +40,7 @@ impl Projection for UserDeletionProjection {
         // already hold this commit.
         if event.commit_seq > state.read_model().replay_floor() {
             crate::projections::users::remove_while_applying(state, user_id)?;
-            crate::projections::channel_members::remove_user_while_applying(state, user_id)?;
+            crate::projections::channel_members::remove_user_while_applying(state, user_id, event.commit_seq)?;
         }
 
         state.remove(crate::projections::game_profiles::INDEX, &user_id.to_be_bytes());
@@ -63,7 +65,7 @@ impl Projection for UserDeletionProjection {
     fn apply_to_read_model(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let user_id = decode_payload(&event.payload)?.user_id;
         crate::projections::users::remove_while_applying(state, user_id)?;
-        crate::projections::channel_members::remove_user_while_applying(state, user_id)
+        crate::projections::channel_members::remove_user_while_applying(state, user_id, event.commit_seq)
     }
 }
 
@@ -196,6 +198,46 @@ mod tests {
         assert!(Members::get_member(&state, "ch_a", 7).unwrap().is_some());
     }
 
+    /// The cascade is a membership change of every channel it removes a row
+    /// from, so it sets those channels' revision to its commit, as a
+    /// membership event does; other channels keep theirs. Consumers (call
+    /// rejoin, E2EE room status, group snapshots) compare the revision.
+    #[test]
+    fn the_cascade_sets_the_revision_of_each_channel_it_changes() {
+        use crate::projections::channel_members::ChannelMembersProjection;
+        let state = ProjectionState::new();
+        seed_user(&state, 42, "Guest_abc");
+        let join = |commit_seq, channel: &str, user_id| {
+            ChannelMembersProjection
+                .apply(
+                    &DurableEvent {
+                        commit_seq,
+                        stream_id: format!("channel_members:{channel}"),
+                        event_type: "channel_member_added".into(),
+                        payload: encode_member(&ChannelMemberRecord {
+                            channel_id: channel.into(),
+                            user_id,
+                            joined_at_micros: 1,
+                            role: 0,
+                            nick: None,
+                        }),
+                    },
+                    &state,
+                )
+                .unwrap()
+        };
+        join(1, "ch_a", 42);
+        join(2, "ch_b", 42);
+        join(3, "ch_a", 7);
+        join(4, "ch_c", 7);
+
+        UserDeletionProjection.apply(&deletion_event(42), &state).unwrap();
+
+        assert_eq!(Members::revision(&state, "ch_a").unwrap(), 100);
+        assert_eq!(Members::revision(&state, "ch_b").unwrap(), 100);
+        assert_eq!(Members::revision(&state, "ch_c").unwrap(), 4, "an unaffected channel changed");
+    }
+
     /// A rebuild of the read model over a commit the snapshot covers removes
     /// the account row and the memberships, which live in the read model, and
     /// leaves the in-memory rows alone: the snapshot already reflects the
@@ -220,6 +262,8 @@ mod tests {
             .unwrap();
 
         assert!(Members::get_member(&state, "ch_a", 42).unwrap().is_none());
+        assert_eq!(Members::revision(&state, "ch_a").unwrap(), 100, "the rebuild sets the revision as live does");
+        assert_eq!(Members::revision(&state, "ch_b").unwrap(), 0, "a channel the user was not in changed");
         assert!(!user_exists(&state, 42), "the account row is in the read model");
         assert!(
             state.get(crate::projections::game_profiles::INDEX, &42u64.to_be_bytes()).is_some(),

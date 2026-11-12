@@ -20,7 +20,11 @@ pub(crate) const SCHEMA_VERSION: i64 = 4;
 /// - a record type gets a new version in `format::versioned`, or
 /// - a projection handler whose rows live in the read model changes what it
 ///   stores for an event (keys, values, which events it applies).
-pub const READ_MODEL_GENERATION: i64 = 4;
+///
+/// History: 2 added channels, 3 channel members, 4 the membership revision
+/// that a user deletion sets (PR 349), 5 users (Task 3.5.4; it would have
+/// been 4, which PR 349 took first).
+pub const READ_MODEL_GENERATION: i64 = 5;
 
 /// The Unicode version of this build's `str::to_lowercase`, as
 /// `major.minor.update`. Stored in `read_model_meta` next to the generation:
