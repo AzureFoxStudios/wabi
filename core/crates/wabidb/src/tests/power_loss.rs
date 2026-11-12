@@ -1204,7 +1204,8 @@ fn crash_between_read_model_sync_and_snapshot_keeps_members() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let expected = (
         7,
-        groups(&[("group-a", &[1], 7), ("group-b", &[1], 3), ("group-c", &[], 4), ("group-d", &[5], 6)]),
+        // group-c's revision is the deletion (commit 5), which removed user 5 from it.
+        groups(&[("group-a", &[1], 7), ("group-b", &[1], 3), ("group-c", &[], 5), ("group-d", &[5], 6)]),
     );
     assert_eq!(rt.block_on(members_after_crash(dir.path())), expected);
     assert_eq!(rt.block_on(members_after_crash(dir.path())), expected);
