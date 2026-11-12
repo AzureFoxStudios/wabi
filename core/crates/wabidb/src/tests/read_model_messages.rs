@@ -1211,7 +1211,9 @@ async fn measure_read_model_rebuild() {
         commit(&engine, events).await.unwrap();
     }
     println!("{total} messages written in {:.1?}", started.elapsed());
+    let closing = std::time::Instant::now();
     close(engine, dir.path()).await;
+    println!("close (drop until the advisory lock is released): {:.1?}", closing.elapsed());
     let file = read_model_file(dir.path());
     let size = |path: &Path| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) as f64 / 1e6;
     println!("read model file: {:.1} MB", size(&file));
