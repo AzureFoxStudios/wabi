@@ -186,9 +186,10 @@ jobs:
 
       # The Lore integration tests are feature-gated (#![cfg(feature = "wabi-lore")]),
       # so `cargo test --workspace` compiles them to nothing. Run each file here.
+      # wabi_sync_contract.rs runs the wabi-sync client against the real router.
       - name: Lore integration tests
         run: |
-          for file in core/crates/wabi-server/tests/lore_*.rs; do
+          for file in core/crates/wabi-server/tests/lore_*.rs core/crates/wabi-server/tests/wabi_sync_contract.rs; do
             cargo test --locked -p wabi-server --features wabi-lore --test "$(basename "$file" .rs)"
           done
 

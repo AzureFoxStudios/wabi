@@ -3,6 +3,12 @@
 //! Lore behaviour these tests are about: an upload can be routed to a review
 //! branch (`pendingReview: true`) and then is not on the mainline until
 //! approved.
+//!
+//! The bodies below are written to match the real handlers in
+//! `core/crates/wabi-server/src/api/lore.rs` key for key. This file is a
+//! second copy of that format and cannot notice when the handlers change;
+//! `core/crates/wabi-server/tests/wabi_sync_contract.rs` runs this client
+//! against the real router and is the test that can.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -92,25 +98,32 @@ fn respond(fake: &Shared, method: &str, target: &str, if_match: Option<&str>, bo
     let path_only = target.split('?').next().unwrap_or("");
     let rest = path_only.strip_prefix("/api/addons/lore/repos/1/").unwrap_or("");
     if method == "GET" && rest == "manifest" {
+        // `repo_manifest`: camelCase keys; each file is a `LoreFileInfo`.
         let files: Vec<_> = f
             .mainline
             .iter()
-            .map(|(p, b)| serde_json::json!({"path": p, "size": b.len(), "etag": f.mainline_etag(p)}))
+            .map(|(p, b)| serde_json::json!({"path": p, "size": b.len(), "status": "clean", "etag": f.mainline_etag(p)}))
             .collect();
-        return json(200, serde_json::json!({"channel_id": 1, "files": files, "head_revision": "h", "read_only": false}));
+        return json(200, serde_json::json!({"channelId": 1, "files": files, "headRevision": "h", "readOnly": false}));
     }
     if method == "GET" && rest == "changes" {
-        return json(200, serde_json::json!({"latest_seq": 0, "changes": []}));
+        // `repo_changes` with an empty feed: `latestSeq` echoes `since`.
+        return json(200, serde_json::json!({"channelId": 1, "since": 0, "latestSeq": 0, "changes": []}));
     }
     let Some(file) = rest.strip_prefix("files/").map(percent_decode) else {
-        return json(404, serde_json::json!({"error": "no route"}));
+        return json(404, serde_json::json!({"error": "no route", "type": "NotFound"}));
     };
     let current = f.mainline_etag(&file);
-    let stale = serde_json::json!({"type": "StaleEtag", "currentEtag": current});
+    // `conflict_response`.
+    let stale = serde_json::json!({
+        "error": "file changed on the server since your last read; re-fetch and reapply",
+        "type": "StaleEtag",
+        "currentEtag": current,
+    });
     match method {
         "GET" => match f.mainline.get(&file) {
             Some(bytes) => (200, bytes.clone()),
-            None => json(404, serde_json::json!({"error": "not found"})),
+            None => json(404, serde_json::json!({"error": "File not found", "type": "NotFound"})),
         },
         "PUT" => {
             if !precondition_ok(if_match, current.clone()) {
@@ -118,32 +131,51 @@ fn respond(fake: &Shared, method: &str, target: &str, if_match: Option<&str>, bo
             }
             f.puts.push(file.clone());
             f.clock += 1;
-            let etag = server_etag(&body, f.clock);
+            // `upload_file`: the top-level `etag` is the SHA-256 of the body,
+            // whatever its size. `file` describes the stored copy (on the
+            // review branch when the upload went there), and its etag is the
+            // one the manifest lists and If-Match is checked against.
+            let body_etag = etag_for_bytes(&body);
+            let stored_etag = server_etag(&body, f.clock);
+            let size = body.len();
             let pending = f.route_to_review;
             if pending {
-                f.review.insert(file, body);
+                f.review.insert(file.clone(), body);
             } else {
                 let stamp = f.clock;
                 f.stamps.insert(file.clone(), stamp);
-                f.mainline.insert(file, body);
+                f.mainline.insert(file.clone(), body);
             }
             json(200, serde_json::json!({
-                "etag": etag,
-                "revision": {"hash": "r"},
+                "revision": {
+                    "hash": "r",
+                    "revision_number": 1,
+                    "message": "fixture",
+                    "author": null,
+                    "timestamp": "",
+                    "parent": null,
+                },
+                "file": {"path": file, "size": size, "status": "added", "etag": stored_etag},
+                "etag": body_etag,
                 "pendingReview": pending,
                 "reviewBranch": if pending { Some("uploads/test") } else { None },
+                "wdbRecorded": true,
+                "cursor": 0,
             }))
         }
         "DELETE" => {
             if f.delete_forbidden {
-                return json(403, serde_json::json!({"error": "forbidden", "type": "Forbidden"}));
+                return json(403, serde_json::json!({
+                    "error": "Lore asset deletion requires at least Artist role",
+                    "type": "Forbidden",
+                }));
             }
             if !precondition_ok(if_match, current) {
                 return json(409, stale);
             }
             f.deletes.push(file.clone());
             f.mainline.remove(&file);
-            json(200, serde_json::json!({"ok": true}))
+            json(200, serde_json::json!({"status": "ok", "cursor": 0}))
         }
         _ => json(405, serde_json::json!({"error": "method"})),
     }
