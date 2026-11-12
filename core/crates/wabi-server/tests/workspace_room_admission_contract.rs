@@ -239,7 +239,7 @@ async fn forum_and_incident_adapters_keep_local_workflows_and_refuse_remote_muta
     drop(state);
     drop(store);
     let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = writer_drain::retry(
         || WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into()),

@@ -114,6 +114,9 @@ tower = { version = "0.5", features = ["util", "timeout"] }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # The real sync client, driven against the real router in tests/wabi_sync_contract.rs.
 wabi-sync = { path = "../../../crates/wabi-sync" }
+# Tests change a stopped engine's SQLite read model directly; the server itself
+# never opens it (wabidb does).
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [features]
 default = []

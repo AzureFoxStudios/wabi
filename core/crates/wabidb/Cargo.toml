@@ -50,6 +50,10 @@ toml = "0.8"
 # Async trait support (SyncTransport trait)
 async-trait = "0.1"
 
+# SQLite read model for projections (ADR-0001). Bundled so the server needs no
+# system library; no rusqlite type is part of this crate's public API.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
 [[bench]]
 name = "commit_throughput"
 harness = false

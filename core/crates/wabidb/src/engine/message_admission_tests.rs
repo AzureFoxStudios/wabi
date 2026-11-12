@@ -65,8 +65,13 @@ fn guard(room: &str, owner: &str) -> RoomOwnerPrecondition {
     }
 }
 
+/// A directory last written by a build that kept messages in the snapshot:
+/// `snapshot.json` lists their indexes (here with a stale body under the real
+/// key and damaged secondary indexes, which used to fail the open) and there is
+/// no read model. The engine does not load those indexes. It rebuilds messages
+/// from the log, so the body and the lookup by ID are the log's.
 #[tokio::test]
-async fn open_backfills_message_id_lookup_from_legacy_snapshot() {
+async fn open_ignores_legacy_snapshot_message_indexes_and_rebuilds_from_the_log() {
     let dir = tempfile::tempdir().unwrap();
     let engine = WabiDbEngine::open(config(dir.path())).await.unwrap();
     engine.get_or_create_stream_key("ch_a").await.unwrap();
@@ -90,8 +95,22 @@ async fn open_backfills_message_id_lookup_from_legacy_snapshot() {
     let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
     let (legacy, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
     assert_eq!(watermark, outcome.commit_seq);
-    legacy.remove(message_lookup::INDEX, &message_lookup::key("ch_a", "msg_a"));
+    let mut stale = row.clone();
+    stale.encrypted_body_ref = "stale snapshot body".into();
+    legacy.insert(
+        "messages",
+        crate::projections::messages::encode_key("ch_a", "msg_a"),
+        encode_record(&stale),
+        watermark,
+    );
+    legacy.insert(
+        message_lookup::INDEX,
+        b"msg_a".to_vec(),
+        b"wrong-target".to_vec(),
+        watermark,
+    );
     legacy.save_snapshot(dir.path()).unwrap();
+    crate::projections::read_model::ReadModel::remove_files(dir.path()).unwrap();
     drop(stopped);
     let restarted = crate::tests::reopen_after_drop(config(dir.path()), None)
         .await
@@ -99,9 +118,8 @@ async fn open_backfills_message_id_lookup_from_legacy_snapshot() {
     let state = restarted.projection_state();
     assert_eq!(state.applied_commit_seq(), watermark);
     assert_eq!(message_lookup::get(&state, "msg_a").unwrap(), Some(row));
-    let (persisted, saved_watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
-    assert_eq!(saved_watermark, watermark);
-    assert_eq!(persisted.index_len(message_lookup::INDEX), 1);
+    assert_eq!(crate::projections::messages::stored_message_count(&state), 1);
+    assert!(ProjectionState::read_model_path(dir.path()).is_file());
 }
 
 #[tokio::test]
@@ -162,7 +180,7 @@ async fn queued_message_parent_survives_rebind_refusal_and_event_replay() {
     drop(sender);
     drop(engine);
     let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = crate::tests::reopen_after_drop(config(dir.path()), None)
         .await
@@ -177,67 +195,6 @@ async fn queued_message_parent_survives_rebind_refusal_and_event_replay() {
             .unwrap(),
         vec![reaction("msg_a")]
     );
-}
-
-#[tokio::test]
-async fn corrupt_message_snapshot_refuses_open_without_replacing_it_or_leaking_lock() {
-    for wrong_pointer in [false, true] {
-        let dir = tempfile::tempdir().unwrap();
-        let engine = WabiDbEngine::open(config(dir.path())).await.unwrap();
-        engine.get_or_create_stream_key("ch_a").await.unwrap();
-        let row = record("ch_a", "msg_a");
-        engine
-            .run_command(
-                command(
-                    vec![event("message_created", "ch_a", encode_record(&row))],
-                    None,
-                )
-                .0,
-            )
-            .await
-            .unwrap();
-        drop(engine);
-        let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
-        let (damaged, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
-        if wrong_pointer {
-            // The lookup and primary counts still match; counts alone cannot
-            // certify that a snapshot's pointers are valid.
-            damaged.insert(
-                message_lookup::INDEX,
-                message_lookup::key("ch_a", "msg_a"),
-                b"wrong-target".to_vec(),
-                watermark,
-            );
-        } else {
-            damaged.remove(
-                "messages",
-                &crate::projections::messages::encode_key("ch_a", "msg_a"),
-            );
-            damaged.insert(
-                "messages",
-                b"wrong-key".to_vec(),
-                encode_record(&row),
-                watermark,
-            );
-        }
-        damaged.save_snapshot(dir.path()).unwrap();
-        let before = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
-        drop(stopped);
-        let error = crate::tests::reopen_after_drop(config(dir.path()), None)
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(error, WabiError::Corrupt { location, .. } if location == message_lookup::INDEX)
-        );
-        assert_eq!(
-            std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap(),
-            before
-        );
-        assert!(dir.path().join(".lock").exists());
-        assert!(super::locks::try_acquire_process_lock(&dir.path().join(".lock"))
-            .unwrap()
-            .is_some());
-    }
 }
 
 #[tokio::test]
@@ -276,7 +233,10 @@ async fn failed_preparation_does_not_admit_a_queued_reaction() {
         matches!(react_rx.await.unwrap(), Err(WabiError::Validation { command, .. }) if command == "room_owner_precondition")
     );
     assert_eq!(engine.barrier().current(), 0);
-    assert_eq!(engine.projection_state().index_len("messages"), 0);
+    assert_eq!(
+        crate::projections::messages::stored_message_count(&engine.projection_state()),
+        0
+    );
     assert_eq!(engine.projection_state().index_len("reactions"), 0);
     assert_eq!(
         crate::commit_index::batcher::read_all_entries(&dir.path().join("global/commit-index"))
@@ -498,7 +458,7 @@ async fn removed_reaction_stays_removed_after_reopen_and_replay() {
     // Restart that must rebuild projections from the durable log.
     drop(reopened);
     let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let replayed = crate::tests::reopen_after_drop(config(dir.path()), None)
         .await

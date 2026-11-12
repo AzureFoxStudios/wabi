@@ -4162,8 +4162,21 @@ mod breakout_channel_security_tests {
             "parent authority must be in the creation commit, not a later patch");
         assert_eq!(adapter.get_channel(&child).await.unwrap().unwrap().parent_id.as_deref(), Some(parent.as_str()));
         drop(adapter);
-        wabidb::engine::locks::ProjectionState::remove_snapshot(dir.path());
-        let reopened = WdbAdapter::open(dir.path()).await.unwrap();
+        wabidb::engine::locks::ProjectionState::remove_saved_projections_for_tests(dir.path());
+        // Dropping does not wait for the engine to stop: retry only on
+        // `AlreadyRunning`, every 10 ms, up to 5 s.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let reopened = loop {
+            match WdbAdapter::open(dir.path()).await {
+                Err(error)
+                    if std::time::Instant::now() < deadline
+                        && matches!(error, wabidb::error::WabiError::AlreadyRunning) =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await
+                }
+                other => break other.unwrap(),
+            }
+        };
         assert_eq!(reopened.get_channel(&child).await.unwrap().unwrap().parent_id.as_deref(), Some(parent.as_str()));
     }
 }

@@ -44,7 +44,7 @@ async fn stopped_backfill_previews_commits_and_refuses_fenced_data() {
     let data = tmp.path().join("data");
     let uploads = tmp.path().join("uploads");
     std::fs::create_dir_all(&uploads).unwrap();
-    let adapter = WdbAdapter::open(&data.join("wabidb")).await.unwrap();
+    let adapter = open_released(&data.join("wabidb")).await;
     let registry = UploadRegistry::new_persistent(&data).unwrap();
     registry
         .record(
@@ -70,7 +70,7 @@ async fn stopped_backfill_previews_commits_and_refuses_fenced_data() {
     assert_eq!(preview_json["applied"], false);
     assert_eq!(preview_json["report"]["eligible"], 1);
     assert_eq!(preview_json["report"]["committed"], 0);
-    let adapter = WdbAdapter::open(&data.join("wabidb")).await.unwrap();
+    let adapter = open_released(&data.join("wabidb")).await;
     assert!(adapter
         .engine()
         .projection_state()
@@ -86,7 +86,7 @@ async fn stopped_backfill_previews_commits_and_refuses_fenced_data() {
     );
     let applied_json: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
     assert_eq!(applied_json["report"]["committed"], 1);
-    let adapter = WdbAdapter::open(&data.join("wabidb")).await.unwrap();
+    let adapter = open_released(&data.join("wabidb")).await;
     assert!(adapter
         .engine()
         .projection_state()
@@ -98,4 +98,22 @@ async fn stopped_backfill_previews_commits_and_refuses_fenced_data() {
     let fenced = run_backfill(&data, &uploads, true).await;
     assert!(!fenced.status.success());
     assert!(String::from_utf8_lossy(&fenced.stderr).contains("refusing to backfill"));
+}
+
+/// Open the adapter once a previous one on the same directory has released the
+/// engine's advisory lock (dropping an adapter does not wait for the engine to
+/// stop). Retries only on `AlreadyRunning`, every 10 ms, for up to 5 s.
+async fn open_released(dir: &std::path::Path) -> wabi_server::adapter::WdbAdapter {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match wabi_server::adapter::WdbAdapter::open(dir).await {
+            Err(error)
+                if std::time::Instant::now() < deadline
+                    && matches!(error, wabidb::error::WabiError::AlreadyRunning) =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await
+            }
+            other => return other.unwrap(),
+        }
+    }
 }

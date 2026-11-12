@@ -71,7 +71,7 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
         });
     }
     let quarantine = super::quarantine_for_report(data_dir, &mut errors);
-    let snapshot_watermark = super::snapshot_watermark_for_report(data_dir, &mut errors);
+    let snapshot_watermark = super::snapshot_watermark_for_report(data_dir, &mut errors, &mut warnings);
 
     let index_dir = data_dir.join("global").join("commit-index");
     // Without a readable index there is nothing to match records against;
@@ -485,5 +485,40 @@ mod tests {
             report.errors.iter().any(|e| e.contains("[5]") && e.contains("above every commit on disk (4)")),
             "{report:#?}"
         );
+    }
+    /// `check` and `verify` say what the engine does, also when the saved
+    /// projections differ. The checkpoint has outlived the log and a seq
+    /// under it is quarantined: with the read model at the checkpoint the
+    /// engine starts (the test above); without a read model it refuses to
+    /// rebuild from the short log, and both commands report that refusal.
+    #[tokio::test]
+    async fn check_and_verify_agree_with_the_engine_about_a_missing_read_model() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        remove_segments(dir.path());
+        for file in std::fs::read_dir(dir.path().join("global").join("commit-index")).unwrap() {
+            std::fs::remove_file(file.unwrap().path()).unwrap();
+        }
+        std::fs::write(
+            crate::engine::quarantine::path(dir.path()),
+            br#"{"version":1,"commit_seqs":[3]}"#,
+        )
+        .unwrap();
+        const REFUSAL: &str = "the engine refuses to start";
+        assert!(!check(dir.path()).await.unwrap().errors.iter().any(|e| e.contains(REFUSAL)));
+
+        std::fs::remove_file(crate::engine::locks::ProjectionState::read_model_path(dir.path()))
+            .unwrap();
+        let reopened =
+            crate::tests::reopen_after_drop(crate::cli::test_support::config(dir.path()), None).await;
+        let error = reopened.err().expect("the engine rebuilt from a log shorter than its checkpoint");
+        assert!(error.to_string().contains("covers commit 4"), "{error}");
+        drop(crate::tests::wait_for_stopped_engine(dir.path()).await);
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok);
+        assert!(report.errors.iter().any(|e| e.contains(REFUSAL)), "{report:#?}");
+        let verified = crate::cli::verify::verify(dir.path()).await.unwrap();
+        assert!(!verified.ok);
+        assert!(verified.errors.iter().any(|e| e.contains(REFUSAL)), "{verified:#?}");
     }
 }

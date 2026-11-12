@@ -238,6 +238,24 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    /// Open the adapter once a previous one on the same directory has released the
+    /// engine's advisory lock (dropping an adapter does not wait for the engine to
+    /// stop). Retries only on `AlreadyRunning`, every 10 ms, for up to 5 s.
+    async fn open_released(dir: &std::path::Path) -> WdbAdapter {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match WdbAdapter::open(dir).await {
+                Err(error)
+                    if std::time::Instant::now() < deadline
+                        && matches!(error, wabidb::error::WabiError::AlreadyRunning) =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await
+                }
+                other => return other.unwrap(),
+            }
+        }
+    }
+    
     use super::*;
     use wabidb::domain::Channel;
 
@@ -246,7 +264,7 @@ mod tests {
     async fn legacy_call_snapshot(sessions: &[wabidb::domain::CallSession]) -> tempfile::TempDir {
         use wabidb::projections::handler::{DurableEvent, Projection};
         let dir = tempfile::tempdir().unwrap();
-        let store = WdbAdapter::open(&dir.path().join("wabidb")).await.unwrap();
+        let store = open_released(&dir.path().join("wabidb")).await;
         for session in sessions {
             call_sessions::CallSessionsProjection
                 .apply(
@@ -323,7 +341,7 @@ mod tests {
         .unwrap();
         assert_eq!(repeated.already_placed, 2);
         assert_eq!(repeated.selected, 0);
-        let store = WdbAdapter::open(&dir.path().join("wabidb")).await.unwrap();
+        let store = open_released(&dir.path().join("wabidb")).await;
         for session in [&active, &ended] {
             assert_eq!(
                 store
@@ -384,7 +402,7 @@ mod tests {
             })
             .await
             .is_err());
-            let store = WdbAdapter::open(&dir.path().join("wabidb")).await.unwrap();
+            let store = open_released(&dir.path().join("wabidb")).await;
             assert_eq!(store.engine().projection_state().index_len(INDEX), 0);
             assert_eq!(store.engine().barrier().current(), 0);
         }
@@ -403,7 +421,7 @@ mod tests {
         );
         for collision in [Some(false), Some(true), None] {
             let dir = legacy_call_snapshot(std::slice::from_ref(&session)).await;
-            let store = WdbAdapter::open(&dir.path().join("wabidb")).await.unwrap();
+            let store = open_released(&dir.path().join("wabidb")).await;
             let state = store.engine().projection_state();
             if let Some(inactive) = collision {
                 let room_id =
@@ -434,7 +452,7 @@ mod tests {
             })
             .await
             .is_err());
-            let store = WdbAdapter::open(&dir.path().join("wabidb")).await.unwrap();
+            let store = open_released(&dir.path().join("wabidb")).await;
             assert_eq!(store.engine().projection_state().index_len(INDEX), 0);
             assert_eq!(store.engine().barrier().current(), 0);
         }
@@ -444,7 +462,7 @@ mod tests {
     async fn stopped_backfill_previews_applies_and_replays_legacy_room() {
         let dir = tempfile::tempdir().unwrap();
         let wdb_dir = dir.path().join("wabidb");
-        let store = WdbAdapter::open(&wdb_dir).await.unwrap();
+        let store = open_released(&wdb_dir).await;
         store
             .engine()
             .get_or_create_stream_key("channels")

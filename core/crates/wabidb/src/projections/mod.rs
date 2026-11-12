@@ -34,6 +34,7 @@ pub mod project_tasks;
 pub mod project_runs;
 pub mod query;
 pub mod reactions;
+pub mod read_model;
 pub mod recovery_codes;
 pub mod rebuild_auth;
 pub mod registry;
