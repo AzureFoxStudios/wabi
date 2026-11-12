@@ -13,30 +13,58 @@ use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 /// What every conflict copy has in its file name.
 const CONFLICT_MARKER: &str = ".wabi-conflict-";
 
-/// Paths never synced regardless of ignore files, in either direction:
-/// - this tool's own link file and state directory;
+/// A name the server refuses as repository metadata, in any directory and
+/// in any letter case (`reserved` and `ignore_file` in the Lore addon's
+/// `confined_fs.rs`).
+fn server_refuses(component: &str) -> bool {
+    let name = component.to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        ".git"
+            | ".lore"
+            | ".mirror-cache"
+            | ".wabi-repo.json"
+            | ".wabi-mirror-fetched-at"
+            | ".wabiignore"
+            | ".loreignore"
+    ) || name.starts_with(".wabi-publish-")
+}
+
+/// Is `name` a file name `save_conflict_copy` produces? That is
+/// `<file>.wabi-conflict-<tag>` or `<file>.wabi-conflict-<tag>-<n>`, where
+/// the tag is `deleted`, `changed`, or the first eight characters of an etag
+/// (hex digits, after `q-` for a file over the full-hash limit). Nothing
+/// else that happens to contain the marker is one.
+fn is_conflict_copy(name: &str) -> bool {
+    let Some((original, tag)) = name.rsplit_once(CONFLICT_MARKER) else {
+        return false;
+    };
+    let is_tag = |tag: &str| {
+        let digits = tag.strip_prefix("q-").unwrap_or(tag);
+        matches!(tag, "deleted" | "changed")
+            || (tag.len() <= 8 && !digits.is_empty() && digits.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+    };
+    let numbered = |tag: &str| {
+        tag.rsplit_once('-')
+            .is_some_and(|(tag, n)| is_tag(tag) && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    };
+    !original.is_empty() && (is_tag(tag) || numbered(tag))
+}
+
+/// The directories never walked: this folder's own state directory, and the
+/// ones the server refuses.
+fn is_internal_dir(rel: &str) -> bool {
+    rel.split('/').next() == Some(STATE_DIR) || rel.split('/').any(server_refuses)
+}
+
+/// Files never synced regardless of ignore files, in either direction, and
+/// without a word in the report:
+/// - this folder's own link file and state directory, which exist at its
+///   root only (the same names deeper down are ordinary files);
 /// - conflict copies, which belong to the folder they were made in;
-/// - the names the server refuses as repository metadata, at any depth and
-///   in any letter case (`reserved` and `ignore_file` in the Lore addon's
-///   `confined_fs.rs`).
+/// - the names the server refuses.
 fn is_internal(rel: &str) -> bool {
-    rel.split('/').any(|component| {
-        let name = component.to_ascii_lowercase();
-        name == LINK_FILE
-            || name == STATE_DIR
-            || name.contains(CONFLICT_MARKER)
-            || matches!(
-                name.as_str(),
-                ".git"
-                    | ".lore"
-                    | ".mirror-cache"
-                    | ".wabi-repo.json"
-                    | ".wabi-mirror-fetched-at"
-                    | ".wabiignore"
-                    | ".loreignore"
-            )
-            || name.starts_with(".wabi-publish-")
-    })
+    rel == LINK_FILE || is_internal_dir(rel) || rel.rsplit('/').next().is_some_and(is_conflict_copy)
 }
 
 /// Glob-style `.wabiignore` matching: `**` spans `/`, `*` within a segment.
@@ -138,7 +166,7 @@ pub fn scan_local(folder: &Path) -> anyhow::Result<BTreeMap<String, String>> {
             let Ok(rel) = path.strip_prefix(folder) else { continue };
             let rel = rel.to_string_lossy().replace('\\', "/");
             if path.is_dir() {
-                if !is_internal(&format!("{rel}/")) && !ignored(&rel, patterns) {
+                if !is_internal_dir(&rel) && !ignored(&rel, patterns) {
                     walk(&path, folder, patterns, out)?;
                 }
                 continue;
@@ -336,7 +364,12 @@ impl<'a> SyncEngine<'a> {
             self.record_download(path, &bytes, server_etag)?;
             return Ok(());
         }
-        let tag = server_etag.chars().take(8).collect::<String>();
+        let mut tag = server_etag.chars().take(8).collect::<String>();
+        if !is_conflict_copy(&format!("x{CONFLICT_MARKER}{tag}")) {
+            // An etag of no known shape: the copy must still be one this
+            // client recognises, or the next round would upload it.
+            tag = "changed".to_string();
+        }
         let copy = save_conflict_copy(&local_file, &mine, &tag)?;
         std::fs::write(&local_file, &bytes)?;
         self.state.pending_review.remove(path);
@@ -778,8 +811,6 @@ mod tests {
             ".wabiignore",
             "sub/.WabiIgnore",
             "sub/.loreignore",
-            "nested/.wabi-sync/state.json",
-            "nested/.wabi-sync.json",
         ] {
             assert!(is_internal(path), "{path}");
         }
