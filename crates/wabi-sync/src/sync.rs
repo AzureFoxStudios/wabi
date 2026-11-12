@@ -381,10 +381,9 @@ impl<'a> SyncEngine<'a> {
     /// state file is there and cannot be read.
     pub fn new(client: &'a WabiClient, folder: &'a Path, link: &'a LinkConfig) -> anyhow::Result<Self> {
         let lock = FolderLock::acquire(folder)?;
-        // A state recorded for another server or channel is not this link's.
+        // A state recorded for another server or channel is refused.
         let owner = StateOwner::new(client.server_url(), link.channel_id);
         let mut state = SyncState::for_owner(folder, owner)?;
-        let notice: Option<String> = None;
         // An earlier build synced conflict copies like any other file. With
         // no record of them here they are neither deleted nor replaced, on
         // the server or in the folder.
@@ -392,7 +391,7 @@ impl<'a> SyncEngine<'a> {
         state.pending_review.retain(|path, _| !is_internal(path));
         state.local_fingerprints.retain(|path, _| !is_internal(path));
         state.refused_uploads.retain(|path, _| !is_internal(path));
-        Ok(Self { client, folder, link, state, notices: notice.into_iter().collect(), allow_mass_delete: false, _lock: lock })
+        Ok(Self { client, folder, link, state, notices: Vec::new(), allow_mass_delete: false, _lock: lock })
     }
 
     pub fn save_state(&self) -> anyhow::Result<()> {

@@ -77,20 +77,66 @@ impl LinkConfig {
         Ok(())
     }
 
-    /// What `wabi-sync link` does to a folder. (Stub: the owner and
-    /// `keep_state` are not looked at yet.)
+    /// What `wabi-sync link` does to a folder: it writes the link file,
+    /// and decides what becomes of the folder's sync state. `owner` is what
+    /// the next round will sync with (the server the client talks to, and
+    /// this channel).
+    ///
+    /// - A state recorded for `owner`, or one with no owner recorded found
+    ///   with this very link, stays and is used.
+    /// - Any other state is moved aside to `.wabi-sync/state.json.previous-link`
+    ///   (then `.2`, `.3`, …; none is ever written over), and the next round
+    ///   starts as a fresh link: with no baseline nothing is deleted on
+    ///   either side, and a file that differs is kept as a conflict copy.
+    /// - With `keep_state` it stays instead and is recorded for `owner`: the
+    ///   user's word that this is the same repository under another address.
+    ///
+    /// A link that changes nothing is not written again. While another
+    /// wabi-sync process works the folder, `link` waits for nothing and fails.
     pub fn link(&self, folder: &Path, owner: &StateOwner, keep_state: bool) -> anyhow::Result<Linked> {
-        let _ = (owner, keep_state);
         let previous = Self::load(folder).ok();
-        if previous.as_ref() == Some(self) {
-            return Ok(Linked::Unchanged);
-        }
-        self.save(folder)?;
-        Ok(match previous {
-            Some(previous) if SyncState::path_for(folder).exists() => {
-                Linked::Replaced { previous: Some(previous), state_moved_to: None }
+        let _lock = if folder.join(STATE_DIR).exists() { Some(FolderLock::acquire(folder)?) } else { None };
+        let same_link = previous.as_ref().is_some_and(|p| {
+            p.channel_id == self.channel_id && normalize_server_url(&p.server_url) == normalize_server_url(&self.server_url)
+        });
+        let state_path = SyncState::path_for(folder);
+        let mut outcome = None;
+        if state_path.exists() {
+            let state = SyncState::load(folder).ok();
+            let recorded = match state.as_ref().and_then(|s| s.owner.clone()) {
+                Some(recorded) => Some(recorded),
+                // An older build's state belongs to the link it is found with.
+                None if state.is_some() => previous.as_ref().map(|p| StateOwner::new(&p.server_url, p.channel_id)),
+                None => None,
+            };
+            let belongs = match &recorded {
+                Some(recorded) => recorded.same(owner),
+                None => state.is_some() && same_link,
+            };
+            match (belongs, keep_state, state) {
+                (true, _, _) => {}
+                (false, true, Some(mut state)) => {
+                    state.owner = Some(owner.clone());
+                    state.save(folder)?;
+                    outcome = Some(Linked::KeptState { previous: recorded.unwrap_or_else(|| owner.clone()) });
+                }
+                // Another link's, or not readable: out of the way, whole.
+                (false, _, _) => {
+                    let moved = move_aside(&state_path)?;
+                    outcome = Some(Linked::Replaced { previous: previous.clone(), state_moved_to: Some(moved) });
+                }
             }
-            _ => Linked::New,
+        }
+        if previous.as_ref() != Some(self) {
+            self.save(folder)?;
+        }
+        Ok(match outcome {
+            Some(outcome) => outcome,
+            None if previous.as_ref() == Some(self) => Linked::Unchanged,
+            None if previous.is_some() && state_path.exists() => {
+                Linked::Replaced { previous, state_moved_to: None }
+            }
+            None => Linked::New,
         })
     }
 
@@ -111,6 +157,21 @@ impl LinkConfig {
     }
 }
 
+/// Move the state file at `path` to the first free name of
+/// `state.json.previous-link`, `state.json.previous-link.2`, …
+fn move_aside(path: &Path) -> anyhow::Result<PathBuf> {
+    for n in 1u32.. {
+        let name = if n == 1 { "state.json.previous-link".to_string() } else { format!("state.json.previous-link.{n}") };
+        let target = path.with_file_name(name);
+        if target.symlink_metadata().is_err() {
+            std::fs::rename(path, &target)
+                .map_err(|e| anyhow::anyhow!("cannot move {} aside to {}: {e}", path.display(), target.display()))?;
+            return Ok(target);
+        }
+    }
+    unreachable!("u32 names run out")
+}
+
 /// What `LinkConfig::link` found and did.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Linked {
@@ -118,8 +179,8 @@ pub enum Linked {
     New,
     /// The folder was already linked to this server and channel.
     Unchanged,
-    /// The folder was linked elsewhere and has sync state from then. The
-    /// state stays on disk and the next round does not use it.
+    /// The link changed. When the folder had state for another link, it was
+    /// moved to `state_moved_to` and the next round starts as a fresh link.
     Replaced { previous: Option<LinkConfig>, state_moved_to: Option<PathBuf> },
     /// The state was recorded for another address of the same repository
     /// and now belongs to this link (`--keep-state`).
@@ -134,14 +195,36 @@ pub struct StateOwner {
     pub channel_id: i64,
 }
 
-/// (Stub.)
+/// A server address in the one spelling used to compare owners: scheme and
+/// host in lower case, no default port, no trailing slash. Two spellings of
+/// one address are one owner; two addresses of one machine (`127.0.0.1` and
+/// `localhost`) are not, and only the user can say they are the same.
 pub fn normalize_server_url(url: &str) -> String {
-    url.trim_end_matches('/').to_string()
+    let url = url.trim();
+    match reqwest::Url::parse(url) {
+        Ok(parsed) if parsed.host_str().is_some() => {
+            // `Url` already lower-cases the scheme and host and drops a
+            // port that is the scheme's default.
+            let mut out = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or_default());
+            if let Some(port) = parsed.port() {
+                out.push_str(&format!(":{port}"));
+            }
+            out.push_str(parsed.path().trim_end_matches('/'));
+            out
+        }
+        _ => url.trim_end_matches('/').to_string(),
+    }
 }
 
 impl StateOwner {
     pub fn new(server_url: &str, channel_id: i64) -> Self {
         Self { server_url: normalize_server_url(server_url), channel_id }
+    }
+
+    /// The same server and channel, however the address is spelled.
+    pub fn same(&self, other: &StateOwner) -> bool {
+        self.channel_id == other.channel_id
+            && normalize_server_url(&self.server_url) == normalize_server_url(&other.server_url)
     }
 }
 
@@ -265,40 +348,43 @@ impl SyncState {
         folder.join(STATE_DIR).join("state.json")
     }
 
-    /// The state of `folder` for a round with `owner`: the saved state when
-    /// it is that owner's, and otherwise an empty one, with a line that says
-    /// so for the user. An empty state has no baseline for any path, which
-    /// deletes nothing and overwrites nothing: every local file is new work
-    /// (uploaded create-only, or kept as a conflict copy when the server has
-    /// something else under that name).
+    /// The state of `folder` for a round with `owner`.
     ///
-    /// A state file with no owner recorded is used as it is, unless the
-    /// folder's link file was written after it: then the link has changed
-    /// since that state was saved, and nothing says it was made for this one.
+    /// A state recorded for another owner is never used and never replaced
+    /// here: the round would read its baselines against another repo (every
+    /// file deleted there) or, if it started afresh, put back what others
+    /// deleted and undo the user's own deletions. It is an error that names
+    /// both owners and the `wabi-sync link` that settles it.
+    ///
+    /// A state with no owner recorded comes from a build before owners
+    /// existed, and is this link's: only `link` changes a folder's link,
+    /// and it moves another link's state aside. (A build that old has a
+    /// `link` that rewrites the link file and leaves the state as it is;
+    /// see the mass-deletion guard for what stops that state emptying the
+    /// folder.) Its owner is recorded on the next save.
     pub fn for_owner(folder: &Path, owner: StateOwner) -> anyhow::Result<Self> {
         let mut state = Self::load(folder)?;
-        let foreign = match &state.owner {
-            Some(recorded) if *recorded == owner => None,
-            Some(recorded) => Some(format!("{} channel {}", recorded.server_url, recorded.channel_id)),
-            None => {
-                let written = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
-                match (written(folder.join(LINK_FILE)), written(Self::path_for(folder))) {
-                    (Some(link), Some(state)) if link > state => Some("an earlier link of this folder".to_string()),
-                    _ => None,
-                }
+        if let Some(recorded) = &state.owner {
+            if !recorded.same(&owner) {
+                anyhow::bail!(
+                    "the sync state in this folder ({}) was recorded for {} channel {}, and this folder now syncs \
+                     with {} channel {}. Nothing has been changed. If that is the same server under another \
+                     address, run `wabi-sync link {} {} --keep-state` to go on with this state. If it is another \
+                     server or repository, run `wabi-sync link {} {}`: the state is moved aside to \
+                     .wabi-sync/state.json.previous-link and the folder starts as newly linked (nothing is \
+                     deleted on either side; a file that differs is kept as a conflict copy)",
+                    Self::path_for(folder).display(),
+                    recorded.server_url,
+                    recorded.channel_id,
+                    owner.server_url,
+                    owner.channel_id,
+                    owner.channel_id,
+                    folder.display(),
+                    owner.channel_id,
+                    folder.display(),
+                );
             }
-        };
-        let notice = foreign.map(|recorded_for| {
-            // Conflicts already settled in this folder are still to be told.
-            state = Self { unreported_conflicts: std::mem::take(&mut state.unreported_conflicts), ..Self::default() };
-            format!(
-                "the sync state in this folder was recorded for {recorded_for}, not for {} channel {}; it is not \
-                 used. The folder is treated as newly linked: nothing is deleted on either side, and a file \
-                 that differs from the server's is kept as a conflict copy",
-                owner.server_url, owner.channel_id
-            )
-        });
-        let _ = notice;
+        }
         state.owner = Some(owner);
         Ok(state)
     }
