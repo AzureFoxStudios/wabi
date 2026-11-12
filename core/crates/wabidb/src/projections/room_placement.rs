@@ -255,7 +255,16 @@ impl Projection for RoomPlacementProjection {
             }
             let init = decode_initialization(&event.payload)?;
             let channel_id = format!("ch_{:x}", event.commit_seq);
-            if state.get("channels", channel_id.as_bytes()).is_none() {
+            // The channel row comes from the same commit, applied just before
+            // this event. During a startup replay that skips what the read
+            // model already holds (at or below its replay floor), the channels
+            // table holds a later state, in which the channel may be deleted:
+            // there is nothing to check against. Such a commit passed this
+            // check when it was first applied: the read model keeps a commit
+            // only once every handler of it succeeded.
+            if event.commit_seq > state.read_model().replay_floor()
+                && super::channels::stored_while_applying(state, &channel_id)?.is_none()
+            {
                 return Err(WabiError::Corrupt {
                     location: INDEX.into(),
                     detail: "room placement initialization has no created channel".into(),
@@ -435,7 +444,7 @@ mod tests {
             .unwrap(),
         };
         assert!(projection.apply(&initial, &state).is_err());
-        state.insert("channels", b"ch_7".to_vec(), b"{}".to_vec(), 7);
+        crate::projections::channels::insert_raw_for_tests(&state, "ch_7", b"{}");
         initial.stream_id = "wrong".into();
         assert!(projection.apply(&initial, &state).is_err());
         initial.stream_id = INIT_STREAM.into();

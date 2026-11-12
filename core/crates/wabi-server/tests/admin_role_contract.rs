@@ -491,12 +491,21 @@ async fn dashboard_is_admin_only_and_read_corruption_is_not_an_empty_server() {
         ("channels", b"broken-channel".to_vec()),
         ("audit_log", u64::MAX.to_be_bytes().to_vec()),
     ] {
-        projection.insert(index, key.clone(), b"CORRUPTION-CANARY".to_vec(), before);
+        // Channels live in the SQLite read model, not in an in-memory index.
+        use wabidb::projections::channels::{insert_raw_for_tests, remove_raw_for_tests};
+        let channel_id = (index == "channels").then(|| String::from_utf8(key.clone()).unwrap());
+        match &channel_id {
+            Some(id) => insert_raw_for_tests(projection, id, b"CORRUPTION-CANARY"),
+            None => projection.insert(index, key.clone(), b"CORRUPTION-CANARY".to_vec(), before),
+        }
         let (status, body) = dashboard(&app, Some(&token(&state, owner))).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{index}: {body}");
         assert!(body.get("overview").is_none());
         assert!(!body.to_string().contains("CORRUPTION-CANARY"));
-        projection.remove(index, &key);
+        match &channel_id {
+            Some(id) => remove_raw_for_tests(projection, id),
+            None => { projection.remove(index, &key); }
+        }
         assert_eq!(dashboard(&app, Some(&token(&state, owner))).await.0, StatusCode::OK);
     }
     assert_eq!(projection.applied_commit_seq(), before);
