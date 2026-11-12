@@ -260,6 +260,31 @@ impl RepoDir {
         parent.publish(&name, source)
     }
 
+    /// Hard-link `path` from the same relative path under `src` into this
+    /// directory tree. Both sides are confined and the source must be a
+    /// regular file. Fails (so the caller can copy instead) when the
+    /// filesystem cannot link.
+    pub(crate) fn link_from(&self, src: &RepoDir, path: &str) -> io::Result<()> {
+        let (src_parent, src_name) = src.parent(path, false)?;
+        src_parent.open_leaf(&src_name)?;
+        let (dst_parent, dst_name) = self.parent(path, true)?;
+        src_parent.dir.hard_link(&src_name, &dst_parent.dir, &dst_name)
+    }
+
+    /// Names and modification times of the immediate child directories
+    /// (symlinks and files are skipped).
+    pub(crate) fn list_child_dirs(&self) -> io::Result<Vec<(OsString, std::time::SystemTime)>> {
+        let mut out = Vec::new();
+        for entry in self.dir.entries()? {
+            let entry = entry?;
+            let meta = entry.metadata()?;
+            if meta.is_dir() {
+                out.push((entry.file_name(), meta.modified()?.into_std()));
+            }
+        }
+        Ok(out)
+    }
+
     pub(crate) fn publish_internal(&self, file: InternalFile, bytes: &[u8]) -> io::Result<()> {
         self.publish(OsStr::new(file.name()), bytes)
     }

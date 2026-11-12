@@ -2222,6 +2222,20 @@ struct SignedUrlQuery {
     expires: Option<i64>,
 }
 
+/// A missing file or a revision pruned from the revision cache is a 404, not
+/// an internal error.
+fn content_read_error(error: anyhow::Error) -> AppError {
+    let missing = error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .any(|io| io.kind() == std::io::ErrorKind::NotFound);
+    if missing {
+        AppError::NotFound("No such file or revision".into())
+    } else {
+        AppError::Anyhow(error)
+    }
+}
+
 /// GET /repos/{channel_id}/signed-url?path=...&revision=...&expires=...
 /// Requires AuthUser + channel membership. Returns a short-lived HMAC-signed
 /// download URL usable from <a href>/window.open without a Bearer header.
@@ -2344,7 +2358,8 @@ async fn download_file(
         query.revision.as_deref(),
         temporary.as_file().try_clone()?,
     )
-    .await?;
+    .await
+    .map_err(content_read_error)?;
     let file_size = temporary.as_file().metadata()?.len();
     let mut file = tokio::fs::File::from_std(temporary.as_file().try_clone()?);
     file.seek(std::io::SeekFrom::Start(0)).await?;
@@ -3061,6 +3076,14 @@ exit 0
             default_blob_max_size_mb: 1,
             recordings_channel_name: "Recordings".into(),
         })
+    }
+
+    #[test]
+    fn pruned_revision_reads_map_to_not_found() {
+        let missing = anyhow::Error::from(std::io::Error::from(std::io::ErrorKind::NotFound));
+        assert!(matches!(content_read_error(missing), AppError::NotFound(_)));
+        let other = anyhow::anyhow!("lore exploded");
+        assert!(matches!(content_read_error(other), AppError::Anyhow(_)));
     }
 
     #[tokio::test]

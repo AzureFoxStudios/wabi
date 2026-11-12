@@ -18,7 +18,11 @@ pub struct ManifestFile {
     pub etag: Option<String>,
 }
 
+/// `GET /repos/{id}/manifest`. The server spells its keys in camelCase
+/// (`channelId`, `headRevision`, `readOnly`) and has never sent another
+/// spelling.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Manifest {
     pub channel_id: i64,
     pub files: Vec<ManifestFile>,
@@ -37,7 +41,10 @@ pub struct ChangeEntry {
     pub etag: Option<String>,
 }
 
+/// `GET /repos/{id}/changes`: `latestSeq` is the seq of the last entry on
+/// this page, or the `since` that was asked for when the page is empty.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Changes {
     pub latest_seq: u64,
     pub changes: Vec<ChangeEntry>,
@@ -54,6 +61,15 @@ pub struct Conflict {
 pub enum UploadOutcome {
     Ok { etag: String, revision: String, pending_review: bool },
     Conflict(Conflict),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum DeleteOutcome {
+    Deleted,
+    /// 409: the file changed on the server after the caller's baseline.
+    Conflict,
+    /// 403: the caller may not delete on the mainline.
+    Forbidden,
 }
 
 /// Minimal percent-encoding for query components (keep unreserved chars).
@@ -91,11 +107,17 @@ impl WabiClient {
         } else if status == reqwest::StatusCode::UNAUTHORIZED {
             Err(anyhow!("authentication failed (401) — token revoked or invalid; re-run `wabi-sync login`"))
         } else if status == reqwest::StatusCode::FORBIDDEN {
+            // The server's 403 body is `{"error": <reason>, "type": "Forbidden"}`
+            // for every refusal; only the reason tells a read-only token from
+            // a missing role or membership.
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            if body["type"] == "ReadOnlyToken" {
+            let reason = body["error"].as_str().unwrap_or_default();
+            if reason.contains("connect token is read-only") {
                 Err(anyhow!("this connect token is read-only — mint one with write scope in the channel's connect panel"))
-            } else {
+            } else if reason.is_empty() {
                 Err(anyhow!("forbidden (403) — check channel membership and role"))
+            } else {
+                Err(anyhow!("forbidden (403): {reason} — check channel membership and role"))
             }
         } else {
             let body = resp.text().await.unwrap_or_default();
@@ -189,14 +211,19 @@ impl WabiClient {
         }
         let resp = self.check_status(resp).await?;
         let body: serde_json::Value = resp.json().await.context("upload body")?;
+        // `file.etag` is the etag of the server's stored copy, the value the
+        // manifest lists and If-Match is checked against. The top-level
+        // `etag` is the SHA-256 of the uploaded body; the two differ for a
+        // file over the full-hash limit, whose stored etag is sampled (`q-`).
+        let etag = body["file"]["etag"].as_str().or_else(|| body["etag"].as_str());
         Ok(UploadOutcome::Ok {
-            etag: body["etag"].as_str().unwrap_or_default().to_string(),
+            etag: etag.unwrap_or_default().to_string(),
             revision: body["revision"]["hash"].as_str().unwrap_or_default().to_string(),
             pending_review: body["pendingReview"].as_bool().unwrap_or(false),
         })
     }
 
-    pub async fn delete(&self, channel_id: i64, path: &str, if_match: Option<&str>) -> anyhow::Result<bool> {
+    pub async fn delete(&self, channel_id: i64, path: &str, if_match: Option<&str>) -> anyhow::Result<DeleteOutcome> {
         let mut req = self
             .http
             .delete(self.url(&format!(
@@ -210,10 +237,13 @@ impl WabiClient {
         }
         let resp = req.send().await?;
         if resp.status() == reqwest::StatusCode::CONFLICT {
-            return Ok(false);
+            return Ok(DeleteOutcome::Conflict);
+        }
+        if resp.status() == reqwest::StatusCode::FORBIDDEN {
+            return Ok(DeleteOutcome::Forbidden);
         }
         self.check_status(resp).await?;
-        Ok(true)
+        Ok(DeleteOutcome::Deleted)
     }
 
     pub async fn set_lock(&self, channel_id: i64, path: &str, lock: bool) -> anyhow::Result<()> {
