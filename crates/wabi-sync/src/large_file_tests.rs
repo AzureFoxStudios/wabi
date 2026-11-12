@@ -198,6 +198,13 @@ async fn mainline_change_while_large_edit_is_pending_keeps_the_edit() {
     assert_eq!(std::fs::read(h.folder().join(&copies[0])).unwrap(), big(2), "local work survives");
     assert_eq!(puts(&h), 2, "no silent re-upload over the mainline");
     assert!(h.state().pending_review.is_empty());
+    // The fake's etag for a large file ("q-server-…") is of no shape a
+    // conflict copy's tag has: the copy is tagged `changed`, and is still
+    // a conflict copy that is never uploaded.
+    assert!(copies[0].ends_with(".wabi-conflict-changed"), "{}", copies[0]);
+    h.server(|f| f.route_to_review = false);
+    h.sync().await.unwrap();
+    assert_eq!(puts(&h), 2, "the conflict copy was uploaded");
 }
 
 /// A large file deleted on the mainline and untouched locally is deleted
@@ -216,7 +223,7 @@ async fn mainline_delete_of_a_large_file() {
     write_big(&h, 2);
     h.server(|f| f.mainline.remove(BIG));
     // Pull only: a full round would first upload the edit (409, conflict).
-    let mut engine = crate::sync::SyncEngine::new(&h.client, h.folder(), &h.link);
+    let mut engine = crate::sync::SyncEngine::new(&h.client, h.folder(), &h.link).unwrap();
     let report = engine.pull().await.unwrap();
     assert!(report.deleted_local.is_empty());
     assert_eq!(report.conflicts.len(), 1);
