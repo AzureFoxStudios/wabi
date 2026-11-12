@@ -2349,31 +2349,51 @@ async fn download_file(
     if query.revision.is_none() && lore.head_etag(channel_id, &path).await?.is_none() {
         return Err(AppError::NotFound("No such repository file".into()));
     }
-    let temporary = tempfile::NamedTempFile::new()?;
-    // Every response gets a private snapshot through a held descriptor. No
-    // pre-hardening cache entry or predictable shared /tmp path is reused.
-    lore.copy_content_to(
-        channel_id,
-        &path,
-        query.revision.as_deref(),
-        temporary.as_file().try_clone()?,
-    )
-    .await
-    .map_err(content_read_error)?;
-    let file_size = temporary.as_file().metadata()?.len();
-    let mut file = tokio::fs::File::from_std(temporary.as_file().try_clone()?);
-    file.seek(std::io::SeekFrom::Start(0)).await?;
-    use sha2::Digest;
-    let mut digest = sha2::Sha256::new();
-    let mut buffer = [0u8; 65536];
-    loop {
-        let read = file.read(&mut buffer).await?;
-        if read == 0 {
-            break;
-        }
-        digest.update(&buffer[..read]);
+    // A Range request reads straight from the confined handle (no copy, and
+    // the ETag comes from a per-revision cache). A full download keeps the
+    // private snapshot: it is a complete copy the client reads at its own
+    // pace, taken under one gate hold, and the hash is computed from it.
+    enum Source {
+        Snapshot(tempfile::NamedTempFile, tokio::fs::File),
+        Handle(wabi_lore::DownloadContent),
     }
-    let etag = hex::encode(digest.finalize());
+    let (source, file_size, etag) = if headers.contains_key(axum::http::header::RANGE) {
+        let content = lore
+            .open_content_for_download(channel_id, &path, query.revision.as_deref())
+            .await
+            .map_err(content_read_error)?;
+        let (size, etag) = (content.size, content.etag.clone());
+        (Source::Handle(content), size, etag)
+    } else {
+        let temporary = tempfile::NamedTempFile::new()?;
+        // No pre-hardening cache entry or predictable shared /tmp path is reused.
+        lore.copy_content_to(
+            channel_id,
+            &path,
+            query.revision.as_deref(),
+            temporary.as_file().try_clone()?,
+        )
+        .await
+        .map_err(content_read_error)?;
+        let file_size = temporary.as_file().metadata()?.len();
+        let mut file = tokio::fs::File::from_std(temporary.as_file().try_clone()?);
+        file.seek(std::io::SeekFrom::Start(0)).await?;
+        use sha2::Digest;
+        let mut digest = sha2::Sha256::new();
+        let mut buffer = [0u8; 65536];
+        loop {
+            let read = file.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+            digest.update(&buffer[..read]);
+        }
+        (
+            Source::Snapshot(temporary, file),
+            file_size,
+            hex::encode(digest.finalize()),
+        )
+    };
     let quoted_etag = format!("\"{etag}\"");
     if let Some(inm) = headers
         .get(axum::http::header::IF_NONE_MATCH)
@@ -2401,7 +2421,6 @@ async fn download_file(
             )
         })
         .unwrap_or((axum::http::StatusCode::OK, 0, file_size, None));
-    file.seek(std::io::SeekFrom::Start(start)).await?;
     let mut builder = axum::response::Response::builder()
         .status(status)
         .header(
@@ -2437,9 +2456,14 @@ async fn download_file(
             format!("attachment; filename=\"{filename}\""),
         );
     }
-    Ok(builder
-        .body(snapshot_body(temporary, file, length))
-        .expect("validated download headers"))
+    let body = match source {
+        Source::Snapshot(temporary, mut file) => {
+            file.seek(std::io::SeekFrom::Start(start)).await?;
+            snapshot_body(temporary, file, length)
+        }
+        Source::Handle(content) => axum::body::Body::from_stream(content.range_stream(start, length)),
+    };
+    Ok(builder.body(body).expect("validated download headers"))
 }
 
 /// Reject flag-shaped/invalid commit messages with 400 before any CLI call.
