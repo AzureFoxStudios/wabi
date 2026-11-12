@@ -173,17 +173,19 @@ fn describe_messages(state: &ProjectionState) -> Vec<String> {
     lines
 }
 
-/// The read model's membership rows as lines of the two in-memory indexes
-/// that held them before Task 3.5.3, which used the same keys.
+/// The read model's membership and account rows as lines of the three
+/// in-memory indexes that held them before Tasks 3.5.3 and 3.5.4, which used
+/// the same keys.
 fn describe_members(state: &ProjectionState) -> Vec<String> {
     use crate::projections::read_model::Table;
     let mut lines = Vec::new();
-    for table in [Table::ChannelMembers, Table::ChannelMembershipVersions] {
+    for table in [Table::ChannelMembers, Table::ChannelMembershipVersions, Table::Users] {
         state
             .read_model()
             .for_each_full_row(table, |columns| {
                 let name = table.name();
-                // The record is the last column (the members table also has the user id).
+                // The record is the last column (the members table also has
+                // the user id, the users table the folded name).
                 let record = columns[columns.len() - 1];
                 lines.push(format!("{name} {} {}", hex::encode(columns[0]), describe_value(name, record)));
                 Ok(())

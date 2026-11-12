@@ -26,7 +26,7 @@ use crate::engine::WabiDbEngine;
 use crate::format::record::RecordKind;
 use crate::projections::query::{QueryableProjection, UsersFilter};
 use crate::projections::read_model::READ_MODEL_GENERATION;
-use crate::projections::users::{encode_record, UserRecord, UsersProjection};
+use crate::projections::users::{self, encode_record, UserRecord, UsersProjection};
 use crate::projections::{
     auth_revocations, game_profiles, owner, recovery_codes, test_poison, user_deletion,
 };
@@ -177,7 +177,10 @@ fn all_user_reads(state: &ProjectionState) -> String {
     let all = all.unwrap();
     for name in NAMES {
         let folded = name.to_lowercase();
-        let found: Vec<_> = all.iter().filter(|user| user.username.to_lowercase() == folded).collect();
+        let found: Vec<_> = all.iter().filter(|user| user.username.to_lowercase() == folded).cloned().collect();
+        // The login lookup goes through the folded-name index; it must find
+        // exactly what a scan of every account finds.
+        assert_eq!(users::find_by_username(state, name).unwrap(), found, "login {name}");
         writeln!(out, "login {name}: {found:?}").unwrap();
     }
     out
@@ -664,5 +667,94 @@ async fn concurrent_registrations_of_one_name_admit_exactly_one() {
     close(engine, dir.path()).await;
     let engine = open(dir.path()).await;
     assert_eq!(UsersProjection.query(engine.projection_state(), &UsersFilter::default()).unwrap(), users);
+    close(engine, dir.path()).await;
+}
+
+/// The folded-name index under names `str::to_lowercase` changes in more
+/// than ASCII, and names already duplicated in the log (written by raw rows,
+/// as a build before admission checked names could have): every lookup
+/// agrees with a scan of every account, live, after a restart and after a
+/// rebuild from the log.
+#[tokio::test]
+async fn username_lookups_agree_with_a_full_scan() {
+    fn check(state: &ProjectionState) -> String {
+        let all = UsersProjection.query(state, &UsersFilter::default()).unwrap();
+        let mut seen = String::new();
+        for name in ["ÉMILE", "émile", "Émile", "STRASSE", "straße", "Σίσυφος", "ΣΊΣΥΦΟΣ", "x", "X", "nobody"] {
+            let folded = name.to_lowercase();
+            let scanned: Vec<_> = all.iter().filter(|u| u.username.to_lowercase() == folded).cloned().collect();
+            let indexed = users::find_by_username(state, name).unwrap();
+            assert_eq!(indexed, scanned, "{name}");
+            seen += &format!("{name}: {:?}\n", indexed.iter().map(|u| u.user_id).collect::<Vec<_>>());
+        }
+        seen
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    for name in ["Émile", "straße", "ΣΊΣΥΦΟΣ", "X"] {
+        write(&engine, vec![registered(user(name, "h"))]).await;
+    }
+    let live = check(engine.projection_state());
+    for expected in ["ÉMILE: [1]", "émile: [1]", "STRASSE: []", "straße: [2]", "Σίσυφος: [3]", "x: [4]"] {
+        assert!(live.contains(expected), "{expected} missing from\n{live}");
+    }
+    close(engine, dir.path()).await;
+    let engine = open(dir.path()).await;
+    assert_eq!(check(engine.projection_state()), live);
+    close(engine, dir.path()).await;
+    std::fs::remove_file(read_model_file(dir.path())).unwrap();
+    let engine = open(dir.path()).await;
+    assert_eq!(check(engine.projection_state()), live);
+    // Names duplicated before admission refused them: both are found, in id
+    // order, and a third registration of the name is still refused.
+    let mut twin = user("x", "h");
+    twin.user_id = 99;
+    users::insert_raw_for_tests(engine.projection_state(), 99, &encode_record(&twin));
+    let found = users::find_by_username(engine.projection_state(), "X").unwrap();
+    assert_eq!(found.iter().map(|u| u.user_id).collect::<Vec<_>>(), [4, 99]);
+    let error = commit(&engine, vec![registered(user("x", "h"))]).await.unwrap_err();
+    assert!(error.to_string().contains("username is already taken"), "{error}");
+    close(engine, dir.path()).await;
+}
+
+/// Measurement, not a check: the login-path reads on a file-backed engine
+/// holding 10,000 accounts: the lookup by login name (`get_user_by_username`,
+/// every login), the lookup by id (`get_user`, every authenticated request)
+/// and one registration (its admission check reads accounts).
+///
+/// `cargo test --release -p wabidb --lib measure_login_lookups -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement; prints timings"]
+async fn measure_login_lookups() {
+    const USERS: u64 = 10_000;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    engine.get_or_create_stream_key("users").await.unwrap();
+    // One registration per command, as the adapter writes them.
+    for i in 0..USERS {
+        write(&engine, vec![registered(user(&format!("User{i:05}"), "hash"))]).await;
+    }
+    let state = engine.projection_state();
+    let calls = 200u64;
+    let started = std::time::Instant::now();
+    for call in 0..calls {
+        let name = format!("user{:05}", call * 37 % USERS);
+        assert_eq!(users::find_by_username(state, &name).unwrap().len(), 1);
+    }
+    let by_name = started.elapsed() / calls as u32;
+    let started = std::time::Instant::now();
+    for call in 0..calls {
+        let filter = UsersFilter { user_id: Some(call * 37 % USERS + 1), ..Default::default() };
+        assert_eq!(UsersProjection.query(state, &filter).unwrap().len(), 1);
+    }
+    let by_id = started.elapsed() / calls as u32;
+    let started = std::time::Instant::now();
+    for call in 0..20 {
+        write(&engine, vec![registered(user(&format!("late{call}"), "hash"))]).await;
+    }
+    let registration = started.elapsed() / 20;
+    println!(
+        "{USERS} users: login name lookup {by_name:.3?}, id lookup {by_id:.3?}, one registration {registration:.3?}"
+    );
     close(engine, dir.path()).await;
 }

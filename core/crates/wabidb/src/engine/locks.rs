@@ -195,7 +195,7 @@ pub struct ProjectionState {
     application: RwLock<()>,
     apply_failed: AtomicBool,
     /// The per-index lock-free skip lists, keyed by index name (e.g.
-    /// "users", "dm_message_recipients").
+    /// "dm_identities", "dm_message_recipients").
     indexes: RwLock<HashMap<String, SkipMap<Vec<u8>, Vec<u8>>>>,
     /// The `commit_seq` of the most recently fully applied command. Reads with a
     /// `commit_seq > this` must wait for the dispatcher to catch up.
@@ -226,6 +226,10 @@ pub(crate) const LEGACY_MESSAGE_INDEXES: [&str; 5] = [
 /// [`LEGACY_MESSAGE_INDEXES`].
 pub(crate) const LEGACY_MEMBERSHIP_INDEXES: [&str; 2] =
     ["channel_members", "channel_membership_versions"];
+
+/// Index name the users projection used while it lived in the skip maps. Not
+/// loaded from a snapshot, for the same reason as [`LEGACY_MESSAGE_INDEXES`].
+pub(crate) const LEGACY_USER_INDEXES: [&str; 1] = ["users"];
 
 /// Canonical diagnostic for an in-memory projection view. No record bytes or
 /// individual key hashes are exposed. Empty indexes have no semantic content.
@@ -822,6 +826,7 @@ impl ProjectionState {
         for (name, entries) in &data.indexes {
             if LEGACY_MESSAGE_INDEXES.contains(&name.as_str())
                 || LEGACY_MEMBERSHIP_INDEXES.contains(&name.as_str())
+                || LEGACY_USER_INDEXES.contains(&name.as_str())
             {
                 continue;
             }

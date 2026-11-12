@@ -1429,12 +1429,10 @@ async fn encrypted_stopped_move_preserves_community_id_and_retires_original() {
     .await
     .unwrap();
     assert!(passive.durable_writer_fenced());
-    let mut after_move_user = false;
-    passive.projection_state().for_each("users", |_, value| {
-        if let Ok(user) = wabidb::projections::users::decode_record(value) {
-            after_move_user |= user.username == "after-move";
-        }
-    });
+    let after_move_user =
+        !wabidb::projections::users::find_by_username(passive.projection_state(), "after-move")
+            .unwrap()
+            .is_empty();
     assert!(
         after_move_user,
         "reseeded passive tree lost the new Authority's write"

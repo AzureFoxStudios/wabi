@@ -1211,6 +1211,250 @@ fn crash_between_read_model_sync_and_snapshot_keeps_members() {
 }
 
 // ---------------------------------------------------------------------------
+// Task 3.5.4: accounts live in the read model too. The user deletion
+// projection, which stays in the snapshot, removes account rows from it while
+// it applies.
+// ---------------------------------------------------------------------------
+
+/// A command with one account event: `user_registered` of `name`,
+/// `user_updated` renaming `user_id` to `name`, or `user_deleted` of
+/// `user_id`.
+#[cfg(feature = "test-harness")]
+fn user_cmd(kind: &str, user_id: u64, name: &str) -> CommandCommit {
+    use crate::projections::users::{encode_record, UserRecord};
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let record = UserRecord {
+        user_id,
+        username: name.into(),
+        handle: None,
+        color: if kind == "user_registered" { "#98D8C8".into() } else { String::new() },
+        password_hash: if kind == "user_registered" { format!("hash-{name}") } else { String::new() },
+        is_registered: true,
+        is_active: true,
+        created_at_micros: 100,
+        last_seen_micros: 100,
+        profile_picture: None,
+        username_font: None,
+        bio: None,
+        status_message: None,
+    };
+    let (stream_id, plaintext) = match kind {
+        "user_registered" => ("users".to_string(), encode_record(&record)),
+        "user_updated" => (format!("user:{user_id}"), encode_record(&record)),
+        _ => (
+            "users".to_string(),
+            crate::projections::user_deletion::encode_payload(&crate::domain::UserDeleted { user_id }),
+        ),
+    };
+    CommandCommit {
+        room_owner_precondition: None,
+        caller_user_id: 7,
+        caller_device_id: "crash".into(),
+        command_name: "crash_user".into(),
+        idempotency_key: None,
+        events: vec![EventToWrite {
+            stream_id,
+            event_type: kind.into(),
+            stream_kind: 6,
+            record_kind: RecordKind::Event,
+            plaintext,
+        }],
+        essential: true,
+        response_tx: tx,
+    }
+}
+
+#[cfg(feature = "test-harness")]
+async fn ensure_user_streams(engine: &WabiDbEngine) {
+    for stream in ["users", "user:1", "user:2", "user:3"] {
+        engine.get_or_create_stream_key(stream).await.unwrap();
+    }
+}
+
+/// Child of the two account crash tests. Opens the directory the parent
+/// prepared (alice 1, bob 2, carol 3; cleanly stopped, snapshot at 3).
+/// - `write`: registers dave (commit 4); the configured crash point ends the
+///   process inside that commit.
+/// - `checkpoint`: registers erin (4), renames alice to Alicia (5), deletes
+///   bob (6), registers bob again (7), then takes a checkpoint, inside which
+///   the crash point ends the process.
+#[cfg(feature = "test-harness")]
+#[test]
+fn run_user_crash_child() {
+    let Ok(step) = std::env::var("WABIDB_USER_CRASH") else {
+        return; // not in child mode
+    };
+    let data_dir = std::path::PathBuf::from(std::env::var("WABIDB_DATA_DIR").unwrap());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(&data_dir)).await.unwrap();
+        ensure_user_streams(&engine).await;
+        if step == "write" {
+            let _ = engine.run_command(user_cmd("user_registered", 0, "dave")).await;
+        } else {
+            for (kind, user, name) in [
+                ("user_registered", 0, "erin"),
+                ("user_updated", 1, "Alicia"),
+                ("user_deleted", 2, ""),
+                ("user_registered", 0, "bob"),
+            ] {
+                engine.run_command(user_cmd(kind, user, name)).await.unwrap();
+            }
+            let _ = engine.projection_state().save_snapshot(&data_dir);
+        }
+        panic!("child did not crash at its boundary; crash_point may not be wired");
+    });
+}
+
+#[cfg(feature = "test-harness")]
+fn crash_with_users(boundary: &str, step: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(dir.path())).await.unwrap();
+        ensure_user_streams(&engine).await;
+        for name in ["alice", "bob", "carol"] {
+            engine.run_command(user_cmd("user_registered", 0, name)).await.unwrap();
+        }
+        engine.close_for_tests().await.unwrap();
+    });
+    assert_eq!(
+        crate::engine::locks::ProjectionState::read_snapshot_watermark(dir.path()).unwrap(),
+        Some(3)
+    );
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("tests::power_loss::run_user_crash_child")
+        .arg("--nocapture")
+        .env("WABIDB_USER_CRASH", step)
+        .env("WABIDB_CRASH_AT", boundary)
+        .env("WABIDB_DATA_DIR", dir.path())
+        .status()
+        .unwrap();
+    assert!(!status.success(), "child should have crashed");
+    assert_eq!(validate_crash_signal(dir.path()), Some(boundary.to_string()));
+    dir
+}
+
+/// The account rows in the read model file as the crash left it (id and
+/// name of each, in key order), and its `applied_commit_seq` for users, read
+/// in one SQLite read transaction. (Opening the file recovers its write-ahead
+/// log, as the engine would.)
+#[cfg(feature = "test-harness")]
+fn user_file_after_crash(data_dir: &std::path::Path) -> (Vec<(u64, String)>, u64) {
+    let path = crate::engine::locks::ProjectionState::read_model_path(data_dir);
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch("BEGIN").unwrap();
+    let rows = conn
+        .prepare("SELECT record FROM users ORDER BY key")
+        .unwrap()
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))
+        .unwrap()
+        .map(|record| {
+            let record = crate::projections::users::decode_record(&record.unwrap()).unwrap();
+            (record.user_id, record.username)
+        })
+        .collect();
+    let applied: i64 = conn
+        .query_row(
+            "SELECT coalesce((SELECT seq FROM applied_commit_seq WHERE projection = 'users'), 0)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    (rows, applied as u64)
+}
+
+/// The accounts the engine serves after a restart (id and name), each login
+/// name's lookup, and the watermark.
+#[cfg(feature = "test-harness")]
+async fn users_after_crash(data_dir: &std::path::Path) -> (u64, Vec<(u64, String)>, Vec<(String, Vec<u64>)>) {
+    use crate::projections::query::QueryableProjection;
+    use crate::projections::users::{find_by_username, UsersProjection};
+    let engine = WabiDbEngine::open(crash_config(data_dir)).await.unwrap();
+    let state = engine.projection_state();
+    let users = UsersProjection
+        .query(state, &Default::default())
+        .unwrap()
+        .into_iter()
+        .map(|user| (user.user_id, user.username))
+        .collect();
+    let logins = ["alice", "alicia", "bob", "carol", "dave", "erin"]
+        .into_iter()
+        .map(|name| {
+            let ids = find_by_username(state, name).unwrap().into_iter().map(|user| user.user_id).collect();
+            (name.to_string(), ids)
+        })
+        .collect();
+    let applied = state.applied_commit_seq();
+    engine.close_for_tests().await.unwrap();
+    (applied, users, logins)
+}
+
+#[cfg(feature = "test-harness")]
+fn accounts(rows: &[(u64, &str)]) -> Vec<(u64, String)> {
+    rows.iter().map(|(id, name)| (*id, name.to_string())).collect()
+}
+
+#[cfg(feature = "test-harness")]
+fn logins(rows: &[(&str, &[u64])]) -> Vec<(String, Vec<u64>)> {
+    rows.iter().map(|(name, ids)| (name.to_string(), ids.to_vec())).collect()
+}
+
+/// The process dies right after a commit that registered an account was
+/// applied, before the caller heard back, with no checkpoint and no shutdown
+/// (snapshot at 3). The file as the crash left it has the account's row
+/// exactly when its `applied_commit_seq` covers the commit; the next open
+/// ends with the account either way.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_after_a_user_commit_keeps_its_rows_and_watermark_together() {
+    let dir = crash_with_users("crash_after_projection_update", "write");
+    let (rows, applied) = user_file_after_crash(dir.path());
+    println!("after the crash: users {rows:?}, applied_commit_seq {applied}");
+    assert_eq!(rows.contains(&(4, "dave".to_string())), applied >= 4, "{rows:?} at {applied}");
+    assert!(applied <= 4);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let expected = (
+        4,
+        accounts(&[(1, "alice"), (2, "bob"), (3, "carol"), (4, "dave")]),
+        logins(&[("alice", &[1]), ("alicia", &[]), ("bob", &[2]), ("carol", &[3]), ("dave", &[4]), ("erin", &[])]),
+    );
+    assert_eq!(rt.block_on(users_after_crash(dir.path())), expected);
+    let (rows, applied) = user_file_after_crash(dir.path());
+    assert_eq!((rows.len(), applied), (4, 4), "{rows:?}");
+    assert_eq!(rt.block_on(users_after_crash(dir.path())), expected);
+}
+
+/// The process dies inside a checkpoint: the read model is durable at commit
+/// 7 and the snapshot still says 3. Between the two, erin registered, alice
+/// was renamed, bob was deleted and the name bob registered again. The next
+/// open replays the deletion to the in-memory user deletion projection while
+/// the users table already holds the later state; it must open with every
+/// account change kept, and must not bring the deleted bob back.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_between_read_model_sync_and_snapshot_keeps_users() {
+    let dir = crash_with_users("crash_between_read_model_sync_and_snapshot", "checkpoint");
+    assert_eq!(
+        crate::engine::locks::ProjectionState::read_snapshot_watermark(dir.path()).unwrap(),
+        Some(3)
+    );
+    let (rows, applied) = user_file_after_crash(dir.path());
+    assert_eq!(applied, 7);
+    assert_eq!(rows, accounts(&[(1, "Alicia"), (3, "carol"), (4, "erin"), (7, "bob")]));
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let expected = (
+        7,
+        accounts(&[(1, "Alicia"), (3, "carol"), (4, "erin"), (7, "bob")]),
+        logins(&[("alice", &[]), ("alicia", &[1]), ("bob", &[7]), ("carol", &[3]), ("dave", &[]), ("erin", &[4])]),
+    );
+    assert_eq!(rt.block_on(users_after_crash(dir.path())), expected);
+    assert_eq!(rt.block_on(users_after_crash(dir.path())), expected);
+}
+
+// ---------------------------------------------------------------------------
 // Restart safety regression test (no crash harness needed)
 // ---------------------------------------------------------------------------
 

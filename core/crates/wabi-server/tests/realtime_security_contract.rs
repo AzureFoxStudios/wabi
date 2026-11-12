@@ -225,9 +225,8 @@ async fn namespace_admission_rejects_anonymous_scoped_revoked_and_inactive_crede
     // an inactive fixture through the existing encoded registration event.
     let engine = state.wdb.engine();
     let mut inactive_record = wabidb::projections::users::decode_record(
-        &engine
-            .projection_state()
-            .get("users", &member.to_be_bytes())
+        &wabidb::projections::users::stored_record(engine.projection_state(), member)
+            .unwrap()
             .unwrap(),
     )
     .unwrap();

@@ -385,7 +385,7 @@ mod tests {
         println!("generation {} rows {stored}", read_model::READ_MODEL_GENERATION);
         assert_eq!(
             (read_model::READ_MODEL_GENERATION, stored.as_str()),
-            (3, "ff677eca131e8886f0f4c7abc45f50e5f432d7b886045926b0b1fc93fa0d14d7"),
+            (4, "ff677eca131e8886f0f4c7abc45f50e5f432d7b886045926b0b1fc93fa0d14d7"),
             "replay stores different rows: bump READ_MODEL_GENERATION and update this pin with it"
         );
     }

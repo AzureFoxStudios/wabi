@@ -3,7 +3,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::format::versioned::{self, RecordFormat};
 use crate::projections::handler::{DurableEvent, Projection};
-use crate::projections::users::{decode_record as decode_user, encode_key as encode_user_key};
+use crate::projections::users::decode_record as decode_user;
 
 /// Hard-delete tombstone for guest accounts.
 ///
@@ -33,16 +33,15 @@ impl Projection for UserDeletionProjection {
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let user_id = decode_payload(&event.payload)?.user_id;
 
-        // 1. The account row.
-        state.remove("users", &encode_user_key(user_id));
-
-        state.remove(crate::projections::game_profiles::INDEX, &user_id.to_be_bytes());
-
-        // 2. Channel memberships across all channels. They live in the read
-        // model; during startup replay it may already hold this commit.
+        // 1. The account row and 2. channel memberships across all
+        // channels. Both live in the read model; during startup replay it may
+        // already hold this commit.
         if event.commit_seq > state.read_model().replay_floor() {
+            crate::projections::users::remove_while_applying(state, user_id)?;
             crate::projections::channel_members::remove_user_while_applying(state, user_id)?;
         }
+
+        state.remove(crate::projections::game_profiles::INDEX, &user_id.to_be_bytes());
 
         // 3. DM identities: every device bundle under the BE user prefix.
         let prefix = user_id.to_be_bytes().to_vec();
@@ -58,10 +57,12 @@ impl Projection for UserDeletionProjection {
     }
 
     /// A rebuild of the read model over a commit the snapshot covers: only
-    /// the memberships, which live there. The account row and the identities
-    /// are in memory and already reflect the commit.
+    /// the account row and the memberships, which live there. The game
+    /// profile and the identities are in memory and already reflect the
+    /// commit.
     fn apply_to_read_model(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let user_id = decode_payload(&event.payload)?.user_id;
+        crate::projections::users::remove_while_applying(state, user_id)?;
         crate::projections::channel_members::remove_user_while_applying(state, user_id)
     }
 }
@@ -82,10 +83,12 @@ pub fn decode_payload(buf: &[u8]) -> Result<UserDeleted> {
 }
 
 /// Re-exported so callers (tests, server sweep code) can verify a deletion
-/// took effect without reaching into projection internals.
+/// took effect without reaching into projection internals. As of the last
+/// committed commit; a row that cannot be read counts as absent.
 pub fn user_exists(state: &ProjectionState, user_id: u64) -> bool {
-    state
-        .get("users", &encode_user_key(user_id))
+    crate::projections::users::stored_record(state, user_id)
+        .ok()
+        .flatten()
         .and_then(|bytes| decode_user(&bytes).ok())
         .is_some()
 }
@@ -130,12 +133,7 @@ mod tests {
             bio: None,
             status_message: None,
         };
-        state.insert(
-            "users",
-            encode_user_key(user_id),
-            encode_user(&record),
-            1,
-        );
+        crate::projections::users::insert_raw_for_tests(state, user_id, &encode_user(&record));
     }
 
     #[test]
@@ -199,12 +197,15 @@ mod tests {
     }
 
     /// A rebuild of the read model over a commit the snapshot covers removes
-    /// the memberships, which live in the read model, and leaves the
-    /// in-memory rows alone: the snapshot already reflects the commit.
+    /// the account row and the memberships, which live in the read model, and
+    /// leaves the in-memory rows alone: the snapshot already reflects the
+    /// commit.
     #[test]
-    fn a_read_model_rebuild_applies_only_the_membership_cascade() {
+    fn a_read_model_rebuild_applies_only_the_read_model_cascade() {
         let state = ProjectionState::new();
         seed_user(&state, 42, "Guest_abc");
+        let profile = serde_json::to_vec(&crate::projections::game_profiles::GameProfileRecord::empty(42)).unwrap();
+        state.insert(crate::projections::game_profiles::INDEX, 42u64.to_be_bytes().to_vec(), profile, 1);
         let r = ChannelMemberRecord {
             channel_id: "ch_a".into(),
             user_id: 42,
@@ -219,7 +220,11 @@ mod tests {
             .unwrap();
 
         assert!(Members::get_member(&state, "ch_a", 42).unwrap().is_none());
-        assert!(user_exists(&state, 42), "the in-memory account row was touched");
+        assert!(!user_exists(&state, 42), "the account row is in the read model");
+        assert!(
+            state.get(crate::projections::game_profiles::INDEX, &42u64.to_be_bytes()).is_some(),
+            "the in-memory game profile was touched"
+        );
     }
 
     #[test]
