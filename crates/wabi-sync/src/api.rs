@@ -190,8 +190,26 @@ impl WabiClient {
     /// The server sends at most 1000 entries per page and `latestSeq` is the
     /// end of that page, so this asks again from each page's end until a page
     /// comes back empty.
+    ///
+    /// A stored cursor is the seq of an entry this client once read. The
+    /// first page is therefore asked from one before it, and starts with
+    /// that entry when the feed still has it. When it does not, the feed is
+    /// no longer the one the cursor was read from (a server restored from a
+    /// backup ends below it): the cursor means nothing there, and the end is
+    /// found from the start of the feed. Left alone, a cursor past the end
+    /// would see an empty page for ever.
     pub async fn feed_end(&self, channel_id: i64, since: u64) -> anyhow::Result<u64> {
         let mut cursor = since;
+        if since > 0 {
+            let page = self.changes(channel_id, since - 1).await?;
+            if page.changes.first().map(|entry| entry.seq) != Some(since) {
+                cursor = 0;
+            } else if page.changes.len() == 1 {
+                return Ok(since);
+            } else {
+                cursor = page.latest_seq;
+            }
+        }
         loop {
             let page = self.changes(channel_id, cursor).await?;
             if page.changes.is_empty() || page.latest_seq <= cursor {
@@ -201,10 +219,18 @@ impl WabiClient {
         }
     }
 
-    /// Has anything been recorded in the change feed after `cursor`? One
-    /// page answers that, however long the feed is.
+    /// Is the feed anything other than "ends at `cursor`"? One page answers
+    /// that, however long the feed is: asked from one before the cursor, a
+    /// feed with nothing new returns the cursor's own entry and no other.
+    /// More entries are changes to fetch; a missing entry is a feed the
+    /// cursor does not belong to (see `feed_end`), and a round must run to
+    /// find where it ends now.
     pub async fn remote_moved(&self, channel_id: i64, cursor: u64) -> anyhow::Result<bool> {
-        Ok(!self.changes(channel_id, cursor).await?.changes.is_empty())
+        let page = self.changes(channel_id, cursor.saturating_sub(1)).await?;
+        if cursor == 0 {
+            return Ok(!page.changes.is_empty());
+        }
+        Ok(!(page.changes.len() == 1 && page.changes[0].seq == cursor))
     }
 
     /// Download a file. `if_none_match` enables a cheap 304 round-trip.
