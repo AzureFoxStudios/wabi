@@ -1,6 +1,6 @@
 # WabiDB Projections — Materialized Views
 
-Projections are in-memory SkipMap indexes updated by events. They are the read model — all queries hit projections, never raw segments.
+Projections are in-memory SkipMap indexes updated by events, except messages, channels and channel members, which live in the SQLite read model (`docs/ai/wabidb-engine.md`). They are the read model — all queries hit projections, never raw segments.
 
 ## Flow
 
@@ -72,13 +72,13 @@ Composite keys use length-prefixed components (u64 length + bytes), enabling pre
 |-------|---------|-------------|
 | messages, message_versions (SQLite read model) | MessagesProjection | message_created, message_edited, message_deleted, channel_messages_cleared |
 | reactions | ReactionsProjection | reaction_added |
-| channel_members | ChannelMembersProjection | channel_member_added |
+| channel_members, channel_membership_versions (SQLite read model) | ChannelMembersProjection | channel_member_added, channel_member_removed, channel_members_changed |
 | mutes, deafens | VoiceRestrictionsProjection | user_muted, user_unmuted, user_deafened, user_undeafened |
 | users | UsersProjection | user_registered |
 | emotes | EmotesProjection | emote_upserted |
 | webhooks | WebhooksProjection | webhook_upserted |
 | user_layouts | LayoutsProjection | user_layout_upserted |
-| channels | ChannelProjection | channel_created |
+| channels (SQLite read model) | ChannelProjection | channel_created, channel_updated, channel_deleted |
 | call_sessions | CallSessionsProjection | call_session_created, call_session_ended |
 | call_participants | CallParticipantsProjection | call_participant_joined |
 | call_signals | CallSignalsProjection | call_signal_emitted |

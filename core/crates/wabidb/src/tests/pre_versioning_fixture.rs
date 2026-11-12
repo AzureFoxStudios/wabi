@@ -12,7 +12,8 @@
 //! does not have: opening it rebuilds them from the log, and the snapshot's
 //! message indexes are not loaded. `describe_state` lists the read model's
 //! rows under the names and keys those five indexes had, so `expected.txt`
-//! still says what the messages must be.
+//! still says what the messages must be. The same holds for the two
+//! channel_members indexes since Task 3.5.3.
 //!
 //! Do not regenerate the fixture: the generator now writes versioned records,
 //! so a regenerated directory would no longer prove anything about old data.
@@ -119,6 +120,7 @@ fn describe_state(state: &ProjectionState) -> String {
         }
     }
     lines.extend(describe_messages(state));
+    lines.extend(describe_members(state));
     lines.sort();
     lines.join("\n") + "\n"
 }
@@ -168,6 +170,26 @@ fn describe_messages(state: &ProjectionState) -> Vec<String> {
             Ok(())
         })
         .unwrap();
+    lines
+}
+
+/// The read model's membership rows as lines of the two in-memory indexes
+/// that held them before Task 3.5.3, which used the same keys.
+fn describe_members(state: &ProjectionState) -> Vec<String> {
+    use crate::projections::read_model::Table;
+    let mut lines = Vec::new();
+    for table in [Table::ChannelMembers, Table::ChannelMembershipVersions] {
+        state
+            .read_model()
+            .for_each_full_row(table, |columns| {
+                let name = table.name();
+                // The record is the last column (the members table also has the user id).
+                let record = columns[columns.len() - 1];
+                lines.push(format!("{name} {} {}", hex::encode(columns[0]), describe_value(name, record)));
+                Ok(())
+            })
+            .unwrap();
+    }
     lines
 }
 

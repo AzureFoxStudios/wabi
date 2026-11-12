@@ -66,9 +66,18 @@ fn populate(state: &ProjectionState) {
                 role: (i % 4) as u8,
                 nick: None,
             };
-            let key = cm::encode_key(&ch, r.user_id);
-            let val = cm::encode_record(&r);
-            state.insert("channel_members", key, val, (g * per_group + i) as u64);
+            // Channel members live in the SQLite read model too.
+            ChannelMembersProjection
+                .apply(
+                    &DurableEvent {
+                        commit_seq: (g * per_group + i) as u64 + 1,
+                        stream_id: format!("channel_members:{ch}"),
+                        event_type: "channel_member_added".into(),
+                        payload: cm::encode_record(&r),
+                    },
+                    state,
+                )
+                .unwrap();
         }
     }
 

@@ -1016,16 +1016,12 @@ impl WabiStore for WdbAdapter {
         match member_user_id {
             None => Ok(all),
             Some(uid) => {
-                // Filter by membership: read members index, then intersect.
-                use wabidb::projections::channel_members::decode_record;
-                let mut member_of = std::collections::HashSet::new();
-                state.for_each("channel_members", |_key, value| {
-                    if let Ok(m) = decode_record(value) {
-                        if m.user_id == uid {
-                            member_of.insert(m.channel_id);
-                        }
-                    }
-                });
+                // Filter by membership: read the members table, then intersect.
+                use wabidb::projections::channel_members::ChannelMembersProjection;
+                let member_of: std::collections::HashSet<String> =
+                    ChannelMembersProjection::channel_ids_of_user(&state, uid)?
+                        .into_iter()
+                        .collect();
                 Ok(all
                     .into_iter()
                     .filter(|c| member_of.contains(&c.channel_id))

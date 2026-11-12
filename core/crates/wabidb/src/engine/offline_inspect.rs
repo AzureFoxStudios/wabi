@@ -44,7 +44,7 @@ pub struct InspectionReceipt {
     pub full_history_replayed: bool,
     /// The saved projection equals the replayed one, as far as it was
     /// compared. The snapshot's indexes are always compared. The SQLite read
-    /// model (messages, channels) is compared only when `read_model_compared` is true.
+    /// model (messages, channels, channel members) is compared only when `read_model_compared` is true.
     /// **A caller that certifies a directory must also require
     /// `!read_model_present || read_model_compared`.**
     pub persisted_projection_matches: bool,
@@ -153,9 +153,12 @@ fn read_saved_view(root: &Path, limits: &InspectionLimits) -> Result<ProjectionS
             if !keys.insert(key.clone()) {
                 return Err(refused("duplicate inspection projection key"));
             }
-            // A snapshot saved before messages moved to the read model still
-            // lists their indexes. The engine does not load them either.
-            if super::locks::LEGACY_MESSAGE_INDEXES.contains(&name.as_str()) {
+            // A snapshot saved before messages and channel members moved to
+            // the read model still lists their indexes. The engine does not
+            // load them either.
+            if super::locks::LEGACY_MESSAGE_INDEXES.contains(&name.as_str())
+                || super::locks::LEGACY_MEMBERSHIP_INDEXES.contains(&name.as_str())
+            {
                 continue;
             }
             state.insert(&name, key, value, saved.watermark);
@@ -443,7 +446,7 @@ pub async fn inspect_frozen_locked(
             "inspection snapshot watermark differs from checkpoint",
         ));
     }
-    // Messages and channels live in the SQLite read model. Its rows are compared when
+    // Messages, channels and channel members live in the SQLite read model. Its rows are compared when
     // the engine would serve the file as it is. When the engine would replace
     // or rebuild it, there is no saved state of them to compare; the
     // receipt says so. When the engine would serve it but it cannot be read

@@ -1,8 +1,19 @@
+//! Channel members projection: who belongs to which channel, and each
+//! channel's membership revision.
+//!
+//! Handles `channel_member_added`, `channel_member_removed` and
+//! `channel_members_changed`. The rows live in the SQLite read model's
+//! `channel_members` and `channel_membership_versions` tables (ADR-0001), not
+//! in `projections/snapshot.json`. The user deletion projection, which stays
+//! in memory, removes a deleted user's rows here
+//! ([`remove_user_while_applying`]).
+
 use crate::engine::locks::ProjectionState;
 use crate::format::versioned::{self, RecordFormat};
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::read_model::{self, Table};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,42 +118,75 @@ pub fn encode_key(channel_id: &str, user_id: u64) -> Vec<u8> {
     buf
 }
 
+/// Key prefix shared by every member row of one channel.
+fn channel_prefix(channel_id: &str) -> Vec<u8> {
+    let mut prefix = Vec::new();
+    prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+    prefix.extend_from_slice(channel_id.as_bytes());
+    prefix
+}
+
 impl ChannelMembersProjection {
-    /// Look up a single channel member.
+    /// Look up a single channel member, as of the last committed commit.
     pub fn get_member(
         state: &ProjectionState,
         channel_id: &str,
         user_id: u64,
     ) -> Result<Option<ChannelMemberRecord>> {
         let key = encode_key(channel_id, user_id);
-        match state.get("channel_members", &key) {
-            None => Ok(None),
-            Some(bytes) => decode_record(&bytes).map(Some),
-        }
+        state
+            .read_model()
+            .read(|conn| read_model::get(conn, Table::ChannelMembers, &key))?
+            .map(|bytes| decode_record(&bytes))
+            .transpose()
     }
 
-    /// List all members of a channel.
+    /// List all members of a channel (in key order), as of the last committed
+    /// commit.
     pub fn list_members(
         state: &ProjectionState,
         channel_id: &str,
     ) -> Result<Vec<ChannelMemberRecord>> {
-        let mut prefix = Vec::new();
-        prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
-        prefix.extend_from_slice(channel_id.as_bytes());
+        let prefix = channel_prefix(channel_id);
+        let upper = crate::projections::messages::prefix_successor(&prefix);
         let mut results = Vec::new();
-        state.prefix_scan("channel_members", &prefix, |_key, value| {
-            results.push(decode_record(value));
-        });
-        results.into_iter().collect()
+        state.read_model().read(|conn| {
+            read_model::scan(conn, Table::ChannelMembers, &prefix, Some(&upper), false, |_key, value| {
+                results.push(decode_record(value)?);
+                Ok(true)
+            })
+        })?;
+        Ok(results)
+    }
+
+    /// The ids of the channels `user_id` is a member of, in key order, as of
+    /// the last committed commit. Rows that do not decode are left out. One
+    /// indexed lookup (the `user_id` column), not a scan of every membership.
+    pub fn channel_ids_of_user(state: &ProjectionState, user_id: u64) -> Result<Vec<String>> {
+        let mut channels = Vec::new();
+        state.read_model().read(|conn| {
+            read_model::scan_members_of_user(conn, user_id, |_key, value| {
+                if let Ok(record) = decode_record(value) {
+                    if record.user_id == user_id {
+                        channels.push(record.channel_id);
+                    }
+                }
+                Ok(true)
+            })
+        })?;
+        Ok(channels)
     }
 
     /// Zero is the legacy-checkpoint baseline; the first subsequent membership
     /// event establishes a durable revision. Never use process-local counters.
     pub fn revision(state: &ProjectionState, channel_id: &str) -> Result<u64> {
         state
-            .get("channel_membership_versions", channel_id.as_bytes())
+            .read_model()
+            .read(|conn| {
+                read_model::get(conn, Table::ChannelMembershipVersions, channel_id.as_bytes())
+            })?
             .map_or(Ok(0), |bytes| {
-                bytes.try_into().map(u64::from_le_bytes).map_err(|_| {
+                <[u8; 8]>::try_from(bytes.as_slice()).map(u64::from_le_bytes).map_err(|_| {
                     crate::error::WabiError::Corrupt {
                         location: "channel_membership_versions".into(),
                         detail: "invalid revision".into(),
@@ -150,6 +194,38 @@ impl ChannelMembersProjection {
                 })
             })
     }
+}
+
+/// The `user_deleted` cascade: remove every membership of `user_id`. For the
+/// user deletion handler while it applies a commit; it sees the rows that
+/// commit has written so far, and during startup replay everything replay
+/// has written. Rows that do not decode are left alone.
+pub(crate) fn remove_user_while_applying(state: &ProjectionState, user_id: u64) -> Result<()> {
+    state.read_model().write(|conn| {
+        let mut keys = Vec::new();
+        read_model::scan_members_of_user(conn, user_id, |key, value| {
+            if decode_record(value).is_ok_and(|record| record.user_id == user_id) {
+                keys.push(key.to_vec());
+            }
+            Ok(true)
+        })?;
+        for key in keys {
+            read_model::delete_channel_member(conn, &key)?;
+        }
+        Ok(())
+    })
+}
+
+/// Test support: store a member row as it is, bypassing the log (legacy and
+/// corrupt rows no current event produces). `key` must end with the user id,
+/// as [`encode_key`] writes it. The row is committed at once. The engine must
+/// not be applying a commit; nothing here checks that.
+#[doc(hidden)]
+pub fn insert_raw_for_tests(state: &ProjectionState, key: &[u8], record: &[u8]) {
+    let user_id = u64::from_le_bytes(key[key.len() - 8..].try_into().unwrap());
+    let model = state.read_model();
+    model.write(|conn| read_model::put_channel_member(conn, key, user_id, record)).unwrap();
+    model.finish_commit(state.applied_commit_seq()).unwrap();
 }
 
 pub struct ChannelMembersProjection;
@@ -167,7 +243,18 @@ impl Projection for ChannelMembersProjection {
         ]
     }
 
+    fn stores_in_read_model(&self) -> bool {
+        true
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        // Startup replay begins at the snapshot of the in-memory projections.
+        // The read model may already hold later commits; its own
+        // `applied_commit_seq` says which.
+        if event.commit_seq <= state.read_model().replay_floor() {
+            return Ok(());
+        }
+        let revision = event.commit_seq.to_le_bytes();
         if event.event_type == "channel_members_changed" {
             // Validate the entire delta before mutating any row.
             let change = ChannelMembersChanged::decode(&event.payload)?;
@@ -177,61 +264,131 @@ impl Projection for ChannelMembersProjection {
                     reason: "membership stream mismatch".into(),
                 });
             }
-            for id in change.removals {
-                state.remove("channel_members", &encode_key(&change.channel_id, id));
-            }
-            for record in change.upserts {
-                state.insert(
-                    "channel_members",
-                    encode_key(&change.channel_id, record.user_id),
-                    encode_record(&record),
-                    event.commit_seq,
-                );
-            }
-            state.insert(
-                "channel_membership_versions",
-                change.channel_id.into_bytes(),
-                event.commit_seq.to_le_bytes().to_vec(),
-                event.commit_seq,
-            );
-            return Ok(());
+            return state.read_model().write(|conn| {
+                for id in &change.removals {
+                    read_model::delete_channel_member(conn, &encode_key(&change.channel_id, *id))?;
+                }
+                for record in &change.upserts {
+                    read_model::put_channel_member(
+                        conn,
+                        &encode_key(&change.channel_id, record.user_id),
+                        record.user_id,
+                        &encode_record(record),
+                    )?;
+                }
+                read_model::put_membership_version(conn, change.channel_id.as_bytes(), &revision)
+            });
         }
         let record: ChannelMemberRecord = decode_record(&event.payload)?;
         let key = encode_key(&record.channel_id, record.user_id);
-        match event.event_type.as_str() {
-            "channel_member_added" => {
-                state.insert(
-                    "channel_members",
-                    key,
-                    encode_record(&record),
-                    event.commit_seq,
-                );
-            }
-            "channel_member_removed" => {
-                // A repeated leave is an idempotent no-op. Decode first so
-                // malformed removals cannot be acknowledged as successful.
-                state.remove("channel_members", &key);
-            }
+        let added = match event.event_type.as_str() {
+            "channel_member_added" => true,
+            // A repeated leave is an idempotent no-op. Decode first so
+            // malformed removals cannot be acknowledged as successful.
+            "channel_member_removed" => false,
             other => {
                 return Err(crate::error::WabiError::Validation {
                     command: other.into(),
                     reason: "unexpected channel membership event".into(),
                 })
             }
-        }
-        state.insert(
-            "channel_membership_versions",
-            record.channel_id.into_bytes(),
-            event.commit_seq.to_le_bytes().to_vec(),
-            event.commit_seq,
-        );
-        Ok(())
+        };
+        state.read_model().write(|conn| {
+            if added {
+                read_model::put_channel_member(conn, &key, record.user_id, &encode_record(&record))?;
+            } else {
+                read_model::delete_channel_member(conn, &key)?;
+            }
+            read_model::put_membership_version(conn, record.channel_id.as_bytes(), &revision)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Tripwire for `READ_MODEL_GENERATION`, as for the messages and the
+    /// channels. The hash covers every row this projection stores, in both
+    /// tables, for a fixed set of events that reaches every branch of the
+    /// handler, the `user_deleted` cascade included. If it changes, replay
+    /// now writes something else, and a read model written by the previous
+    /// build would disagree with the log.
+    ///
+    /// When this fails: bump `READ_MODEL_GENERATION`, then update both values
+    /// here together. Never update the hash alone.
+    #[test]
+    fn stored_rows_are_pinned_to_the_read_model_generation() {
+        use crate::projections::user_deletion::{encode_payload, UserDeletionProjection};
+        let state = ProjectionState::new();
+        let member = |channel: &str, user_id, role, nick: Option<&str>| ChannelMemberRecord {
+            channel_id: channel.into(),
+            user_id,
+            joined_at_micros: 10 + user_id as i64,
+            role,
+            nick: nick.map(Into::into),
+        };
+        let apply = |commit_seq, event_type: &str, channel: &str, payload: Vec<u8>| {
+            ChannelMembersProjection
+                .apply(
+                    &DurableEvent {
+                        commit_seq,
+                        stream_id: format!("channel_members:{channel}"),
+                        event_type: event_type.into(),
+                        payload,
+                    },
+                    &state,
+                )
+                .unwrap()
+        };
+        let change = |upserts, removals| {
+            serde_json::to_vec(&ChannelMembersChanged { channel_id: "group-g".into(), upserts, removals }).unwrap()
+        };
+        apply(1, "channel_member_added", "ch_a", encode_record(&member("ch_a", 1, 3, Some("owner"))));
+        apply(2, "channel_member_added", "ch_a", encode_record(&member("ch_a", 2, 0, None)));
+        apply(3, "channel_member_removed", "ch_a", encode_record(&member("ch_a", 9, 0, None)));
+        apply(4, "channel_member_added", "ch_a", encode_record(&member("ch_a", 2, 2, None)));
+        apply(5, "channel_members_changed", "group-g",
+            change(vec![member("group-g", 1, 3, None), member("group-g", 2, 0, None), member("group-g", 3, 0, None)], vec![]));
+        apply(6, "channel_members_changed", "group-g", change(vec![member("group-g", 3, 1, None)], vec![2]));
+        apply(7, "channel_member_added", "ch_b", encode_record(&member("ch_b", 3, 0, None)));
+        UserDeletionProjection
+            .apply(
+                &DurableEvent {
+                    commit_seq: 8,
+                    stream_id: "users".into(),
+                    event_type: "user_deleted".into(),
+                    payload: encode_payload(&crate::domain::UserDeleted { user_id: 3 }),
+                },
+                &state,
+            )
+            .unwrap();
+
+        let mut hash = blake3::Hasher::new();
+        let mut rows = 0;
+        for table in [Table::ChannelMembers, Table::ChannelMembershipVersions] {
+            hash.update(table.name().as_bytes());
+            state
+                .read_model()
+                .for_each_row(table, |key, record| {
+                    rows += 1;
+                    for bytes in [key, record] {
+                        hash.update(&(bytes.len() as u64).to_le_bytes());
+                        hash.update(bytes);
+                    }
+                    Ok(())
+                })
+                .unwrap();
+        }
+        assert_eq!(rows, 6, "ch_a 1 and 2, group-g 1; revisions of ch_a, group-g and ch_b");
+        let stored = hash.finalize().to_hex().to_string();
+        println!("generation {} rows {stored}", read_model::READ_MODEL_GENERATION);
+        assert_eq!(
+            (read_model::READ_MODEL_GENERATION, stored.as_str()),
+            (3, "ff677eca131e8886f0f4c7abc45f50e5f432d7b886045926b0b1fc93fa0d14d7"),
+            "replay stores different rows: bump READ_MODEL_GENERATION and update this pin with it"
+        );
+    }
 
     #[test]
     fn batch_validates_before_mutation_and_legacy_events_advance_revision() {
@@ -309,7 +466,7 @@ mod tests {
     #[test]
     fn corrupt_membership_list_fails_instead_of_choosing_a_different_owner() {
         let state = ProjectionState::new();
-        state.insert("channel_members", encode_key("group-test", 9), vec![255], 1);
+        insert_raw_for_tests(&state, &encode_key("group-test", 9), &[255]);
         assert!(ChannelMembersProjection::list_members(&state, "group-test").is_err());
         assert!(ChannelMembersProjection::list_members(&state, "other")
             .unwrap()
@@ -366,9 +523,9 @@ mod tests {
 
         proj.apply(&event, &state).unwrap();
 
-        let key = encode_key("ch_01", 42);
-        let stored = state.get("channel_members", &key).unwrap();
-        let decoded = decode_record(&stored).unwrap();
+        let decoded = ChannelMembersProjection::get_member(&state, "ch_01", 42)
+            .unwrap()
+            .unwrap();
         assert_eq!(decoded.user_id, 42);
         assert_eq!(decoded.role, 2);
         assert_eq!(decoded.nick, Some("alice".into()));
@@ -396,9 +553,9 @@ mod tests {
 
         proj.apply(&event, &state).unwrap();
 
-        let key = encode_key("ch_01", 99);
-        let stored = state.get("channel_members", &key).unwrap();
-        let decoded = decode_record(&stored).unwrap();
+        let decoded = ChannelMembersProjection::get_member(&state, "ch_01", 99)
+            .unwrap()
+            .unwrap();
         assert_eq!(decoded.role, 1); // mod
     }
 
