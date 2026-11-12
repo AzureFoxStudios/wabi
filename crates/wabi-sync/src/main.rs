@@ -181,13 +181,16 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("creating {}", folder.display()))?;
             let link = LinkConfig { server_url, channel_id };
             // The link file only; `.wabi-sync/` is never touched here.
-            match link.link(&folder)? {
+            let owner = wabi_sync::config::StateOwner::new(&link.server_url, channel_id);
+            match link.link(&folder, &owner, false)? {
                 Linked::Unchanged => {
                     println!("{} is already linked to channel {channel_id}; nothing changed.", folder.display());
                     return Ok(());
                 }
                 Linked::New => {}
-                Linked::Replaced { previous } => println!(
+                Linked::KeptState { .. } => {}
+                Linked::Replaced { previous: None, .. } => {}
+                Linked::Replaced { previous: Some(previous), .. } => println!(
                     "This folder was linked to {} channel {} and has sync state from then. That state is left \
                      in .wabi-sync/ and is not used for the new link: the next sync treats the folder as \
                      newly linked. It deletes nothing on either side, uploads files the new repo does not \

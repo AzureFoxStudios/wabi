@@ -368,6 +368,9 @@ pub struct SyncEngine<'a> {
     pub state: SyncState,
     /// Lines for the next report's `notices`.
     notices: Vec<String>,
+    /// Go ahead with a round that deletes most of the synced files on one
+    /// side (`--allow-mass-delete`). (Stub: not looked at yet.)
+    pub allow_mass_delete: bool,
     /// Held until the engine is dropped: no other wabi-sync process reads
     /// or writes this folder's state meanwhile.
     _lock: FolderLock,
@@ -379,8 +382,9 @@ impl<'a> SyncEngine<'a> {
     pub fn new(client: &'a WabiClient, folder: &'a Path, link: &'a LinkConfig) -> anyhow::Result<Self> {
         let lock = FolderLock::acquire(folder)?;
         // A state recorded for another server or channel is not this link's.
-        let owner = StateOwner { server_url: client.server_url().to_string(), channel_id: link.channel_id };
-        let (mut state, notice) = SyncState::for_owner(folder, owner)?;
+        let owner = StateOwner::new(client.server_url(), link.channel_id);
+        let mut state = SyncState::for_owner(folder, owner)?;
+        let notice: Option<String> = None;
         // An earlier build synced conflict copies like any other file. With
         // no record of them here they are neither deleted nor replaced, on
         // the server or in the folder.
@@ -388,7 +392,7 @@ impl<'a> SyncEngine<'a> {
         state.pending_review.retain(|path, _| !is_internal(path));
         state.local_fingerprints.retain(|path, _| !is_internal(path));
         state.refused_uploads.retain(|path, _| !is_internal(path));
-        Ok(Self { client, folder, link, state, notices: notice.into_iter().collect(), _lock: lock })
+        Ok(Self { client, folder, link, state, notices: notice.into_iter().collect(), allow_mass_delete: false, _lock: lock })
     }
 
     pub fn save_state(&self) -> anyhow::Result<()> {
@@ -709,11 +713,7 @@ impl<'a> SyncEngine<'a> {
                 // The same file the server already refused: its body is
                 // not sent again to hear the same answer.
                 if refused.etag == *local_etag && (refused.status != 403 || permission_refused_again) {
-                    report.not_uploaded.push(format!(
-                        "{path} (still not uploaded: {}; the file has not changed since. \
-                         `wabi-sync resubmit {path}` sends it again)",
-                        refused.said
-                    ));
+                    report.not_uploaded.push(still_refused_line(path, refused));
                     continue;
                 }
             }
@@ -869,6 +869,14 @@ impl<'a> SyncEngine<'a> {
         report.waiting_review.retain(|p| self.state.pending_review.contains_key(p));
         Ok(report)
     }
+}
+
+/// The report line for a file the server refused before, unchanged since.
+fn still_refused_line(path: &str, refused: &RefusedUpload) -> String {
+    format!(
+        "{path} (still not uploaded: {}; the file has not changed since. `wabi-sync resubmit {path}` sends it again)",
+        refused.said
+    )
 }
 
 /// What `wabi-sync status` says about the files in the folder.
@@ -1045,10 +1053,10 @@ mod tests {
             "about.wabi-conflict-handling.md",
             "notes.wabi-conflict-old/a.md",
             "docs.wabi-conflict-ab12cd34/a.md",
-            "nested/.wabi-sync/state.json",
-            "nested/.wabi-sync.json",
             "a.txt.wabi-conflict-ab12cd34.bak",
-            "a.txt.wabi-conflict-",
+            "a.txt.wabi-conflict-nope",
+            ".wabi-sync.json.bak",
+            "sub/.wabi-sync-notes/a.md",
         ] {
             assert!(!is_internal(path), "{path}");
         }
@@ -1065,9 +1073,54 @@ mod tests {
             "gone.txt.wabi-conflict-deleted-2",
             // A conflict copy of a file that itself looks like one.
             "x.wabi-conflict-old.wabi-conflict-00ff00ff",
+            // H5. Copies made before 4.8f: the tag `server` (a 409 with no
+            // etag) or none at all (deleted on the server, no baseline).
+            "docs/a.txt.wabi-conflict-server",
+            "docs/a.txt.wabi-conflict-",
+            // H5. The link file and state of a folder linked inside this
+            // one, at any depth and in any case.
+            "sub/.wabi-sync.json",
+            "sub/.wabi-sync/state.json",
+            "a/b/.Wabi-Sync/lock",
+            "a/b/.WABI-SYNC.JSON",
         ] {
             assert!(is_internal(path), "{path}");
         }
+    }
+
+    /// H5. A folder linked inside this one: its link file and state are
+    /// neither synced nor dropped without a word.
+    #[test]
+    fn a_nested_linked_folders_state_is_skipped_and_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir_all(sub.join(".wabi-sync")).unwrap();
+        for name in ["state.json", "lock", "state.json.tmp.41.7"] {
+            std::fs::write(sub.join(".wabi-sync").join(name), b"{}").unwrap();
+        }
+        std::fs::write(sub.join(".wabi-sync.json"), b"{}").unwrap();
+        std::fs::write(sub.join("notes.md"), b"mine").unwrap();
+        let scan = scan_folder(dir.path()).unwrap();
+        assert_eq!(scan.files.keys().collect::<Vec<_>>(), vec!["sub/notes.md"]);
+        assert_eq!(
+            scan.skipped_lines(),
+            vec![
+                "sub/.wabi-sync (not synced: it is the sync state of a folder linked inside this one)",
+                "sub/.wabi-sync.json (not synced: it is the link file of a folder linked inside this one)",
+            ]
+        );
+    }
+
+    /// H4. A 413 is remembered; the line says what to do once the limit is
+    /// raised. Other remembered refusals keep the plain line.
+    #[test]
+    fn the_still_refused_line_for_a_size_limit_says_how_to_retry() {
+        let refused = |status: u16| RefusedUpload { etag: "e".into(), status, said: format!("said {status}") };
+        let line = still_refused_line("big.bin", &refused(413));
+        assert!(line.starts_with("big.bin (still not uploaded: said 413;"), "{line}");
+        assert!(line.contains("once the server's size limit has been raised, `wabi-sync resubmit big.bin` sends it again"), "{line}");
+        let line = still_refused_line("AUX.txt", &refused(400));
+        assert!(line.contains("`wabi-sync resubmit AUX.txt` sends it again") && !line.contains("limit"), "{line}");
     }
 
     /// B5. A conflict copy's name fits in one file name whatever the

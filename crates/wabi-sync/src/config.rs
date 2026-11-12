@@ -77,20 +77,19 @@ impl LinkConfig {
         Ok(())
     }
 
-    /// What `wabi-sync link` does to a folder. It writes the link file and
-    /// nothing else: an existing state directory is left exactly as it is.
-    /// Whether that state may be used is decided when a round starts, from
-    /// the owner recorded in it (`SyncState::owner`). A link that says what
-    /// the folder's link file already says is not written again, so that a
-    /// state file with no recorded owner is not taken for another link's.
-    pub fn link(&self, folder: &Path) -> anyhow::Result<Linked> {
+    /// What `wabi-sync link` does to a folder. (Stub: the owner and
+    /// `keep_state` are not looked at yet.)
+    pub fn link(&self, folder: &Path, owner: &StateOwner, keep_state: bool) -> anyhow::Result<Linked> {
+        let _ = (owner, keep_state);
         let previous = Self::load(folder).ok();
         if previous.as_ref() == Some(self) {
             return Ok(Linked::Unchanged);
         }
         self.save(folder)?;
         Ok(match previous {
-            Some(previous) if SyncState::path_for(folder).exists() => Linked::Replaced { previous },
+            Some(previous) if SyncState::path_for(folder).exists() => {
+                Linked::Replaced { previous: Some(previous), state_moved_to: None }
+            }
             _ => Linked::New,
         })
     }
@@ -121,7 +120,10 @@ pub enum Linked {
     Unchanged,
     /// The folder was linked elsewhere and has sync state from then. The
     /// state stays on disk and the next round does not use it.
-    Replaced { previous: LinkConfig },
+    Replaced { previous: Option<LinkConfig>, state_moved_to: Option<PathBuf> },
+    /// The state was recorded for another address of the same repository
+    /// and now belongs to this link (`--keep-state`).
+    KeptState { previous: StateOwner },
 }
 
 /// The server and channel a state file describes.
@@ -130,6 +132,17 @@ pub struct StateOwner {
     /// The server the client talks to, without a trailing slash.
     pub server_url: String,
     pub channel_id: i64,
+}
+
+/// (Stub.)
+pub fn normalize_server_url(url: &str) -> String {
+    url.trim_end_matches('/').to_string()
+}
+
+impl StateOwner {
+    pub fn new(server_url: &str, channel_id: i64) -> Self {
+        Self { server_url: normalize_server_url(server_url), channel_id }
+    }
 }
 
 /// Mutable sync state: the last-synced etag per path (the three-way baseline)
@@ -262,7 +275,7 @@ impl SyncState {
     /// A state file with no owner recorded is used as it is, unless the
     /// folder's link file was written after it: then the link has changed
     /// since that state was saved, and nothing says it was made for this one.
-    pub fn for_owner(folder: &Path, owner: StateOwner) -> anyhow::Result<(Self, Option<String>)> {
+    pub fn for_owner(folder: &Path, owner: StateOwner) -> anyhow::Result<Self> {
         let mut state = Self::load(folder)?;
         let foreign = match &state.owner {
             Some(recorded) if *recorded == owner => None,
@@ -285,8 +298,9 @@ impl SyncState {
                 owner.server_url, owner.channel_id
             )
         });
+        let _ = notice;
         state.owner = Some(owner);
-        Ok((state, notice))
+        Ok(state)
     }
 
     /// The state of `folder`, or an empty one when the folder has never been
@@ -314,18 +328,13 @@ impl SyncState {
     }
 
     pub fn save(&self, folder: &Path) -> anyhow::Result<()> {
-        static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = Self::path_for(folder);
         std::fs::create_dir_all(path.parent().unwrap_or(folder))?;
         // Written beside the state file and renamed over it: a crash leaves
         // the old state or the new one, never half a file. The temporary
         // name is this writer's own (process id and a counter), so two
         // writers never rename each other's half-written file.
-        let temporary = path.with_extension(format!(
-            "json.tmp.{}.{}",
-            std::process::id(),
-            SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
+        let temporary = temporary_path(&path);
         let written = std::fs::write(&temporary, serde_json::to_string_pretty(self)?)
             .and_then(|()| std::fs::rename(&temporary, &path));
         if written.is_err() {
@@ -333,6 +342,18 @@ impl SyncState {
         }
         Ok(written?)
     }
+}
+
+/// Where a save of `path` writes before it renames: a name of this writer's
+/// own (process id and a counter), so that two writers never rename each
+/// other's half-written file.
+fn temporary_path(path: &Path) -> PathBuf {
+    static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    path.with_extension(format!(
+        "json.tmp.{}.{}",
+        std::process::id(),
+        SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ))
 }
 
 /// Name of the lock file inside the state directory.
@@ -438,75 +459,181 @@ mod tests {
         assert_eq!(loaded.baselines.get("b.txt"), Some(&None));
     }
 
-    /// B1. `link` on a linked folder: the link file only, and not even that
-    /// when nothing changes.
-    #[test]
-    fn link_writes_the_link_file_and_leaves_the_state() {
-        let dir = tempfile::tempdir().unwrap();
-        let first = LinkConfig { server_url: "http://one".into(), channel_id: 1 };
-        assert_eq!(first.link(dir.path()).unwrap(), Linked::New);
-        // Linked elsewhere before any round ran: there is no state to speak of.
-        let second = LinkConfig { server_url: "http://one".into(), channel_id: 2 };
-        assert_eq!(second.link(dir.path()).unwrap(), Linked::New);
-
-        let owner = |link: &LinkConfig| StateOwner { server_url: link.server_url.clone(), channel_id: link.channel_id };
-        let (mut state, notice) = SyncState::for_owner(dir.path(), owner(&second)).unwrap();
-        assert_eq!(notice, None);
-        state.baselines.insert("a.txt".into(), Some("etag".into()));
-        state.save(dir.path()).unwrap();
-        let saved = state_json(dir.path());
-
-        let link_file = dir.path().join(LINK_FILE);
-        let written = std::fs::metadata(&link_file).unwrap().modified().unwrap();
-        assert_eq!(second.link(dir.path()).unwrap(), Linked::Unchanged);
-        assert_eq!(std::fs::metadata(&link_file).unwrap().modified().unwrap(), written, "written again");
-
-        assert_eq!(first.link(dir.path()).unwrap(), Linked::Replaced { previous: second.clone() });
-        assert_eq!(LinkConfig::load(dir.path()).unwrap(), first);
-        assert_eq!(state_json(dir.path()), saved, "link touched the state");
-
-        // The state is the second link's: not used for the first, and used
-        // again if the folder is linked back before a round replaces it.
-        let (state, notice) = SyncState::for_owner(dir.path(), owner(&first)).unwrap();
-        assert!(state.baselines.is_empty());
-        assert_eq!(state.owner, Some(owner(&first)));
-        let notice = notice.expect("the user is told");
-        assert!(notice.contains("http://one channel 2") && notice.contains("nothing is deleted"), "{notice}");
-        let (state, notice) = SyncState::for_owner(dir.path(), owner(&second)).unwrap();
-        assert_eq!((state.baselines.len(), notice), (1, None));
+    fn owner(url: &str, channel_id: i64) -> StateOwner {
+        StateOwner::new(url, channel_id)
     }
 
-    /// B1. A state file with no owner belongs to the link it is found with,
-    /// unless the link file was written after it.
+    fn saved_state(dir: &Path, owner: Option<StateOwner>) -> String {
+        let mut state = SyncState::default();
+        state.owner = owner;
+        state.baselines.insert("a.txt".into(), Some("etag".into()));
+        state.save(dir).unwrap();
+        state_json(dir)
+    }
+
+    /// H2. One server, spelled as a person may type it: the same owner.
     #[test]
-    fn state_with_no_owner_is_judged_by_the_link_file() {
+    fn server_urls_are_compared_as_addresses() {
+        for (a, b) in [
+            ("http://example.com", "HTTP://Example.COM/"),
+            ("http://example.com", "http://example.com:80"),
+            ("https://example.com/wabi", "https://EXAMPLE.com:443/wabi/"),
+            ("http://127.0.0.1:3001", "http://127.0.0.1:3001///"),
+        ] {
+            assert_eq!(normalize_server_url(a), normalize_server_url(b), "{a} / {b}");
+            assert_eq!(owner(a, 1), owner(b, 1));
+        }
+        for (a, b) in [
+            ("http://127.0.0.1:3001", "http://localhost:3001"),
+            ("http://example.com", "https://example.com"),
+            ("http://example.com:8080", "http://example.com"),
+            ("http://example.com/a", "http://example.com/b"),
+        ] {
+            assert_ne!(normalize_server_url(a), normalize_server_url(b), "{a} / {b}");
+        }
+        assert_ne!(owner("http://example.com", 1), owner("http://example.com", 2));
+    }
+
+    /// H2. A state recorded for another owner is never replaced by a round:
+    /// the round refuses and says how to go on, and the file is untouched.
+    #[test]
+    fn a_state_of_another_owner_is_refused_not_replaced() {
         let dir = tempfile::tempdir().unwrap();
-        let link = LinkConfig { server_url: "http://one".into(), channel_id: 1 };
-        let owner = StateOwner { server_url: "http://one".into(), channel_id: 1 };
-        link.save(dir.path()).unwrap();
+        let saved = saved_state(dir.path(), Some(owner("http://127.0.0.1:3001", 7)));
+        assert_eq!(SyncState::for_owner(dir.path(), owner("HTTP://127.0.0.1:3001/", 7)).unwrap().baselines.len(), 1);
+        for other in [owner("http://localhost:3001", 7), owner("http://127.0.0.1:3001", 8)] {
+            let error = format!("{:#}", SyncState::for_owner(dir.path(), other.clone()).expect_err("used another owner's state"));
+            assert!(error.contains("http://127.0.0.1:3001 channel 7"), "{error}");
+            assert!(error.contains(&format!("{} channel {}", other.server_url, other.channel_id)), "{error}");
+            assert!(error.contains("wabi-sync link") && error.contains("--keep-state"), "{error}");
+            assert_eq!(state_json(dir.path()), saved);
+        }
+    }
+
+    /// H3, and H2 the other way: a state with no owner (an older build's) is
+    /// this link's, whatever the files' times say. Only `link` changes the
+    /// link without moving the state aside, and it does not leave one
+    /// without an owner.
+    #[test]
+    fn a_state_with_no_owner_is_adopted() {
+        let dir = tempfile::tempdir().unwrap();
+        LinkConfig { server_url: "http://one".into(), channel_id: 1 }.save(dir.path()).unwrap();
         let mut state = SyncState::default();
         state.baselines.insert("a.txt".into(), Some("etag".into()));
-        state.unreported_conflicts.push("b.txt (told later)".into());
         state.save(dir.path()).unwrap();
-        assert!(!state_json(dir.path()).contains("owner"), "an older build's file has no such key");
-        let later = |seconds| std::time::SystemTime::now() + std::time::Duration::from_secs(seconds);
-        let touch = |path: PathBuf, when| std::fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+        assert!(!state_json(dir.path()).contains("owner"));
+        let at = |path: PathBuf, seconds| {
+            let when = std::time::SystemTime::now() + std::time::Duration::from_secs(seconds);
+            std::fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap()
+        };
+        for (link_at, state_at) in [(20, 10), (10, 10), (10, 20)] {
+            at(dir.path().join(LINK_FILE), link_at);
+            at(SyncState::path_for(dir.path()), state_at);
+            let adopted = SyncState::for_owner(dir.path(), owner("http://one", 1)).unwrap();
+            assert_eq!(adopted.baselines.len(), 1, "link at {link_at}, state at {state_at}");
+            assert_eq!(adopted.owner, Some(owner("http://one", 1)));
+        }
+    }
 
-        touch(SyncState::path_for(dir.path()), later(10));
-        let (kept, notice) = SyncState::for_owner(dir.path(), owner.clone()).unwrap();
-        assert_eq!((kept.baselines.len(), notice), (1, None));
-        assert_eq!(kept.owner, Some(owner.clone()));
+    /// H2, H3. `link` decides what happens to the state, from its owner.
+    #[test]
+    fn link_moves_another_links_state_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let link = |url: &str, channel_id| LinkConfig { server_url: url.into(), channel_id };
+        let aside = |name: &str| folder.join(STATE_DIR).join(name);
+        assert_eq!(link("http://one", 1).link(folder, &owner("http://one", 1), false).unwrap(), Linked::New);
+        let first = saved_state(folder, Some(owner("http://one", 1)));
 
-        touch(dir.path().join(LINK_FILE), later(20));
-        let (fresh, notice) = SyncState::for_owner(dir.path(), owner.clone()).unwrap();
-        assert!(fresh.baselines.is_empty());
-        assert!(notice.unwrap().contains("an earlier link of this folder"));
-        assert_eq!(fresh.unreported_conflicts.len(), 1, "a settled conflict is still reported");
+        // The same link, however it is spelled: nothing is written.
+        let written = std::fs::metadata(folder.join(LINK_FILE)).unwrap().modified().unwrap();
+        assert_eq!(link("http://one", 1).link(folder, &owner("HTTP://ONE/", 1), false).unwrap(), Linked::Unchanged);
+        assert_eq!(std::fs::metadata(folder.join(LINK_FILE)).unwrap().modified().unwrap(), written);
+        assert_eq!(state_json(folder), first);
 
-        // Once saved with its owner, the link file's time no longer matters.
-        kept.save(dir.path()).unwrap();
-        touch(dir.path().join(LINK_FILE), later(30));
-        assert_eq!(SyncState::for_owner(dir.path(), owner).unwrap().0.baselines.len(), 1);
+        // Another channel: the state goes to state.json.previous-link.
+        let linked = link("http://one", 2).link(folder, &owner("http://one", 2), false).unwrap();
+        assert_eq!(
+            linked,
+            Linked::Replaced { previous: Some(link("http://one", 1)), state_moved_to: Some(aside("state.json.previous-link")) }
+        );
+        assert!(!SyncState::path_for(folder).exists());
+        assert_eq!(std::fs::read_to_string(aside("state.json.previous-link")).unwrap(), first);
+        assert_eq!(LinkConfig::load(folder).unwrap(), link("http://one", 2));
+
+        // And again: an earlier one is never written over.
+        let second = saved_state(folder, Some(owner("http://one", 2)));
+        let linked = link("http://one", 1).link(folder, &owner("http://one", 1), false).unwrap();
+        assert!(matches!(linked, Linked::Replaced { state_moved_to: Some(ref to), .. } if *to == aside("state.json.previous-link.2")));
+        assert_eq!(std::fs::read_to_string(aside("state.json.previous-link")).unwrap(), first);
+        assert_eq!(std::fs::read_to_string(aside("state.json.previous-link.2")).unwrap(), second);
+
+        // The link file did not change but the login did (H2): `link` with
+        // the new address moves the state aside, unless told to keep it.
+        saved_state(folder, Some(owner("http://one", 1)));
+        let kept = link("http://one", 1).link(folder, &owner("http://localhost", 1), true).unwrap();
+        assert_eq!(kept, Linked::KeptState { previous: owner("http://one", 1) });
+        let state = SyncState::for_owner(folder, owner("http://localhost", 1)).unwrap();
+        assert_eq!(state.baselines.len(), 1);
+        saved_state(folder, Some(owner("http://one", 1)));
+        let moved = link("http://one", 1).link(folder, &owner("http://localhost", 1), false).unwrap();
+        assert!(matches!(moved, Linked::Replaced { state_moved_to: Some(_), .. }), "{moved:?}");
+        assert!(!SyncState::path_for(folder).exists());
+
+        // A state with no owner belongs to the link file it was found with.
+        saved_state(folder, None);
+        assert_eq!(link("http://one", 1).link(folder, &owner("http://one", 1), false).unwrap(), Linked::Unchanged);
+        assert!(SyncState::path_for(folder).exists());
+        let moved = link("http://one", 3).link(folder, &owner("http://one", 3), false).unwrap();
+        assert!(matches!(moved, Linked::Replaced { state_moved_to: Some(_), .. }), "{moved:?}");
+        assert!(!SyncState::path_for(folder).exists());
+    }
+
+    /// Item 6. The temporary name is the writer's own.
+    #[test]
+    fn temporary_names_are_unique() {
+        let path = Path::new("/folder/.wabi-sync/state.json");
+        let (a, b) = (temporary_path(path), temporary_path(path));
+        assert_ne!(a, b);
+        for name in [&a, &b] {
+            let name = name.file_name().unwrap().to_str().unwrap();
+            assert!(name.starts_with(&format!("state.json.tmp.{}.", std::process::id())), "{name}");
+        }
+    }
+
+    /// The child of `the_lock_holds_across_processes`: holds the lock of the
+    /// folder it is given until it is killed.
+    #[test]
+    #[ignore = "run by the_lock_holds_across_processes"]
+    fn lock_holder_child() {
+        let Some(folder) = std::env::var_os("WABI_SYNC_TEST_LOCK_FOLDER") else { return };
+        let _lock = FolderLock::acquire(Path::new(&folder)).unwrap();
+        println!("LOCKED");
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(60));
+    }
+
+    /// Item 6. Another process holds the folder: refused, naming it. Killed,
+    /// it leaves nothing to clear.
+    #[test]
+    fn the_lock_holds_across_processes() {
+        use std::io::BufRead;
+        let dir = tempfile::tempdir().unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "config::tests::lock_holder_child", "--ignored", "--nocapture", "--test-threads=1"])
+            .env("WABI_SYNC_TEST_LOCK_FOLDER", dir.path())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        assert!(lines.any(|line| line.unwrap().contains("LOCKED")), "the child did not take the lock");
+        let error = format!("{:#}", FolderLock::acquire(dir.path()).expect_err("two processes hold one folder"));
+        assert!(error.contains(&format!("process {}", child.id())), "{error}");
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(dir.path().join(STATE_DIR).join(LOCK_FILE).exists());
+        FolderLock::acquire(dir.path()).expect("a killed process still holds the folder");
     }
 
     /// B2. A state file that cannot be read is an error that names the file
