@@ -758,3 +758,159 @@ async fn measure_login_lookups() {
     );
     close(engine, dir.path()).await;
 }
+
+/// One command per step of the restart matrix (see the test below). User ids
+/// are the registering commits: Owner 4, alice 6, bob 10, BOB 14, alicia 20,
+/// late 24.
+fn matrix_history() -> Vec<Vec<EventToWrite>> {
+    use crate::projections::channel_members::{encode_record as encode_member, ChannelMemberRecord};
+    let channel = |kind: &str, stream: &str, payload: Vec<u8>| {
+        let mut event = event(kind, stream, payload);
+        event.stream_kind = 1;
+        event
+    };
+    let add_member = |user_id: u64| {
+        let record = ChannelMemberRecord {
+            channel_id: "group-x".into(),
+            user_id,
+            joined_at_micros: 10 + user_id as i64,
+            role: 0,
+            nick: None,
+        };
+        channel("channel_member_added", "channel_members:group-x", encode_member(&record))
+    };
+    let issue = |digest: u64, user_id: i64| {
+        recovery_command(false, vec![recovery_codes::Operation::Issue { digest: format!("{digest:064x}"), user_id }])
+    };
+    let rename = |user_id: u64, name: &str, handle: Option<&str>| {
+        let mut record = patch(user_id);
+        record.username = name.into();
+        record.handle = handle.map(Into::into);
+        updated(record)
+    };
+    let mut password = patch(10);
+    password.password_hash = "hash-bob-2".into();
+    let group = serde_json::json!({"channel_id": "group-x", "name": "x", "channel_kind": 2,
+        "owner_user_id": 4, "created_at_micros": 5});
+    vec![
+        vec![event(
+            auth_revocations::EVENT,
+            auth_revocations::STREAM,
+            serde_json::to_vec(&auth_revocations::Delta {
+                schema_version: 1,
+                migration: true,
+                operations: vec![auth_revocations::Operation::Initialize],
+            })
+            .unwrap(),
+        )],
+        vec![recovery_command(true, vec![recovery_codes::Operation::Initialize])],
+        vec![channel("channel_created", "group-x", serde_json::to_vec(&group).unwrap())],
+        vec![registered(user("Owner", "hash-owner"))],
+        vec![owner_claimed(4)],
+        vec![registered(user("alice", "hash-alice"))],
+        vec![game_profile(6), add_member(6)],
+        vec![issue(1, 4)],
+        vec![rename(6, "Alicia", Some("ali"))],
+        vec![registered(user("bob", "hash-bob"))],
+        vec![game_profile(10), add_member(10)],
+        vec![updated(password)],
+        vec![deleted(10)],
+        vec![registered(user("BOB", "hash-BOB"))],
+        vec![game_profile(29), game_profile(14)],
+        vec![issue(2, 4)],
+        vec![owner_claimed(14)],
+        vec![recovery_command(
+            false,
+            vec![recovery_codes::Operation::Recover { digest: format!("{:064x}", 2), user_id: 4, epoch: 5 }],
+        )],
+        vec![deleted(6), game_profile(6)],
+        vec![registered(user("alicia", "hash-alicia2"))],
+        vec![rename(20, "ALICIA", None)],
+        vec![unrelated()],
+        vec![game_profile(24)],
+        vec![registered(user("late", "hash-late"))],
+        vec![deleted(4)],
+        vec![unrelated()],
+    ]
+}
+
+/// Every read the matrix compares: the user reads, the game profiles, the
+/// recovery codes and owner, the members of group-x, and the fingerprint of
+/// every projection (in memory and read model).
+fn matrix_reads(state: &ProjectionState) -> String {
+    let members: Vec<u64> = crate::projections::channel_members::ChannelMembersProjection::list_members(state, "group-x")
+        .unwrap()
+        .into_iter()
+        .map(|member| member.user_id)
+        .collect();
+    let profiles: Vec<u64> = (1..=30u64)
+        .filter(|id| state.get(game_profiles::INDEX, &id.to_be_bytes()).is_some())
+        .collect();
+    format!(
+        "{}profiles {profiles:?}\nrecovery {:?}\nmembers {members:?}\nfingerprint {:?}\n",
+        all_user_reads(state),
+        recovery_rows(state),
+        state.content_fingerprint(u64::MAX, u64::MAX).unwrap(),
+    )
+}
+
+/// Restart matrix. Write the history one commit per open and close, and keep
+/// the snapshot and the read model file as each close left them. Then for
+/// every pair (snapshot after commit i, or none) x (read model after commit
+/// j, or none), put those two files back over the whole log and reopen:
+/// every read, the fingerprint of every projection and the read model's
+/// content digest must equal live. This covers a read model ahead of, equal
+/// to and behind the snapshot, and missing either or both, for a history in
+/// which in-memory projections (game profiles, recovery codes, user
+/// deletion) read and write accounts while they apply.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_snapshot_and_read_model_pair_restarts_to_the_live_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path();
+    let snapshot = ProjectionState::snapshot_path(path);
+    let file = read_model_file(path);
+    let mut saved = vec![(None, None)];
+    let history = matrix_history();
+    let steps = history.len();
+    let mut live = String::new();
+    for (step, events) in history.into_iter().enumerate() {
+        let engine = open(path).await;
+        let outcome = commit(&engine, events).await.unwrap_or_else(|e| panic!("step {}: {e}", step + 1));
+        assert_eq!(outcome.commit_seq, step as u64 + 1);
+        if step + 1 == steps {
+            live = matrix_reads(engine.projection_state());
+        }
+        close(engine, path).await;
+        saved.push((Some(std::fs::read(&snapshot).unwrap()), Some(std::fs::read(&file).unwrap())));
+    }
+    let digest = crate::engine::offline_inspect::read_model_content_digest(path).unwrap();
+    for expected in ["profiles [14]", "members []", "login alicia: [UserRecord { user_id: 20, username: \"ALICIA\""] {
+        assert!(live.contains(expected), "{expected} missing from\n{live}");
+    }
+
+    let restore = |target: &Path, bytes: &Option<Vec<u8>>| match bytes {
+        Some(bytes) => std::fs::write(target, bytes).unwrap(),
+        None => drop(std::fs::remove_file(target)),
+    };
+    for (i, (snapshot_bytes, _)) in saved.iter().enumerate() {
+        for (j, (_, file_bytes)) in saved.iter().enumerate() {
+            restore(&snapshot, snapshot_bytes);
+            restore(&file, file_bytes);
+            for suffix in ["-wal", "-shm"] {
+                let _ = std::fs::remove_file(format!("{}{suffix}", file.display()));
+            }
+            let _ = std::fs::remove_file(crate::projections::read_model::ReadModel::rebuild_marker(path));
+            let engine = super::reopen_after_drop(super::read_model_messages::config(path), None)
+                .await
+                .unwrap_or_else(|e| panic!("snapshot after {i}, read model after {j}: {e}"));
+            let reads = matrix_reads(engine.projection_state());
+            close(engine, path).await;
+            assert!(reads == live, "snapshot after {i}, read model after {j}:\n{reads}\nlive:\n{live}");
+            assert_eq!(
+                crate::engine::offline_inspect::read_model_content_digest(path).unwrap(),
+                digest,
+                "snapshot after {i}, read model after {j}"
+            );
+        }
+    }
+}
