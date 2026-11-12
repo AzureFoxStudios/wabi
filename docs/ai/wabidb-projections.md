@@ -1,6 +1,6 @@
 # WabiDB Projections — Materialized Views
 
-Projections are in-memory SkipMap indexes updated by events. They are the read model — all queries hit projections, never raw segments.
+Projections are in-memory SkipMap indexes updated by events, except messages, channels and channel members, which live in the SQLite read model (`docs/ai/wabidb-engine.md`). They are the read model — all queries hit projections, never raw segments.
 
 ## Flow
 
