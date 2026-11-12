@@ -375,6 +375,27 @@ async fn file_etag_open(file: std::fs::File) -> anyhow::Result<String> {
 /// files on every call.
 type EtagCache = std::sync::Mutex<HashMap<(i64, String), (u64, u128, String)>>;
 
+/// What identifies the bytes behind a cached download ETag. The path alone is
+/// not enough for head reads (the file is replaced on upload), so the entry
+/// is only reused while size, mtime and inode still match the open handle.
+#[derive(Clone, PartialEq, Eq)]
+struct DownloadEtagStamp {
+    size: u64,
+    mtime_nanos: u128,
+    inode: u64,
+}
+type DownloadEtagCache = std::sync::Mutex<HashMap<(i64, String, String), (DownloadEtagStamp, String)>>;
+/// Entries are tiny, but revisions are unbounded; start over past this size.
+const DOWNLOAD_ETAG_CACHE_MAX: usize = 4096;
+
+/// An open, confined content handle plus the facts a download response needs.
+pub struct DownloadContent {
+    pub file: std::fs::File,
+    pub size: u64,
+    /// Full SHA-256 of the whole content, hex (never the sampled `q-` form).
+    pub etag: String,
+}
+
 #[cfg(test)]
 struct CopyTestHook {
     started: tokio::sync::oneshot::Sender<()>,
@@ -635,6 +656,12 @@ pub struct LoreService {
     io_gate: Arc<tokio::sync::Mutex<()>>,
     /// Revisions kept per repo in the revision cache (0 = unlimited).
     revcache_keep: std::sync::atomic::AtomicUsize,
+    /// Full SHA-256 of served content per (channel, path, revision), so a
+    /// Range request does not hash the whole file again (see
+    /// [`LoreService::open_content_for_download`]).
+    download_etags: DownloadEtagCache,
+    /// How many times a full-content hash was computed for a download.
+    download_etag_hashes: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     copy_test_hook: std::sync::Mutex<Option<CopyTestHook>>,
 }
@@ -653,6 +680,8 @@ impl LoreService {
                     .and_then(|v| v.trim().parse().ok())
                     .unwrap_or(DEFAULT_REVCACHE_KEEP),
             ),
+            download_etags: std::sync::Mutex::new(HashMap::new()),
+            download_etag_hashes: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             copy_test_hook: std::sync::Mutex::new(None),
         }
@@ -1683,6 +1712,90 @@ impl LoreService {
     ) -> anyhow::Result<std::fs::File> {
         let _io = self.io_gate.lock().await;
         self.open_content_file_locked(channel_id, repo_path, revision).await
+    }
+
+    /// Open content for a download without copying it, and return its size and
+    /// full SHA-256 ETag. `io_gate` is held only while the confined handle is
+    /// opened; hashing and the caller's reads happen after it is released.
+    /// That is safe because writers publish a new inode instead of editing in
+    /// place, so the open handle keeps showing the bytes it was opened on.
+    /// The ETag is computed once per (channel, path, revision) and reused
+    /// while the handle's size, mtime and inode match what was hashed.
+    pub async fn open_content_for_download(
+        &self,
+        channel_id: i64,
+        repo_path: &str,
+        revision: Option<&str>,
+    ) -> anyhow::Result<DownloadContent> {
+        use std::os::unix::fs::MetadataExt;
+        let file = {
+            let _io = self.io_gate.lock().await;
+            self.open_content_file_locked(channel_id, repo_path, revision).await?
+        };
+        let meta = file.metadata()?;
+        if !meta.is_file() {
+            anyhow::bail!("download source must be a regular file");
+        }
+        let stamp = DownloadEtagStamp {
+            size: meta.len(),
+            mtime_nanos: meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            inode: meta.ino(),
+        };
+        let size = stamp.size;
+        let key = (
+            channel_id,
+            repo_path.to_string(),
+            revision.unwrap_or_default().to_string(),
+        );
+        let cached = self
+            .download_etags
+            .lock()
+            .unwrap()
+            .get(&key)
+            .filter(|(seen, _)| *seen == stamp)
+            .map(|(_, etag)| etag.clone());
+        let etag = match cached {
+            Some(etag) => etag,
+            None => {
+                let mut hashed = file.try_clone()?;
+                let etag = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+                    use sha2::Digest;
+                    use std::io::{Read, Seek};
+                    hashed.seek(std::io::SeekFrom::Start(0))?;
+                    let mut digest = sha2::Sha256::new();
+                    let mut buffer = [0u8; 64 * 1024];
+                    loop {
+                        let count = hashed.read(&mut buffer)?;
+                        if count == 0 {
+                            break;
+                        }
+                        digest.update(&buffer[..count]);
+                    }
+                    Ok(hex::encode(digest.finalize()))
+                })
+                .await
+                .map_err(|_| anyhow::anyhow!("download hash worker stopped"))??;
+                self.download_etag_hashes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let mut cache = self.download_etags.lock().unwrap();
+                if cache.len() >= DOWNLOAD_ETAG_CACHE_MAX {
+                    cache.clear();
+                }
+                cache.insert(key, (stamp, etag.clone()));
+                etag
+            }
+        };
+        Ok(DownloadContent { size, file, etag })
+    }
+
+    /// How many full-content hashes downloads have computed (a cache hit does
+    /// not count). Lets tests prove an ETag is not recomputed per request.
+    pub fn download_etag_hash_count(&self) -> usize {
+        self.download_etag_hashes.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Copy repository content into a caller-owned private regular file.
