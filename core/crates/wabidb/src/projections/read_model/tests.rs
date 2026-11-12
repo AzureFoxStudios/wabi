@@ -580,3 +580,19 @@ fn a_panic_with_the_read_gate_closed_does_not_wedge_reads() {
         .expect("a read waited on a gate that was never reopened");
     assert_eq!(seen, 1);
 }
+
+/// SQLite before 3.54.0 can return uninitialized page-cache memory when a
+/// database is opened with a write-ahead log of a different page size
+/// (RUSTSEC-2026-0459, CVE-2026-119375). The read model is a WAL database,
+/// so the SQLite linked in at run time must be at least 3.54.0. This catches
+/// a downgrade of `rusqlite` / `libsqlite3-sys` or a switch away from the
+/// bundled library.
+#[test]
+fn linked_sqlite_has_the_wal_page_size_fix() {
+    let version = rusqlite::version_number();
+    assert!(
+        version >= 3_054_000,
+        "linked SQLite {} is older than 3.54.0 (RUSTSEC-2026-0459)",
+        rusqlite::version()
+    );
+}
