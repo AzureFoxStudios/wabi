@@ -211,7 +211,9 @@ pub(crate) fn preflight_room_writes(
             ));
         }
         if direct_pair(&session_id)?.is_some() {
-            if state.get("channels", room_id.as_bytes()).is_some() {
+            if crate::projections::channels::ChannelProjection::stored_record(state, &room_id)?
+                .is_some()
+            {
                 return Err(invalid(
                     "direct-call placement collides with a Channel record",
                 ));
@@ -442,7 +444,7 @@ mod tests {
             .unwrap(),
         };
         assert!(preflight_room_writes(&[end], Some(&condition), &state).is_ok());
-        state.insert("channels", room_id.as_bytes().to_vec(), vec![], 1);
+        crate::projections::channels::insert_raw_for_tests(&state, &room_id, &[]);
         assert!(preflight_room_writes(&events, Some(&condition), &state).is_err());
     }
 

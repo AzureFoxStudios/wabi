@@ -7,7 +7,7 @@
 
 /// Layout of the tables below. Change it whenever a table, column or index
 /// changes.
-pub(crate) const SCHEMA_VERSION: i64 = 1;
+pub(crate) const SCHEMA_VERSION: i64 = 2;
 
 /// What replay writes into the read model.
 ///
@@ -20,7 +20,7 @@ pub(crate) const SCHEMA_VERSION: i64 = 1;
 /// - a record type gets a new version in `format::versioned`, or
 /// - a projection handler whose rows live in the read model changes what it
 ///   stores for an event (keys, values, which events it applies).
-pub const READ_MODEL_GENERATION: i64 = 1;
+pub const READ_MODEL_GENERATION: i64 = 2;
 
 /// The largest commit number any file may name. Anything above is damage or
 /// tampering, not a count of commits: a value near `u64::MAX` would stop the
@@ -33,6 +33,14 @@ pub(crate) const FILE_NAME: &str = "read-model.sqlite3";
 /// Name of the messages projection's row in `applied_commit_seq`.
 pub(crate) const MESSAGES: &str = "messages";
 
+/// Name of the channels projection's row in `applied_commit_seq`.
+pub(crate) const CHANNELS: &str = "channels";
+
+/// Every projection stored here, by its row in `applied_commit_seq`. All of
+/// them are written in one transaction per commit, so their rows always hold
+/// the same number.
+pub(crate) const PROJECTIONS: [&str; 2] = [MESSAGES, CHANNELS];
+
 /// `messages`: the latest version of each message. `key` is the length-prefixed
 /// channel id followed by the length-prefixed message id, so a byte-ordered
 /// range scan lists one channel exactly as the old in-memory index did. The
@@ -43,6 +51,10 @@ pub(crate) const MESSAGES: &str = "messages";
 /// sequence (both big-endian), then the length-prefixed message id: a channel
 /// in time order, with later events of the same message sorting after earlier
 /// ones.
+///
+/// `channels`: one row per channel, `key` being the channel id's bytes and
+/// `record` the channel as JSON (`domain::Channel`), the bytes the in-memory
+/// `channels` index held. Byte order of `key` is the old index's order.
 ///
 /// `read_model_meta.sync_count` is bumped by every checkpoint sync, so that
 /// transaction always writes something for SQLite to sync.
@@ -77,4 +89,8 @@ CREATE TABLE message_versions (
     record BLOB NOT NULL
 ) WITHOUT ROWID;
 CREATE INDEX message_versions_by_message ON message_versions (channel_id, message_id);
+CREATE TABLE channels (
+    key BLOB PRIMARY KEY,
+    record BLOB NOT NULL
+) WITHOUT ROWID;
 ";

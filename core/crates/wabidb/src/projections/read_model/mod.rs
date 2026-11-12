@@ -120,15 +120,17 @@ fn sql_error(error: rusqlite::Error) -> WabiError {
 pub(crate) enum Table {
     Messages,
     MessageVersions,
+    Channels,
 }
 
 impl Table {
-    pub(crate) const ALL: [Table; 2] = [Table::Messages, Table::MessageVersions];
+    pub(crate) const ALL: [Table; 3] = [Table::Messages, Table::MessageVersions, Table::Channels];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Table::Messages => "messages",
             Table::MessageVersions => "message_versions",
+            Table::Channels => "channels",
         }
     }
 }
@@ -226,10 +228,12 @@ pub(crate) struct ReadModel {
     frozen: bool,
     writer: Mutex<Writer>,
     readers: Mutex<Vec<Connection>>,
-    /// Committed `applied_commit_seq` of the messages projection.
+    /// Committed `applied_commit_seq` of the projections stored here (the
+    /// lowest of their rows; they are written together).
     messages_applied: AtomicU64,
-    /// During startup replay: message events at or below this commit are
-    /// already stored and must not be applied again. Zero otherwise.
+    /// During startup replay: events of the projections stored here at or
+    /// below this commit are already stored and must not be applied again.
+    /// Zero otherwise.
     replay_floor: AtomicU64,
     /// SQLite reported the file as damaged while the engine was running.
     damaged: AtomicBool,
@@ -315,21 +319,30 @@ fn read_meta(conn: &Connection) -> rusqlite::Result<Option<(i64, i64)>> {
     .optional()
 }
 
+/// The lowest `applied_commit_seq` of the projections stored here; a missing
+/// row counts as zero. Every commit writes all the rows in one transaction,
+/// so they differ only in a file this build did not write, and the lowest is
+/// what all of them are known to cover.
 fn read_applied(conn: &Connection) -> rusqlite::Result<u64> {
-    Ok(conn
-        .query_row(
-            "SELECT seq FROM applied_commit_seq WHERE projection = ?1",
-            params![schema::MESSAGES],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-        .map_or(Ok(0), |seq| {
-            // A value outside what a commit number can be is damage.
-            u64::try_from(seq)
-                .ok()
-                .filter(|seq| *seq <= schema::MAX_COMMIT_SEQ)
-                .ok_or(rusqlite::Error::IntegralValueOutOfRange(0, seq))
-        })?)
+    let mut lowest = u64::MAX;
+    for projection in schema::PROJECTIONS {
+        let seq = conn
+            .query_row(
+                "SELECT seq FROM applied_commit_seq WHERE projection = ?1",
+                params![projection],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .map_or(Ok(0), |seq| {
+                // A value outside what a commit number can be is damage.
+                u64::try_from(seq)
+                    .ok()
+                    .filter(|seq| *seq <= schema::MAX_COMMIT_SEQ)
+                    .ok_or(rusqlite::Error::IntegralValueOutOfRange(0, seq))
+            })?;
+        lowest = lowest.min(seq);
+    }
+    Ok(lowest)
 }
 
 fn create_tables(conn: &Connection, generation: i64) -> rusqlite::Result<()> {
@@ -342,11 +355,13 @@ fn create_tables(conn: &Connection, generation: i64) -> rusqlite::Result<()> {
 }
 
 fn raise_applied(conn: &Connection, seq: u64) -> rusqlite::Result<()> {
-    conn.prepare_cached(
+    let mut statement = conn.prepare_cached(
         "INSERT INTO applied_commit_seq (projection, seq) VALUES (?1, ?2) \
          ON CONFLICT (projection) DO UPDATE SET seq = max(seq, excluded.seq)",
-    )?
-    .execute(params![schema::MESSAGES, seq as i64])?;
+    )?;
+    for projection in schema::PROJECTIONS {
+        statement.execute(params![projection, seq as i64])?;
+    }
     Ok(())
 }
 
@@ -794,14 +809,15 @@ impl ReadModel {
         result
     }
 
-    /// The committed `applied_commit_seq` of the messages projection: every
-    /// message event of every commit up to it is stored.
+    /// The committed `applied_commit_seq` of the read model: every event of
+    /// every commit up to it that a projection stored here handles (messages,
+    /// channels) is stored.
     pub(crate) fn messages_applied_seq(&self) -> u64 {
         self.messages_applied.load(Ordering::Acquire)
     }
 
-    /// Message events at or below this commit are already stored (startup
-    /// replay only; zero otherwise).
+    /// Events of the projections stored here at or below this commit are
+    /// already stored (startup replay only; zero otherwise).
     pub(crate) fn replay_floor(&self) -> u64 {
         self.replay_floor.load(Ordering::Acquire)
     }
@@ -890,14 +906,14 @@ impl ReadModel {
 
     /// Prepare for startup replay. With `rebuild`, the tables are emptied
     /// inside the startup transaction, so a failed replay brings the old rows
-    /// back. Otherwise replay skips message events the store already holds.
+    /// back. Otherwise replay skips the events the store already holds.
     pub(crate) fn begin_startup(&self, rebuild: bool) -> Result<()> {
         if rebuild {
             self.replay_floor.store(0, Ordering::Release);
             self.write(|conn| {
                 conn.execute_batch(
                     "DELETE FROM messages; DELETE FROM message_versions; \
-                     DELETE FROM applied_commit_seq;",
+                     DELETE FROM channels; DELETE FROM applied_commit_seq;",
                 )
                 .map_err(sql_error)
             })
@@ -1064,6 +1080,7 @@ impl ReadModel {
         mut f: impl FnMut(&[&[u8]]) -> Result<()>,
     ) -> Result<()> {
         let writer = lock(&self.writer);
+        // The record is always the last column.
         let sql = match table {
             Table::Messages => {
                 "SELECT key, CAST(channel_id AS BLOB), CAST(message_id AS BLOB), \
@@ -1073,14 +1090,23 @@ impl ReadModel {
                 "SELECT key, CAST(channel_id AS BLOB), CAST(message_id AS BLOB), \
                  0, record FROM message_versions ORDER BY key"
             }
+            Table::Channels => "SELECT key, record FROM channels ORDER BY key",
         };
         self.watching_for_damage(|| {
             let mut statement = writer.conn.prepare_cached(sql).map_err(sql_error)?;
+            let width = statement.column_count();
             let mut rows = statement.query([]).map_err(sql_error)?;
             while let Some(row) = rows.next().map_err(sql_error)? {
-                let blob = |index| row.get_ref(index).and_then(|v| Ok(v.as_blob()?)).map_err(sql_error);
-                let author: i64 = row.get(3).map_err(sql_error)?;
-                f(&[blob(0)?, blob(1)?, blob(2)?, &author.to_le_bytes(), blob(4)?])?;
+                // An integer column (the author) is passed as its 8
+                // little-endian bytes, every other column as its blob.
+                let mut columns = Vec::with_capacity(width);
+                for index in 0..width {
+                    columns.push(match row.get_ref(index).map_err(sql_error)? {
+                        rusqlite::types::ValueRef::Integer(value) => value.to_le_bytes().to_vec(),
+                        value => value.as_blob().map_err(|e| sql_error(e.into()))?.to_vec(),
+                    });
+                }
+                f(&columns.iter().map(Vec::as_slice).collect::<Vec<_>>())?;
             }
             Ok(())
         })
@@ -1144,6 +1170,7 @@ pub(crate) fn get(conn: &Connection, table: Table, key: &[u8]) -> Result<Option<
     let sql = match table {
         Table::Messages => "SELECT record FROM messages WHERE key = ?1",
         Table::MessageVersions => "SELECT record FROM message_versions WHERE key = ?1",
+        Table::Channels => "SELECT record FROM channels WHERE key = ?1",
     };
     conn.prepare_cached(sql)
         .and_then(|mut statement| statement.query_row(params![key], |row| row.get(0)).optional())
@@ -1202,6 +1229,10 @@ pub(crate) fn scan(
         (Table::MessageVersions, true, true) => "SELECT key, record FROM message_versions WHERE key >= ?1 AND key < ?2 ORDER BY key DESC",
         (Table::MessageVersions, false, false) => "SELECT key, record FROM message_versions WHERE key >= ?1 ORDER BY key",
         (Table::MessageVersions, false, true) => "SELECT key, record FROM message_versions WHERE key >= ?1 ORDER BY key DESC",
+        (Table::Channels, true, false) => "SELECT key, record FROM channels WHERE key >= ?1 AND key < ?2 ORDER BY key",
+        (Table::Channels, true, true) => "SELECT key, record FROM channels WHERE key >= ?1 AND key < ?2 ORDER BY key DESC",
+        (Table::Channels, false, false) => "SELECT key, record FROM channels WHERE key >= ?1 ORDER BY key",
+        (Table::Channels, false, true) => "SELECT key, record FROM channels WHERE key >= ?1 ORDER BY key DESC",
     };
     let mut statement = conn.prepare_cached(sql).map_err(sql_error)?;
     let mut rows = match upper {
@@ -1233,12 +1264,28 @@ pub(crate) fn delete_versions(conn: &Connection, channel_id: &str, message_id: &
         .map_err(sql_error)
 }
 
+/// Insert or replace a channel.
+pub(crate) fn put_channel(conn: &Connection, key: &[u8], record: &[u8]) -> Result<()> {
+    conn.prepare_cached("INSERT OR REPLACE INTO channels (key, record) VALUES (?1, ?2)")
+        .and_then(|mut statement| statement.execute(params![key, record]))
+        .map(drop)
+        .map_err(sql_error)
+}
+
+/// Remove a channel. Returns the number of rows removed.
+pub(crate) fn delete_channel(conn: &Connection, key: &[u8]) -> Result<usize> {
+    conn.prepare_cached("DELETE FROM channels WHERE key = ?1")
+        .and_then(|mut statement| statement.execute(params![key]))
+        .map_err(sql_error)
+}
+
 /// Number of rows in `table`.
 #[cfg(test)]
 pub(crate) fn count(conn: &Connection, table: Table) -> Result<u64> {
     let sql = match table {
         Table::Messages => "SELECT count(*) FROM messages",
         Table::MessageVersions => "SELECT count(*) FROM message_versions",
+        Table::Channels => "SELECT count(*) FROM channels",
     };
     conn.query_row(sql, [], |row| row.get::<_, i64>(0))
         .map(|rows| rows as u64)

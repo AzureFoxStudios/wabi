@@ -131,11 +131,11 @@ async fn run(args: Args) -> Result<Report> {
             .with_context(|| format!("legacy call {} cannot be placed", session.session_id))?;
         if call_sessions::direct_pair(&session.session_id)?.is_some() {
             ensure!(
-                adapter
-                    .engine()
-                    .projection_state()
-                    .get("channels", room_id.as_bytes())
-                    .is_none(),
+                wabidb::projections::channels::ChannelProjection::stored_record(
+                    adapter.engine().projection_state(),
+                    &room_id,
+                )?
+                .is_none(),
                 "direct-call placement {} collides with a legacy Channel record",
                 room_id
             );
@@ -429,11 +429,10 @@ mod tests {
                         .unwrap();
                 let mut channel = Channel::new(room_id.as_ref(), "Legacy collision", 1);
                 channel.is_active = !inactive;
-                state.insert(
-                    "channels",
-                    room_id.as_bytes().to_vec(),
-                    serde_json::to_vec(&channel).unwrap(),
-                    0,
+                wabidb::projections::channels::insert_raw_for_tests(
+                    &state,
+                    &room_id,
+                    &serde_json::to_vec(&channel).unwrap(),
                 );
             } else {
                 state.insert(

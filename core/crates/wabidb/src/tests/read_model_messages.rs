@@ -22,17 +22,17 @@ use crate::projections::test_poison;
 use crate::sequencer::types::{CommandCommit, CommandOutcome, EventToWrite};
 use std::path::Path;
 
-fn config(path: &Path) -> WabiDbConfig {
+pub(super) fn config(path: &Path) -> WabiDbConfig {
     let mut config = WabiDbConfig::new(path.into(), BootstrapSource::Provided([0x35; 32]));
     config.allow_init = true;
     config
 }
 
-async fn open(path: &Path) -> WabiDbEngine {
+pub(super) async fn open(path: &Path) -> WabiDbEngine {
     super::reopen_after_drop(config(path), None).await.unwrap()
 }
 
-async fn close(engine: WabiDbEngine, path: &Path) {
+pub(super) async fn close(engine: WabiDbEngine, path: &Path) {
     drop(engine);
     drop(super::wait_for_stopped_engine(path).await);
 }
@@ -47,7 +47,7 @@ fn event(kind: &str, stream: &str, plaintext: Vec<u8>) -> EventToWrite {
     }
 }
 
-async fn commit(engine: &WabiDbEngine, events: Vec<EventToWrite>) -> Result<CommandOutcome> {
+pub(super) async fn commit(engine: &WabiDbEngine, events: Vec<EventToWrite>) -> Result<CommandOutcome> {
     for event in &events {
         engine.get_or_create_stream_key(&event.stream_id).await?;
     }
@@ -243,7 +243,7 @@ fn capture_warnings() -> (Logs, tracing::subscriber::DefaultGuard) {
     (logs, tracing::subscriber::set_default(subscriber))
 }
 
-fn read_model_file(path: &Path) -> std::path::PathBuf {
+pub(super) fn read_model_file(path: &Path) -> std::path::PathBuf {
     ProjectionState::read_model_path(path)
 }
 
