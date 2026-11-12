@@ -9,7 +9,6 @@
 pub mod locks;
 pub mod checkpoint;
 pub(crate) mod incomplete_log;
-mod membership_repair;
 pub mod node_identity;
 pub mod offline_inspect;
 pub(crate) mod quarantine;
@@ -306,7 +305,8 @@ impl WabiDbEngine {
         let dispatch_table = type_registry.dispatch_table().clone();
 
         // 7. Load the saved projections: the snapshot of the in-memory ones,
-        // and the SQLite read model (messages, channels). Each has its own watermark.
+        // and the SQLite read model (messages, channels, channel members). Each
+        // has its own watermark.
         // Replay starts at the snapshot's. The read model is normally ahead
         // of it (it commits every commit; the snapshot is written every
         // 1,000), and replay then skips the events it already holds.

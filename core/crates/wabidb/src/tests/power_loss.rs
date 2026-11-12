@@ -986,6 +986,231 @@ fn crash_between_read_model_sync_and_snapshot_keeps_channels() {
 }
 
 // ---------------------------------------------------------------------------
+// Task 3.5.3: channel members live in the read model too. The user deletion
+// projection, which stays in the snapshot, removes memberships from it while
+// it applies.
+// ---------------------------------------------------------------------------
+
+/// A command with one membership event: `channel_member_added` or
+/// `channel_member_removed` of `user_id` in `channel`, or `user_deleted` of
+/// `user_id` when `channel` is `None`.
+#[cfg(feature = "test-harness")]
+fn member_cmd(kind: &str, channel: Option<&str>, user_id: u64) -> CommandCommit {
+    use crate::projections::channel_members::{encode_record, ChannelMemberRecord};
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let event = match channel {
+        Some(channel) => EventToWrite {
+            stream_id: format!("channel_members:{channel}"),
+            event_type: kind.into(),
+            stream_kind: 1,
+            record_kind: RecordKind::Event,
+            plaintext: encode_record(&ChannelMemberRecord {
+                channel_id: channel.into(),
+                user_id,
+                joined_at_micros: 100 + user_id as i64,
+                role: 0,
+                nick: None,
+            }),
+        },
+        None => EventToWrite {
+            stream_id: "users".into(),
+            event_type: kind.into(),
+            stream_kind: 6,
+            record_kind: RecordKind::Event,
+            plaintext: crate::projections::user_deletion::encode_payload(&crate::domain::UserDeleted { user_id }),
+        },
+    };
+    CommandCommit {
+        room_owner_precondition: None,
+        caller_user_id: 7,
+        caller_device_id: "crash".into(),
+        command_name: "crash_member".into(),
+        idempotency_key: None,
+        events: vec![event],
+        essential: true,
+        response_tx: tx,
+    }
+}
+
+#[cfg(feature = "test-harness")]
+async fn ensure_member_streams(engine: &WabiDbEngine) {
+    for stream in ["users", "channel_members:group-a", "channel_members:group-b", "channel_members:group-c", "channel_members:group-d"] {
+        engine.get_or_create_stream_key(stream).await.unwrap();
+    }
+}
+
+/// Child of the two membership crash tests. Opens the directory the parent
+/// prepared (group-a holds 1 and 2, group-b holds 1; cleanly stopped,
+/// snapshot at 3).
+/// - `write`: adds 3 to group-a (commit 4); the configured crash point ends
+///   the process inside that commit.
+/// - `checkpoint`: adds 5 to group-c (4), deletes user 5 (5), adds 5 to
+///   group-d (6), removes 2 from group-a (7), then takes a checkpoint, inside
+///   which the crash point ends the process.
+#[cfg(feature = "test-harness")]
+#[test]
+fn run_member_crash_child() {
+    let Ok(step) = std::env::var("WABIDB_MEMBER_CRASH") else {
+        return; // not in child mode
+    };
+    let data_dir = std::path::PathBuf::from(std::env::var("WABIDB_DATA_DIR").unwrap());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(&data_dir)).await.unwrap();
+        ensure_member_streams(&engine).await;
+        if step == "write" {
+            let _ = engine.run_command(member_cmd("channel_member_added", Some("group-a"), 3)).await;
+        } else {
+            for (kind, channel, user) in [
+                ("channel_member_added", Some("group-c"), 5),
+                ("user_deleted", None, 5),
+                ("channel_member_added", Some("group-d"), 5),
+                ("channel_member_removed", Some("group-a"), 2),
+            ] {
+                engine.run_command(member_cmd(kind, channel, user)).await.unwrap();
+            }
+            let _ = engine.projection_state().save_snapshot(&data_dir);
+        }
+        panic!("child did not crash at its boundary; crash_point may not be wired");
+    });
+}
+
+#[cfg(feature = "test-harness")]
+fn crash_with_members(boundary: &str, step: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(dir.path())).await.unwrap();
+        ensure_member_streams(&engine).await;
+        for (channel, user) in [("group-a", 1), ("group-a", 2), ("group-b", 1)] {
+            engine.run_command(member_cmd("channel_member_added", Some(channel), user)).await.unwrap();
+        }
+        engine.close_for_tests().await.unwrap();
+    });
+    assert_eq!(
+        crate::engine::locks::ProjectionState::read_snapshot_watermark(dir.path()).unwrap(),
+        Some(3)
+    );
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("tests::power_loss::run_member_crash_child")
+        .arg("--nocapture")
+        .env("WABIDB_MEMBER_CRASH", step)
+        .env("WABIDB_CRASH_AT", boundary)
+        .env("WABIDB_DATA_DIR", dir.path())
+        .status()
+        .unwrap();
+    assert!(!status.success(), "child should have crashed");
+    assert_eq!(validate_crash_signal(dir.path()), Some(boundary.to_string()));
+    dir
+}
+
+/// The member rows in the read model file as the crash left it (channel and
+/// user of each, in key order), and its `applied_commit_seq` for channel
+/// members, read in one SQLite read transaction. (Opening the file recovers
+/// its write-ahead log, as the engine would.)
+#[cfg(feature = "test-harness")]
+fn member_file_after_crash(data_dir: &std::path::Path) -> (Vec<(String, u64)>, u64) {
+    let path = crate::engine::locks::ProjectionState::read_model_path(data_dir);
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch("BEGIN").unwrap();
+    let rows = conn
+        .prepare("SELECT record FROM channel_members ORDER BY key")
+        .unwrap()
+        .query_map([], |row| row.get::<_, Vec<u8>>(0))
+        .unwrap()
+        .map(|record| {
+            let record = crate::projections::channel_members::decode_record(&record.unwrap()).unwrap();
+            (record.channel_id, record.user_id)
+        })
+        .collect();
+    let applied: i64 = conn
+        .query_row(
+            "SELECT coalesce((SELECT seq FROM applied_commit_seq WHERE projection = 'channel_members'), 0)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    (rows, applied as u64)
+}
+
+/// The members of every group the engine serves after a restart, each
+/// group's revision, and the watermark.
+#[cfg(feature = "test-harness")]
+async fn members_after_crash(data_dir: &std::path::Path) -> (u64, Vec<(String, Vec<u64>, u64)>) {
+    use crate::projections::channel_members::ChannelMembersProjection;
+    let engine = WabiDbEngine::open(crash_config(data_dir)).await.unwrap();
+    let state = engine.projection_state();
+    let mut groups = Vec::new();
+    for group in ["group-a", "group-b", "group-c", "group-d"] {
+        let members = ChannelMembersProjection::list_members(state, group)
+            .unwrap()
+            .into_iter()
+            .map(|member| member.user_id)
+            .collect();
+        groups.push((group.to_string(), members, ChannelMembersProjection::revision(state, group).unwrap()));
+    }
+    let applied = state.applied_commit_seq();
+    engine.close_for_tests().await.unwrap();
+    (applied, groups)
+}
+
+#[cfg(feature = "test-harness")]
+fn groups(rows: &[(&str, &[u64], u64)]) -> Vec<(String, Vec<u64>, u64)> {
+    rows.iter().map(|(group, members, revision)| (group.to_string(), members.to_vec(), *revision)).collect()
+}
+
+/// The process dies right after a commit that added a member was applied,
+/// before the caller heard back, with no checkpoint and no shutdown (snapshot
+/// at 3). The file as the crash left it has the member's row exactly when its
+/// `applied_commit_seq` covers the commit; the next open ends with the member
+/// either way.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_after_a_member_commit_keeps_its_rows_and_watermark_together() {
+    let dir = crash_with_members("crash_after_projection_update", "write");
+    let (rows, applied) = member_file_after_crash(dir.path());
+    println!("after the crash: members {rows:?}, applied_commit_seq {applied}");
+    assert_eq!(rows.contains(&("group-a".to_string(), 3)), applied >= 4, "{rows:?} at {applied}");
+    assert!(applied <= 4);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let expected = (
+        4,
+        groups(&[("group-a", &[1, 2, 3], 4), ("group-b", &[1], 3), ("group-c", &[], 0), ("group-d", &[], 0)]),
+    );
+    assert_eq!(rt.block_on(members_after_crash(dir.path())), expected);
+    let (rows, applied) = member_file_after_crash(dir.path());
+    assert_eq!((rows.len(), applied), (4, 4), "{rows:?}");
+    assert_eq!(rt.block_on(members_after_crash(dir.path())), expected);
+}
+
+/// The process dies inside a checkpoint: the read model is durable at commit
+/// 7 and the snapshot still says 3. Between the two, user 5 joined group-c,
+/// was deleted, and joined group-d. The next open replays the deletion to the
+/// in-memory user deletion projection while the members table already holds
+/// the later state; it must open with every membership change kept.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_between_read_model_sync_and_snapshot_keeps_members() {
+    let dir = crash_with_members("crash_between_read_model_sync_and_snapshot", "checkpoint");
+    assert_eq!(
+        crate::engine::locks::ProjectionState::read_snapshot_watermark(dir.path()).unwrap(),
+        Some(3)
+    );
+    let (rows, applied) = member_file_after_crash(dir.path());
+    assert_eq!(applied, 7);
+    assert_eq!(rows, [("group-a".to_string(), 1), ("group-b".to_string(), 1), ("group-d".to_string(), 5)]);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let expected = (
+        7,
+        groups(&[("group-a", &[1], 7), ("group-b", &[1], 3), ("group-c", &[], 4), ("group-d", &[5], 6)]),
+    );
+    assert_eq!(rt.block_on(members_after_crash(dir.path())), expected);
+    assert_eq!(rt.block_on(members_after_crash(dir.path())), expected);
+}
+
+// ---------------------------------------------------------------------------
 // Restart safety regression test (no crash harness needed)
 // ---------------------------------------------------------------------------
 

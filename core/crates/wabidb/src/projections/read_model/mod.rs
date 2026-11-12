@@ -121,16 +121,26 @@ pub(crate) enum Table {
     Messages,
     MessageVersions,
     Channels,
+    ChannelMembers,
+    ChannelMembershipVersions,
 }
 
 impl Table {
-    pub(crate) const ALL: [Table; 3] = [Table::Messages, Table::MessageVersions, Table::Channels];
+    pub(crate) const ALL: [Table; 5] = [
+        Table::Messages,
+        Table::MessageVersions,
+        Table::Channels,
+        Table::ChannelMembers,
+        Table::ChannelMembershipVersions,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Table::Messages => "messages",
             Table::MessageVersions => "message_versions",
             Table::Channels => "channels",
+            Table::ChannelMembers => "channel_members",
+            Table::ChannelMembershipVersions => "channel_membership_versions",
         }
     }
 }
@@ -811,7 +821,7 @@ impl ReadModel {
 
     /// The committed `applied_commit_seq` of the read model: every event of
     /// every commit up to it that a projection stored here handles (messages,
-    /// channels) is stored.
+    /// channels, channel members) is stored.
     pub(crate) fn messages_applied_seq(&self) -> u64 {
         self.messages_applied.load(Ordering::Acquire)
     }
@@ -913,7 +923,8 @@ impl ReadModel {
             self.write(|conn| {
                 conn.execute_batch(
                     "DELETE FROM messages; DELETE FROM message_versions; \
-                     DELETE FROM channels; DELETE FROM applied_commit_seq;",
+                     DELETE FROM channels; DELETE FROM channel_members; \
+                     DELETE FROM channel_membership_versions; DELETE FROM applied_commit_seq;",
                 )
                 .map_err(sql_error)
             })
@@ -1091,6 +1102,10 @@ impl ReadModel {
                  0, record FROM message_versions ORDER BY key"
             }
             Table::Channels => "SELECT key, record FROM channels ORDER BY key",
+            Table::ChannelMembers => "SELECT key, user_id, record FROM channel_members ORDER BY key",
+            Table::ChannelMembershipVersions => {
+                "SELECT key, record FROM channel_membership_versions ORDER BY key"
+            }
         };
         self.watching_for_damage(|| {
             let mut statement = writer.conn.prepare_cached(sql).map_err(sql_error)?;
@@ -1171,6 +1186,8 @@ pub(crate) fn get(conn: &Connection, table: Table, key: &[u8]) -> Result<Option<
         Table::Messages => "SELECT record FROM messages WHERE key = ?1",
         Table::MessageVersions => "SELECT record FROM message_versions WHERE key = ?1",
         Table::Channels => "SELECT record FROM channels WHERE key = ?1",
+        Table::ChannelMembers => "SELECT record FROM channel_members WHERE key = ?1",
+        Table::ChannelMembershipVersions => "SELECT record FROM channel_membership_versions WHERE key = ?1",
     };
     conn.prepare_cached(sql)
         .and_then(|mut statement| statement.query_row(params![key], |row| row.get(0)).optional())
@@ -1233,6 +1250,14 @@ pub(crate) fn scan(
         (Table::Channels, true, true) => "SELECT key, record FROM channels WHERE key >= ?1 AND key < ?2 ORDER BY key DESC",
         (Table::Channels, false, false) => "SELECT key, record FROM channels WHERE key >= ?1 ORDER BY key",
         (Table::Channels, false, true) => "SELECT key, record FROM channels WHERE key >= ?1 ORDER BY key DESC",
+        (Table::ChannelMembers, true, false) => "SELECT key, record FROM channel_members WHERE key >= ?1 AND key < ?2 ORDER BY key",
+        (Table::ChannelMembers, true, true) => "SELECT key, record FROM channel_members WHERE key >= ?1 AND key < ?2 ORDER BY key DESC",
+        (Table::ChannelMembers, false, false) => "SELECT key, record FROM channel_members WHERE key >= ?1 ORDER BY key",
+        (Table::ChannelMembers, false, true) => "SELECT key, record FROM channel_members WHERE key >= ?1 ORDER BY key DESC",
+        (Table::ChannelMembershipVersions, true, false) => "SELECT key, record FROM channel_membership_versions WHERE key >= ?1 AND key < ?2 ORDER BY key",
+        (Table::ChannelMembershipVersions, true, true) => "SELECT key, record FROM channel_membership_versions WHERE key >= ?1 AND key < ?2 ORDER BY key DESC",
+        (Table::ChannelMembershipVersions, false, false) => "SELECT key, record FROM channel_membership_versions WHERE key >= ?1 ORDER BY key",
+        (Table::ChannelMembershipVersions, false, true) => "SELECT key, record FROM channel_membership_versions WHERE key >= ?1 ORDER BY key DESC",
     };
     let mut statement = conn.prepare_cached(sql).map_err(sql_error)?;
     let mut rows = match upper {
@@ -1279,6 +1304,51 @@ pub(crate) fn delete_channel(conn: &Connection, key: &[u8]) -> Result<usize> {
         .map_err(sql_error)
 }
 
+/// Insert or replace a channel member. `user_id` is the user id the key ends
+/// with.
+pub(crate) fn put_channel_member(conn: &Connection, key: &[u8], user_id: u64, record: &[u8]) -> Result<()> {
+    conn.prepare_cached("INSERT OR REPLACE INTO channel_members (key, user_id, record) VALUES (?1, ?2, ?3)")
+        .and_then(|mut statement| statement.execute(params![key, user_id as i64, record]))
+        .map(drop)
+        .map_err(sql_error)
+}
+
+/// The member rows of `user_id` (by the `user_id` column), in key order,
+/// until `f` returns `Ok(false)`.
+pub(crate) fn scan_members_of_user(
+    conn: &Connection,
+    user_id: u64,
+    mut f: impl FnMut(&[u8], &[u8]) -> Result<bool>,
+) -> Result<()> {
+    let mut statement = conn
+        .prepare_cached("SELECT key, record FROM channel_members WHERE user_id = ?1 ORDER BY key")
+        .map_err(sql_error)?;
+    let mut rows = statement.query(params![user_id as i64]).map_err(sql_error)?;
+    while let Some(row) = rows.next().map_err(sql_error)? {
+        let key = row.get_ref(0).and_then(|v| Ok(v.as_blob()?)).map_err(sql_error)?;
+        let record = row.get_ref(1).and_then(|v| Ok(v.as_blob()?)).map_err(sql_error)?;
+        if !f(key, record)? {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Remove a channel member. Returns the number of rows removed.
+pub(crate) fn delete_channel_member(conn: &Connection, key: &[u8]) -> Result<usize> {
+    conn.prepare_cached("DELETE FROM channel_members WHERE key = ?1")
+        .and_then(|mut statement| statement.execute(params![key]))
+        .map_err(sql_error)
+}
+
+/// Insert or replace a channel's membership revision.
+pub(crate) fn put_membership_version(conn: &Connection, key: &[u8], record: &[u8]) -> Result<()> {
+    conn.prepare_cached("INSERT OR REPLACE INTO channel_membership_versions (key, record) VALUES (?1, ?2)")
+        .and_then(|mut statement| statement.execute(params![key, record]))
+        .map(drop)
+        .map_err(sql_error)
+}
+
 /// Number of rows in `table`.
 #[cfg(test)]
 pub(crate) fn count(conn: &Connection, table: Table) -> Result<u64> {
@@ -1286,6 +1356,8 @@ pub(crate) fn count(conn: &Connection, table: Table) -> Result<u64> {
         Table::Messages => "SELECT count(*) FROM messages",
         Table::MessageVersions => "SELECT count(*) FROM message_versions",
         Table::Channels => "SELECT count(*) FROM channels",
+        Table::ChannelMembers => "SELECT count(*) FROM channel_members",
+        Table::ChannelMembershipVersions => "SELECT count(*) FROM channel_membership_versions",
     };
     conn.query_row(sql, [], |row| row.get::<_, i64>(0))
         .map(|rows| rows as u64)

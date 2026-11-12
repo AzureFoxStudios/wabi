@@ -12,9 +12,11 @@ use crate::projections::users::{decode_record as decode_user, encode_key as enco
 /// and cascades the removal across every index that keys rows by user:
 ///
 /// - `users` — the account row itself.
-/// - `channel_members` — memberships in every channel (scan + targeted
-///   remove; the key is `[len][channel_id][user_id LE]` so it cannot be
-///   prefix-scanned by user).
+/// - `channel_members` — memberships in every channel, in the SQLite read
+///   model (scan + targeted remove; the key is `[len][channel_id][user_id LE]`
+///   so it cannot be prefix-scanned by user). Startup replay skips this part
+///   for commits the read model already holds, and a rebuild of the read
+///   model applies only this part ([`Projection::apply_to_read_model`]).
 /// - `dm_identities` — all per-device identity/prekey bundles (keyed
 ///   `[user_id BE][len][device_id]`, so a BE-user prefix scan finds them).
 ///
@@ -36,20 +38,10 @@ impl Projection for UserDeletionProjection {
 
         state.remove(crate::projections::game_profiles::INDEX, &user_id.to_be_bytes());
 
-        // 2. Channel memberships across all channels. Collect first, then
-        // remove — do not mutate while iterating.
-        let mut member_keys: Vec<Vec<u8>> = Vec::new();
-        state.for_each("channel_members", |key, value| {
-            if let Ok(record) =
-                crate::projections::channel_members::decode_record(value)
-            {
-                if record.user_id == user_id {
-                    member_keys.push(key.to_vec());
-                }
-            }
-        });
-        for key in &member_keys {
-            state.remove("channel_members", key);
+        // 2. Channel memberships across all channels. They live in the read
+        // model; during startup replay it may already hold this commit.
+        if event.commit_seq > state.read_model().replay_floor() {
+            crate::projections::channel_members::remove_user_while_applying(state, user_id)?;
         }
 
         // 3. DM identities: every device bundle under the BE user prefix.
@@ -63,6 +55,14 @@ impl Projection for UserDeletionProjection {
         }
 
         Ok(())
+    }
+
+    /// A rebuild of the read model over a commit the snapshot covers: only
+    /// the memberships, which live there. The account row and the identities
+    /// are in memory and already reflect the commit.
+    fn apply_to_read_model(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        let user_id = decode_payload(&event.payload)?.user_id;
+        crate::projections::channel_members::remove_user_while_applying(state, user_id)
     }
 }
 
@@ -95,7 +95,8 @@ mod tests {
     use super::*;
     use crate::projections::channel_members::{
         encode_key as encode_member_key, encode_record as encode_member,
-        ChannelMemberRecord,
+        insert_raw_for_tests as insert_member, ChannelMemberRecord,
+        ChannelMembersProjection as Members,
     };
     use crate::projections::dm_identities::{
         encode_key as encode_identity_key, encode_record as encode_identity,
@@ -168,20 +169,15 @@ mod tests {
     fn cascades_channel_memberships_across_channels() {
         let state = ProjectionState::new();
         seed_user(&state, 42, "Guest_abc");
-        for (idx, channel) in ["ch_a", "ch_b"].iter().enumerate() {
+        for channel in ["ch_a", "ch_b"] {
             let r = ChannelMemberRecord {
-                channel_id: (*channel).into(),
+                channel_id: channel.into(),
                 user_id: 42,
                 joined_at_micros: 1_000_000,
                 role: 0,
                 nick: None,
             };
-            state.insert(
-                "channel_members",
-                encode_member_key(channel, 42),
-                encode_member(&r),
-                idx as u64 + 2,
-            );
+            insert_member(&state, &encode_member_key(channel, 42), &encode_member(&r));
         }
         // An unrelated member must survive.
         let keep = ChannelMemberRecord {
@@ -191,20 +187,39 @@ mod tests {
             role: 0,
             nick: None,
         };
-        state.insert(
-            "channel_members",
-            encode_member_key("ch_a", 7),
-            encode_member(&keep),
-            4,
-        );
+        insert_member(&state, &encode_member_key("ch_a", 7), &encode_member(&keep));
 
         UserDeletionProjection
             .apply(&deletion_event(42), &state)
             .unwrap();
 
-        assert!(state.get("channel_members", &encode_member_key("ch_a", 42)).is_none());
-        assert!(state.get("channel_members", &encode_member_key("ch_b", 42)).is_none());
-        assert!(state.get("channel_members", &encode_member_key("ch_a", 7)).is_some());
+        assert!(Members::get_member(&state, "ch_a", 42).unwrap().is_none());
+        assert!(Members::get_member(&state, "ch_b", 42).unwrap().is_none());
+        assert!(Members::get_member(&state, "ch_a", 7).unwrap().is_some());
+    }
+
+    /// A rebuild of the read model over a commit the snapshot covers removes
+    /// the memberships, which live in the read model, and leaves the
+    /// in-memory rows alone: the snapshot already reflects the commit.
+    #[test]
+    fn a_read_model_rebuild_applies_only_the_membership_cascade() {
+        let state = ProjectionState::new();
+        seed_user(&state, 42, "Guest_abc");
+        let r = ChannelMemberRecord {
+            channel_id: "ch_a".into(),
+            user_id: 42,
+            joined_at_micros: 1_000_000,
+            role: 0,
+            nick: None,
+        };
+        insert_member(&state, &encode_member_key("ch_a", 42), &encode_member(&r));
+
+        UserDeletionProjection
+            .apply_to_read_model(&deletion_event(42), &state)
+            .unwrap();
+
+        assert!(Members::get_member(&state, "ch_a", 42).unwrap().is_none());
+        assert!(user_exists(&state, 42), "the in-memory account row was touched");
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub mod property_tests;
 pub mod read_model_messages;
 #[cfg(test)]
 pub mod read_model_channels;
+pub mod read_model_channel_members;
 #[cfg(test)]
 pub mod replay_test;
 #[cfg(test)]
