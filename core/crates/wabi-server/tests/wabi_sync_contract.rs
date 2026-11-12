@@ -1064,6 +1064,10 @@ async fn an_existing_conflict_copy_is_never_written_over() {
 async fn state_is_saved_after_the_push_when_the_pull_fails() {
     let server = server().await;
     let mine = server.owner_folder().await;
+    // Not a first round: a folder with no baseline at all pulls before it
+    // pushes, and the failure would come before the upload.
+    mine.write("first.txt", "synced");
+    mine.sync().await.unwrap();
     mine.write("n.txt", "new");
     server.fail_next("GET", "/manifest");
     let error = mine.sync().await.err().expect("the injected failure").to_string();
@@ -1251,6 +1255,9 @@ async fn state_is_saved_when_a_push_fails_part_way() {
 async fn sync_saves_what_the_push_did_before_the_pull_starts() {
     let server = server().await;
     let mine = server.owner_folder().await;
+    // Not a first round, which pulls before it pushes.
+    mine.write("first.txt", "synced");
+    mine.sync().await.unwrap();
     mine.write("n.txt", "new");
     server.stall_next("GET", "/manifest");
     let killed = tokio::time::timeout(std::time::Duration::from_secs(2), mine.sync()).await;
@@ -1754,6 +1761,19 @@ async fn first_link_of_a_filled_folder_sends_no_file_the_server_has() {
     assert_eq!(gets, 1, "small identical files were downloaded");
     assert_eq!(server.requests("GET", &format!("/files/{BIG}")).0, 1);
     assert_quiet(&mine.sync().await.unwrap());
+
+    // The first round of a folder that fails in its leading pull has sent
+    // nothing, and the retry is the same first round.
+    let late = server.owner_folder().await;
+    late.write("docs/0.txt", "contents of docs/0.txt");
+    server.forget_requests();
+    server.fail_next("GET", "/manifest");
+    assert!(late.sync().await.is_err());
+    assert_eq!(server.requests("PUT", "/files/").0, 0);
+    let report = late.sync().await.unwrap();
+    assert!(report.uploaded.is_empty() && report.conflicts.is_empty(), "{}", describe(&report));
+    assert_eq!(report.downloaded.len(), 6, "{}", describe(&report));
+    assert_eq!(server.requests("PUT", "/files/").0, 0);
 }
 
 // -- Task 4.8g: one path's trouble is one path's report -----------------------

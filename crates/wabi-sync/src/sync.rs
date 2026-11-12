@@ -328,6 +328,25 @@ impl SyncReport {
         }
     }
 
+    /// Add what a later step of the same round did.
+    fn absorb(&mut self, later: SyncReport) {
+        self.downloaded.extend(later.downloaded);
+        self.uploaded.extend(later.uploaded);
+        self.deleted_local.extend(later.deleted_local);
+        self.deleted_remote.extend(later.deleted_remote);
+        self.conflicts.extend(later.conflicts);
+        self.waiting_review.extend(later.waiting_review);
+        self.not_deleted.extend(later.not_deleted);
+        self.not_uploaded.extend(later.not_uploaded);
+        self.notices.extend(later.notices);
+        // Every step scans the folder; a path none could read is said once.
+        for line in later.skipped {
+            if !self.skipped.contains(&line) {
+                self.skipped.push(line);
+            }
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.downloaded.is_empty()
             && self.uploaded.is_empty()
@@ -821,34 +840,34 @@ impl<'a> SyncEngine<'a> {
         Ok(report)
     }
 
-    /// Full round: push local work first, then pull, then record cursor.
+    /// Full round: push local work, then pull, then record the cursor. A
+    /// folder with no baseline at all pulls once before that.
     pub async fn sync(&mut self) -> anyhow::Result<SyncReport> {
         let result = self.sync_steps().await;
         self.finish(result)
     }
 
     async fn sync_steps(&mut self) -> anyhow::Result<SyncReport> {
-        let mut pushed = self.push_steps().await?;
+        let mut report = SyncReport::new();
+        // With no baseline for any path (a first link, or a state that was
+        // not this link's) every upload is create-only, and the server reads
+        // a whole body before it answers 409 for a file it already has. So
+        // the pull goes first: it adopts each local file whose etag is the
+        // manifest's without sending or fetching it, and settles the ones
+        // that differ. What is left for the push is what the server lacks.
+        if self.state.baselines.is_empty() && self.state.pending_review.is_empty() {
+            report.absorb(self.pull_steps().await?);
+            self.save_state()?;
+        }
+        report.absorb(self.push_steps().await?);
         // What the push did is on disk before the pull starts.
         self.save_state()?;
-        let pulled = self.pull_steps().await?;
+        report.absorb(self.pull_steps().await?);
         self.state.cursor = self.client.feed_end(self.link.channel_id, self.state.cursor).await?;
-        pushed.uploaded.extend(pulled.uploaded);
-        pushed.downloaded.extend(pulled.downloaded);
-        pushed.deleted_local.extend(pulled.deleted_local);
-        pushed.deleted_remote.extend(pulled.deleted_remote);
-        pushed.conflicts.extend(pulled.conflicts);
-        // Both halves scan the folder; a path either could not read is
-        // reported once.
-        for line in pulled.skipped {
-            if !pushed.skipped.contains(&line) {
-                pushed.skipped.push(line);
-            }
-        }
         // Only what is still pending after the pull (not approved or
         // conflicted in this same round).
-        pushed.waiting_review.retain(|p| self.state.pending_review.contains_key(p));
-        Ok(pushed)
+        report.waiting_review.retain(|p| self.state.pending_review.contains_key(p));
+        Ok(report)
     }
 }
 
