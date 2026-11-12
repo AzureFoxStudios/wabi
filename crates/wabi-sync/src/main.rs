@@ -9,20 +9,14 @@
 //!
 //! Get a token from the channel's Connect panel (minted server-side).
 
-mod api;
-mod config;
-mod etag;
-mod sync;
-
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use config::{GlobalConfig, LinkConfig, SyncState};
-
-use crate::api::WabiClient;
-use crate::sync::{print_report, SyncEngine};
+use wabi_sync::api::WabiClient;
+use wabi_sync::config::{GlobalConfig, LinkConfig, SyncState};
+use wabi_sync::sync::{self, print_report, SyncEngine, SyncReport};
 
 #[derive(Parser)]
 #[command(
@@ -82,6 +76,17 @@ enum Command {
         #[arg(default_value = ".")]
         folder: PathBuf,
     },
+    /// Send a file for review again. Use it when a review upload was
+    /// rejected: wabi-sync cannot see a rejection and goes on reporting the
+    /// file as "waiting for review". The next sync uploads the file as it is
+    /// now, as a new review request.
+    Resubmit {
+        /// The file, relative to the folder (as sync prints it).
+        path: String,
+        /// Folder (default: cwd).
+        #[arg(long, default_value = ".")]
+        folder: PathBuf,
+    },
     /// Lock a file on the server (optional explicit checkout).
     Lock {
         #[arg(default_value = ".")]
@@ -119,10 +124,23 @@ fn read_token_from_stdin() -> Result<String> {
     Ok(token)
 }
 
+/// A round's result. When it failed after settling a conflict, the conflict
+/// is printed before the error is returned: the user's file already holds
+/// the server's version.
+fn or_conflicts(engine: &mut SyncEngine<'_>, prefix: &str, result: Result<SyncReport>) -> Result<SyncReport> {
+    if result.is_err() {
+        for line in engine.take_unreported_conflicts() {
+            println!("{prefix} ⚠ conflict: {line}");
+        }
+    }
+    result
+}
+
 async fn run_sync_round(client: &WabiClient, folder: &PathBuf, prefix: &str) -> Result<()> {
     let link = LinkConfig::load(folder)?;
     let mut engine = SyncEngine::new(client, folder, &link);
-    let report = engine.sync().await?;
+    let result = engine.sync().await;
+    let report = or_conflicts(&mut engine, prefix, result)?;
     if !report.is_empty() {
         print_report(prefix, &report);
     }
@@ -221,10 +239,9 @@ async fn main() -> Result<()> {
                 }
 
                 // Push local work when the FS moved; always poll the feed.
-                match client.changes(link.channel_id, 0).await {
-                    Ok(changes) => {
-                        let state = SyncState::load(&folder).unwrap_or_default();
-                        let remote_moved = changes.latest_seq > state.cursor;
+                let cursor = SyncState::load(&folder).unwrap_or_default().cursor;
+                match client.remote_moved(link.channel_id, cursor).await {
+                    Ok(remote_moved) => {
                         if fs_nudge || remote_moved {
                             let prefix = if fs_nudge { "[local]" } else { "[remote]" };
                             if let Err(e) = run_sync_round(&client, &folder, prefix).await {
@@ -241,8 +258,9 @@ async fn main() -> Result<()> {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link);
-            let report = engine.push().await?;
-            engine.save_state()?;
+            // The engine saves its state, also when this fails part-way.
+            let result = engine.push().await;
+            let report = or_conflicts(&mut engine, "[push]", result)?;
             if report.is_empty() {
                 println!("Nothing to push.");
             } else {
@@ -254,8 +272,9 @@ async fn main() -> Result<()> {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link);
-            let report = engine.pull().await?;
-            engine.save_state()?;
+            // The engine saves its state, also when this fails part-way.
+            let result = engine.pull().await;
+            let report = or_conflicts(&mut engine, "[pull]", result)?;
             if report.is_empty() {
                 println!("Up to date.");
             } else {
@@ -285,17 +304,31 @@ async fn main() -> Result<()> {
                 Ok(manifest) => {
                     println!("remote:    {} files (head {})", manifest.files.len(), manifest.head_revision);
                     let local = sync::scan_local(&folder)?;
-                    let changed = local
-                        .iter()
-                        .filter(|(p, etag)| {
-                            state.baselines.get(*p).cloned().flatten().as_deref()
-                                != Some(etag.as_str())
-                        })
-                        .count();
-                    println!("local:     {} files, {changed} changed since last sync", local.len());
+                    let status = sync::local_status(&state, &local);
+                    println!(
+                        "local:     {} files, {} changed since last sync, {} waiting for review",
+                        local.len(),
+                        status.changed.len(),
+                        status.waiting_review.len()
+                    );
+                    for path in &status.waiting_review {
+                        println!("           … {path} (sent for review; not on the mainline yet)");
+                    }
                 }
                 Err(e) => println!("remote:    manifest failed ({e})"),
             }
+            Ok(())
+        }
+        Command::Resubmit { path, folder } => {
+            LinkConfig::load(&folder)?;
+            let path = path.replace('\\', "/");
+            let path = path.trim_start_matches("./");
+            let mut state = SyncState::load(&folder)?;
+            if !state.forget_review(path) {
+                anyhow::bail!("{path} is not waiting for review (see `wabi-sync status`)");
+            }
+            state.save(&folder)?;
+            println!("{path} is no longer marked as waiting for review; the next sync uploads it again.");
             Ok(())
         }
         Command::Lock { folder, path } => {

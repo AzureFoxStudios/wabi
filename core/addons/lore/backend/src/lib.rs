@@ -375,6 +375,116 @@ async fn file_etag_open(file: std::fs::File) -> anyhow::Result<String> {
 /// files on every call.
 type EtagCache = std::sync::Mutex<HashMap<(i64, String), (u64, u128, String)>>;
 
+/// What identifies the bytes behind a cached download ETag. The path alone is
+/// not enough for head reads (the file is replaced on upload), so the entry
+/// is only reused while size, mtime and inode still match the open handle.
+#[derive(Clone, PartialEq, Eq)]
+struct DownloadEtagStamp {
+    size: u64,
+    mtime_nanos: u128,
+    inode: u64,
+}
+type DownloadEtagCache = std::sync::Mutex<HashMap<(i64, String, String), (DownloadEtagStamp, String)>>;
+/// Entries are tiny, but revisions are unbounded; start over past this size.
+const DOWNLOAD_ETAG_CACHE_MAX: usize = 4096;
+
+impl DownloadEtagStamp {
+    fn of(file: &std::fs::File) -> std::io::Result<Self> {
+        let meta = file.metadata()?;
+        if !meta.is_file() {
+            return Err(std::io::Error::other("download source must be a regular file"));
+        }
+        // The inode is part of the stamp where the platform has one. Elsewhere
+        // size and mtime are the whole check.
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(&meta);
+        #[cfg(not(unix))]
+        let inode = 0;
+        Ok(Self {
+            size: meta.len(),
+            mtime_nanos: meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            inode,
+        })
+    }
+}
+
+/// An open, confined content handle plus the facts a download response needs.
+pub struct DownloadContent {
+    file: Arc<std::fs::File>,
+    stamp: DownloadEtagStamp,
+    pub size: u64,
+    /// Full SHA-256 of the whole content, hex (never the sampled `q-` form).
+    pub etag: String,
+}
+
+/// Read at an explicit offset. On Windows `seek_read` moves the file cursor,
+/// which does not matter here: every read supplies its own position.
+#[cfg(unix)]
+fn read_at(file: &std::fs::File, buffer: &mut [u8], pos: u64) -> std::io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buffer, pos)
+}
+#[cfg(windows)]
+fn read_at(file: &std::fs::File, buffer: &mut [u8], pos: u64) -> std::io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, buffer, pos)
+}
+
+/// Bytes per read in [`DownloadContent::range_stream`]; the unchanged-file
+/// check runs around each one, so keep it modest.
+const DOWNLOAD_CHUNK_BYTES: usize = 64 * 1024;
+
+impl DownloadContent {
+    /// Stream `length` bytes starting at `start`, without holding `io_gate`.
+    /// Before and after every chunk the open handle's size, mtime and inode
+    /// are compared with the stamp taken under the gate; any difference ends
+    /// the stream with an error (see [`LoreService::open_content_for_download`]).
+    pub fn range_stream(
+        &self,
+        start: u64,
+        length: u64,
+    ) -> impl futures_util::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
+        let state = (self.file.clone(), self.stamp.clone(), start, length);
+        futures_util::stream::unfold(Some(state), |state| async move {
+            let (file, stamp, pos, remaining) = state?;
+            if remaining == 0 {
+                return None;
+            }
+            let want = remaining.min(DOWNLOAD_CHUNK_BYTES as u64) as usize;
+            let worker = file.clone();
+            let expected = stamp.clone();
+            let read = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
+                let changed = || std::io::Error::other("file changed while it was being downloaded");
+                if DownloadEtagStamp::of(&worker)? != expected {
+                    return Err(changed());
+                }
+                let mut buffer = vec![0u8; want];
+                let count = read_at(&worker, &mut buffer, pos)?;
+                if DownloadEtagStamp::of(&worker)? != expected {
+                    return Err(changed());
+                }
+                if count == 0 {
+                    return Err(std::io::ErrorKind::UnexpectedEof.into());
+                }
+                buffer.truncate(count);
+                Ok(buffer)
+            })
+            .await
+            .unwrap_or_else(|_| Err(std::io::Error::other("download read worker stopped")));
+            match read {
+                Ok(bytes) => {
+                    let next = (file, stamp, pos + bytes.len() as u64, remaining - bytes.len() as u64);
+                    Some((Ok(bytes), Some(next)))
+                }
+                Err(error) => Some((Err(error), None)),
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 struct CopyTestHook {
     started: tokio::sync::oneshot::Sender<()>,
@@ -439,24 +549,158 @@ fn rev_cache_path(
         .join(repo_path))
 }
 
+/// Default number of revisions kept per repo in the revision cache: 0 = keep
+/// every revision (nothing is ever pruned). Pruning is opt-in because the
+/// cache is the only place old revisions are read from. Set
+/// `WABI_LORE_REVCACHE_KEEP` or call [`LoreService::set_revcache_keep`].
+const DEFAULT_REVCACHE_KEEP: usize = 0;
+
+/// Commit order of cached revisions, one name per line, oldest first. It lives
+/// beside the revision directories so pruning order never depends on clocks.
+const REVCACHE_ORDER_FILE: &str = ".order";
+
+fn revcache_dir_name(channel_id: i64) -> String {
+    format!("{channel_id}.revcache")
+}
+
+fn read_revcache_order(cache: &RepoDir) -> Vec<String> {
+    let Ok(bytes) = cache.read(REVCACHE_ORDER_FILE) else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&bytes).lines().map(str::to_owned).collect()
+}
+
+/// Record `revision` as the newest cached revision.
+fn note_cached_revision(lore_data_dir: &std::path::Path, channel_id: i64, revision: &str) {
+    if revision.is_empty() {
+        return;
+    }
+    let result = (|| -> std::io::Result<()> {
+        let cache = RepoDir::open(lore_data_dir)?
+            .child(std::ffi::OsStr::new(&revcache_dir_name(channel_id)), false)?;
+        let present: std::collections::HashSet<_> = cache
+            .list_child_dirs()?
+            .into_iter()
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect();
+        let mut order: Vec<String> = read_revcache_order(&cache)
+            .into_iter()
+            .filter(|r| r != revision && present.contains(r))
+            .collect();
+        order.push(revision.to_owned());
+        cache.write_from(REVCACHE_ORDER_FILE, order.join("\n").as_bytes())
+    })();
+    if let Err(error) = result {
+        warn!(%error, channel_id, "revcache: could not record revision order");
+    }
+}
+
+/// Cached revisions for a channel, newest first. Revisions recorded in the
+/// order file sort by that recorded order (no clock involved). Directories not
+/// in it (cached before the order file existed) sort after all recorded ones,
+/// by directory mtime — the only ordering available for them.
+fn list_cached_revisions(lore_data_dir: &std::path::Path, channel_id: i64) -> Vec<std::ffi::OsString> {
+    let Ok(cache) = RepoDir::open(lore_data_dir)
+        .and_then(|r| r.child(std::ffi::OsStr::new(&revcache_dir_name(channel_id)), false))
+    else {
+        return Vec::new();
+    };
+    let dirs = cache.list_child_dirs().unwrap_or_default();
+    let order = read_revcache_order(&cache);
+    let mut recorded: Vec<std::ffi::OsString> = Vec::new();
+    for name in &order {
+        let name = std::ffi::OsString::from(name);
+        if dirs.iter().any(|(d, _)| *d == name) && !recorded.contains(&name) {
+            recorded.push(name);
+        }
+    }
+    recorded.reverse();
+    let mut legacy: Vec<_> = dirs.into_iter().filter(|(d, _)| !recorded.contains(d)).collect();
+    legacy.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
+    recorded.extend(legacy.into_iter().map(|(name, _)| name));
+    recorded
+}
+
+/// Remove all but the newest `keep` cached revisions. `protect` (the revision
+/// just written) is never removed. `keep == 0` disables pruning.
+fn prune_revcache(lore_data_dir: &std::path::Path, channel_id: i64, keep: usize, protect: &str) {
+    if keep == 0 {
+        return;
+    }
+    let revs = list_cached_revisions(lore_data_dir, channel_id);
+    if revs.len() <= keep {
+        return;
+    }
+    let others: Vec<_> = revs.into_iter().filter(|r| r != protect).collect();
+    let result = (|| -> std::io::Result<()> {
+        let cache = RepoDir::open(lore_data_dir)?
+            .child(std::ffi::OsStr::new(&revcache_dir_name(channel_id)), false)?;
+        for stale in others.iter().skip(keep.saturating_sub(1)) {
+            cache.remove_child_tree(stale)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        warn!(%error, channel_id, "revcache: prune failed");
+    }
+}
+
+/// True when both files have identical bytes (size check first).
+fn same_file_content(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Result<bool> {
+    use std::io::Read;
+    if a.metadata()?.len() != b.metadata()?.len() {
+        return Ok(false);
+    }
+    let (mut x, mut y) = ([0u8; 64 * 1024], [0u8; 64 * 1024]);
+    loop {
+        let n = a.read(&mut x)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        b.read_exact(&mut y[..n])?;
+        if x[..n] != y[..n] {
+            return Ok(false);
+        }
+    }
+}
+
 /// Best-effort copy of a just-committed file version into the revision
 /// cache so `?revision=` downloads work without lore CLI support.
+/// With `previous`, a file whose bytes are unchanged since that cached
+/// revision is hard-linked instead of copied (copy if linking fails).
 async fn cache_revision_content(
     lore_data_dir: &std::path::Path,
     channel_id: i64,
     revision: &str,
     repo_path: &str,
     working_tree: &std::path::Path,
+    previous: Option<&str>,
 ) {
     if revision.is_empty() {
         return;
     }
     let result = (|| -> anyhow::Result<()> {
         rev_cache_path(lore_data_dir, channel_id, revision, std::path::Path::new(repo_path))?;
-        let source = RepoDir::open(working_tree)?.open_file(repo_path)?;
-        let cache = RepoDir::open(lore_data_dir)?
-            .child(std::ffi::OsStr::new(&format!("{channel_id}.revcache")), true)?
-            .child(std::ffi::OsStr::new(revision), true)?;
+        let mut source = RepoDir::open(working_tree)?.open_file(repo_path)?;
+        let cache_root = RepoDir::open(lore_data_dir)?
+            .child(std::ffi::OsStr::new(&revcache_dir_name(channel_id)), true)?;
+        let cache = cache_root.child(std::ffi::OsStr::new(revision), true)?;
+        if let Some(previous) = previous.filter(|p| *p != revision) {
+            let unchanged = (|| -> std::io::Result<bool> {
+                let prev = cache_root.child(std::ffi::OsStr::new(previous), false)?;
+                let mut old = prev.open_file(repo_path)?;
+                if !same_file_content(&mut source, &mut old)? {
+                    return Ok(false);
+                }
+                Ok(cache.link_from(&prev, repo_path).is_ok())
+            })()
+            .unwrap_or(false);
+            if unchanged {
+                return Ok(());
+            }
+            // Linking failed or content differs: rewind and copy.
+            std::io::Seek::seek(&mut source, std::io::SeekFrom::Start(0))?;
+        }
         cache.write_from(repo_path, source)?;
         Ok(())
     })();
@@ -499,6 +743,14 @@ pub struct LoreService {
     /// Serialize tree replacement, branch/CLI writes, and open/copy operations.
     /// Never held while HTTP upload bodies are being received.
     io_gate: Arc<tokio::sync::Mutex<()>>,
+    /// Revisions kept per repo in the revision cache (0 = unlimited).
+    revcache_keep: std::sync::atomic::AtomicUsize,
+    /// Full SHA-256 of served content per (channel, path, revision), so a
+    /// Range request does not hash the whole file again (see
+    /// [`LoreService::open_content_for_download`]).
+    download_etags: DownloadEtagCache,
+    /// How many times a full-content hash was computed for a download.
+    download_etag_hashes: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     copy_test_hook: std::sync::Mutex<Option<CopyTestHook>>,
 }
@@ -511,9 +763,26 @@ impl LoreService {
             ignore_filters: std::sync::RwLock::new(HashMap::new()),
             etag_cache: std::sync::Mutex::new(HashMap::new()),
             io_gate: Arc::new(tokio::sync::Mutex::new(())),
+            revcache_keep: std::sync::atomic::AtomicUsize::new(
+                std::env::var("WABI_LORE_REVCACHE_KEEP")
+                    .ok()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(DEFAULT_REVCACHE_KEEP),
+            ),
+            download_etags: std::sync::Mutex::new(HashMap::new()),
+            download_etag_hashes: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             copy_test_hook: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Set how many revisions per repo the revision cache keeps (0 = unlimited).
+    pub fn set_revcache_keep(&self, keep: usize) {
+        self.revcache_keep.store(keep, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn revcache_keep(&self) -> usize {
+        self.revcache_keep.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn recordings_channel_name(&self) -> &str {
@@ -867,6 +1136,15 @@ impl LoreService {
         RepoDir::open(&repo.working_tree)?;
         RepoDir::open(&self.config.lore_data_dir)?
             .remove_child_tree(std::ffi::OsStr::new(&channel_id.to_string()))?;
+        // Cached revisions must not outlive the repo ("deleted" content would
+        // stay servable by revision hash).
+        match RepoDir::open(&self.config.lore_data_dir)?
+            .remove_child_tree(std::ffi::OsStr::new(&revcache_dir_name(channel_id)))
+        {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         self.etag_cache.lock().unwrap().retain(|(id, _), _| *id != channel_id);
         self.ignore_filters.write().unwrap().remove(&channel_id);
 
@@ -1306,8 +1584,11 @@ impl LoreService {
             &revision.hash,
             repo_path,
             &repo.working_tree,
+            None,
         )
         .await;
+        note_cached_revision(&self.config.lore_data_dir, channel_id, &revision.hash);
+        prune_revcache(&self.config.lore_data_dir, channel_id, self.revcache_keep(), &revision.hash);
 
         // Capture the committed review branch's metadata before restoring
         // mainline, which may contain older bytes or no file at this path.
@@ -1525,6 +1806,104 @@ impl LoreService {
     ) -> anyhow::Result<std::fs::File> {
         let _io = self.io_gate.lock().await;
         self.open_content_file_locked(channel_id, repo_path, revision).await
+    }
+
+    /// Open content for a download without copying it, and return its size and
+    /// full SHA-256 ETag.
+    ///
+    /// What is known: Wabi's own writers (`publish`: temp file + rename) and
+    /// the revision cache never edit a file in place, so a handle opened on
+    /// one keeps showing the bytes it was opened on. What is NOT known: how
+    /// the external `lore` program changes working-tree files on branch
+    /// switch, merge and approve (replace or write in place); no sandbox has
+    /// the real program (`docs/testing/LORE_REAL_BINARY_CHECKS.md`). So:
+    ///
+    /// * On a cache miss the size/mtime/inode stamp is taken and the whole
+    ///   file is hashed while `io_gate` is still held. Every CLI operation
+    ///   holds that gate, so the hash cannot see a half-written file. This
+    ///   costs one gate hold per (channel, path, revision) per process; a
+    ///   cache hit hashes nothing and releases the gate at once.
+    /// * After the gate is released the caller streams through
+    ///   [`DownloadContent::range_stream`], which compares the handle's
+    ///   stamp before and after every chunk and ends the body with an error
+    ///   if the file changed underneath it. A rename-style writer never trips
+    ///   that (the old inode is untouched); an in-place writer does, so the
+    ///   client sees a broken response and never silently mixed bytes.
+    pub async fn open_content_for_download(
+        &self,
+        channel_id: i64,
+        repo_path: &str,
+        revision: Option<&str>,
+    ) -> anyhow::Result<DownloadContent> {
+        let gate = self.io_gate.clone().lock_owned().await;
+        let file = self.open_content_file_locked(channel_id, repo_path, revision).await?;
+        let stamp = DownloadEtagStamp::of(&file)?;
+        let key = (
+            channel_id,
+            repo_path.to_string(),
+            revision.unwrap_or_default().to_string(),
+        );
+        let cached = self
+            .download_etags
+            .lock()
+            .unwrap()
+            .get(&key)
+            .filter(|(seen, _)| *seen == stamp)
+            .map(|(_, etag)| etag.clone());
+        let etag = match cached {
+            Some(etag) => {
+                drop(gate);
+                etag
+            }
+            None => {
+                let mut hashed = file.try_clone()?;
+                let expected = stamp.clone();
+                #[cfg(test)]
+                let hook = self.copy_test_hook.lock().unwrap().take();
+                // The blocking worker owns the gate until it stops, even if
+                // the awaiting request is cancelled mid-hash.
+                let etag = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+                    use sha2::Digest;
+                    use std::io::{Read, Seek};
+                    let _gate = gate;
+                    #[cfg(test)]
+                    if let Some(hook) = hook {
+                        let _ = hook.started.send(());
+                        hook.resume.recv()?;
+                    }
+                    hashed.seek(std::io::SeekFrom::Start(0))?;
+                    let mut digest = sha2::Sha256::new();
+                    let mut buffer = [0u8; 64 * 1024];
+                    loop {
+                        let count = hashed.read(&mut buffer)?;
+                        if count == 0 {
+                            break;
+                        }
+                        digest.update(&buffer[..count]);
+                    }
+                    if DownloadEtagStamp::of(&hashed)? != expected {
+                        anyhow::bail!("file changed while it was being hashed");
+                    }
+                    Ok(hex::encode(digest.finalize()))
+                })
+                .await
+                .map_err(|_| anyhow::anyhow!("download hash worker stopped"))??;
+                self.download_etag_hashes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let mut cache = self.download_etags.lock().unwrap();
+                if cache.len() >= DOWNLOAD_ETAG_CACHE_MAX {
+                    cache.clear();
+                }
+                cache.insert(key, (stamp.clone(), etag.clone()));
+                etag
+            }
+        };
+        Ok(DownloadContent { size: stamp.size, file: Arc::new(file), etag, stamp })
+    }
+
+    /// How many full-content hashes downloads have computed (a cache hit does
+    /// not count). Lets tests prove an ETag is not recomputed per request.
+    pub fn download_etag_hash_count(&self) -> usize {
+        self.download_etag_hashes.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Copy repository content into a caller-owned private regular file.
@@ -2156,12 +2535,18 @@ impl LoreService {
         // A batch snapshot seals files that stage_file did not cache. Keep
         // the I/O gate through publication so a branch switch cannot substitute
         // another revision's bytes while the snapshot is being copied.
+        let previous = list_cached_revisions(&self.config.lore_data_dir, channel_id)
+            .into_iter()
+            .map(|r| r.to_string_lossy().into_owned())
+            .find(|r| *r != revision.hash);
         for path in walk_working_tree_files(&repo.working_tree).await {
             if sanitize_repo_path(&path).is_ok() {
                 cache_revision_content(&self.config.lore_data_dir, channel_id,
-                    &revision.hash, &path, &repo.working_tree).await;
+                    &revision.hash, &path, &repo.working_tree, previous.as_deref()).await;
             }
         }
+        note_cached_revision(&self.config.lore_data_dir, channel_id, &revision.hash);
+        prune_revcache(&self.config.lore_data_dir, channel_id, self.revcache_keep(), &revision.hash);
 
 
         info!(channel_id, message, "Committed staged changes");
@@ -3316,6 +3701,137 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn counting_commit_body(data: &std::path::Path) -> String {
+        let ctr = data.join("ctr");
+        format!(
+            "case \"$*\" in *commit*) n=$(cat '{c}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{c}'; printf 'Signature : rev%s\\n' $n;; esac",
+            c = ctr.display()
+        )
+    }
+
+    #[cfg(unix)]
+    fn revcache_dirs(data: &std::path::Path, channel: i64) -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(data.join("repos").join(format!("{channel}.revcache")))
+            .map(|d| d.flatten().filter(|e| e.path().is_dir()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .unwrap_or_default();
+        v.sort();
+        v
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_repo_removes_the_revision_cache() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        std::fs::write(repo.working_tree.join("a.txt"), b"one").unwrap();
+        service.commit_staged(42, "snap", 1).await.unwrap();
+        assert!(!revcache_dirs(data.path(), 42).is_empty());
+        service.delete_repo(42).await.unwrap();
+        assert!(!data.path().join("repos/42.revcache").exists(), "revcache must not outlive the repo");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn revcache_keeps_only_the_newest_revisions_and_pruned_ones_are_not_found() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        service.set_revcache_keep(20);
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        for i in 1..=25 {
+            std::fs::write(repo.working_tree.join("a.txt"), format!("v{i}")).unwrap();
+            service.commit_staged(42, "snap", 1).await.unwrap();
+        }
+        let dirs = revcache_dirs(data.path(), 42);
+        assert_eq!(dirs.len(), 20, "got {dirs:?}");
+        assert!(!dirs.contains(&"rev5".to_string()));
+        assert!(dirs.contains(&"rev6".to_string()) && dirs.contains(&"rev25".to_string()));
+        // Retained revision still readable with its own bytes.
+        let mut kept = service.open_content_file(42, "a.txt", Some("rev6")).await.unwrap();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut kept, &mut text).unwrap();
+        assert_eq!(text, "v6");
+        // Pruned revision is a clean not-found.
+        let err = service.open_content_file(42, "a.txt", Some("rev5")).await.unwrap_err();
+        let io = err.downcast_ref::<std::io::Error>().expect("io error");
+        assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn revcache_default_prunes_nothing() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        for i in 1..=25 {
+            std::fs::write(repo.working_tree.join("a.txt"), format!("v{i}")).unwrap();
+            service.commit_staged(42, "snap", 1).await.unwrap();
+        }
+        assert_eq!(revcache_dirs(data.path(), 42).len(), 25);
+        service.open_content_file(42, "a.txt", Some("rev1")).await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn revcache_pruning_follows_recorded_commit_order_not_directory_times() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        service.set_revcache_keep(2);
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        for i in 1..=3 {
+            std::fs::write(repo.working_tree.join("a.txt"), format!("v{i}")).unwrap();
+            service.commit_staged(42, "snap", 1).await.unwrap();
+        }
+        // Make the oldest revision look newest by directory time.
+        let f = std::fs::File::open(data.path().join("repos/42.revcache/rev2")).unwrap();
+        f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600)).unwrap();
+        std::fs::write(repo.working_tree.join("a.txt"), "v4").unwrap();
+        service.commit_staged(42, "snap", 1).await.unwrap();
+        assert_eq!(revcache_dirs(data.path(), 42), vec!["rev3".to_string(), "rev4".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn snapshot_commit_copies_when_the_link_cannot_be_made() {
+        use std::os::unix::fs::MetadataExt;
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        std::fs::write(repo.working_tree.join("same.txt"), b"same").unwrap();
+        service.commit_staged(42, "one", 1).await.unwrap();
+        // A file already sits at the destination, so hard_link fails (EEXIST).
+        let root = data.path().join("repos/42.revcache");
+        std::fs::create_dir_all(root.join("rev2")).unwrap();
+        std::fs::write(root.join("rev2/same.txt"), b"stale").unwrap();
+        service.commit_staged(42, "two", 1).await.unwrap();
+        assert_eq!(std::fs::read(root.join("rev2/same.txt")).unwrap(), b"same");
+        assert_ne!(
+            std::fs::metadata(root.join("rev1/same.txt")).unwrap().ino(),
+            std::fs::metadata(root.join("rev2/same.txt")).unwrap().ino()
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn snapshot_commit_hard_links_unchanged_files_and_copies_changed_ones() {
+        use std::os::unix::fs::MetadataExt;
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), &counting_commit_body(data.path())).await;
+        let repo = service.create_repo(42, 1, "r").await.unwrap();
+        std::fs::write(repo.working_tree.join("same.txt"), b"same").unwrap();
+        std::fs::write(repo.working_tree.join("changes.txt"), b"old").unwrap();
+        service.commit_staged(42, "one", 1).await.unwrap();
+        std::fs::write(repo.working_tree.join("changes.txt"), b"new").unwrap();
+        service.commit_staged(42, "two", 1).await.unwrap();
+        let root = data.path().join("repos/42.revcache");
+        let ino = |r: &str, f: &str| std::fs::metadata(root.join(r).join(f)).unwrap().ino();
+        assert_eq!(ino("rev1", "same.txt"), ino("rev2", "same.txt"), "unchanged file should be linked");
+        assert_ne!(ino("rev1", "changes.txt"), ino("rev2", "changes.txt"));
+        assert_eq!(std::fs::read(root.join("rev1/changes.txt")).unwrap(), b"old");
+        assert_eq!(std::fs::read(root.join("rev2/changes.txt")).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn import_refuses_and_keeps_a_detached_non_empty_tree() {
         use std::os::unix::fs::PermissionsExt;
@@ -3719,6 +4235,36 @@ esac
     }
 
     #[tokio::test]
+    async fn download_hash_on_a_cache_miss_runs_while_io_gate_is_held() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, repo) = fixture_native_service(data.path()).await;
+        std::fs::write(repo.working_tree.join("normal.txt"), b"inside").unwrap();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        *service.copy_test_hook.lock().unwrap() = Some(CopyTestHook { started: started_tx, resume: resume_rx });
+        let service = Arc::new(service);
+        let worker_service = service.clone();
+        let worker = tokio::spawn(async move { worker_service.open_content_for_download(42, "normal.txt", None).await });
+        tokio::time::timeout(std::time::Duration::from_secs(2), started_rx)
+            .await
+            .expect("the hash worker never started")
+            .unwrap();
+        assert!(
+            service.io_gate.try_lock().is_err(),
+            "the hash must be computed while io_gate is held, or an in-place writer could change the bytes mid-hash"
+        );
+        resume_tx.send(()).unwrap();
+        let content = worker.await.unwrap().unwrap();
+        assert_eq!(content.etag, etag_for_bytes(b"inside"));
+        assert_eq!(service.download_etag_hash_count(), 1);
+        // A cache hit needs no hash and takes no hook.
+        let again = service.open_content_for_download(42, "normal.txt", None).await.unwrap();
+        assert_eq!(again.etag, content.etag);
+        assert_eq!(service.download_etag_hash_count(), 1);
+        assert!(service.io_gate.try_lock().is_ok());
+    }
+
+    #[tokio::test]
     async fn descriptor_snapshot_preserves_retained_temp_handle_and_cancellation_gate() {
         let data = tempfile::tempdir().unwrap();
         let (service, repo) = fixture_native_service(data.path()).await;
@@ -3880,7 +4426,7 @@ Date      : Sat, 8 Aug 2026 03:05:43 +0000
         tokio::fs::write(tree.join("src/main.rs"), b"fn main() {}").await.unwrap();
 
         let rev = "abc123";
-        cache_revision_content(dir.path(), 225, rev, "src/main.rs", &tree).await;
+        cache_revision_content(dir.path(), 225, rev, "src/main.rs", &tree, None).await;
         let cached = rev_cache_path(dir.path(), 225, rev, "src/main.rs".as_ref()).unwrap();
         let content = tokio::fs::read(&cached).await.unwrap();
         assert_eq!(content, b"fn main() {}");
