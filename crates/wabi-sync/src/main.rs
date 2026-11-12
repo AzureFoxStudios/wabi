@@ -9,20 +9,14 @@
 //!
 //! Get a token from the channel's Connect panel (minted server-side).
 
-mod api;
-mod config;
-mod etag;
-mod sync;
-
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use config::{GlobalConfig, LinkConfig, SyncState};
-
-use crate::api::WabiClient;
-use crate::sync::{print_report, SyncEngine};
+use wabi_sync::api::WabiClient;
+use wabi_sync::config::{GlobalConfig, LinkConfig, SyncState};
+use wabi_sync::sync::{self, print_report, SyncEngine};
 
 #[derive(Parser)]
 #[command(
@@ -287,10 +281,7 @@ async fn main() -> Result<()> {
                     let local = sync::scan_local(&folder)?;
                     let changed = local
                         .iter()
-                        .filter(|(p, etag)| {
-                            state.baselines.get(*p).cloned().flatten().as_deref()
-                                != Some(etag.as_str())
-                        })
+                        .filter(|(p, etag)| !state.local_matches_baseline(p, etag))
                         .count();
                     println!("local:     {} files, {changed} changed since last sync", local.len());
                 }

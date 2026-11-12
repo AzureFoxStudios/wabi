@@ -5837,6 +5837,7 @@ dependencies = [
  "wabi-payments-crypto",
  "wabi-payments-eu",
  "wabi-payments-us",
+ "wabi-sync",
  "wabi-tailcat",
  "wabi-webhooks",
  "wabidb",

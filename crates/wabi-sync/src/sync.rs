@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
 
-use crate::api::{UploadOutcome, WabiClient};
+use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
 use crate::config::{LinkConfig, SyncState, LINK_FILE, STATE_DIR};
-use crate::etag::{etag_for_bytes, etag_for_file};
+use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 
 /// Paths never synced regardless of ignore files.
 fn is_internal(rel: &str) -> bool {
@@ -151,6 +151,10 @@ pub struct SyncReport {
     pub deleted_local: Vec<String>,
     pub deleted_remote: Vec<String>,
     pub conflicts: Vec<String>,
+    /// Uploaded to a review branch and not yet on the mainline.
+    pub waiting_review: Vec<String>,
+    /// Local deletions the server refused (403).
+    pub not_deleted: Vec<String>,
 }
 
 impl SyncReport {
@@ -161,6 +165,8 @@ impl SyncReport {
             deleted_local: Vec::new(),
             deleted_remote: Vec::new(),
             conflicts: Vec::new(),
+            waiting_review: Vec::new(),
+            not_deleted: Vec::new(),
         }
     }
 
@@ -170,6 +176,8 @@ impl SyncReport {
             && self.deleted_local.is_empty()
             && self.deleted_remote.is_empty()
             && self.conflicts.is_empty()
+            && self.waiting_review.is_empty()
+            && self.not_deleted.is_empty()
     }
 }
 
@@ -194,6 +202,22 @@ impl<'a> SyncEngine<'a> {
         self.state.save(self.folder)
     }
 
+    /// `bytes` were just downloaded and written to `path`: record the
+    /// server's etag as the baseline and the local file as unchanged.
+    fn record_download(&mut self, path: &str, bytes: &[u8], manifest_etag: &str) -> anyhow::Result<()> {
+        // Up to the full-hash limit the etag is the content hash. Above it
+        // only the server can say what its etag is, so take the manifest's.
+        let server_etag = if bytes.len() as u64 > ETAG_FULL_HASH_MAX_BYTES && !manifest_etag.is_empty() {
+            manifest_etag.to_string()
+        } else {
+            etag_for_bytes(bytes)
+        };
+        let local_etag = etag_for_file(&self.folder.join(path))?;
+        self.state.record_local(path, &local_etag, &server_etag);
+        self.state.baselines.insert(path.to_string(), Some(server_etag));
+        Ok(())
+    }
+
     /// Pull remote changes down (three-way against baselines).
     pub async fn pull(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
@@ -211,16 +235,27 @@ impl<'a> SyncEngine<'a> {
         // Remote files: download new/changed when we have no diverging local edit.
         for (path, remote_etag) in &remote {
             let remote_etag = remote_etag.as_deref().unwrap_or("");
+            // A review upload was approved: the mainline now has the etag we
+            // uploaded, so it becomes the ordinary baseline.
+            if self.state.pending_review.get(*path).map(String::as_str) == Some(remote_etag) {
+                self.state.pending_review.remove(*path);
+                self.state.baselines.insert(path.to_string(), Some(remote_etag.to_string()));
+            }
             let baseline = self.state.baselines.get(*path).cloned().flatten();
             let local_etag = local.get(*path);
             let remote_changed = baseline.as_deref().unwrap_or("") != remote_etag;
             let local_has = local_etag.is_some();
             if remote_changed {
+                // The mainline moved to something other than what is waiting
+                // for review; the branches below settle the path (a pending
+                // local file differs from its baseline, so it is kept as a
+                // conflict copy).
                 let local_clean = match (local_etag, &baseline) {
-                    (Some(le), Some(b)) => Some(le.as_str()) == Some(b.as_str()),
+                    (Some(le), Some(_)) => self.state.local_matches_baseline(path, le),
                     (None, b) => b.is_none(), // both absent → clean
                     (Some(_), None) => false, // local-only file → diverged
                 };
+                self.state.pending_review.remove(*path);
                 if !local_has || local_clean {
                     let bytes = self
                         .client
@@ -233,10 +268,7 @@ impl<'a> SyncEngine<'a> {
                     }
                     std::fs::write(&full, &bytes)?;
                     report.downloaded.push(path.to_string());
-                    self.state.baselines.insert(
-                        path.to_string(),
-                        Some(etag_for_bytes(&bytes)),
-                    );
+                    self.record_download(path, &bytes, remote_etag)?;
                 } else {
                     // Both sides changed → keep both, server wins the canonical name.
                     let tag = remote_etag.chars().take(8).collect::<String>();
@@ -253,10 +285,7 @@ impl<'a> SyncEngine<'a> {
                         "{path} (your version saved as {})",
                         copy.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
                     ));
-                    self.state.baselines.insert(
-                        path.to_string(),
-                        Some(etag_for_bytes(&bytes)),
-                    );
+                    self.record_download(path, &bytes, remote_etag)?;
                 }
             }
         }
@@ -270,10 +299,13 @@ impl<'a> SyncEngine<'a> {
             let baseline = self.state.baselines.get(&path).cloned().flatten();
             if baseline.is_none() {
                 self.state.baselines.remove(&path);
+                self.state.local_fingerprints.remove(&path);
                 continue;
             }
             let local_etag = local.get(&path);
-            let local_clean = local_etag.map(|le| Some(le.as_str()) == baseline.as_deref()).unwrap_or(true);
+            let local_clean = local_etag.map(|le| self.state.local_matches_baseline(&path, le)).unwrap_or(true);
+            self.state.pending_review.remove(&path);
+            self.state.local_fingerprints.remove(&path);
             let local_file = self.folder.join(&path);
             if local_clean {
                 if local_etag.is_some() {
@@ -323,10 +355,29 @@ impl<'a> SyncEngine<'a> {
         // Upload new + modified local files.
         for (path, local_etag) in &local {
             let baseline = self.state.baselines.get(path).cloned().flatten();
-            if baseline.as_deref() == Some(local_etag.as_str()) {
-                continue; // unchanged since last sync
+            if self.state.local_matches_baseline(path, local_etag) {
+                // Unchanged since last sync (or put back to the mainline
+                // version while an edit was waiting for review; the
+                // fingerprint then described the edit, so it goes too).
+                if self.state.pending_review.remove(path).is_some() {
+                    self.state.local_fingerprints.remove(path);
+                }
+                continue;
+            }
+            if self.state.local_matches_pending(path, local_etag) {
+                // Already uploaded to a review branch; nothing new to send.
+                report.waiting_review.push(path.clone());
+                continue;
             }
             let bytes = std::fs::read(self.folder.join(path))?;
+            // What the file looked like locally when these bytes were sent.
+            // Up to the full-hash limit that is the hash of the bytes read
+            // just now; above it, the sampled etag from the scan.
+            let sent_etag = if bytes.len() as u64 <= ETAG_FULL_HASH_MAX_BYTES {
+                etag_for_bytes(&bytes)
+            } else {
+                local_etag.clone()
+            };
             let message = format!("wabi-sync: update {path}");
             let outcome = self
                 .client
@@ -341,17 +392,27 @@ impl<'a> SyncEngine<'a> {
             match outcome {
                 UploadOutcome::Ok { etag, revision, pending_review } => {
                     report.uploaded.push(path.clone());
+                    let _ = revision;
+                    // Adopt the server's canonical etag: it is what If-Match
+                    // and the manifest comparison need. For a file over the
+                    // full-hash limit it never equals the local etag, so the
+                    // local one is recorded next to it.
+                    let adopted = if etag.is_empty() { sent_etag.clone() } else { etag };
+                    self.state.record_local(path, &sent_etag, &adopted);
                     if pending_review {
-                        println!("  ↑ {} (pending review on a review branch)", path);
-                    } else if !revision.is_empty() {
-                        let _ = revision;
+                        // The bytes went to a review branch, not the mainline:
+                        // the baseline stays the mainline's so the pull does
+                        // not take this file for a clean copy of it.
+                        report.waiting_review.push(path.clone());
+                        self.state.pending_review.insert(path.clone(), adopted);
+                    } else {
+                        self.state.pending_review.remove(path);
+                        self.state.baselines.insert(path.clone(), Some(adopted));
                     }
-                    // Adopt the server's canonical etag (handles q- sampling
-                    // mismatches on huge files).
-                    let adopted = if etag.is_empty() { local_etag.clone() } else { etag };
-                    self.state.baselines.insert(path.clone(), Some(adopted));
                 }
                 UploadOutcome::Conflict(conflict) => {
+                    self.state.pending_review.remove(path);
+                    self.state.local_fingerprints.remove(path);
                     let tag = conflict
                         .current_etag
                         .as_deref()
@@ -372,6 +433,10 @@ impl<'a> SyncEngine<'a> {
             }
         }
 
+        // A file removed locally is no longer waiting for review.
+        self.state.pending_review.retain(|path, _| local.contains_key(path));
+        self.state.local_fingerprints.retain(|path, _| local.contains_key(path));
+
         // Baseline files deleted locally → delete remotely.
         let baseline_paths: Vec<String> = self.state.baselines.keys().cloned().collect();
         for path in baseline_paths {
@@ -387,14 +452,18 @@ impl<'a> SyncEngine<'a> {
                 .delete(self.link.channel_id, &path, baseline.as_deref())
                 .await
             {
-                Ok(true) => {
+                Ok(DeleteOutcome::Deleted) => {
                     report.deleted_remote.push(path.clone());
                     self.state.baselines.insert(path.clone(), None);
                 }
-                Ok(false) => {
+                Ok(DeleteOutcome::Conflict) => {
                     report.conflicts.push(format!(
                         "{path} (changed on server after your baseline; not deleted)"
                     ));
+                }
+                Ok(DeleteOutcome::Forbidden) => {
+                    // Baseline stays: the file is still on the server.
+                    report.not_deleted.push(path.clone());
                 }
                 Err(e) => return Err(e),
             }
@@ -415,6 +484,9 @@ impl<'a> SyncEngine<'a> {
         pushed.deleted_local.extend(pulled.deleted_local);
         pushed.deleted_remote.extend(pulled.deleted_remote);
         pushed.conflicts.extend(pulled.conflicts);
+        // Only what is still pending after the pull (not approved or
+        // conflicted in this same round).
+        pushed.waiting_review.retain(|p| self.state.pending_review.contains_key(p));
         Ok(pushed)
     }
 }
@@ -434,6 +506,12 @@ pub fn print_report(prefix: &str, report: &SyncReport) {
     }
     for p in &report.conflicts {
         println!("{prefix} ⚠ conflict: {p}");
+    }
+    for p in &report.waiting_review {
+        println!("{prefix} … {p} (waiting for review; not on the mainline yet)");
+    }
+    for p in &report.not_deleted {
+        println!("{prefix} ⚠ {p} (not deleted: you do not have permission)");
     }
 }
 
