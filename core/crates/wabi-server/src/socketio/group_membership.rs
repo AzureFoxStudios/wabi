@@ -332,26 +332,95 @@ async fn change_group_admitted(
             tracing::warn!("[sio] group deletion: shared note cleanup failed for {}: {}", id, error);
         }
     }
-    if remove.is_some() {
-        revoke_group_devices(state, io, id, target, revision, operation).await;
+    let channel = announce_group_membership(state, io, id, add, remove, revision, operation).await?;
+    Ok(
+        json!({"ok":true, "channelId":id, "membershipRevision":revision.to_string(), "channel":channel}),
+    )
+}
+
+/// Tell connected clients about a committed membership change of group `id`:
+/// revoke the removed account's devices and call access, send the current
+/// snapshot to every remaining member, and announce the group to an added one.
+/// Returns that snapshot (null once the group has no members). Shared by the
+/// membership commands and account deletion, so both look the same to clients.
+async fn announce_group_membership(
+    state: &SioState,
+    io: &SocketIo,
+    id: &str,
+    added: Option<u64>,
+    removed: Option<u64>,
+    revision: u64,
+    reason: &str,
+) -> GroupResult<Value> {
+    if let Some(removed) = removed {
+        revoke_group_devices(state, io, id, removed, revision, reason).await;
     }
-    let channel = if members.is_empty() && add.is_none() {
+    let recipients: HashSet<_> = state
+        .app
+        .wdb
+        .list_channel_members(id)
+        .await
+        .map_err(group_internal)?
+        .into_iter()
+        .map(|m| m.user_id)
+        .collect();
+    let channel = if recipients.is_empty() {
         Value::Null
     } else {
         group_snapshot(state, id).await?
     };
-    let mut recipients: HashSet<_> = members.iter().map(|m| m.user_id).collect();
-    if let Some(added) = add {
-        recipients.insert(added);
-    }
     let payload = json!({"channelId":id, "channel":channel});
     group_emit_accounts(io, &recipients, "group-membership-updated", &payload);
-    if let Some(added) = add {
+    if let Some(added) = added {
         group_emit_accounts(io, &HashSet::from([added]), "group-channel-added", &payload);
     }
-    Ok(
-        json!({"ok":true, "channelId":id, "membershipRevision":revision.to_string(), "channel":channel}),
+    Ok(channel)
+}
+
+/// Delete an account, then announce its departure from each of its groups as
+/// a removal would ([`announce_group_membership`]): remaining members get the
+/// new snapshot, its call participation is dropped and call subscribers are
+/// told. The durable delete is unchanged; its cascade removes the memberships
+/// and moves each revision, so the groups are looked up before it runs.
+///
+/// Callers run this without the membership writer (the disconnect handler
+/// already holds a reader). The account has no live socket at either call
+/// site, and every admission rechecks the deleted account or the revision.
+pub(crate) async fn delete_user_announcing_groups(
+    state: &SioState,
+    io: &SocketIo,
+    user_id: u64,
+) -> wabidb::error::Result<()> {
+    let channels = wabidb::projections::channel_members::ChannelMembersProjection::channel_ids_of_user(
+        &state.app.wdb.engine().projection_state(),
+        user_id,
     )
+    .unwrap_or_else(|error| {
+        warn!("[sio] memberships of deleted user {user_id} unreadable; groups not notified: {error}");
+        Vec::new()
+    });
+    state.app.wdb.delete_user(user_id).await?;
+    for id in channels {
+        match state.app.wdb.get_channel(&id).await {
+            Ok(Some(channel)) if channel.channel_kind == wabidb::domain::ChannelKind::GroupDm => {}
+            Ok(_) => continue,
+            Err(error) => {
+                warn!("[sio] deleted user {user_id}: group {id} unreadable: {error}");
+                continue;
+            }
+        }
+        let announced = match group_revision(state, &id) {
+            Ok(revision) => {
+                announce_group_membership(state, io, &id, None, Some(user_id), revision, "account-deleted")
+                    .await
+            }
+            Err(error) => Err(error),
+        };
+        if let Err((code, _)) = announced {
+            warn!("[sio] deleted user {user_id}: group {id} not announced ({code})");
+        }
+    }
+    Ok(())
 }
 
 async fn revoke_group_devices(

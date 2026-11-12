@@ -635,3 +635,172 @@ async fn owner_succession_last_leave_and_creation_retry_are_durable_not_duplicat
     );
     assert!(state.wdb.get_channel(id).await.unwrap().is_none());
 }
+
+/// A group with a guest member, a durable call both the owner and the guest
+/// subscribed to over the raw call WebSocket, and the remaining members on
+/// Socket.IO. Deleting the guest must look to every connected client like the
+/// guest was removed from the group.
+struct DeletedGuestGroup {
+    app: axum::Router,
+    id: &'static str,
+    owner: u64,
+    guest: u64,
+    initial: u64,
+    caller: SocketClient,
+    peer: SocketClient,
+    owner_call: CallSocket,
+    guest_call: CallSocket,
+    _running: RunningCallSocket,
+}
+
+async fn deleted_guest_group(state: &Arc<AppState>, id: &'static str) -> DeletedGuestGroup {
+    let (owner, member, _) = users(state).await;
+    let guest = state.wdb.create_user(&format!("Guest_{id}"), None, "").await.unwrap();
+    let initial = state
+        .wdb
+        .create_group(id, "private", owner, &[owner, member, guest])
+        .await
+        .unwrap();
+    let call = format!("channel:{id}");
+    state
+        .wdb
+        .create_call_session(call.clone(), id.into(), "audio-call".into(), owner, 8, "wabidb".into())
+        .await
+        .unwrap();
+    for user in [owner, guest] {
+        state
+            .wdb
+            .join_call_session(call.clone(), user, format!("user-{user}"), true)
+            .await
+            .unwrap();
+    }
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    let ws_router = wabi_server::websocket::ws_router(state.clone()).with_state(state.clone());
+    let running = RunningCallSocket(tokio::spawn(async move {
+        axum::serve(listener, ws_router).await.unwrap();
+    }));
+    let subscribe = |user: u64| {
+        let (url, token, call) = (url.clone(), jwt(state, user), call.clone());
+        async move {
+            let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+            ws_send(&mut ws, json!({"type":"authenticate","token":token})).await;
+            assert_eq!(ws_event(&mut ws).await["type"], "authenticated");
+            ws_send(&mut ws, json!({"type":"subscribe_call","session_id":call})).await;
+            assert_eq!(ws_event(&mut ws).await["type"], "call_snapshot");
+            ws
+        }
+    };
+    let owner_call = subscribe(owner).await;
+    let guest_call = subscribe(guest).await;
+    let caller = SocketClient::connect(&app, &jwt(state, owner)).await;
+    let peer = SocketClient::connect(&app, &jwt(state, member)).await;
+    DeletedGuestGroup {
+        app,
+        id,
+        owner,
+        guest,
+        initial,
+        caller,
+        peer,
+        owner_call,
+        guest_call,
+        _running: running,
+    }
+}
+
+/// What a removal tells the rest of the group, asserted after a deletion.
+async fn assert_deletion_announced_like_a_removal(state: &AppState, mut f: DeletedGuestGroup) {
+    assert!(state.wdb.get_user(f.guest).await.unwrap().is_none(), "guest was not deleted");
+    let after = revision(state, f.id);
+    assert!(after > f.initial);
+    for client in [&mut f.caller, &mut f.peer] {
+        let update = client.event("group-membership-updated").await;
+        assert_eq!(update["channelId"], f.id);
+        let members = update["channel"]["members"].as_array().unwrap();
+        assert!(!members.contains(&json!(format!("user-{}", f.guest))), "{update}");
+        assert_eq!(members.len(), 2, "{update}");
+        assert_eq!(update["channel"]["membershipRevision"], after.to_string());
+        assert_eq!(update["channel"]["ownerId"], format!("user-{}", f.owner));
+    }
+    let left = f.caller.event("group-call-participant-left").await;
+    assert_eq!(left["channelId"], f.id);
+    assert_eq!(left["userId"], format!("user-{}", f.guest));
+    // Call subscribers are woken (CallAccessRevoked, then current participants).
+    assert_eq!(ws_event(&mut f.owner_call).await["type"], "call_participant_changed");
+    // The deleted account's own subscription does not stay open and silent.
+    assert_eq!(ws_event(&mut f.guest_call).await["type"], "authentication_error");
+}
+
+/// Path 1: the guest's last Socket.IO device disconnects, and the disconnect
+/// handler deletes the guest account.
+#[tokio::test]
+async fn guest_deleted_on_final_disconnect_is_announced_like_a_group_removal() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let mut f = deleted_guest_group(&state, "group-guest-disconnect").await;
+    let mut guest = SocketClient::connect(&f.app, &jwt(&state, f.guest)).await;
+    f.caller.emit("call-initiate", json!({"channelId":f.id})).await;
+    f.caller.event("group-call-started").await;
+    guest.event("call-incoming").await;
+    guest
+        .emit("call-answer", json!({"channelId":f.id,"requestId":"answer"}))
+        .await;
+    guest.event("group-call-admitted").await;
+    // Queue the disconnect behind the gate, then wait for its read-side cleanup
+    // (which includes the deletion) to finish.
+    let gate = state.membership_gate.write().await;
+    SocketClient::transport(&guest.app, Method::POST, &guest.path(), "41".into()).await;
+    tokio::task::yield_now().await;
+    drop(gate);
+    drop(state.membership_gate.write().await);
+    assert_deletion_announced_like_a_removal(&state, f).await;
+}
+
+/// Path 2: the idle guest sweep deletes a guest with no live socket. The guest
+/// is still listed in the in-memory group call (a disconnect the handler missed).
+#[tokio::test]
+async fn guest_deleted_by_idle_sweep_is_announced_like_a_group_removal() {
+    use wabi_server::socketio::{GroupCallParticipants, GroupCallSession, SioState};
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let f = deleted_guest_group(&state, "group-guest-sweep").await;
+    let (owner, guest) = (format!("user-{}", f.owner), format!("user-{}", f.guest));
+    let mut connected = GroupCallParticipants::default();
+    connected.join(&owner, &f.caller.socket_id);
+    connected.join(&guest, "socket-the-disconnect-handler-missed");
+    let sio = SioState {
+        app: state.clone(),
+        connected_users: Default::default(),
+        voice_channels: Default::default(),
+        group_call_sessions: Default::default(),
+        breakout_rooms: Default::default(),
+        roster_cache: Default::default(),
+    };
+    sio.group_call_sessions.write().await.insert(
+        f.id.into(),
+        GroupCallSession {
+            channel_id: f.id.into(),
+            channel_name: "private".into(),
+            initiator_stable_id: owner.clone(),
+            is_video_call: false,
+            has_ever_established: true,
+            last_invite_sender_id: owner.clone(),
+            invited_participants: Default::default(),
+            connected_participants: connected,
+        },
+    );
+    let later = chrono::Utc::now().timestamp_micros()
+        + wabi_server::socketio::GUEST_REAP_GRACE_MICROS
+        + 1_000_000;
+    assert_eq!(wabi_server::socketio::reap_disconnected_guests_at(&sio, later).await, 1);
+    let calls = sio.group_call_sessions.read().await;
+    let session = calls.get(f.id).expect("owner is still in the call");
+    assert!(!session.connected_participants.contains(&guest));
+    assert!(session.connected_participants.contains(&owner));
+    drop(calls);
+    assert_deletion_announced_like_a_removal(&state, f).await;
+}

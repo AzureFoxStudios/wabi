@@ -551,7 +551,7 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
         if !still_connected {
             match state.app.wdb.get_user(db_user_id as u64).await {
                 Ok(Some(row)) if row.password_hash.is_empty() => {
-                    match state.app.wdb.delete_user(db_user_id as u64).await {
+                    match delete_user_announcing_groups(&state, &io, db_user_id as u64).await {
                         Ok(()) => {
                             info!(
                                 "[sio] reaped guest {} ({}) on final disconnect",
