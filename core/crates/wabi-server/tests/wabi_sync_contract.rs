@@ -1712,7 +1712,8 @@ async fn an_older_builds_relink_to_an_empty_repo_is_stopped_by_the_guard() {
 async fn the_same_server_under_another_address_is_not_a_new_link() {
     let server = server().await;
     let mut mine = server.owner_folder().await;
-    let theirs = server.artist_folder().await;
+    // Deleting on the server needs lore.commit, which the Artist role lacks.
+    let theirs = server.owner_folder().await;
     let token = server.connect_token(&server.owner_login, "write").await;
     for name in ["gone.txt", "deleted-here.txt", "edit.txt", "keep.txt"] {
         mine.write(name, "v1");
@@ -1779,9 +1780,9 @@ async fn a_state_file_from_an_older_build_is_kept_for_its_own_link() {
 async fn a_state_file_that_cannot_be_read_stops_the_round() {
     let server = server().await;
     let mine = server.owner_folder().await;
-    let theirs = server.artist_folder().await;
+    let theirs = server.owner_folder().await;
     mine.write("a.txt", "v1");
-    mine.write("gone.txt", "to be deleted by the artist");
+    mine.write("gone.txt", "to be deleted from the other folder");
     mine.sync().await.unwrap();
     theirs.sync().await.unwrap();
     theirs.write("a.txt", "v2");
@@ -2230,7 +2231,8 @@ const FOUR: [&str; 4] = ["a.txt", "b.txt", "docs/c.txt", "docs/d.txt"];
 
 async fn two_folders_with_four_files(server: &Server) -> (Folder, Folder) {
     let mine = server.owner_folder().await;
-    let theirs = server.artist_folder().await;
+    // The second folder deletes on the server, which needs lore.commit.
+    let theirs = server.owner_folder().await;
     for name in FOUR {
         mine.write(name, format!("contents of {name}"));
     }
@@ -2415,7 +2417,7 @@ async fn a_pull_after_a_path_became_ignored_deletes_nothing() {
 async fn a_file_unreadable_while_deleted_on_the_server_is_a_conflict_later() {
     let server = server().await;
     let mine = server.owner_folder().await;
-    let theirs = server.artist_folder().await;
+    let theirs = server.owner_folder().await;
     mine.write("a.txt", "v1");
     mine.sync().await.unwrap();
     theirs.sync().await.unwrap();
