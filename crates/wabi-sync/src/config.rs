@@ -188,23 +188,115 @@ impl SyncState {
         folder.join(STATE_DIR).join("state.json")
     }
 
+    /// The state of `folder`, or an empty one when the folder has never been
+    /// synced. A state file that is there and cannot be read is an error and
+    /// never "nothing was synced": without its baselines an old local file
+    /// counts as new work and a file someone else deleted is put back.
     pub fn load(folder: &Path) -> anyhow::Result<Self> {
-        match std::fs::read_to_string(Self::path_for(folder)) {
-            Ok(raw) => Ok(serde_json::from_str(&raw)?),
-            Err(_) => Ok(Self::default()),
-        }
+        let path = Self::path_for(folder);
+        let unusable = |why: String| {
+            anyhow::anyhow!(
+                "{} cannot be read as wabi-sync's state ({why}). wabi-sync will not run without what it \
+                 recorded there. To start this folder as a fresh link instead, move it aside (rename it, \
+                 for example to state.json.unreadable) and run again: files that differ from the server's \
+                 are then kept as conflict copies, and files deleted on the server since the last sync \
+                 are uploaded again",
+                path.display()
+            )
+        };
+        let raw = match std::fs::read(&path) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(unusable(e.to_string())),
+        };
+        serde_json::from_slice(&raw).map_err(|e| unusable(e.to_string()))
     }
 
     pub fn save(&self, folder: &Path) -> anyhow::Result<()> {
+        static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = Self::path_for(folder);
         std::fs::create_dir_all(path.parent().unwrap_or(folder))?;
         // Written beside the state file and renamed over it: a crash leaves
-        // the old state or the new one, never half a file (which would load
-        // as "nothing was ever synced").
-        let temporary = path.with_extension("json.tmp");
-        std::fs::write(&temporary, serde_json::to_string_pretty(self)?)?;
-        std::fs::rename(&temporary, &path)?;
-        Ok(())
+        // the old state or the new one, never half a file. The temporary
+        // name is this writer's own (process id and a counter), so two
+        // writers never rename each other's half-written file.
+        let temporary = path.with_extension(format!(
+            "json.tmp.{}.{}",
+            std::process::id(),
+            SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let written = std::fs::write(&temporary, serde_json::to_string_pretty(self)?)
+            .and_then(|()| std::fs::rename(&temporary, &path));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        Ok(written?)
+    }
+}
+
+/// Name of the lock file inside the state directory.
+pub const LOCK_FILE: &str = "lock";
+
+/// One wabi-sync process at a time works a folder: `watch`, `sync`, `push`,
+/// `pull` and `resubmit` each hold this for as long as they read and write
+/// the folder's state.
+///
+/// It is an advisory lock from the operating system on
+/// `.wabi-sync/lock`, the pattern WabiDB uses for its data directory. The
+/// system releases it when the process ends, however it ends, so a killed
+/// process leaves nothing to clear. The file is never removed, by this
+/// program or (please) by hand: its presence means nothing, and removing it
+/// while a process holds it would let a second one in. The process id
+/// written in it is there for the error message only.
+#[derive(Debug)]
+pub struct FolderLock {
+    file: std::fs::File,
+}
+
+impl Drop for FolderLock {
+    fn drop(&mut self) {
+        // Said out loud, not left to the file being closed: a child process
+        // forked while the lock was held shares the open file until it
+        // starts its own program, and the lock would last as long.
+        let _ = self.file.unlock();
+    }
+}
+
+impl FolderLock {
+    pub fn acquire(folder: &Path) -> anyhow::Result<Self> {
+        use std::io::Write;
+        let path = folder.join(STATE_DIR).join(LOCK_FILE);
+        std::fs::create_dir_all(folder.join(STATE_DIR))?;
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(|e| anyhow::anyhow!("cannot open the lock file {}: {e}", path.display()))?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => {
+                let holder = std::fs::read_to_string(&path).unwrap_or_default();
+                let holder = match holder.trim() {
+                    "" => String::new(),
+                    pid => format!(" (process {pid})"),
+                };
+                anyhow::bail!(
+                    "another wabi-sync{holder} is working on this folder and holds {}. Wait for it to finish, \
+                     or stop it (`wabi-sync watch` runs until stopped), and run again. There is nothing to \
+                     clear by hand: the lock ends with the process that holds it, and deleting the file \
+                     does not release it",
+                    path.display()
+                );
+            }
+            // A file system with no locks (some network mounts): go on
+            // without one, as every build before this did.
+            Err(std::fs::TryLockError::Error(_)) => return Ok(Self { file }),
+        }
+        let _ = file.set_len(0);
+        let _ = writeln!(file, "{}", std::process::id());
+        Ok(Self { file })
     }
 }
 
