@@ -28,7 +28,8 @@ $DATA_DIR/
 │   │   └── 00000001.widx           # current (still appending)
 │   └── quarantine.json             # only after `wabidb-cli quarantine`
 ├── projections/
-│   └── snapshot.json               # the engine's projection checkpoint
+│   ├── snapshot.json               # the engine's projection checkpoint
+│   └── read-model.sqlite3          # messages projection (SQLite; -wal and -shm beside it while running)
 └── blobs/                          # only if wabidb::blobs is used; nothing calls it (§5)
     └── <hash[0..2]>/
         ├── <rest-of-hash>.bin
@@ -176,6 +177,24 @@ The engine reads every `.widx` file in order. For each entry it checks the lengt
 `snapshots::writer::SnapshotWriter` can write a standalone `{seq:08}.wsnap` file, and a test-only helper reads it back (tests: `snapshots::writer::tests::write_and_read_back`, `snapshots::writer::tests::crc_mismatch_detected`). Its layout is: magic `b"WSNAP"` (5 bytes), version `u8`, flags `u16`, `commit_seq` `u64`, a 32-byte projection state hash, `commit_seq` again, and a CRC32C. It holds a hash, not projection state. Nothing in the engine or the server calls it, so no `.wsnap` file exists on a real data directory.
 
 The checkpoint the engine uses is `projections/snapshot.json`, which stores the applied watermark and the index entries (test: `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). The `b"WSNP"` layout with BSATN state that this section used to describe was never written by any code.
+
+### 4.1 The SQLite read model (`projections/read-model.sqlite3`)
+
+Messages are the first projection kept in SQLite instead (ADR-0001): `projections/read-model.sqlite3`, with the latest row of each message in `messages` and one row per message event in `message_versions` (`projections/read_model/schema.rs`). What holds for that file:
+
+- **Derived.** It is built from the log. Deleting it from a stopped engine changes no read (test: `tests::read_model_messages::deleting_the_read_model_file_changes_no_read`). Compaction is not an event, so a rebuild brings compacted rows back (same test).
+- **Not encrypted, mode 0600.** It holds message bodies as the snapshot did; SQLite's `-wal` and `-shm` side files get the same mode (tests: `tests::read_model_messages::the_read_model_file_is_owner_only_and_messages_leave_the_snapshot`, `projections::read_model::tests::the_file_and_its_write_ahead_log_are_created_owner_only`).
+- **One transaction per commit.** A commit's rows and its `applied_commit_seq` are committed together, so a reader sees a commit whole or not at all, and a commit whose handler fails keeps none of its rows (tests: `tests::read_model_messages::concurrent_readers_never_see_part_of_a_commit`, `tests::read_model_messages::a_commit_that_fails_to_apply_stores_none_of_its_messages`).
+- **Generation.** The file records a schema version and a read-model generation (`READ_MODEL_GENERATION`). A file from another generation is replaced and rebuilt from the log (test: `tests::read_model_messages::a_read_model_of_another_generation_is_rebuilt_from_the_log`). Whoever changes a record version or what a handler stores must bump the generation; a pinned hash of the stored rows fails until they do (test: `projections::messages::tests::stored_rows_are_pinned_to_the_read_model_generation`).
+- **Two watermarks.** A checkpoint first makes the read model durable at the watermark, then writes `snapshot.json`. At startup a read model ahead of the snapshot is kept and replay skips the message events it holds; one that is missing, unusable or behind the snapshot is rebuilt, with every other projection, from the whole log (tests: `tests::read_model_messages::a_read_model_ahead_of_the_snapshot_is_kept_and_replay_skips_its_events`, `tests::read_model_messages::a_read_model_behind_the_snapshot_is_rebuilt_with_every_projection`, `tests::power_loss::crash_between_read_model_sync_and_snapshot`).
+- **Startup replay is one transaction.** If replay fails, the file holds nothing replay wrote (test: `tests::read_model_messages::a_failed_startup_replay_leaves_none_of_its_messages_in_the_file`).
+- **Never rebuilt from a short log.** If the commit index ends below the snapshot's watermark or the read model's, the log has lost commits. The engine then starts only if the read model is usable and at exactly the snapshot's watermark; otherwise it refuses with "repair required" and changes nothing (tests: `tests::read_model_messages::a_checkpoint_that_outlived_its_log_opens_when_both_stores_agree`, `tests::read_model_messages::a_log_shorter_than_the_checkpoint_is_never_rebuilt_from`). The sequencer always continues above the snapshot's watermark, the read model's and the manifest's recorded height (test: `tests::read_model_messages::the_next_commit_is_above_the_manifests_recorded_height`).
+- **Damage.** The file is checked with `PRAGMA quick_check` at every open; a damaged file is replaced and rebuilt when the log is whole, and kept, with startup refused, when it is not (test: `tests::read_model_messages::a_damaged_read_model_is_rebuilt_from_a_whole_log_and_kept_when_the_log_is_short`). Damage SQLite reports while running makes the engine unhealthy and leaves `projections/read-model.rebuild`, which makes the next start rebuild (test: `tests::read_model_messages::damage_at_run_time_makes_the_engine_unhealthy_and_the_next_start_rebuilds`).
+- **Quarantine.** `wabidb-cli quarantine` leaves the same rebuild request, so a commit the read model had applied is gone after the next start (test: `tests::read_model_messages::quarantining_a_commit_the_read_model_holds_removes_it_from_the_read_model`).
+- **Old snapshots.** A snapshot saved before this change still lists five message indexes. They are not loaded (tests: `projections::message_lookup::tests::legacy_snapshot_message_indexes_are_not_loaded`, `tests::pre_versioning_fixture::opening_rebuilds_messages_from_the_log_not_the_snapshot`).
+- **Offline inspection** compares every row and column of the read model with a full replay when the directory holds a read model the engine would use as it is, after a full SQLite integrity check. It reports `readModelPresent`, `readModelCompared` and the reason when it did not compare (no file, or a file the engine would replace or rebuild). It refuses a file the engine would serve but that cannot be verified: a write-ahead log that still holds frames, a failed integrity check, or more commits than the checkpoint (test: `engine::offline_inspect::tests::read_model_rows_are_compared_and_a_changed_message_is_refused`).
+
+Not measured or proven: behaviour under real power loss (the tests end the process, the operating system keeps its buffers), and Windows.
 
 ## 5. Blob file format (`.bin` + `.meta`)
 
