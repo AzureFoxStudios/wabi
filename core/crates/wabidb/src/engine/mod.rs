@@ -306,10 +306,10 @@ impl WabiDbEngine {
         let dispatch_table = type_registry.dispatch_table().clone();
 
         // 7. Load the saved projections: the snapshot of the in-memory ones,
-        // and the SQLite read model (messages). Each has its own watermark.
+        // and the SQLite read model (messages, channels). Each has its own watermark.
         // Replay starts at the snapshot's. The read model is normally ahead
         // of it (it commits every commit; the snapshot is written every
-        // 1,000), and replay then skips the message events it already holds.
+        // 1,000), and replay then skips the events it already holds.
         //
         // A read model that is missing, unusable (another build's, damaged,
         // or marked for rebuild) or behind the snapshot is rebuilt from the
@@ -419,7 +419,7 @@ impl WabiDbEngine {
         });
         // A rebuild rebuilds only what lives in the read model. The other
         // projections load from the snapshot exactly as without a rebuild
-        // (open-time repairs included); replay feeds the messages the commits
+        // (open-time repairs included); replay feeds the read model the commits
         // the snapshot covers.
         if rebuild && saved.is_some() {
             tracing::warn!(

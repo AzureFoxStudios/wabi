@@ -981,9 +981,9 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn get_channel(&self, channel_id: &str) -> Result<Option<Channel>> {
+        use wabidb::projections::channels::ChannelProjection;
         let state = self.engine.projection_state();
-        let key = channel_id.as_bytes().to_vec();
-        match state.get("channels", &key) {
+        match ChannelProjection::stored_record(&state, channel_id)? {
             Some(bytes) => {
                 let channel = Self::decode::<Channel>(&bytes)?;
                 // Tombstoned rows (legacy soft-deletes that predate the

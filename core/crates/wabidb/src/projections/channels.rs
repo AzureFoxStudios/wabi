@@ -1,14 +1,16 @@
 //! Channels projection: stores channel metadata for listing and lookup.
 //!
 //! Handles `channel_created`, `channel_updated` and `channel_deleted`
-//! events and stores `domain::Channel` as JSON in the `channels` index
-//! keyed by channel_id.
+//! events and stores `domain::Channel` as JSON in the SQLite read model's
+//! `channels` table (ADR-0001), keyed by channel_id. It is not in
+//! `projections/snapshot.json`.
 
 use crate::domain::{Channel, ChannelKind};
 use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::handler::{DurableEvent, Projection};
 use crate::projections::query::{apply_limit, ChannelsFilter, QueryableProjection};
+use crate::projections::read_model::{self, Table};
 
 pub struct ChannelProjection;
 
@@ -27,7 +29,17 @@ impl Projection for ChannelProjection {
         ]
     }
 
+    fn stores_in_read_model(&self) -> bool {
+        true
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        // Startup replay begins at the snapshot of the in-memory projections.
+        // The read model may already hold later commits; its own
+        // `applied_commit_seq` says which.
+        if event.commit_seq <= state.read_model().replay_floor() {
+            return Ok(());
+        }
         match event.event_type.as_str() {
             "channel_created" => self.apply_created(event, state),
             "channel_updated" | "update_settings" | "update" => self.apply_updated(event, state),
@@ -147,6 +159,16 @@ pub(crate) fn decode_created_payload(payload: &[u8]) -> Result<Channel> {
     })
 }
 
+/// The row an update starts from when it has no usable stored channel.
+/// Replay must store the same bytes every time (the read model is rebuilt
+/// from the log), so the creation time is zero, not the clock at apply time
+/// as in `Channel::new`; the update event carries no time of its own.
+fn blank_channel(channel_id: &str) -> Channel {
+    let mut channel = Channel::new(channel_id, "", 0);
+    channel.created_at_micros = 0;
+    channel
+}
+
 impl ChannelProjection {
     fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let mut channel = decode_created_payload(&event.payload)?;
@@ -169,11 +191,10 @@ impl ChannelProjection {
                 reason: format!("failed to encode channel: {e}"),
             }
         })?;
-        state.insert("channels", key, value, event.commit_seq);
-        Ok(())
+        state.read_model().write(|conn| read_model::put_channel(conn, &key, &value))
     }
 
-    /// Remove the channel row from the `channels` index. Payload is
+    /// Remove the channel row from the `channels` table. Payload is
     /// `{"channel_id": "..."}` (what `WdbAdapter::delete_channel` emits).
     /// Deleting through a durable event (instead of a projection-only
     /// overwrite) is what makes deletions survive event-log replay,
@@ -194,8 +215,10 @@ impl ChannelProjection {
         if channel_id.is_empty() {
             return Ok(());
         }
-        state.remove("channels", channel_id.as_bytes());
-        Ok(())
+        state
+            .read_model()
+            .write(|conn| read_model::delete_channel(conn, channel_id.as_bytes()))
+            .map(drop)
     }
 
     /// Merge a partial channel update (sent by the settings endpoint) into
@@ -217,8 +240,8 @@ impl ChannelProjection {
             return Ok(());
         }
         let key = channel_id.as_bytes().to_vec();
-        let existing = match state.get("channels", &key) {
-            Some(bytes) => Some(serde_json::from_slice::<Channel>(&bytes).unwrap_or_else(|_| Channel::new(&channel_id, "", 0))),
+        let existing = match stored_while_applying(state, &channel_id)? {
+            Some(bytes) => Some(serde_json::from_slice::<Channel>(&bytes).unwrap_or_else(|_| blank_channel(&channel_id))),
             None => None,
         };
         // Ghost-row guard: an update for a channel the projection has never
@@ -233,7 +256,7 @@ impl ChannelProjection {
         {
             return Ok(());
         }
-        let mut channel = existing.unwrap_or_else(|| Channel::new(&channel_id, "", 0));
+        let mut channel = existing.unwrap_or_else(|| blank_channel(&channel_id));
         if let Some(owner) = patch.get("owner_user_id").and_then(|v| v.as_u64()) {
             channel.owner_user_id = owner;
         }
@@ -264,9 +287,43 @@ impl ChannelProjection {
                 reason: format!("failed to encode channel: {e}"),
             }
         })?;
-        state.insert("channels", key, value, event.commit_seq);
-        Ok(())
+        state.read_model().write(|conn| read_model::put_channel(conn, &key, &value))
     }
+
+    /// The stored bytes of a channel (JSON `Channel`), as of the last
+    /// committed commit; `None` when there is no row. For reads outside
+    /// projection application: admission checks, the server, tools.
+    pub fn stored_record(state: &ProjectionState, channel_id: &str) -> Result<Option<Vec<u8>>> {
+        state
+            .read_model()
+            .read(|conn| read_model::get(conn, Table::Channels, channel_id.as_bytes()))
+    }
+}
+
+/// [`ChannelProjection::stored_record`] for a handler that is applying a
+/// commit: it sees the rows that commit has written so far, and during
+/// startup replay everything replay has written. A read that is not part of
+/// applying a commit must not use it: it would see a commit before it is
+/// finished.
+pub(crate) fn stored_while_applying(
+    state: &ProjectionState,
+    channel_id: &str,
+) -> Result<Option<Vec<u8>>> {
+    state
+        .read_model()
+        .write(|conn| read_model::get(conn, Table::Channels, channel_id.as_bytes()))
+}
+
+/// Test support: store a channel row as it is, bypassing the log (legacy and
+/// corrupt rows no current event produces). The row is committed at once.
+/// The engine must not be applying a commit; nothing here checks that.
+#[doc(hidden)]
+pub fn insert_raw_for_tests(state: &ProjectionState, channel_id: &str, record: &[u8]) {
+    let model = state.read_model();
+    model
+        .write(|conn| read_model::put_channel(conn, channel_id.as_bytes(), record))
+        .unwrap();
+    model.finish_commit(state.applied_commit_seq()).unwrap();
 }
 
 impl QueryableProjection for ChannelProjection {
@@ -281,21 +338,17 @@ impl QueryableProjection for ChannelProjection {
             });
         match &filter.channel_id {
             Some(channel_id) => {
-                let key = channel_id.as_bytes().to_vec();
-                if let Some(bytes) = state.get("channels", &key) {
+                if let Some(bytes) = Self::stored_record(state, channel_id)? {
                     results.push(decode(&bytes)?);
                 }
             }
             None => {
-                let mut failure = None;
-                state.for_each("channels", |_key, value| {
-                    if failure.is_some() { return; }
-                    match decode(value) {
-                        Ok(channel) => results.push(channel),
-                        Err(error) => failure = Some(error),
-                    }
-                });
-                if let Some(error) = failure { return Err(error); }
+                state.read_model().read(|conn| {
+                    read_model::scan(conn, Table::Channels, &[], None, false, |_key, value| {
+                        results.push(decode(value)?);
+                        Ok(true)
+                    })
+                })?;
             }
         }
         apply_limit(&mut results, filter.limit);
@@ -308,10 +361,82 @@ mod tests {
     use super::*;
     use crate::projections::handler::DurableEvent;
 
+    /// What `state.insert("channels", key, value, seq)` did before the read
+    /// model: store the row as it is.
+    fn insert(state: &ProjectionState, key: Vec<u8>, value: Vec<u8>, _commit_seq: u64) {
+        insert_raw_for_tests(state, std::str::from_utf8(&key).unwrap(), &value);
+    }
+
+    /// What `state.get("channels", key)` returned before the read model.
+    fn stored_row(state: &ProjectionState, key: &[u8]) -> Option<Vec<u8>> {
+        ChannelProjection::stored_record(state, std::str::from_utf8(key).unwrap()).unwrap()
+    }
+
+    /// Tripwire for `READ_MODEL_GENERATION`, as for the messages. The hash
+    /// covers every row this projection stores for a fixed set of events
+    /// that reaches every branch of the handler. If it changes, replay now
+    /// writes something else, and a read model written by the previous build
+    /// would disagree with the log.
+    ///
+    /// When this fails: bump `READ_MODEL_GENERATION`, then update both values
+    /// here together. Never update the hash alone.
+    #[test]
+    fn stored_rows_are_pinned_to_the_read_model_generation() {
+        let state = ProjectionState::new();
+        let apply = |commit_seq, stream_id: &str, event_type: &str, payload: serde_json::Value| {
+            ChannelProjection
+                .apply(
+                    &DurableEvent {
+                        commit_seq,
+                        stream_id: stream_id.into(),
+                        event_type: event_type.into(),
+                        payload: serde_json::to_vec(&payload).unwrap(),
+                    },
+                    &state,
+                )
+                .unwrap()
+        };
+        let mut created = serde_json::to_value(Channel::new("", "general", 1)).unwrap();
+        created["created_at_micros"] = 10.into();
+        apply(1, "channels", "channel_created", created.clone());
+        apply(2, "channels", "channel_created", created);
+        apply(3, "dm-user-1-user-2", "channel_created", serde_json::json!({"channel_id": "dm-user-1-user-2",
+            "name": "DM", "channel_kind": 2, "owner_user_id": 1, "created_at_micros": 20}));
+        apply(4, "channels:ch_1", "channel_updated", serde_json::json!({"channel_id": "ch_1",
+            "name": "renamed", "description": "d", "position": 7, "parent_id": "ch_2",
+            "force_spoiler": true, "owner_user_id": 3}));
+        apply(5, "channels:ch_1", "update_settings", serde_json::json!({"row": {"channel_id": "ch_1", "parent_id": null}}));
+        apply(6, "channels:ch_x", "update", serde_json::json!({"channel_id": "ch_x", "description": "ghost"}));
+        apply(7, "channels:ch_y", "channel_updated", serde_json::json!({"channel_id": "ch_y", "name": "by update"}));
+        apply(8, "channels:ch_2", "channel_deleted", serde_json::json!({"channel_id": "ch_2"}));
+
+        let mut hash = blake3::Hasher::new();
+        let mut rows = 0;
+        state
+            .read_model()
+            .for_each_row(Table::Channels, |key, record| {
+                rows += 1;
+                for bytes in [key, record] {
+                    hash.update(&(bytes.len() as u64).to_le_bytes());
+                    hash.update(bytes);
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(rows, 3, "ch_1, the DM and ch_y");
+        let stored = hash.finalize().to_hex().to_string();
+        println!("generation {} rows {stored}", read_model::READ_MODEL_GENERATION);
+        assert_eq!(
+            (read_model::READ_MODEL_GENERATION, stored.as_str()),
+            (2, "89ce07e3dcf5feac3609a6ccd645a53634acf6bc9280f6a594f3d79228da2c25"),
+            "replay stores different rows: bump READ_MODEL_GENERATION and update this pin with it"
+        );
+    }
+
     #[test]
     fn typed_queries_reject_corrupt_channels_instead_of_hiding_them() {
         let state = ProjectionState::new();
-        state.insert("channels", b"broken".to_vec(), b"invalid JSON".to_vec(), 1);
+        insert(&state, b"broken".to_vec(), b"invalid JSON".to_vec(), 1);
         for filter in [ChannelsFilter::default(), ChannelsFilter { channel_id: Some("broken".into()), ..Default::default() }] {
             assert!(ChannelProjection.query(&state, &filter).is_err());
         }
@@ -322,7 +447,7 @@ mod tests {
         let state = ProjectionState::new();
         let value = serde_json::json!({"channel_id":"legacy", "name":"Old channel", "channel_kind":"Text",
             "owner_user_id":1, "created_at_micros":1, "is_active":false});
-        state.insert("channels", b"legacy".to_vec(), serde_json::to_vec(&value).unwrap(), 1);
+        insert(&state, b"legacy".to_vec(), serde_json::to_vec(&value).unwrap(), 1);
         for filter in [ChannelsFilter::default(), ChannelsFilter { channel_id: Some("legacy".into()), ..Default::default() }] {
             let rows = ChannelProjection.query(&state, &filter).unwrap();
             assert_eq!(rows.len(), 1);
@@ -360,7 +485,7 @@ mod tests {
         proj.apply(&event, &state).unwrap();
         let expected_id = format!("ch_{:x}", 2);
         let key = expected_id.as_bytes().to_vec();
-        let stored = state.get("channels", &key).unwrap();
+        let stored = stored_row(&state, &key).unwrap();
         let decoded: Channel = serde_json::from_slice(&stored).unwrap();
         assert_eq!(decoded.channel_id, expected_id);
         assert_eq!(decoded.name, "general");
@@ -435,7 +560,7 @@ mod tests {
         )
         .unwrap();
 
-        let stored = state.get("channels", channel_id.as_bytes()).unwrap();
+        let stored = stored_row(&state, channel_id.as_bytes()).unwrap();
         let updated: Channel = serde_json::from_slice(&stored).unwrap();
         assert_eq!(updated.name, "announcements");
         assert_eq!(updated.description.as_deref(), Some("Important updates"));
@@ -460,7 +585,7 @@ mod tests {
         )
         .unwrap();
         let channel_id = format!("ch_{:x}", 2);
-        assert!(state.get("channels", channel_id.as_bytes()).is_some());
+        assert!(stored_row(&state, channel_id.as_bytes()).is_some());
 
         // Deleting via the durable event removes the projection row — this
         // is what keeps a deletion true across restart/replay (no zombies).
@@ -475,7 +600,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(state.get("channels", channel_id.as_bytes()).is_none());
+        assert!(stored_row(&state, channel_id.as_bytes()).is_none());
         let all = proj.query(&state, &ChannelsFilter::default()).unwrap();
         assert!(all.is_empty());
 
@@ -519,16 +644,14 @@ mod tests {
         )
         .unwrap();
 
-        let stored = state
-            .get("channels", b"dm-user-1-user-2")
+        let stored = stored_row(&state, b"dm-user-1-user-2")
             .expect("row must be keyed by the caller-assigned id");
         let decoded: Channel = serde_json::from_slice(&stored).unwrap();
         assert_eq!(decoded.channel_id, "dm-user-1-user-2");
         assert_eq!(decoded.name, "DM with bob");
         assert_eq!(decoded.channel_kind, crate::domain::ChannelKind::Dm);
         // The seq-derived phantom key must NOT exist.
-        assert!(state
-            .get("channels", format!("ch_{:x}", 9).as_bytes())
+        assert!(stored_row(&state, format!("ch_{:x}", 9).as_bytes())
             .is_none());
     }
 
@@ -553,7 +676,7 @@ mod tests {
             &state,
         )
         .unwrap();
-        let stored = state.get("channels", b"group-1234").unwrap();
+        let stored = stored_row(&state, b"group-1234").unwrap();
         let decoded: Channel = serde_json::from_slice(&stored).unwrap();
         assert_eq!(decoded.channel_kind, crate::domain::ChannelKind::GroupDm);
         assert_eq!(decoded.name, "the crew");
@@ -594,7 +717,7 @@ mod tests {
         )
         .unwrap();
 
-        let stored = state.get("channels", channel_id.as_bytes()).unwrap();
+        let stored = stored_row(&state, channel_id.as_bytes()).unwrap();
         let updated: Channel = serde_json::from_slice(&stored).unwrap();
         assert_eq!(updated.position, 3);
         assert!(updated.parent_id.is_none());

@@ -211,8 +211,11 @@ async fn projection_state_is_empty_for_fresh_engine() {
     state.for_each("users", |_, _| count += 1);
     assert_eq!(count, 0, "fresh engine should have 0 users in projection");
 
-    count = 0;
-    state.for_each("channels", |_, _| count += 1);
+    use crate::projections::query::QueryableProjection;
+    count = crate::projections::channels::ChannelProjection
+        .query(&state, &Default::default())
+        .unwrap()
+        .len();
     assert_eq!(
         count, 0,
         "fresh engine should have 0 channels in projection"

@@ -15,6 +15,8 @@ pub mod property_tests;
 #[cfg(test)]
 pub mod read_model_messages;
 #[cfg(test)]
+pub mod read_model_channels;
+#[cfg(test)]
 pub mod replay_test;
 #[cfg(test)]
 pub mod send_message_flow;
