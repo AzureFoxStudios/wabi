@@ -937,7 +937,7 @@ impl ReadModel {
     ///
     /// If the sync is lost all the same (a disk that lies about it), a power
     /// cut leaves the read model behind the snapshot, and the next start
-    /// rebuilds every projection from the log.
+    /// rebuilds the read model from the log.
     pub(crate) fn sync(&self, watermark: u64) -> Result<()> {
         if self.frozen {
             return Ok(());
@@ -1054,23 +1054,6 @@ impl ReadModel {
                 .conn
                 .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
         }
-    }
-
-    /// How many of `keys` have no latest-message row, and the first of them.
-    /// Reads inside the open transaction, so rows replay has just written
-    /// count.
-    pub(crate) fn missing_messages(&self, keys: &[Vec<u8>]) -> Result<(usize, Option<Vec<u8>>)> {
-        self.write(|conn| {
-            let mut missing = 0;
-            let mut first = None;
-            for key in keys {
-                if get(conn, Table::Messages, key)?.is_none() {
-                    missing += 1;
-                    first.get_or_insert_with(|| key.clone());
-                }
-            }
-            Ok((missing, first))
-        })
     }
 
     /// Every row of `table` in key order, with every column the engine

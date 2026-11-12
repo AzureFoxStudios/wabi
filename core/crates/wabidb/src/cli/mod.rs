@@ -404,15 +404,6 @@ pub(crate) fn snapshot_watermark_for_report(
         }
     };
     let snapshot = header.as_ref().map_or(0, |header| header.watermark);
-    if let Some(header) = header.as_ref().filter(|header| header.legacy_messages > 0) {
-        warnings.push(format!(
-            "projections/snapshot.json still holds {} messages in the old in-memory format. \
-             The engine does not load them: at its first start it rebuilds the messages from \
-             the log and refuses to start if the log does not give all of them back. `check` \
-             cannot tell beforehand, because that needs the log's decrypted contents",
-            header.legacy_messages
-        ));
-    }
     if snapshot > MAX_COMMIT_SEQ {
         errors.push(format!(
             "the engine refuses to start: the snapshot's watermark {snapshot} is not a \

@@ -577,11 +577,11 @@ async fn a_read_model_ahead_of_the_snapshot_is_kept_and_replay_skips_its_events(
 }
 
 /// The other order: the read model is older than the snapshot (its newest
-/// commits were lost, or an older file was put back). Replay cannot start
-/// below the snapshot for one projection only, so the snapshot is not used
-/// and everything is rebuilt from the log.
+/// commits were lost, or an older file was put back). The read model is
+/// rebuilt from the whole log; every other projection loads from the snapshot
+/// and replays what is above it.
 #[tokio::test]
-async fn a_read_model_behind_the_snapshot_is_rebuilt_with_every_projection() {
+async fn a_read_model_behind_the_snapshot_is_rebuilt_from_the_log() {
     let dir = tempfile::tempdir().unwrap();
     let engine = open(dir.path()).await;
     send(&engine, "message_created", &message("ch_a", "early", 7, 100)).await;
@@ -1599,83 +1599,6 @@ async fn commit_numbers_can_have_gaps_that_leave_no_trace() {
     );
 }
 
-/// A hole an older build made and then wrote past: the commit index holds only
-/// commit 6, the snapshot (old format, with its messages in it) is at 6, there
-/// is no read model and no record. Nothing in the index shows the hole, but the
-/// snapshot still holds the messages the log cannot give back, so the first
-/// start of this build, which would rebuild from the log, refuses.
-#[tokio::test]
-async fn a_hole_an_older_build_made_is_not_rebuilt_from() {
-    // The directory as an older build left it.
-    let make = |path: &Path, hole: bool| {
-        let path = path.to_path_buf();
-        async move {
-            five_commits(&path).await;
-            if hole {
-                remove_the_log(&path);
-                let engine = open(&path).await;
-                assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
-                close(engine, &path).await;
-            }
-            let rows: Vec<(Vec<u8>, Vec<u8>)> = rusqlite::Connection::open(read_model_file(&path))
-                .unwrap()
-                .prepare("SELECT key, record FROM messages ORDER BY key")
-                .unwrap()
-                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-                .unwrap()
-                .map(|row| row.unwrap())
-                .collect();
-            crate::projections::read_model::ReadModel::remove_files(&path).unwrap();
-            let _ = std::fs::remove_file(crate::engine::incomplete_log::path(&path));
-            edit_json(&path.join("storage-manifest.json"), |manifest| {
-                let object = manifest.as_object_mut().unwrap();
-                object.remove("incomplete_log_below");
-                object.remove("log_head_commit");
-            });
-            edit_json(&ProjectionState::snapshot_path(&path), |snapshot| {
-                snapshot.as_object_mut().unwrap().remove("incomplete_log_below");
-                snapshot["indexes"].as_array_mut().unwrap().push(serde_json::json!([
-                    "messages",
-                    rows.iter()
-                        .map(|(key, value)| serde_json::json!({"key": hex::encode(key), "value": hex::encode(value)}))
-                        .collect::<Vec<_>>()
-                ]));
-            });
-            rows.len()
-        }
-    };
-
-    // With a whole log the legacy messages come back and the start succeeds.
-    let whole = tempfile::tempdir().unwrap();
-    assert_eq!(make(whole.path(), false).await, 5);
-    let engine = open(whole.path()).await;
-    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), 5);
-    close(engine, whole.path()).await;
-
-    // With the hole it refuses and changes nothing.
-    let holed = tempfile::tempdir().unwrap();
-    assert_eq!(make(holed.path(), true).await, 6);
-    assert_eq!(index_seqs(holed.path()), [6]);
-    let before = tree_for_refusal(holed.path());
-    let text = refused(holed.path()).await;
-    println!("{text}");
-    for part in ["gives back 1 of the 6 messages", "first missing", "first indexed commit is 6", "restore the whole data directory"] {
-        assert!(text.contains(part), "{part}: {text}");
-    }
-    assert!(tree_for_refusal(holder_path(&holed)) == before, "a refused start changed the directory");
-    assert!(!read_model_file(holed.path()).exists(), "the refused start left a read model");
-    let check = crate::cli::check::check(holed.path()).await.unwrap();
-    assert!(
-        check.warnings.iter().any(|w| w.contains("old in-memory format") && w.contains("6 messages")),
-        "{:?}",
-        check.warnings
-    );
-}
-
-fn holder_path(dir: &tempfile::TempDir) -> &Path {
-    dir.path()
-}
-
 /// Five messages, a backup, then the hole and one more message: the directory
 /// `incomplete_log_directory` makes, with the backup taken before the hole.
 async fn holed_directory_with_backup() -> (tempfile::TempDir, tempfile::TempDir) {
@@ -1891,24 +1814,11 @@ async fn commit_numbers_stop_at_the_limit() {
     assert!(text.contains("commit number limit reached") && text.contains("nothing was written"), "{text}");
 }
 
-// --- A saved snapshot is checked against the rebuilt log ------------------
+// --- A rebuild rebuilds only the messages ---------------------------------
 
-/// Turn a stopped directory into what an older build leaves: no read model, no
-/// incomplete-log evidence anywhere, and, when `legacy_messages`, the messages
-/// as an index of the snapshot (the format before the SQLite read model).
-fn as_an_older_build_left_it(path: &Path, legacy_messages: bool) {
-    let rows: Vec<(Vec<u8>, Vec<u8>)> = if legacy_messages && read_model_file(path).exists() {
-        rusqlite::Connection::open(read_model_file(path))
-            .unwrap()
-            .prepare("SELECT key, record FROM messages ORDER BY key")
-            .unwrap()
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .unwrap()
-            .map(|row| row.unwrap())
-            .collect()
-    } else {
-        Vec::new()
-    };
+/// What a build leaves when the read model is lost: no read model file, no
+/// incomplete-log evidence anywhere.
+fn lose_the_read_model(path: &Path) {
     crate::projections::read_model::ReadModel::remove_files(path).unwrap();
     let _ = std::fs::remove_file(crate::engine::incomplete_log::path(path));
     edit_json(&path.join("storage-manifest.json"), |manifest| {
@@ -1918,14 +1828,6 @@ fn as_an_older_build_left_it(path: &Path, legacy_messages: bool) {
     });
     edit_json(&ProjectionState::snapshot_path(path), |snapshot| {
         snapshot.as_object_mut().unwrap().remove("incomplete_log_below");
-        if !rows.is_empty() {
-            snapshot["indexes"].as_array_mut().unwrap().push(serde_json::json!([
-                "messages",
-                rows.iter()
-                    .map(|(key, value)| serde_json::json!({"key": hex::encode(key), "value": hex::encode(value)}))
-                    .collect::<Vec<_>>()
-            ]));
-        }
     });
 }
 
@@ -1935,10 +1837,9 @@ async fn note(engine: &WabiDbEngine, kind: &str) -> u64 {
     commit(engine, vec![event(kind, "notes", kind.as_bytes().to_vec())]).await.unwrap().commit_seq
 }
 
-/// Three commits that touch no message, then the log is lost and the engine
-/// (which has always opened such a directory) writes on. The saved snapshot
-/// still holds what commits 1 to 3 did. The directory is then made to look
-/// as an older build left it.
+/// Three commits that touch no message, then (when `lose`) the log is lost and
+/// the engine, which has always opened such a directory, writes on. The
+/// saved snapshot still holds what commits 1 to 3 did.
 async fn lost_three_commits_without_messages(path: &Path, lose: bool) {
     let engine = open(path).await;
     for (n, kind) in ["note_one", "note_two", "note_three"].into_iter().enumerate() {
@@ -1951,41 +1852,105 @@ async fn lost_three_commits_without_messages(path: &Path, lose: bool) {
     let engine = open(path).await;
     assert_eq!(note(&engine, "note_four").await, 4);
     close(engine, path).await;
-    as_an_older_build_left_it(path, false);
+    lose_the_read_model(path);
 }
 
-/// A hole that lost no message is still a hole: the old snapshot holds the
-/// rows of commits 1 to 3, a rebuild from the log would drop them, and the
-/// start refuses and changes nothing. With the whole log the same directory
-/// opens.
-#[tokio::test]
-async fn a_hole_that_lost_no_messages_is_not_rebuilt_from() {
-    let whole = tempfile::tempdir().unwrap();
-    lost_three_commits_without_messages(whole.path(), false).await;
-    let engine = open(whole.path()).await;
-    for kind in ["note_one", "note_two", "note_three", "note_four"] {
-        assert!(engine.projection_state().get("events", kind.as_bytes()).is_some(), "{kind}");
-    }
-    close(engine, whole.path()).await;
+/// The rows of every in-memory index of a snapshot file, as they were saved.
+fn snapshot_indexes(path: &Path) -> serde_json::Value {
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(ProjectionState::snapshot_path(path)).unwrap()).unwrap();
+    snapshot["indexes"].clone()
+}
 
-    let holed = tempfile::tempdir().unwrap();
-    lost_three_commits_without_messages(holed.path(), true).await;
-    assert_eq!(index_seqs(holed.path()), [4]);
-    let before = tree_for_refusal(holed.path());
-    let text = refused(holed.path()).await;
-    println!("{text}");
-    for part in ["gives back 1 of the 4 entries in its other indexes", "index events", "first indexed commit is 4", "restore the whole data directory"] {
-        assert!(text.contains(part), "{part}: {text}");
+/// A start that rebuilds the read model loads every other projection from the
+/// snapshot, exactly as a start that does not: a row the log would not
+/// produce today stays, and a hole that lost no message loses nothing the
+/// snapshot held. Only the messages come from the log.
+#[tokio::test]
+async fn a_rebuild_keeps_the_snapshots_other_projections_and_rebuilds_the_messages() {
+    for lose in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        lost_three_commits_without_messages(dir.path(), lose).await;
+        // A row only the snapshot has, as one a handler fixed long ago left.
+        edit_json(&ProjectionState::snapshot_path(dir.path()), |snapshot| {
+            let events = snapshot["indexes"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|index| index[0] == "events")
+                .unwrap();
+            events[1].as_array_mut().unwrap().push(serde_json::json!({
+                "key": hex::encode(b"stale_row"),
+                "value": hex::encode(b"left by an old handler"),
+            }));
+        });
+        let saved = snapshot_indexes(dir.path());
+        let engine = open(dir.path()).await;
+        let state = engine.projection_state();
+        for kind in ["note_one", "note_two", "note_three", "note_four", "stale_row"] {
+            assert!(state.get("events", kind.as_bytes()).is_some(), "lose={lose}: {kind}");
+        }
+        close(engine, dir.path()).await;
+        // Nothing but the incomplete-log bookkeeping differs in the snapshot.
+        assert_eq!(snapshot_indexes(dir.path()), saved, "lose={lose}");
     }
-    assert!(tree_for_refusal(holed.path()) == before, "a refused start changed the directory");
-    assert!(!read_model_file(holed.path()).exists(), "the refused start left a read model");
-    assert_eq!(
-        crate::engine::manifest_field(holed.path(), "log_head_commit"),
-        None,
-        "a refused start must not write the log head"
-    );
-    // Refused again, not opened on the second try.
-    refused(holed.path()).await;
+}
+
+/// The messages of a rebuild come from the whole log, wherever the snapshot
+/// is: at the log's end, part-way, or (the log being longer) below it; and a
+/// quarantined commit's message stays out.
+#[tokio::test]
+async fn a_rebuild_takes_the_messages_from_the_log_whatever_the_snapshot_covers() {
+    // Snapshot at the log's end.
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    note(&engine, "note_one").await;
+    write_history(&engine).await;
+    note(&engine, "note_two").await;
+    let expected = crate::projections::messages::stored_message_count(engine.projection_state());
+    close(engine, dir.path()).await;
+    let before = file_contents(dir.path());
+    lose_the_read_model(dir.path());
+    let engine = open(dir.path()).await;
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), expected);
+    close(engine, dir.path()).await;
+    assert_eq!(file_contents(dir.path()), before, "the rebuilt rows are the ones the engine wrote");
+
+    // Snapshot taken part-way: the commits above it replay into everything.
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    note(&engine, "note_one").await;
+    send(&engine, "message_created", &message("ch_a", "m1", 7, 100)).await;
+    close(engine, dir.path()).await;
+    let part_way = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
+    let engine = open(dir.path()).await;
+    write_history(&engine).await;
+    note(&engine, "note_two").await;
+    close(engine, dir.path()).await;
+    let before = file_contents(dir.path());
+    std::fs::write(ProjectionState::snapshot_path(dir.path()), part_way).unwrap();
+    lose_the_read_model(dir.path());
+    let engine = open(dir.path()).await;
+    assert!(engine.projection_state().get("events", b"note_two").is_some());
+    assert_eq!(engine.projection_state().applied_commit_seq(), engine.barrier().current());
+    close(engine, dir.path()).await;
+    assert_eq!(file_contents(dir.path()), before);
+
+    // A quarantined commit's message is not rebuilt.
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    send(&engine, "message_created", &message("ch_a", "m1", 7, 100)).await;
+    send(&engine, "message_created", &message("ch_a", "m2", 7, 200)).await;
+    send(&engine, "message_created", &message("ch_a", "m3", 7, 300)).await;
+    close(engine, dir.path()).await;
+    crate::cli::quarantine::quarantine(dir.path(), 2).unwrap();
+    lose_the_read_model(dir.path());
+    let engine = open(dir.path()).await;
+    let state = engine.projection_state();
+    assert!(MessagesProjection::get_message(state, "ch_a", "m1").unwrap().is_some());
+    assert_eq!(MessagesProjection::get_message(state, "ch_a", "m2").unwrap(), None);
+    assert!(MessagesProjection::get_message(state, "ch_a", "m3").unwrap().is_some());
+    close(engine, dir.path()).await;
 }
 
 /// A start that succeeds records the head of the log; one that refuses does
@@ -1995,150 +1960,15 @@ async fn the_log_head_is_recorded_only_by_a_start_that_succeeds() {
     let dir = tempfile::tempdir().unwrap();
     lost_three_commits_without_messages(dir.path(), false).await;
     assert_eq!(crate::engine::manifest_field(dir.path(), "log_head_commit"), None);
+    // A refused start (the log is shorter than the snapshot, and the read
+    // model is gone) writes no head.
+    let refusing = tempfile::tempdir().unwrap();
+    lost_three_commits_without_messages(refusing.path(), false).await;
+    remove_the_log(refusing.path());
+    refused(refusing.path()).await;
+    assert_eq!(crate::engine::manifest_field(refusing.path(), "log_head_commit"), None);
+
     let engine = open(dir.path()).await;
     close(engine, dir.path()).await;
     assert_eq!(crate::engine::manifest_field(dir.path(), "log_head_commit"), Some(1));
-}
-
-/// Quarantine excludes only what the quarantined commits created. A
-/// quarantined commit that holds no message must not switch the check off:
-/// with the hole it still refuses; without it, the directory opens even though
-/// the snapshot holds the row of the quarantined commit.
-#[tokio::test]
-async fn a_quarantined_commit_excuses_only_what_it_created() {
-    for lose in [false, true] {
-        let dir = tempfile::tempdir().unwrap();
-        lost_three_commits_without_messages(dir.path(), lose).await;
-        // Commit 4 (note_four) is the poison commit.
-        let evidence = (
-            crate::engine::manifest_field(dir.path(), "incomplete_log_below"),
-            crate::engine::incomplete_log::path(dir.path()).exists(),
-        );
-        assert_eq!(evidence, (None, false));
-        crate::cli::quarantine::quarantine(dir.path(), 4).unwrap();
-        if lose {
-            let text = refused(dir.path()).await;
-            assert!(text.contains("gives back 1 of the 4 entries"), "{text}");
-        } else {
-            let engine = open(dir.path()).await;
-            for kind in ["note_one", "note_two", "note_three"] {
-                assert!(engine.projection_state().get("events", kind.as_bytes()).is_some(), "{kind}");
-            }
-            assert!(engine.projection_state().get("events", b"note_four").is_none());
-            close(engine, dir.path()).await;
-        }
-    }
-}
-
-/// Directories whose history is full of the things a snapshot and a replay
-/// might disagree about must still open: edits, deletes, a channel clear,
-/// blank ids, two channels and an event no handler knows. Opened with the
-/// snapshot in the old format (messages as an index of it), and with a
-/// snapshot taken part-way through the history.
-#[tokio::test]
-async fn healthy_directories_are_not_refused_by_the_snapshot_check() {
-    // Whole history, old-format snapshot.
-    let dir = tempfile::tempdir().unwrap();
-    let engine = open(dir.path()).await;
-    note(&engine, "note_one").await;
-    write_history(&engine).await;
-    note(&engine, "note_two").await;
-    let before = crate::projections::messages::stored_message_count(engine.projection_state());
-    close(engine, dir.path()).await;
-    as_an_older_build_left_it(dir.path(), true);
-    let engine = open(dir.path()).await;
-    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), before);
-    close(engine, dir.path()).await;
-
-    // A snapshot taken part-way: the commits after it replay on top.
-    let dir = tempfile::tempdir().unwrap();
-    let engine = open(dir.path()).await;
-    note(&engine, "note_one").await;
-    send(&engine, "message_created", &message("ch_a", "m1", 7, 100)).await;
-    close(engine, dir.path()).await;
-    let snapshot_part_way = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
-    let engine = open(dir.path()).await;
-    write_history(&engine).await;
-    note(&engine, "note_two").await;
-    close(engine, dir.path()).await;
-    std::fs::write(ProjectionState::snapshot_path(dir.path()), snapshot_part_way).unwrap();
-    as_an_older_build_left_it(dir.path(), false);
-    let engine = open(dir.path()).await;
-    assert!(engine.projection_state().get("events", b"note_two").is_some());
-    assert_eq!(engine.projection_state().applied_commit_seq(), engine.barrier().current());
-    close(engine, dir.path()).await;
-}
-
-/// The messages of a quarantined commit are excused too, and only theirs: a
-/// quarantined message commit does not hide a hole's lost messages.
-#[tokio::test]
-async fn a_quarantined_message_commit_excuses_only_its_own_messages() {
-    for lose in [false, true] {
-        let dir = tempfile::tempdir().unwrap();
-        five_commits(dir.path()).await;
-        if lose {
-            remove_the_log(dir.path());
-        }
-        let engine = open(dir.path()).await;
-        assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
-        close(engine, dir.path()).await;
-        as_an_older_build_left_it(dir.path(), true);
-        crate::cli::quarantine::quarantine(dir.path(), 6).unwrap();
-        if lose {
-            let text = refused(dir.path()).await;
-            assert!(text.contains("gives back 0 of the 5 messages"), "{text}");
-        } else {
-            let engine = open(dir.path()).await;
-            let state = engine.projection_state();
-            assert_eq!(crate::projections::messages::stored_message_count(state), 5);
-            assert_eq!(MessagesProjection::get_message(state, "ch_a", "m6").unwrap(), None);
-            close(engine, dir.path()).await;
-        }
-    }
-}
-
-/// A quarantined commit whose record cannot be read: what it created is not
-/// known, so the snapshot is not checked (said in the log), and the directory
-/// opens as it did before the check existed.
-#[tokio::test]
-async fn an_unreadable_quarantined_record_leaves_the_snapshot_unchecked() {
-    let dir = tempfile::tempdir().unwrap();
-    let engine = open(dir.path()).await;
-    note(&engine, "note_one").await;
-    commit(&engine, vec![event("note_poison", "poison", b"x".to_vec())]).await.unwrap();
-    note(&engine, "note_three").await;
-    close(engine, dir.path()).await;
-    as_an_older_build_left_it(dir.path(), false);
-    crate::cli::quarantine::quarantine(dir.path(), 2).unwrap();
-    let mut damaged = 0;
-    for file in walk_files(&dir.path().join("streams")) {
-        if file.extension().is_some_and(|ext| ext == "wseg") && file.to_string_lossy().contains("poison") {
-            let mut bytes = std::fs::read(&file).unwrap();
-            let last = bytes.len() - 1;
-            bytes[last] ^= 0xff;
-            std::fs::write(&file, bytes).unwrap();
-            damaged += 1;
-        }
-    }
-    assert_eq!(damaged, 1);
-    let engine = open(dir.path()).await;
-    assert!(engine.projection_state().get("events", b"note_one").is_some());
-    assert!(engine.projection_state().get("events", b"note_poison").is_none());
-    close(engine, dir.path()).await;
-}
-
-fn walk_files(root: &Path) -> Vec<std::path::PathBuf> {
-    let mut files = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                files.push(path);
-            }
-        }
-    }
-    files
 }

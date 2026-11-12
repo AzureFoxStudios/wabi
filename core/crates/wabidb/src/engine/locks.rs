@@ -456,11 +456,6 @@ impl ProjectionState {
         f(map)
     }
 
-    /// Names of the in-memory indexes (including empty ones).
-    pub(crate) fn index_names(&self) -> Vec<String> {
-        self.indexes.read().unwrap().keys().cloned().collect()
-    }
-
     /// Iterate the index, calling `f` for each key-value pair. The
     /// iteration is lock-free on the inner `SkipMap`; the outer `RwLock`
     /// is held only to look up the index.
@@ -681,8 +676,6 @@ struct SnapshotData {
 pub(crate) struct SnapshotHeader {
     pub watermark: u64,
     pub incomplete_log_below: Option<u64>,
-    /// Entries of the old in-memory `messages` index the file still holds.
-    pub legacy_messages: u64,
 }
 
 /// A loaded snapshot, with what the engine needs besides its state.
@@ -690,10 +683,6 @@ pub(crate) struct LoadedSnapshot {
     pub state: ProjectionState,
     pub watermark: u64,
     pub incomplete_log_below: Option<u64>,
-    /// Keys of the old in-memory `messages` index. Messages are not loaded
-    /// from it (the read model holds them), but when the read model is
-    /// rebuilt from the log these are the messages the log must reproduce.
-    pub legacy_message_keys: Vec<Vec<u8>>,
 }
 
 impl ProjectionState {
@@ -824,12 +813,8 @@ impl ProjectionState {
         };
 
         let state = ProjectionState::new();
-        let mut legacy_message_keys = Vec::new();
         for (name, entries) in &data.indexes {
             if LEGACY_MESSAGE_INDEXES.contains(&name.as_str()) {
-                if name == "messages" {
-                    legacy_message_keys.extend(entries.iter().map(|entry| entry.key.0.clone()));
-                }
                 continue;
             }
             for entry in entries {
@@ -850,7 +835,6 @@ impl ProjectionState {
             state,
             watermark: data.watermark,
             incomplete_log_below: data.incomplete_log_below,
-            legacy_message_keys,
         }))
     }
 
@@ -858,11 +842,6 @@ impl ProjectionState {
         Ok(Self::read_snapshot_data(data_dir)?.map(|data| SnapshotHeader {
             watermark: data.watermark,
             incomplete_log_below: data.incomplete_log_below,
-            legacy_messages: data
-                .indexes
-                .iter()
-                .find(|(name, _)| name == "messages")
-                .map_or(0, |(_, entries)| entries.len() as u64),
         }))
     }
 

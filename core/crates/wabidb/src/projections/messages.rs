@@ -386,6 +386,10 @@ impl Projection for MessagesProjection {
         ]
     }
 
+    fn stores_in_read_model(&self) -> bool {
+        true
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         // Startup replay begins at the snapshot of the in-memory projections.
         // The read model may already hold later commits; its own
