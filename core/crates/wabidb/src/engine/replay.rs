@@ -170,8 +170,8 @@ pub async fn replay_projections(
 
 /// [`replay_projections`], optionally also rebuilding the SQLite read model
 /// from the whole log. With `rebuild_read_model`, the commits at or below
-/// `snapshot_watermark` go only to the handlers whose rows live in the read
-/// model (`Projection::stores_in_read_model`); every other projection keeps
+/// `snapshot_watermark` go only to the read-model part of each handler
+/// (`Projection::apply_to_read_model`); every in-memory projection keeps
 /// what the snapshot holds, exactly as without a rebuild. Commits above the
 /// watermark go to every handler, as always.
 #[allow(clippy::too_many_arguments)]
@@ -185,8 +185,6 @@ pub(crate) async fn replay_projections_with(
     snapshot_watermark: u64,
     rebuild_read_model: bool,
 ) -> Result<u64> {
-    let membership_repair =
-        super::membership_repair::MembershipRepair::from_snapshot(projection_state)?;
     let mut voice_repair =
         crate::projections::voice_restrictions::LegacyVoiceRepair::from_snapshot(projection_state)?;
     // Refuse to start on an unreadable list rather than skip nothing.
@@ -218,9 +216,6 @@ pub(crate) async fn replay_projections_with(
             e.event_refs.iter().any(|r| {
                 e.commit_seq > snapshot_watermark
                     || rebuild_read_model
-                    || membership_repair
-                        .as_ref()
-                        .is_some_and(|repair| repair.includes(&r.stream_id_hash))
                     || voice_repair
                         .as_ref()
                         .is_some_and(|repair| repair.includes(&r.stream_id_hash))
@@ -236,9 +231,6 @@ pub(crate) async fn replay_projections_with(
             tracing::warn!(
                 "replay: skipping quarantined commit {seq}; listed in global/quarantine.json"
             );
-        }
-        if let Some(repair) = membership_repair {
-            repair.finish(projection_state)?;
         }
         if let Some(repair) = voice_repair {
             repair.finish(projection_state)?;
@@ -257,7 +249,6 @@ pub(crate) async fn replay_projections_with(
         dispatch_table,
         snapshot_watermark,
         rebuild_read_model,
-        membership_repair,
         voice_repair,
         quarantine,
         repairs_finished: false,
@@ -680,7 +671,6 @@ struct Applier<'a> {
     snapshot_watermark: u64,
     /// Also rebuild the read model from the commits at or below the watermark.
     rebuild_read_model: bool,
-    membership_repair: Option<super::membership_repair::MembershipRepair>,
     voice_repair: Option<crate::projections::voice_restrictions::LegacyVoiceRepair>,
     /// Commits the operator quarantined: never recovered or applied.
     quarantine: BTreeSet<u64>,
@@ -701,10 +691,6 @@ impl Applier<'_> {
     fn needed(&self, commit_seq: u64, stream_hash: &[u8; 16]) -> bool {
         commit_seq > self.snapshot_watermark
             || self.rebuild_read_model
-            || self
-                .membership_repair
-                .as_ref()
-                .is_some_and(|repair| repair.includes(stream_hash))
             || self
                 .voice_repair
                 .as_ref()
@@ -768,11 +754,6 @@ impl Applier<'_> {
                 let hash: [u8; 16] = blake3::hash(event.stream_id.as_bytes()).as_bytes()[..16]
                     .try_into()
                     .unwrap();
-                if let Some(repair) = self.membership_repair.as_mut() {
-                    if repair.includes(&hash) {
-                        repair.observe(event)?;
-                    }
-                }
                 if let Some(repair) = self.voice_repair.as_mut() {
                     if !self.rebuild_read_model || repair.includes(&hash) {
                         repair.observe(event)?;
@@ -781,12 +762,8 @@ impl Applier<'_> {
             }
             if self.rebuild_read_model {
                 for Decoded { event, .. } in &events {
-                    if let Some(handler) = self
-                        .dispatch_table
-                        .get(&event.event_type)
-                        .filter(|handler| handler.stores_in_read_model())
-                    {
-                        self.apply_one(handler.as_ref(), event)?;
+                    if let Some(handler) = self.dispatch_table.get(&event.event_type) {
+                        self.apply_one(handler.as_ref(), event, true)?;
                     }
                 }
             }
@@ -797,7 +774,7 @@ impl Applier<'_> {
         self.finish_repairs()?;
         for Decoded { event, .. } in &events {
             if let Some(handler) = self.dispatch_table.get(&event.event_type) {
-                self.apply_one(handler.as_ref(), event)?;
+                self.apply_one(handler.as_ref(), event, false)?;
             } else {
                 // Match the live dispatcher's forward-compatible fallback.
                 self.projection_state.insert(
@@ -812,11 +789,22 @@ impl Applier<'_> {
         Ok(())
     }
 
-    /// Apply one event to the projections. A panic must not escape open();
-    /// the partly applied state is discarded with the failed open.
-    fn apply_one(&self, handler: &dyn crate::projections::handler::Projection, event: &DurableEvent) -> Result<()> {
+    /// Apply one event to the projections, or with `read_model_only` only
+    /// its read-model part (`Projection::apply_to_read_model`). A panic must
+    /// not escape open(); the partly applied state is discarded with the
+    /// failed open.
+    fn apply_one(
+        &self,
+        handler: &dyn crate::projections::handler::Projection,
+        event: &DurableEvent,
+        read_model_only: bool,
+    ) -> Result<()> {
         let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            handler.apply(event, self.projection_state)
+            if read_model_only {
+                handler.apply_to_read_model(event, self.projection_state)
+            } else {
+                handler.apply(event, self.projection_state)
+            }
         }));
         let failure = match applied {
             Ok(Ok(())) => return Ok(()),
@@ -839,9 +827,6 @@ impl Applier<'_> {
             return Ok(());
         }
         self.repairs_finished = true;
-        if let Some(repair) = self.membership_repair.take() {
-            repair.finish(self.projection_state)?;
-        }
         if let Some(repair) = self.voice_repair.take() {
             repair.finish(self.projection_state)?;
         }
