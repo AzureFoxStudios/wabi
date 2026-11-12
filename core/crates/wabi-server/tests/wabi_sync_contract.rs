@@ -1002,6 +1002,121 @@ async fn a_conflict_is_reported_even_when_the_round_then_fails() {
     assert_eq!(report.downloaded, vec!["z.txt"], "{}", describe(&report));
 }
 
+/// The same edit made in two folders. The 409 names the etag of the very
+/// bytes that were sent, so the push adopts it: no conflict, and no download
+/// (the armed fault would fail one).
+#[tokio::test]
+async fn the_same_edit_made_twice_is_adopted_without_a_download() {
+    let server = server().await;
+    let (mine, _theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    mine.write("a.txt", "theirs");
+    server.fail_next("GET", "/files/a.txt");
+    assert_quiet(&mine.push().await.expect("no download is needed"));
+    assert!(server.fault_is_armed(), "the file was downloaded");
+    assert!(mine.conflict_copies().is_empty());
+    assert_eq!(mine.state().baselines.get("a.txt"), Some(&Some(etag_for_bytes(b"theirs"))));
+    assert_eq!(mine.recorded("a.txt", "upload").await, 2, "v1 and theirs only");
+}
+
+/// A round was killed after it wrote the conflict copy and before it
+/// replaced the file. The next round finds the same conflict and the copy
+/// already there with the same bytes: it is used, not duplicated.
+#[tokio::test]
+async fn an_identical_conflict_copy_is_used_again() {
+    let server = server().await;
+    let (mine, _theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    let copy = format!("a.txt.wabi-conflict-{}", &etag_for_bytes(b"theirs")[..8]);
+    mine.write("a.txt", "mine");
+    mine.write(&copy, "mine");
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert!(report.conflicts[0].ends_with(&format!("yours is saved as {copy})")), "{}", describe(&report));
+    assert_eq!(mine.conflict_copies(), vec![copy]);
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+}
+
+/// The process dies right after a conflict was settled (here: the round is
+/// dropped while its next request hangs). The conflict and its report line
+/// are already on disk, and the next round reports it without finding it
+/// a second time.
+#[tokio::test]
+async fn a_settled_conflict_is_on_disk_before_the_round_goes_on() {
+    let server = server().await;
+    let (mine, theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    theirs.write("z.txt", "new");
+    theirs.sync().await.unwrap();
+    mine.write("a.txt", "mine");
+
+    server.stall_next("GET", "/files/z.txt");
+    let killed = tokio::time::timeout(std::time::Duration::from_secs(2), mine.pull()).await;
+    assert!(killed.is_err(), "the round was meant to hang on z.txt");
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+    let state = mine.state();
+    assert_eq!(state.baselines.get("a.txt"), Some(&Some(etag_for_bytes(b"theirs"))), "the conflict was not saved");
+    assert_eq!(state.unreported_conflicts.len(), 1, "the report line was not saved");
+
+    let report = mine.pull().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert_eq!(mine.conflict_copy_contents(), vec!["mine"]);
+}
+
+/// A pull downloads one file and fails on the next: the download is recorded.
+#[tokio::test]
+async fn state_is_saved_when_a_pull_fails_part_way() {
+    let server = server().await;
+    let (mine, theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    theirs.write("z.txt", "new");
+    theirs.sync().await.unwrap();
+
+    server.fail_next("GET", "/files/z.txt");
+    assert!(mine.pull().await.is_err(), "the injected failure");
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+    assert_eq!(
+        mine.state().baselines.get("a.txt"),
+        Some(&Some(etag_for_bytes(b"theirs"))),
+        "the download happened and was not recorded"
+    );
+    let report = mine.pull().await.unwrap();
+    assert_eq!(report.downloaded, vec!["z.txt"], "{}", describe(&report));
+}
+
+/// A push uploads one file and fails on the next: the upload is recorded,
+/// and the retry sends only the other file.
+#[tokio::test]
+async fn state_is_saved_when_a_push_fails_part_way() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    mine.write("a.txt", "first");
+    mine.write("b.txt", "second");
+    server.fail_next("PUT", "/files/b.txt");
+    let error = mine.push().await.err().expect("the injected failure").to_string();
+    assert!(error.contains("502"), "{error}");
+    assert_eq!(mine.on_server("a.txt").await, b"first");
+    assert_eq!(
+        mine.state().baselines.get("a.txt"),
+        Some(&Some(etag_for_bytes(b"first"))),
+        "the upload happened and was not recorded"
+    );
+    assert_eq!(mine.state().baselines.get("b.txt"), None);
+
+    let report = mine.push().await.unwrap();
+    assert_eq!(report.uploaded, vec!["b.txt"], "{}", describe(&report));
+    assert_eq!(mine.recorded("a.txt", "upload").await, 1);
+}
+
+/// sync is killed during the pull (its manifest request hangs): what the
+/// push did was saved before the pull started.
+#[tokio::test]
+async fn sync_saves_what_the_push_did_before_the_pull_starts() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    mine.write("n.txt", "new");
+    server.stall_next("GET", "/manifest");
+    let killed = tokio::time::timeout(std::time::Duration::from_secs(2), mine.sync()).await;
+    assert!(killed.is_err(), "the round was meant to hang on the manifest");
+    assert_eq!(mine.state().baselines.get("n.txt"), Some(&Some(etag_for_bytes(b"new"))));
+}
+
 // -- A file with no baseline -------------------------------------------------
 
 /// Two people create the same new path. The second upload must not replace
