@@ -326,6 +326,17 @@ pub fn insert_raw_for_tests(state: &ProjectionState, channel_id: &str, record: &
     model.finish_commit(state.applied_commit_seq()).unwrap();
 }
 
+/// Test support: remove a channel row, bypassing the log; the counterpart of
+/// [`insert_raw_for_tests`].
+#[doc(hidden)]
+pub fn remove_raw_for_tests(state: &ProjectionState, channel_id: &str) {
+    let model = state.read_model();
+    model
+        .write(|conn| read_model::delete_channel(conn, channel_id.as_bytes()))
+        .unwrap();
+    model.finish_commit(state.applied_commit_seq()).unwrap();
+}
+
 impl QueryableProjection for ChannelProjection {
     type Record = Channel;
     type Filter = ChannelsFilter;
