@@ -219,11 +219,14 @@ async fn main() -> Result<()> {
             // FS watching: set a flag on any event; the loop debounces.
             let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(64);
             let watch_folder = folder.clone();
+            let event_root = folder.clone();
             std::thread::spawn(move || {
                 use notify::Watcher;
                 let mut watcher = match notify::recommended_watcher(
                     move |res: std::result::Result<notify::Event, notify::Error>| {
-                        if res.is_ok() {
+                        // A file being opened or read is not a change, and
+                        // neither is the client writing its own state.
+                        if res.is_ok_and(|event| !event.kind.is_access() && sync::is_user_change(&event_root, &event.paths)) {
                             let _ = tx.blocking_send(());
                         }
                     },
@@ -246,7 +249,7 @@ async fn main() -> Result<()> {
             let mut pacer = sync::WatchPacer::new(std::time::Instant::now());
             loop {
                 let fs_event = tokio::time::timeout(Duration::from_millis(750), rx.recv()).await;
-                let fs_nudge = match pacer.after_wait(matches!(fs_event, Ok(Some(()))), std::time::Instant::now()) {
+                let local_changed = match pacer.after_wait(matches!(fs_event, Ok(Some(()))), std::time::Instant::now()) {
                     sync::WatchStep::Wait => continue,
                     sync::WatchStep::Poll { local_changed } => local_changed,
                 };
@@ -262,11 +265,15 @@ async fn main() -> Result<()> {
                 };
                 match client.remote_moved(link.channel_id, cursor).await {
                     Ok(remote_moved) => {
-                        if fs_nudge || remote_moved {
-                            let prefix = if fs_nudge { "[local]" } else { "[remote]" };
-                            if let Err(e) = run_sync_round(&client, &folder, prefix).await {
+                        if local_changed || remote_moved {
+                            let prefix = if local_changed { "[local]" } else { "[remote]" };
+                            let round = run_sync_round(&client, &folder, prefix).await;
+                            if let Err(e) = &round {
                                 eprintln!("{prefix} sync failed: {e}");
                             }
+                            // A local change whose round failed is tried
+                            // again after the next poll.
+                            pacer.round_ran(round.is_ok());
                         }
                     }
                     Err(e) => eprintln!("[poll] change feed failed: {e}"),

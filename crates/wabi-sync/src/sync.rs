@@ -898,6 +898,8 @@ pub fn local_status(state: &SyncState, local: &BTreeMap<String, String>) -> Loca
 /// a burst of them settle, and then asks the server whether the feed moved.
 pub struct WatchPacer {
     last_fs_event: std::time::Instant,
+    /// The folder changed and no round has succeeded since.
+    local_changed: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -911,22 +913,45 @@ pub enum WatchStep {
 
 impl WatchPacer {
     pub fn new(now: std::time::Instant) -> Self {
-        Self { last_fs_event: now }
+        Self { last_fs_event: now, local_changed: false }
     }
 
     /// The wait for a file-system event ended at `now`, with an event or
     /// with its timeout.
     pub fn after_wait(&mut self, fs_event: bool, now: std::time::Instant) -> WatchStep {
         if fs_event {
-            // Debounce: drain further events for a short window.
+            // Remembered until a round has pushed it, and debounced: an
+            // editor's save is several events.
+            self.local_changed = true;
             self.last_fs_event = now;
             return WatchStep::Wait;
         }
         if now.duration_since(self.last_fs_event) < std::time::Duration::from_millis(500) {
             return WatchStep::Wait;
         }
-        WatchStep::Poll { local_changed: fs_event }
+        WatchStep::Poll { local_changed: self.local_changed }
     }
+
+    /// A round was run after the last `Poll`. One that failed leaves the
+    /// local change waiting for the next poll; events that arrived while it
+    /// ran are still to come through `after_wait`.
+    pub fn round_ran(&mut self, succeeded: bool) {
+        if succeeded {
+            self.local_changed = false;
+        }
+    }
+}
+
+/// Is a file-system event on `paths` a change to the user's files? The
+/// client's own state directory and link file are not: every round writes
+/// the state, and a round started by that write would start the next one.
+/// An event with no path is taken for a change.
+pub fn is_user_change(folder: &Path, paths: &[PathBuf]) -> bool {
+    paths.is_empty()
+        || paths.iter().any(|path| match path.strip_prefix(folder) {
+            Ok(rel) => !(rel == Path::new(LINK_FILE) || rel.starts_with(STATE_DIR)),
+            Err(_) => true,
+        })
 }
 
 pub fn print_report(prefix: &str, report: &SyncReport) {
@@ -1109,6 +1134,35 @@ mod tests {
             WatchStep::Poll { local_changed: true },
             "the edit was forgotten by the time a round could run"
         );
+        // The server could not be reached, or the round failed: the edit
+        // still waits.
+        assert_eq!(pacer.after_wait(false, edit + Duration::from_secs(4)), WatchStep::Poll { local_changed: true });
+        pacer.round_ran(false);
+        assert_eq!(pacer.after_wait(false, edit + Duration::from_secs(8)), WatchStep::Poll { local_changed: true });
+        // Pushed: back to waiting for the feed.
+        pacer.round_ran(true);
+        assert_eq!(pacer.after_wait(false, edit + Duration::from_secs(12)), WatchStep::Poll { local_changed: false });
+        // An edit made while a round runs arrives after it and is not lost.
+        pacer.round_ran(true);
+        assert_eq!(pacer.after_wait(true, edit + Duration::from_secs(13)), WatchStep::Wait);
+        assert_eq!(pacer.after_wait(false, edit + Duration::from_secs(14)), WatchStep::Poll { local_changed: true });
+    }
+
+    /// B8. A round writes its own state; those events must not start the
+    /// next round.
+    #[test]
+    fn the_clients_own_files_are_not_local_changes() {
+        let folder = Path::new("/home/me/project");
+        let at = |rel: &str| vec![folder.join(rel)];
+        for own in [".wabi-sync", ".wabi-sync/state.json", ".wabi-sync/state.json.tmp.41.7", ".wabi-sync/lock", ".wabi-sync.json"] {
+            assert!(!is_user_change(folder, &at(own)), "{own}");
+        }
+        for theirs in ["a.txt", "docs/b.txt", "sub/.wabi-sync/x.txt", "sub/.wabi-sync.json", ".wabi-sync.json.bak", ".wabiignore"] {
+            assert!(is_user_change(folder, &at(theirs)), "{theirs}");
+        }
+        // A rename reports both names; one of them is the user's.
+        assert!(is_user_change(folder, &[folder.join(".wabi-sync/x"), folder.join("a.txt")]));
+        assert!(is_user_change(folder, &[]));
     }
 
     #[test]
