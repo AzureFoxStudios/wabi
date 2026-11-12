@@ -410,3 +410,40 @@ async fn a_read_model_behind_the_snapshot_is_rebuilt_with_the_same_channel_reads
     close(engine, dir.path()).await;
     assert_eq!(channel_file(dir.path()), kept);
 }
+
+/// The channels handler's own replay floor. With the read model ahead of the
+/// snapshot, replay hands the commits between the two to every handler; the
+/// channels handler must skip those the table already holds. Here commit A
+/// updates a channel that has no row (the ghost-row guard drops it) and
+/// commit B creates the row by naming it. Re-applying A onto B's row at the
+/// next start would give the channel A's description, which it never had.
+#[tokio::test]
+async fn replay_does_not_reapply_channel_events_the_read_model_already_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    write(&engine, vec![event(test_poison::EVENT_TYPE, "ch_other", 1, b"early".to_vec())]).await;
+    close(engine, dir.path()).await;
+    let old_snapshot = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
+
+    let engine = open(dir.path()).await;
+    for value in [
+        serde_json::json!({"channel_id": "ch_q", "description": "dropped by the guard"}),
+        serde_json::json!({"channel_id": "ch_q", "name": "named later"}),
+    ] {
+        write(&engine, vec![json_event("channel_updated", "channels:ch_q", value)]).await;
+    }
+    let get = |state: &ProjectionState| {
+        ChannelProjection
+            .query(state, &ChannelsFilter { channel_id: Some("ch_q".into()), ..Default::default() })
+            .unwrap()
+    };
+    let live = get(engine.projection_state());
+    assert_eq!(live.len(), 1);
+    assert_eq!(live[0].description, None);
+    close(engine, dir.path()).await;
+
+    std::fs::write(ProjectionState::snapshot_path(dir.path()), &old_snapshot).unwrap();
+    let engine = open(dir.path()).await;
+    assert_eq!(get(engine.projection_state()), live);
+    close(engine, dir.path()).await;
+}
