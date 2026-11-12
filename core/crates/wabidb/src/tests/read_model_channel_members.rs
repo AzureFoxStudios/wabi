@@ -213,6 +213,11 @@ async fn deleting_the_read_model_file_changes_no_member_read() {
         "get group-g 2: Ok(None)",
         "get group-c 3: Ok(Some(ChannelMemberRecord { channel_id: \"group-c\", user_id: 3, joined_at_micros: 777",
         "revision group-a: Ok(9)",
+        // The user_deleted cascade (commit 15) removed user 3 from group-g:
+        // its revision is the deletion's commit, live and after each rebuild
+        // below. group-c's is the rejoin after it.
+        "revision group-g: Ok(15)",
+        "revision group-c: Ok(16)",
         "revision group-absent: Ok(0)",
         "channels of 1: [(\"group-a\", \"name of group-a\"), (\"group-b\", \"name of group-b\"), (\"group-g\", \"name of group-g\")]",
     ] {
@@ -395,7 +400,8 @@ async fn replay_does_not_reapply_membership_changes_the_read_model_already_holds
         )
     };
     let live = reads(engine.projection_state());
-    assert_eq!((live.0.len(), live.1.len(), live.2, live.3), (0, 1, 2, 4), "{live:?}");
+    // group-x's revision is B's commit: the cascade removed user 5 from it.
+    assert_eq!((live.0.len(), live.1.len(), live.2, live.3), (0, 1, 3, 4), "{live:?}");
     close(engine, dir.path()).await;
     let kept = member_file(dir.path());
 

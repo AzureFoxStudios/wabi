@@ -196,21 +196,31 @@ impl ChannelMembersProjection {
     }
 }
 
-/// The `user_deleted` cascade: remove every membership of `user_id`. For the
-/// user deletion handler while it applies a commit; it sees the rows that
-/// commit has written so far, and during startup replay everything replay
-/// has written. Rows that do not decode are left alone.
-pub(crate) fn remove_user_while_applying(state: &ProjectionState, user_id: u64) -> Result<()> {
+/// The `user_deleted` cascade: remove every membership of `user_id`, and set
+/// the revision of each channel a row was removed from to `commit_seq`, as a
+/// membership event does (consumers compare it to notice that membership
+/// changed). For the user deletion handler while it applies a commit; it sees
+/// the rows that commit has written so far, and during startup replay
+/// everything replay has written. Rows that do not decode are left alone.
+pub(crate) fn remove_user_while_applying(
+    state: &ProjectionState,
+    user_id: u64,
+    commit_seq: u64,
+) -> Result<()> {
+    let revision = commit_seq.to_le_bytes();
     state.read_model().write(|conn| {
-        let mut keys = Vec::new();
+        let mut rows = Vec::new();
         read_model::scan_members_of_user(conn, user_id, |key, value| {
-            if decode_record(value).is_ok_and(|record| record.user_id == user_id) {
-                keys.push(key.to_vec());
+            if let Ok(record) = decode_record(value) {
+                if record.user_id == user_id {
+                    rows.push((key.to_vec(), record.channel_id));
+                }
             }
             Ok(true)
         })?;
-        for key in keys {
+        for (key, channel_id) in rows {
             read_model::delete_channel_member(conn, &key)?;
+            read_model::put_membership_version(conn, channel_id.as_bytes(), &revision)?;
         }
         Ok(())
     })
@@ -380,12 +390,15 @@ mod tests {
                 })
                 .unwrap();
         }
-        assert_eq!(rows, 6, "ch_a 1 and 2, group-g 1; revisions of ch_a, group-g and ch_b");
+        // Generation 4: the user_deleted cascade at commit 8 sets the
+        // revision of group-g and ch_b, the channels it removed user 3 from,
+        // to 8 (generation 3 left them at 6 and 7).
+        assert_eq!(rows, 6, "ch_a 1 and 2, group-g 1; revisions of ch_a (4), group-g (8) and ch_b (8)");
         let stored = hash.finalize().to_hex().to_string();
         println!("generation {} rows {stored}", read_model::READ_MODEL_GENERATION);
         assert_eq!(
             (read_model::READ_MODEL_GENERATION, stored.as_str()),
-            (3, "ff677eca131e8886f0f4c7abc45f50e5f432d7b886045926b0b1fc93fa0d14d7"),
+            (4, "5ed6f22241e188c9111e0c98d0a4afd0db8139948b80b97e58a5663e6f8f7205"),
             "replay stores different rows: bump READ_MODEL_GENERATION and update this pin with it"
         );
     }

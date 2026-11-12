@@ -20,7 +20,7 @@ pub(crate) const SCHEMA_VERSION: i64 = 3;
 /// - a record type gets a new version in `format::versioned`, or
 /// - a projection handler whose rows live in the read model changes what it
 ///   stores for an event (keys, values, which events it applies).
-pub const READ_MODEL_GENERATION: i64 = 3;
+pub const READ_MODEL_GENERATION: i64 = 4;
 
 /// The largest commit number any file may name. Anything above is damage or
 /// tampering, not a count of commits: a value near `u64::MAX` would stop the
