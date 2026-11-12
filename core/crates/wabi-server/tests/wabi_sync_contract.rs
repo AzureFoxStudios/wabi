@@ -114,28 +114,37 @@ async fn null_one_manifest_etag(State(target): State<NullEtag>, request: Request
     Response::from_parts(parts, Body::from(manifest.to_string()))
 }
 
-/// The other test-only layer: when a path suffix is set, the next request
-/// whose path ends with it is answered 500 without reaching the handler, once.
-/// It stands for a server or network failure in the middle of a round.
-type FailOnce = Arc<Mutex<Option<String>>>;
+/// The other test-only layer: a fault armed for the next request with the
+/// given method whose path ends with the given suffix. It is spent by that
+/// request, which never reaches the handler.
+#[derive(Clone, Copy, PartialEq)]
+enum Fault {
+    /// Answer 502: a failure that is not about one file (a gateway between
+    /// the client and the server).
+    BadGateway,
+    /// Never answer: the client is left waiting, as when its process is
+    /// about to be killed.
+    Stall,
+}
+type FailOnce = Arc<Mutex<Option<(Fault, String, String)>>>;
 
 async fn fail_one_request(State(target): State<FailOnce>, request: Request, next: Next) -> Response {
-    let hit = {
+    let fault = {
         let mut target = target.lock().unwrap();
-        let hit = target.as_deref().is_some_and(|suffix| request.uri().path().ends_with(suffix));
-        if hit {
-            target.take();
-        }
-        hit
+        let hit = target.as_ref().is_some_and(|(_, method, suffix)| {
+            request.method().as_str() == method && request.uri().path().ends_with(suffix.as_str())
+        });
+        if hit { target.take().map(|(fault, _, _)| fault) } else { None }
     };
-    if !hit {
-        return next.run(request).await;
+    match fault {
+        None => next.run(request).await,
+        Some(Fault::Stall) => std::future::pending().await,
+        Some(Fault::BadGateway) => Response::builder()
+            .status(502)
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"injected by the test","type":"BadGateway"}"#))
+            .unwrap(),
     }
-    Response::builder()
-        .status(500)
-        .header(axum::http::header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"error":"injected by the test","type":"Internal"}"#))
-        .unwrap()
 }
 
 struct Server {
@@ -279,9 +288,19 @@ impl Server {
         self.folder(&self.connect_token(&self.artist_login, "write").await)
     }
 
-    /// The next request whose path ends with `suffix` is answered 500.
-    fn fail_next(&self, suffix: &str) {
-        *self.fail_once.lock().unwrap() = Some(suffix.into());
+    /// The next `method` request whose path ends with `suffix` is answered 502.
+    fn fail_next(&self, method: &str, suffix: &str) {
+        *self.fail_once.lock().unwrap() = Some((Fault::BadGateway, method.into(), suffix.into()));
+    }
+
+    /// The next `method` request whose path ends with `suffix` is never answered.
+    fn stall_next(&self, method: &str, suffix: &str) {
+        *self.fail_once.lock().unwrap() = Some((Fault::Stall, method.into(), suffix.into()));
+    }
+
+    /// Is the armed fault still waiting for its request?
+    fn fault_is_armed(&self) -> bool {
+        self.fail_once.lock().unwrap().is_some()
     }
 }
 
@@ -668,7 +687,9 @@ async fn manifest_entry_with_a_null_etag_decodes() {
 
     // A folder that already has the file.
     let report = mine.sync().await.expect("a round with a null etag in the manifest");
-    assert!(report.uploaded.is_empty() && report.conflicts.is_empty(), "{}", describe(&report));
+    // A null etag says nothing about the file, so the round leaves it alone:
+    // it is not fetched again and written over the local copy.
+    assert_quiet(&report);
     assert_eq!(mine.read("a.txt").as_deref(), Some(&b"v1"[..]));
     assert!(mine.conflict_copies().is_empty());
     assert_eq!(mine.state().baselines.get("a.txt"), Some(&Some(etag_for_bytes(b"v1"))));
@@ -859,9 +880,9 @@ async fn a_retry_does_not_write_over_the_conflict_copy() {
     theirs.sync().await.unwrap();
 
     mine.write("a.txt", "mine");
-    server.fail_next("/files/z.txt");
+    server.fail_next("GET", "/files/z.txt");
     let error = mine.pull().await.err().expect("the injected failure").to_string();
-    assert!(error.contains("500"), "{error}");
+    assert!(error.contains("502"), "{error}");
     assert_eq!(mine.conflict_copy_contents(), vec!["mine"]);
 
     let report = mine.pull().await.unwrap();
@@ -903,9 +924,9 @@ async fn state_is_saved_after_the_push_when_the_pull_fails() {
     let server = server().await;
     let mine = server.owner_folder().await;
     mine.write("n.txt", "new");
-    server.fail_next("/manifest");
+    server.fail_next("GET", "/manifest");
     let error = mine.sync().await.err().expect("the injected failure").to_string();
-    assert!(error.contains("500"), "{error}");
+    assert!(error.contains("502"), "{error}");
     assert_eq!(mine.on_server("n.txt").await, b"new");
     assert_eq!(
         mine.state().baselines.get("n.txt"),
@@ -937,6 +958,95 @@ async fn pull_adopts_a_file_that_already_matches_the_server() {
     assert!(fresh.conflict_copies().is_empty(), "{:?}", fresh.conflict_copies());
     assert_quiet(&fresh.sync().await.unwrap());
     assert_eq!(fresh.recorded("a.txt", "upload").await, 2, "v1 and theirs only");
+}
+
+/// The conflict is settled and saved, and then the round fails. The user's
+/// file now holds someone else's version: they must still be told.
+#[tokio::test]
+async fn a_conflict_is_reported_even_when_the_round_then_fails() {
+    let server = server().await;
+    let (mine, theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+    theirs.write("z.txt", "new");
+    theirs.sync().await.unwrap();
+
+    mine.write("a.txt", "mine");
+    server.fail_next("GET", "/files/z.txt");
+    assert!(mine.pull().await.is_err(), "the injected failure");
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+
+    let report = mine.pull().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "the conflict was never reported: {}", describe(&report));
+    assert!(report.conflicts[0].starts_with("a.txt ("), "{}", describe(&report));
+    // Once.
+    assert_quiet(&mine.pull().await.unwrap());
+}
+
+// -- A file with no baseline -------------------------------------------------
+
+/// Two people create the same new path. The second upload must not replace
+/// the first.
+#[tokio::test]
+async fn two_new_files_with_one_name_are_both_kept() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    theirs.write("n.txt", "theirs");
+    theirs.sync().await.unwrap();
+
+    mine.write("n.txt", "mine");
+    let report = mine.sync().await.unwrap();
+    assert!(report.uploaded.is_empty(), "{}", describe(&report));
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert_eq!(mine.on_server("n.txt").await, b"theirs", "the first version was replaced");
+    assert_eq!(mine.read("n.txt").as_deref(), Some(&b"theirs"[..]));
+    assert_eq!(mine.conflict_copy_contents(), vec!["mine"]);
+    assert_quiet(&theirs.sync().await.unwrap());
+    assert_quiet(&mine.sync().await.unwrap());
+    assert_eq!(mine.recorded("n.txt", "upload").await, 1);
+}
+
+/// A folder filled with an old copy of the repo, then linked and synced: the
+/// old copy must not replace the server's current file for everyone.
+#[tokio::test]
+async fn a_stale_prefilled_folder_does_not_replace_the_servers_files() {
+    let server = server().await;
+    let (_mine, theirs) = two_folders_and_a_change_by_the_artist(&server).await;
+
+    let stale = server.owner_folder().await;
+    stale.write("a.txt", "v1");
+    let report = stale.sync().await.unwrap();
+    assert!(report.uploaded.is_empty(), "{}", describe(&report));
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert_eq!(stale.on_server("a.txt").await, b"theirs", "the old copy replaced the current file");
+    assert_eq!(stale.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+    assert_eq!(stale.conflict_copy_contents(), vec!["v1"]);
+    assert_quiet(&theirs.sync().await.unwrap());
+    assert_eq!(theirs.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+}
+
+/// First link of a folder whose files are already the server's, one small
+/// and one over the full-hash limit: nothing is stored again and no conflict
+/// copy is made, whichever of sync and pull runs first.
+#[tokio::test]
+async fn first_link_of_a_folder_identical_to_the_server_changes_nothing() {
+    let server = server().await;
+    let theirs = server.artist_folder().await;
+    theirs.write("a.txt", "same");
+    theirs.write(BIG, big(7));
+    theirs.sync().await.unwrap();
+
+    for pull_first in [false, true] {
+        let mine = server.owner_folder().await;
+        mine.write("a.txt", "same");
+        mine.write(BIG, big(7));
+        let report = if pull_first { mine.pull().await.unwrap() } else { mine.sync().await.unwrap() };
+        assert_quiet(&report);
+        assert!(mine.conflict_copies().is_empty(), "pull_first={pull_first}: {:?}", mine.conflict_copies());
+        assert_quiet(&mine.sync().await.unwrap());
+        assert_eq!(mine.state().baselines.get(BIG), Some(&mine.manifest_etag(BIG).await));
+        assert_eq!(mine.recorded("a.txt", "upload").await, 1, "pull_first={pull_first}");
+        assert_eq!(mine.recorded(BIG, "upload").await, 1, "pull_first={pull_first}");
+    }
 }
 
 // -- A member who may read and not write -------------------------------------
