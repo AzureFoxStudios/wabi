@@ -224,19 +224,13 @@ async fn main() -> Result<()> {
                 }
             });
 
-            let mut last_fs_nudge = std::time::Instant::now();
+            let mut pacer = sync::WatchPacer::new(std::time::Instant::now());
             loop {
                 let fs_event = tokio::time::timeout(Duration::from_millis(750), rx.recv()).await;
-                let fs_nudge = matches!(fs_event, Ok(Some(())));
-                if fs_nudge {
-                    // Debounce: drain further events for a short window.
-                    last_fs_nudge = std::time::Instant::now();
-                    continue;
-                }
-                let since_nudge = last_fs_nudge.elapsed();
-                if since_nudge < Duration::from_millis(500) {
-                    continue;
-                }
+                let fs_nudge = match pacer.after_wait(matches!(fs_event, Ok(Some(()))), std::time::Instant::now()) {
+                    sync::WatchStep::Wait => continue,
+                    sync::WatchStep::Poll { local_changed } => local_changed,
+                };
 
                 // Push local work when the FS moved; always poll the feed.
                 let cursor = SyncState::load(&folder).unwrap_or_default().cursor;

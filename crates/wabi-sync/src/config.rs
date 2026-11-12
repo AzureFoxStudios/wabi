@@ -245,6 +245,54 @@ mod tests {
         assert_eq!(loaded.baselines.get("b.txt"), Some(&None));
     }
 
+    /// B2. A state file that cannot be read is an error that names the file
+    /// and says how to go on without it; it is not "nothing was synced".
+    #[test]
+    fn unreadable_state_file_is_an_error_that_names_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(STATE_DIR).join("state.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for half in [&br#"{"cursor": 7, "baselines": {"a.txt": "et"#[..], b"", b"\xff\xfe"] {
+            std::fs::write(&path, half).unwrap();
+            let error = format!("{:#}", SyncState::load(dir.path()).expect_err("loaded half a file"));
+            assert!(error.contains(&path.display().to_string()), "{error}");
+            assert!(error.contains("move it aside"), "{error}");
+        }
+        // No file at all is a folder that was never synced.
+        std::fs::remove_file(&path).unwrap();
+        assert!(SyncState::load(dir.path()).unwrap().baselines.is_empty());
+    }
+
+    /// B2. Two writers (`watch` and a manual `sync`) saving at once: every
+    /// save succeeds and the file is whole after each of them.
+    #[test]
+    fn concurrent_saves_leave_a_whole_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = SyncState::default();
+        for n in 0..2000 {
+            state.baselines.insert(format!("some/long/path/to/file-{n}.txt"), Some("e".repeat(64)));
+        }
+        state.save(dir.path()).unwrap();
+        let writers: Vec<_> = (0..2)
+            .map(|_| {
+                let (state, folder) = (state.clone(), dir.path().to_path_buf());
+                std::thread::spawn(move || -> Result<(), String> {
+                    for _ in 0..150 {
+                        state.save(&folder).map_err(|e| format!("save: {e}"))?;
+                        let loaded = SyncState::load(&folder).map_err(|e| format!("load: {e}"))?;
+                        if loaded.baselines.len() != 2000 {
+                            return Err(format!("{} baselines", loaded.baselines.len()));
+                        }
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap().unwrap();
+        }
+    }
+
     #[test]
     fn state_file_without_pending_review_still_loads() {
         let dir = tempfile::tempdir().unwrap();
