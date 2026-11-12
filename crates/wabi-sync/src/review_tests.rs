@@ -27,6 +27,8 @@ pub(crate) struct Fake {
     pub(crate) review: BTreeMap<String, Vec<u8>>,
     pub(crate) route_to_review: bool,
     pub(crate) delete_forbidden: bool,
+    /// How many of the next file downloads are answered 502.
+    pub(crate) fail_downloads: u32,
     pub(crate) puts: Vec<String>,
     pub(crate) deletes: Vec<String>,
     /// Stands in for the server-side mtime of each mainline file: bumped on
@@ -121,6 +123,10 @@ fn respond(fake: &Shared, method: &str, target: &str, if_match: Option<&str>, bo
         "currentEtag": current,
     });
     match method {
+        "GET" if f.fail_downloads > 0 => {
+            f.fail_downloads -= 1;
+            json(502, serde_json::json!({"error": "injected by the test", "type": "BadGateway"}))
+        }
         "GET" => match f.mainline.get(&file) {
             Some(bytes) => (200, bytes.clone()),
             None => json(404, serde_json::json!({"error": "File not found", "type": "NotFound"})),
