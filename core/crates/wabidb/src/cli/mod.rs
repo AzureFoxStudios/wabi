@@ -394,15 +394,25 @@ pub(crate) fn snapshot_watermark_for_report(
     warnings: &mut Vec<String>,
 ) -> u64 {
     use crate::projections::read_model::{FileState, Peek, ReadModel, MAX_COMMIT_SEQ};
-    let snapshot = match crate::engine::locks::ProjectionState::read_snapshot_watermark(data_dir) {
-        Ok(watermark) => watermark.unwrap_or(0),
+    let header = match crate::engine::locks::ProjectionState::read_snapshot_header(data_dir) {
+        Ok(header) => header,
         Err(e) => {
             errors.push(format!(
                 "cannot read projections/snapshot.json: {e}; the engine refuses to start on it"
             ));
-            0
+            None
         }
     };
+    let snapshot = header.as_ref().map_or(0, |header| header.watermark);
+    if let Some(header) = header.as_ref().filter(|header| header.legacy_messages > 0) {
+        warnings.push(format!(
+            "projections/snapshot.json still holds {} messages in the old in-memory format. \
+             The engine does not load them: at its first start it rebuilds the messages from \
+             the log and refuses to start if the log does not give all of them back. `check` \
+             cannot tell beforehand, because that needs the log's decrypted contents",
+            header.legacy_messages
+        ));
+    }
     if snapshot > MAX_COMMIT_SEQ {
         errors.push(format!(
             "the engine refuses to start: the snapshot's watermark {snapshot} is not a \
@@ -413,18 +423,33 @@ pub(crate) fn snapshot_watermark_for_report(
         errors.push(format!("the engine refuses to start: {e}"));
         0
     });
-    let incomplete = crate::engine::incomplete_log::load(data_dir).unwrap_or_else(|e| {
+    let recorded = crate::engine::incomplete_log::load_with(
+        data_dir,
+        header.as_ref().and_then(|header| header.incomplete_log_below),
+    )
+    .unwrap_or_else(|e| {
         errors.push(format!("the engine refuses to start: {e}"));
         None
     });
+    // The log's head, as the engine sees it (`engine::LOG_HEAD_KEY`).
+    let index_dir = data_dir.join("global").join("commit-index");
+    let index = crate::commit_index::batcher::read_all_entries(&index_dir).ok();
+    let index_first = index.as_ref().and_then(|e| e.iter().map(|e| e.commit_seq).min());
+    let head_lost = match (crate::engine::manifest_field(data_dir, crate::engine::LOG_HEAD_KEY), index_first) {
+        (Some(recorded), Some(first)) if first > recorded => Some(first - 1),
+        _ => None,
+    };
+    let incomplete = match (recorded, head_lost) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    };
     let mut height = snapshot.max(manifest);
     match ReadModel::peek(data_dir) {
         Peek::State(model) => {
             if let FileState::Usable { applied } | FileState::Unusable { applied, .. } = &model {
                 height = height.max(*applied);
             }
-            let index_dir = data_dir.join("global").join("commit-index");
-            if let Ok(entries) = crate::commit_index::batcher::read_all_entries(&index_dir) {
+            if let Some(entries) = &index {
                 let index_high = entries.iter().map(|e| e.commit_seq).max().unwrap_or(0);
                 match crate::engine::plan_startup(index_high, snapshot, &model, incomplete) {
                     Err(detail) => errors.push(format!("the engine refuses to start: {detail}")),
@@ -437,7 +462,13 @@ pub(crate) fn snapshot_watermark_for_report(
                                  needs a rebuild from the log (a lost read model, a read-model \
                                  generation change, a quarantine). Back up the whole data \
                                  directory now",
-                                if incomplete.is_some() { " (global/incomplete-log.json)" } else { "" }
+                                if head_lost.is_some() && recorded.is_none() {
+                                    " (the log's head, recorded in the manifest, is gone)"
+                                } else if incomplete.is_some() {
+                                    " (global/incomplete-log.json, the manifest and the snapshot)"
+                                } else {
+                                    ""
+                                }
                             ));
                         }
                     }

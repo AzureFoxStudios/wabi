@@ -66,9 +66,10 @@ fn guard(room: &str, owner: &str) -> RoomOwnerPrecondition {
 }
 
 /// A directory last written by a build that kept messages in the snapshot:
-/// `snapshot.json` lists their indexes (here damaged, which used to fail the
-/// open) and there is no read model. The engine does not load those indexes.
-/// It rebuilds messages from the log, so the lookup by ID is right.
+/// `snapshot.json` lists their indexes (here with a stale body under the real
+/// key and damaged secondary indexes, which used to fail the open) and there is
+/// no read model. The engine does not load those indexes. It rebuilds messages
+/// from the log, so the body and the lookup by ID are the log's.
 #[tokio::test]
 async fn open_ignores_legacy_snapshot_message_indexes_and_rebuilds_from_the_log() {
     let dir = tempfile::tempdir().unwrap();
@@ -98,7 +99,7 @@ async fn open_ignores_legacy_snapshot_message_indexes_and_rebuilds_from_the_log(
     stale.encrypted_body_ref = "stale snapshot body".into();
     legacy.insert(
         "messages",
-        b"wrong-key".to_vec(),
+        crate::projections::messages::encode_key("ch_a", "msg_a"),
         encode_record(&stale),
         watermark,
     );
@@ -119,6 +120,8 @@ async fn open_ignores_legacy_snapshot_message_indexes_and_rebuilds_from_the_log(
     assert_eq!(message_lookup::get(&state, "msg_a").unwrap(), Some(row));
     assert_eq!(crate::projections::messages::stored_message_count(&state), 1);
     assert!(ProjectionState::read_model_path(dir.path()).is_file());
+    // The same snapshot with a message the log cannot give back is refused:
+    // see `tests::read_model_messages::a_hole_an_older_build_made_is_not_rebuilt_from`.
 }
 
 #[tokio::test]

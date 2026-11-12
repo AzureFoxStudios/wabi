@@ -908,12 +908,13 @@ async fn an_implausible_manifest_height_or_watermark_is_a_corrupt_directory() {
             report.errors
         );
     }
-    // 2^62 itself is accepted.
+    // 2^62 itself is a plausible height and the directory opens; the next
+    // commit would be above the limit, so it is refused (the boundary is
+    // tested in `commit_numbers_stop_at_the_limit`).
     let mut value: serde_json::Value = serde_json::from_slice(&good).unwrap();
     value["highest_commit_seq"] = serde_json::json!(1u64 << 62);
     std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
     let engine = open(dir.path()).await;
-    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, (1u64 << 62) + 1);
     close(engine, dir.path()).await;
 
     std::fs::write(&manifest, &good).unwrap();
@@ -1422,6 +1423,11 @@ fn plan_startup_never_rebuilds_a_directory_recorded_as_incomplete() {
                     let reaches = index_high >= snapshot.max(model_seq);
                     let needs_rebuild = !usable_model || model_seq < snapshot;
                     let label = format!("index {index_high} snapshot {snapshot} {model:?} incomplete {incomplete:?}");
+                    if incomplete.is_some_and(|below| snapshot < below) {
+                        let error = plan.err().unwrap_or_else(|| panic!("started: {label}"));
+                        assert!(error.contains("from inside the hole"), "{label}: {error}");
+                        continue;
+                    }
                     match (reaches, needs_rebuild, incomplete) {
                         (true, true, Some(_)) => {
                             let error = plan.err().unwrap_or_else(|| panic!("rebuilt: {label}"));
@@ -1511,4 +1517,374 @@ async fn probing_a_cleanly_stopped_read_model_creates_and_removes_nothing() {
     }
     assert_eq!(names(dir.path()), listing);
     assert!(tree(dir.path()) == before);
+}
+
+// ---------------------------------------------------------------------------
+// Round four: what a hole in the log looks like, and what it does not.
+// ---------------------------------------------------------------------------
+
+fn index_seqs(path: &Path) -> Vec<u64> {
+    crate::commit_index::batcher::read_all_entries(&path.join("global/commit-index"))
+        .unwrap()
+        .iter()
+        .map(|entry| entry.commit_seq)
+        .collect()
+}
+
+fn edit_json(path: &Path, change: impl FnOnce(&mut serde_json::Value)) {
+    let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    change(&mut value);
+    std::fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+}
+
+/// Commit numbers can be missing from the commit index without any loss, and
+/// leave no trace, which is why "the index is contiguous from commit 1" is
+/// not a test for a hole: a command rejected before anything is written burns
+/// its number (also before the first commit, so an index can start above 1), a
+/// command that fails to prepare burns its number, and a crash between a
+/// segment write and the index append leaves an orphan record with no entry
+/// (`sequencer::tests::orphan_records_tolerated`). A quarantined commit stays
+/// in the index. A directory with such gaps must still be rebuilt from, so a
+/// contiguity check would refuse healthy installations at their first start
+/// of this build.
+#[tokio::test]
+async fn commit_numbers_can_have_gaps_that_leave_no_trace() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    let ghost_edit = || vec![message_event("message_edited", &message("ch_a", "ghost", 7, 1))];
+    // 1: rejected before anything is written (also: before the first commit).
+    assert!(commit(&engine, ghost_edit()).await.is_err());
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m1", 7, 1)).await, 2);
+    // 3: fails to prepare (no key for its stream), after its number was taken.
+    let (response_tx, _rx) = tokio::sync::oneshot::channel();
+    let unprepared = engine
+        .run_command(CommandCommit {
+            caller_user_id: 1,
+            caller_device_id: "gap-test".into(),
+            command_name: "gap_test".into(),
+            idempotency_key: None,
+            room_owner_precondition: None,
+            events: vec![message_event("message_created", &message("ch_unkeyed", "u1", 7, 1))],
+            essential: true,
+            response_tx,
+        })
+        .await;
+    assert!(unprepared.is_err(), "{unprepared:?}");
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m2", 7, 2)).await, 4);
+    // 5: rejected again.
+    assert!(commit(&engine, ghost_edit()).await.is_err());
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m3", 7, 3)).await, 6);
+    close(engine, dir.path()).await;
+    assert_eq!(index_seqs(dir.path()), [2, 4, 6], "the index has the gaps 1, 3 and 5");
+
+    // A quarantined commit stays in the index.
+    crate::cli::quarantine::quarantine(dir.path(), 4).unwrap();
+    assert_eq!(index_seqs(dir.path()), [2, 4, 6]);
+
+    // The directory is healthy and every start of it replays the whole log:
+    // gaps must not make that refuse.
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
+    let engine = open(dir.path()).await;
+    let state = engine.projection_state();
+    assert_eq!(crate::projections::messages::stored_message_count(state), 2, "m1 and m3; m2's commit is quarantined");
+    assert_eq!(state.applied_commit_seq(), 6);
+    close(engine, dir.path()).await;
+    let check = crate::cli::check::check(dir.path()).await.unwrap();
+    assert!(check.ok, "{check:#?}");
+    assert!(
+        check.warnings.iter().all(|w| w.contains("quarantined") && !w.contains("incomplete")),
+        "{check:#?}"
+    );
+}
+
+/// A hole an older build made and then wrote past: the commit index holds only
+/// commit 6, the snapshot (old format, with its messages in it) is at 6, there
+/// is no read model and no record. Nothing in the index shows the hole, but the
+/// snapshot still holds the messages the log cannot give back, so the first
+/// start of this build, which would rebuild from the log, refuses.
+#[tokio::test]
+async fn a_hole_an_older_build_made_is_not_rebuilt_from() {
+    // The directory as an older build left it.
+    let make = |path: &Path, hole: bool| {
+        let path = path.to_path_buf();
+        async move {
+            five_commits(&path).await;
+            if hole {
+                remove_the_log(&path);
+                let engine = open(&path).await;
+                assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
+                close(engine, &path).await;
+            }
+            let rows: Vec<(Vec<u8>, Vec<u8>)> = rusqlite::Connection::open(read_model_file(&path))
+                .unwrap()
+                .prepare("SELECT key, record FROM messages ORDER BY key")
+                .unwrap()
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(|row| row.unwrap())
+                .collect();
+            crate::projections::read_model::ReadModel::remove_files(&path).unwrap();
+            let _ = std::fs::remove_file(crate::engine::incomplete_log::path(&path));
+            edit_json(&path.join("storage-manifest.json"), |manifest| {
+                let object = manifest.as_object_mut().unwrap();
+                object.remove("incomplete_log_below");
+                object.remove("log_head_commit");
+            });
+            edit_json(&ProjectionState::snapshot_path(&path), |snapshot| {
+                snapshot.as_object_mut().unwrap().remove("incomplete_log_below");
+                snapshot["indexes"].as_array_mut().unwrap().push(serde_json::json!([
+                    "messages",
+                    rows.iter()
+                        .map(|(key, value)| serde_json::json!({"key": hex::encode(key), "value": hex::encode(value)}))
+                        .collect::<Vec<_>>()
+                ]));
+            });
+            rows.len()
+        }
+    };
+
+    // With a whole log the legacy messages come back and the start succeeds.
+    let whole = tempfile::tempdir().unwrap();
+    assert_eq!(make(whole.path(), false).await, 5);
+    let engine = open(whole.path()).await;
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), 5);
+    close(engine, whole.path()).await;
+
+    // With the hole it refuses and changes nothing.
+    let holed = tempfile::tempdir().unwrap();
+    assert_eq!(make(holed.path(), true).await, 6);
+    assert_eq!(index_seqs(holed.path()), [6]);
+    let before = tree_for_refusal(holed.path());
+    let text = refused(holed.path()).await;
+    println!("{text}");
+    for part in ["gives back 1 of the 6 messages", "first missing", "first indexed commit is 6", "restore the whole data directory"] {
+        assert!(text.contains(part), "{part}: {text}");
+    }
+    assert!(tree_for_refusal(holder_path(&holed)) == before, "a refused start changed the directory");
+    assert!(!read_model_file(holed.path()).exists(), "the refused start left a read model");
+    let check = crate::cli::check::check(holed.path()).await.unwrap();
+    assert!(
+        check.warnings.iter().any(|w| w.contains("old in-memory format") && w.contains("6 messages")),
+        "{:?}",
+        check.warnings
+    );
+}
+
+fn holder_path(dir: &tempfile::TempDir) -> &Path {
+    dir.path()
+}
+
+/// Five messages, a backup, then the hole and one more message: the directory
+/// `incomplete_log_directory` makes, with the backup taken before the hole.
+async fn holed_directory_with_backup() -> (tempfile::TempDir, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    let backup = tempfile::tempdir().unwrap();
+    copy_tree(dir.path(), backup.path(), &|_| false);
+    remove_the_log(dir.path());
+    let engine = open(dir.path()).await;
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
+    close(engine, dir.path()).await;
+    assert_eq!(crate::engine::incomplete_log::load(dir.path()).unwrap(), Some(5));
+    (dir, backup)
+}
+
+fn copy_without_overwriting(from: &Path, to: &Path) {
+    copy_tree(from, &to.join(".staging"), &|_| false);
+    let staging = to.join(".staging");
+    let mut pending = vec![staging.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap().path();
+            if entry.is_dir() {
+                pending.push(entry);
+                continue;
+            }
+            let target = to.join(entry.strip_prefix(&staging).unwrap());
+            if !target.exists() {
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+                std::fs::copy(&entry, &target).unwrap();
+            }
+        }
+    }
+    std::fs::remove_dir_all(staging).unwrap();
+}
+
+/// The record is not the only evidence: the manifest and every snapshot carry
+/// it. Removing the record file, or restoring log files that cannot be put
+/// back, does not let a rebuild drop what only the saved projections hold.
+#[tokio::test]
+async fn removing_the_record_alone_does_not_allow_a_rebuild() {
+    let (source, backup) = holed_directory_with_backup().await;
+    let lose_the_read_model = |path: &Path| std::fs::remove_file(read_model_file(path)).unwrap();
+    let expect_refusal = |label: &'static str, path: std::path::PathBuf| async move {
+        let before = tree_for_refusal(&path);
+        let text = refused(&path).await;
+        assert!(text.contains("incomplete below commit 5"), "{label}: {text}");
+        assert!(text.contains("restore the whole data directory"), "{label}: {text}");
+        assert!(text.contains("does not work once commits were written"), "{label}: {text}");
+        assert!(tree_for_refusal(&path) == before, "{label}: a refused start changed the directory");
+        let check = crate::cli::check::check(&path).await.unwrap();
+        assert!(
+            check.errors.iter().any(|e| e.contains("refuses to start") && e.contains("incomplete below commit 5")),
+            "{label}: {:?}",
+            check.errors
+        );
+        let verify = crate::cli::verify::verify(&path).await.unwrap();
+        assert!(!verify.ok, "{label}");
+    };
+
+    // The record file removed, nothing restored.
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(source.path(), dir.path(), &|_| false);
+    std::fs::remove_file(crate::engine::incomplete_log::path(dir.path())).unwrap();
+    lose_the_read_model(dir.path());
+    expect_refusal("record file removed", dir.path().to_path_buf()).await;
+
+    // The backup copied in without overwriting anything: the commit index and
+    // the segment keep the names the new commit gave them, so nothing is
+    // restored; then the record is removed too.
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(source.path(), dir.path(), &|_| false);
+    copy_without_overwriting(backup.path(), dir.path());
+    assert_eq!(index_seqs(dir.path()), [6], "a copy that does not overwrite restored commits");
+    std::fs::remove_file(crate::engine::incomplete_log::path(dir.path())).unwrap();
+    lose_the_read_model(dir.path());
+    expect_refusal("backup copied without overwriting", dir.path().to_path_buf()).await;
+
+    // The record file and the manifest's copy removed: the snapshot's copy remains.
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(source.path(), dir.path(), &|_| false);
+    std::fs::remove_file(crate::engine::incomplete_log::path(dir.path())).unwrap();
+    edit_json(&dir.path().join("storage-manifest.json"), |manifest| {
+        manifest.as_object_mut().unwrap().remove("incomplete_log_below");
+    });
+    lose_the_read_model(dir.path());
+    expect_refusal("record and manifest copy removed", dir.path().to_path_buf()).await;
+
+    // The snapshot removed as well as the record file: the in-memory
+    // projections would be rebuilt from inside the hole.
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(source.path(), dir.path(), &|_| false);
+    std::fs::remove_file(crate::engine::incomplete_log::path(dir.path())).unwrap();
+    std::fs::remove_file(ProjectionState::snapshot_path(dir.path())).unwrap();
+    let before = tree_for_refusal(dir.path());
+    let text = refused(dir.path()).await;
+    assert!(text.contains("from inside the hole") || text.contains("incomplete below commit 5"), "{text}");
+    assert!(tree_for_refusal(dir.path()) == before);
+
+    // Removing all three copies is a deliberate act, and then the rebuild
+    // proceeds and drops what the hole took: one message.
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(source.path(), dir.path(), &|_| false);
+    std::fs::remove_file(crate::engine::incomplete_log::path(dir.path())).unwrap();
+    edit_json(&dir.path().join("storage-manifest.json"), |manifest| {
+        manifest.as_object_mut().unwrap().remove("incomplete_log_below");
+    });
+    edit_json(&ProjectionState::snapshot_path(dir.path()), |snapshot| {
+        snapshot.as_object_mut().unwrap().remove("incomplete_log_below");
+    });
+    lose_the_read_model(dir.path());
+    let engine = open(dir.path()).await;
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), 1);
+    close(engine, dir.path()).await;
+
+    // What works: the whole directory from the backup taken before the hole.
+    let restored = tempfile::tempdir().unwrap();
+    copy_tree(backup.path(), restored.path(), &|_| false);
+    assert_eq!(crate::engine::incomplete_log::load(restored.path()).unwrap(), None);
+    let check = crate::cli::check::check(restored.path()).await.unwrap();
+    assert!(check.ok && check.warnings.is_empty(), "{check:#?}");
+    let engine = open(restored.path()).await;
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), 5);
+    close(engine, restored.path()).await;
+    lose_the_read_model(restored.path());
+    let engine = open(restored.path()).await;
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), 5);
+}
+
+/// The log's head is recorded in the manifest once the directory has a log
+/// and nothing is known to be missing; a start that finds the index beginning
+/// higher than that records the loss as an incomplete log, so a rebuild is
+/// refused afterwards.
+#[tokio::test]
+async fn a_lost_log_head_is_noticed() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    assert!(commit(&engine, vec![message_event("message_edited", &message("ch_a", "ghost", 7, 1))]).await.is_err());
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m1", 7, 1)).await, 2);
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m2", 7, 2)).await, 3);
+    close(engine, dir.path()).await;
+    assert_eq!(crate::engine::manifest_field(dir.path(), "log_head_commit"), None);
+
+    // The next start records the head: the first indexed commit, 2, not 1.
+    let engine = open(dir.path()).await;
+    close(engine, dir.path()).await;
+    assert_eq!(crate::engine::manifest_field(dir.path(), "log_head_commit"), Some(2));
+    assert_eq!(crate::engine::incomplete_log::load(dir.path()).unwrap(), None, "a gap is not a hole");
+
+    // The manifest says the head used to be commit 1.
+    edit_json(&dir.path().join("storage-manifest.json"), |manifest| {
+        manifest["log_head_commit"] = serde_json::json!(1);
+    });
+    let engine = open(dir.path()).await;
+    assert_eq!(crate::engine::incomplete_log::load(dir.path()).unwrap(), Some(1));
+    close(engine, dir.path()).await;
+    let check = crate::cli::check::check(dir.path()).await.unwrap();
+    assert!(check.warnings.iter().any(|w| w.contains("incomplete below commit 1")), "{:?}", check.warnings);
+    std::fs::remove_file(read_model_file(dir.path())).unwrap();
+    let text = refused(dir.path()).await;
+    assert!(text.contains("incomplete below commit 1"), "{text}");
+}
+
+/// No file may name a commit above 2^62, so the sequencer refuses to allocate
+/// one: the commit fails cleanly, writes nothing, and the engine halts. A
+/// manifest at the limit opens, and the first commit is refused.
+#[tokio::test]
+async fn commit_numbers_stop_at_the_limit() {
+    use crate::projections::read_model::MAX_COMMIT_SEQ;
+    let set_height = |path: &Path, height: u64| {
+        edit_json(&path.join("storage-manifest.json"), |manifest| {
+            manifest["highest_commit_seq"] = serde_json::json!(height);
+        });
+    };
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+
+    // One below the limit: the next commit is the limit itself, then none.
+    set_height(dir.path(), MAX_COMMIT_SEQ - 1);
+    let engine = open(dir.path()).await;
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "last", 7, 6)).await, MAX_COMMIT_SEQ);
+    let before = index_seqs(dir.path()).len();
+    let refused_commit = commit(&engine, vec![message_event("message_created", &message("ch_a", "over", 7, 7))])
+        .await
+        .unwrap_err()
+        .to_string();
+    println!("{refused_commit}");
+    assert!(refused_commit.contains("commit number limit reached"), "{refused_commit}");
+    assert_eq!(index_seqs(dir.path()).len(), before, "the refused commit was written");
+    // The engine halted: nothing else is accepted.
+    assert!(commit(&engine, vec![message_event("message_created", &message("ch_a", "again", 7, 8))]).await.is_err());
+    close(engine, dir.path()).await;
+
+    // The directory still opens (every number it names is within the limit),
+    // and its next commit is refused too.
+    let engine = open(dir.path()).await;
+    assert!(commit(&engine, vec![message_event("message_created", &message("ch_a", "never", 7, 9))])
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("commit number limit reached"));
+    close(engine, dir.path()).await;
+
+    // At the limit already: the first commit is refused.
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    set_height(dir.path(), MAX_COMMIT_SEQ);
+    let engine = open(dir.path()).await;
+    let text = commit(&engine, vec![message_event("message_created", &message("ch_a", "over", 7, 6))])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(text.contains("commit number limit reached") && text.contains("nothing was written"), "{text}");
 }

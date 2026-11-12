@@ -317,15 +317,14 @@ impl WabiDbEngine {
         // only while the log still reaches both saved projections: see
         // `plan_startup`. Nothing is deleted before that is decided, and a
         // rebuild writes nothing to the snapshot file before replay succeeds.
-        let index_high_seq = crate::commit_index::batcher::read_all_entries(
+        let index_entries = crate::commit_index::batcher::read_all_entries(
             &data_dir.join("global").join("commit-index"),
-        )?
-        .iter()
-        .map(|entry| entry.commit_seq)
-        .max()
-        .unwrap_or(0);
-        let saved = ProjectionState::load_snapshot(data_dir)?;
-        let saved_watermark = saved.as_ref().map_or(0, |(_, watermark)| *watermark);
+        )?;
+        let index_high_seq = index_entries.iter().map(|e| e.commit_seq).max().unwrap_or(0);
+        let index_first_seq = index_entries.iter().map(|e| e.commit_seq).min();
+        drop(index_entries);
+        let saved = ProjectionState::load_snapshot_full(data_dir)?;
+        let saved_watermark = saved.as_ref().map_or(0, |loaded| loaded.watermark);
         if saved_watermark > crate::projections::read_model::MAX_COMMIT_SEQ {
             return Err(WabiError::Corrupt {
                 location: ProjectionState::snapshot_path(data_dir).display().to_string(),
@@ -341,7 +340,25 @@ impl WabiDbEngine {
             FileState::Usable { applied } | FileState::Unusable { applied, .. } => *applied,
         };
         let manifest_high_seq = manifest_high_seq(data_dir)?;
-        let incomplete_below = incomplete_log::load(data_dir)?;
+        let recorded_incomplete = incomplete_log::load_with(
+            data_dir,
+            saved.as_ref().and_then(|loaded| loaded.incomplete_log_below),
+        )?;
+        // The log's head. Nothing in this engine removes commit-index or
+        // segment files, so if the lowest indexed commit is above the one
+        // recorded earlier, the head of the log was lost. (Commit numbers can
+        // legitimately be missing from the middle and from the start of the
+        // index, so "the index starts at 1" is no test; "it starts no higher
+        // than it did" is.)
+        let manifest_head = manifest_field(data_dir, LOG_HEAD_KEY);
+        let head_lost_below = match (manifest_head, index_first_seq) {
+            (Some(recorded), Some(first)) if first > recorded => Some(first - 1),
+            _ => None,
+        };
+        let incomplete_below = match (recorded_incomplete, head_lost_below) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
         let plan = match plan_startup(index_high_seq, saved_watermark, &model_file, incomplete_below)
         {
             Ok(plan) => plan,
@@ -362,19 +379,33 @@ impl WabiDbEngine {
             }
         };
         let rebuild = plan.rebuild;
-        let incomplete_below = match plan.record_incomplete_below {
+        // Persist the evidence when this start has just learned of a hole.
+        let learned = plan.record_incomplete_below.or_else(|| {
+            head_lost_below.filter(|below| recorded_incomplete.map_or(true, |r| r < *below))
+        });
+        let incomplete_below = match learned {
             Some(below) => Some(incomplete_log::record(data_dir, below)?),
             None => incomplete_below,
         };
         if let Some(below) = incomplete_below {
             tracing::warn!(
-                "the log of {} is incomplete below commit {below} (global/incomplete-log.json). \
-                 It runs, because the saved projections hold what the missing commits did, but \
-                 it cannot survive losing its read model, a read-model generation change or a \
-                 quarantine: any start that needs a rebuild from the log will refuse. Take a \
-                 backup of the whole data directory now",
+                "the log of {} is incomplete below commit {below} (global/incomplete-log.json, \
+                 the manifest and the snapshot). It runs, because the saved projections hold \
+                 what the missing commits did, but it cannot survive losing its read model, a \
+                 read-model generation change or a quarantine: any start that needs a rebuild \
+                 from the log will refuse. Take a backup of the whole data directory now",
                 data_dir.display()
             );
+        } else if let Some(first) = index_first_seq {
+            // A directory with no evidence of a hole: remember where its log
+            // starts, so that losing the head later can be seen.
+            if manifest_head.map_or(true, |recorded| first < recorded) {
+                if let Err(error) = update_manifest(data_dir, |object| {
+                    object.insert(LOG_HEAD_KEY.to_string(), serde_json::json!(first));
+                }) {
+                    tracing::warn!("could not record the log head in the manifest: {error}");
+                }
+            }
         }
         let read_model = Arc::new(match &model_file {
             FileState::Unusable { reason, .. } => {
@@ -385,17 +416,20 @@ impl WabiDbEngine {
             }
             _ => crate::projections::read_model::ReadModel::open(data_dir)?,
         });
-        let state = match saved {
-            Some((state, _)) if !rebuild => state,
-            Some(_) => {
+        let (state, legacy_message_keys) = match saved {
+            Some(loaded) if !rebuild => (loaded.state, Vec::new()),
+            Some(loaded) => {
                 tracing::warn!(
                     "projection read model covers commit {model_claimed_seq}, the snapshot \
                      covers {saved_watermark}; rebuilding every projection from the log"
                 );
-                ProjectionState::new()
+                (ProjectionState::new(), loaded.legacy_message_keys)
             }
-            None => ProjectionState::new(),
+            None => (ProjectionState::new(), Vec::new()),
         };
+        if let Some(below) = incomplete_below {
+            state.set_incomplete_log_below(below);
+        }
         state.attach_read_model(Arc::clone(&read_model));
         let projection_state = Arc::new(state);
         // Older snapshots may lack the album ID lookup. Rebuild it before
@@ -434,6 +468,58 @@ impl WabiDbEngine {
                 return Err(error);
             }
         };
+        // A rebuild from the log must give back every message the old
+        // snapshot held. When the log has a hole an older build made, this
+        // is the only evidence left of it: the commits are gone, the messages
+        // are in the snapshot. (A quarantined commit's messages are expected
+        // to be missing, so a quarantine list turns the check off.)
+        if rebuild && !legacy_message_keys.is_empty() {
+            if quarantine::load(data_dir)?.is_empty() {
+                let (missing, first) = match read_model.missing_messages(&legacy_message_keys) {
+                    Ok(found) => found,
+                    Err(error) => {
+                        read_model.rollback();
+                        return Err(error);
+                    }
+                };
+                if missing > 0 {
+                    read_model.rollback();
+                    if matches!(model_file, FileState::Missing | FileState::Unusable { .. }) {
+                        // A file this start created, still empty.
+                        let _ = crate::projections::read_model::ReadModel::remove_files(data_dir);
+                    }
+                    let claimed = index_high_seq.max(saved_watermark).max(model_claimed_seq);
+                    if claimed > manifest_high_seq {
+                        let _ = raise_manifest_height(data_dir, claimed);
+                    }
+                    return Err(WabiError::Corrupt {
+                        location: ProjectionState::snapshot_path(data_dir).display().to_string(),
+                        detail: format!(
+                            "replaying the log gives back {} of the {} messages that \
+                             projections/snapshot.json holds (first missing: {}); the log is \
+                             incomplete (its first indexed commit is {}), so a rebuild from it \
+                             would drop them. Repair required before startup: keep running the \
+                             build that wrote this snapshot, or restore the whole data directory \
+                             from a backup taken before the log lost commits (restoring only the \
+                             missing log files is not enough once commits were written after \
+                             the loss). {REFUSAL_WRITES}",
+                            legacy_message_keys.len() - missing,
+                            legacy_message_keys.len(),
+                            first
+                                .as_deref()
+                                .map(crate::projections::messages::describe_key)
+                                .unwrap_or_default(),
+                            index_first_seq.map_or("none".to_string(), |first| first.to_string()),
+                        ),
+                    });
+                }
+            } else {
+                tracing::warn!(
+                    "global/quarantine.json lists commits: the messages in the old snapshot \
+                     are not checked against the rebuilt log"
+                );
+            }
+        }
         if let Err(error) = read_model.commit_startup(barrier.current()) {
             read_model.rollback();
             return Err(error);
@@ -1195,6 +1281,10 @@ pub(crate) struct StartupPlan {
 
 /// What a refused start may change. Said in every refusal, and in
 /// `docs/deployment/BACKUP_AND_RECOVERY.md`.
+/// Manifest field: the lowest commit in the commit index when this directory
+/// was last known to have a whole log head.
+pub(crate) const LOG_HEAD_KEY: &str = "log_head_commit";
+
 pub(crate) const REFUSAL_WRITES: &str = "This refusal changes no saved projection. It may \
 raise `highest_commit_seq` in storage-manifest.json to the highest commit any file names (so a \
 later start cannot hand those numbers out again), and SQLite may recreate \
@@ -1239,6 +1329,21 @@ pub(crate) fn plan_startup(
             format!("the read model claims commit {applied} and cannot be used ({reason})")
         }
     };
+    if let Some(below) = incomplete_below {
+        // The in-memory projections are rebuilt by replaying from the
+        // snapshot's watermark. With no snapshot at or above the hole, that
+        // replay would start inside it.
+        if snapshot_watermark < below {
+            return Err(format!(
+                "the log of this directory is incomplete below commit {below} \
+                 (global/incomplete-log.json, the manifest or the snapshot), but \
+                 projections/snapshot.json covers only commit {snapshot_watermark}: the \
+                 in-memory projections would be rebuilt from inside the hole. Repair required \
+                 before startup: restore the whole data directory from a backup taken before \
+                 the hole. {REFUSAL_WRITES}"
+            ));
+        }
+    }
     if index_high_seq >= snapshot_watermark.max(model_seq) {
         let rebuild = !usable || model_seq < snapshot_watermark;
         if rebuild {
@@ -1249,9 +1354,14 @@ pub(crate) fn plan_startup(
                      over a log that ended below its checkpoint), and a rebuild from it is \
                      needed ({model_text}; snapshot at commit {snapshot_watermark}), so the \
                      read model cannot be rebuilt: the rebuild would drop what the missing \
-                     commits did. Repair required before startup: restore the missing files \
-                     under streams/ and global/commit-index/ from a backup, or restore the \
-                     whole data directory, then remove global/incomplete-log.json. {REFUSAL_WRITES}"
+                     commits did. Repair required before startup: either restore the whole \
+                     data directory from a backup taken before the log lost its commits (the \
+                     commits written since are lost with it), or keep running on the read \
+                     model you have, which this start refuses to replace, and take a fresh \
+                     backup now. Copying the missing log files into this directory does not \
+                     work once commits were written after the loss, and removing \
+                     global/incomplete-log.json does not lift this: the manifest and the \
+                     snapshot carry the same evidence. {REFUSAL_WRITES}"
                 ));
             }
         }
@@ -1296,30 +1406,52 @@ pub(crate) fn manifest_high_seq(data_dir: &std::path::Path) -> Result<u64> {
     Ok(high)
 }
 
-/// Raise the manifest's `highest_commit_seq` to `high`, atomically (temporary
-/// file, sync, rename, directory sync). Never lowers it.
-fn raise_manifest_height(data_dir: &std::path::Path, high: u64) -> Result<()> {
-    if high == 0 {
-        return Ok(());
-    }
+/// A numeric field of the storage manifest, `None` when absent or unreadable.
+pub(crate) fn manifest_field(data_dir: &std::path::Path, key: &str) -> Option<u64> {
+    std::fs::read_to_string(data_dir.join("storage-manifest.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get(key).and_then(|v| v.as_u64()))
+}
+
+/// Change the storage manifest, atomically (temporary file, sync, rename,
+/// directory sync). A manifest that is not a JSON object is left alone.
+pub(crate) fn update_manifest(
+    data_dir: &std::path::Path,
+    change: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> Result<()> {
     let path = data_dir.join("storage-manifest.json");
     let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)
         .map_err(|e| WabiError::Corrupt {
             location: path.display().to_string(),
             detail: format!("invalid JSON: {e}"),
         })?;
-    let current = value.get("highest_commit_seq").and_then(|v| v.as_u64()).unwrap_or(0);
-    if current >= high {
-        return Ok(());
-    }
     let Some(object) = value.as_object_mut() else {
         return Ok(());
     };
-    object.insert("highest_commit_seq".to_string(), serde_json::json!(high));
+    let before = object.clone();
+    change(object);
+    if *object == before {
+        return Ok(());
+    }
     let bytes = serde_json::to_vec_pretty(&value).map_err(|e| WabiError::InternalInvariantViolated {
         invariant: format!("manifest serialize: {e}"),
     })?;
     incomplete_log::write_atomically(&path, &bytes)
+}
+
+/// Raise the manifest's `highest_commit_seq` to `high`, atomically. Never
+/// lowers it.
+fn raise_manifest_height(data_dir: &std::path::Path, high: u64) -> Result<()> {
+    if high == 0 {
+        return Ok(());
+    }
+    update_manifest(data_dir, |object| {
+        let current = object.get("highest_commit_seq").and_then(|v| v.as_u64()).unwrap_or(0);
+        if current < high {
+            object.insert("highest_commit_seq".to_string(), serde_json::json!(high));
+        }
+    })
 }
 
 /// Best-effort update of the manifest's `highest_commit_seq` so the backup

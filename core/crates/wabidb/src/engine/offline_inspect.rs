@@ -107,6 +107,10 @@ enum InventoryEntry {
 #[serde(deny_unknown_fields)]
 struct SavedView {
     watermark: u64,
+    /// Carried over from `global/incomplete-log.json`; not projection content.
+    #[serde(default)]
+    #[allow(dead_code)]
+    incomplete_log_below: Option<u64>,
     indexes: Vec<(String, Vec<SavedEntry>)>,
 }
 #[derive(Deserialize)]

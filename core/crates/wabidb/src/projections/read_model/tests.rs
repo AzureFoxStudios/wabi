@@ -549,3 +549,34 @@ fn a_reader_pinned_for_a_long_time_cannot_hold_a_checkpoint() {
     // The gate is open again.
     assert_eq!(rows(&model), 2);
 }
+
+/// A panic between closing the read gate and reopening it must not leave the
+/// gate closed: every read would wait forever, including the sequencer's
+/// admission lookups, so the engine would hang instead of halting.
+#[test]
+fn a_panic_with_the_read_gate_closed_does_not_wedge_reads() {
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(ReadModel::open(dir.path()).unwrap());
+    model.set_wal_threshold_for_tests(0);
+    put(&model, b"k", b"body");
+    model.finish_commit(1).unwrap();
+    model.panic_in_next_trim_for_tests();
+    let writer = {
+        let model = Arc::clone(&model);
+        std::thread::spawn(move || {
+            // The sync trims, and the trim panics with the gate closed.
+            model.sync(1)
+        })
+    };
+    assert!(writer.join().is_err(), "the injected panic did not happen");
+    let (done, done_rx) = std::sync::mpsc::channel();
+    {
+        let model = Arc::clone(&model);
+        std::thread::spawn(move || done.send(rows(&model)).unwrap());
+    }
+    let seen = done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("a read waited on a gate that was never reopened");
+    assert_eq!(seen, 1);
+}
