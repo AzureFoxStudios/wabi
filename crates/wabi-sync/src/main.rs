@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use wabi_sync::api::WabiClient;
-use wabi_sync::config::{FolderLock, GlobalConfig, LinkConfig, Linked, SyncState};
+use wabi_sync::config::{FolderLock, GlobalConfig, LinkConfig, Linked, StateOwner, SyncState};
 use wabi_sync::sync::{self, print_report, SyncEngine, SyncReport};
 
 #[derive(Parser)]
@@ -46,6 +46,12 @@ enum Command {
         /// Override the server from the global config.
         #[arg(long)]
         server: Option<String>,
+        /// The folder's sync state was recorded for another address of this
+        /// same server and repository: keep it and go on with it. Without
+        /// this, state recorded for another server or channel is moved aside
+        /// and the folder starts as newly linked.
+        #[arg(long)]
+        keep_state: bool,
     },
     /// Continuous sync: watch the folder + poll the change feed.
     Watch {
@@ -171,31 +177,36 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Link { channel, folder, server } => {
+        Command::Link { channel, folder, server, keep_state } => {
             let channel_id = LinkConfig::normalize_channel_id(&channel)?;
             let global = GlobalConfig::load().ok();
+            // Rounds talk to the server of the login; that is whose state it is.
+            let client_url = global.as_ref().map(|g| g.server_url.clone());
             let server_url = server
-                .or_else(|| global.map(|g| g.server_url))
+                .or_else(|| client_url.clone())
                 .ok_or_else(|| anyhow::anyhow!("no server configured — run `wabi-sync login` or pass --server"))?;
             std::fs::create_dir_all(&folder)
                 .with_context(|| format!("creating {}", folder.display()))?;
+            let owner = StateOwner::new(client_url.as_deref().unwrap_or(&server_url), channel_id);
             let link = LinkConfig { server_url, channel_id };
-            // The link file only; `.wabi-sync/` is never touched here.
-            let owner = wabi_sync::config::StateOwner::new(&link.server_url, channel_id);
-            match link.link(&folder, &owner, false)? {
+            match link.link(&folder, &owner, keep_state)? {
                 Linked::Unchanged => {
                     println!("{} is already linked to channel {channel_id}; nothing changed.", folder.display());
                     return Ok(());
                 }
-                Linked::New => {}
-                Linked::KeptState { .. } => {}
-                Linked::Replaced { previous: None, .. } => {}
-                Linked::Replaced { previous: Some(previous), .. } => println!(
-                    "This folder was linked to {} channel {} and has sync state from then. That state is left \
-                     in .wabi-sync/ and is not used for the new link: the next sync treats the folder as \
-                     newly linked. It deletes nothing on either side, uploads files the new repo does not \
-                     have, and keeps a file that differs from the repo's as a conflict copy.",
-                    previous.server_url, previous.channel_id
+                Linked::New | Linked::Replaced { state_moved_to: None, .. } => {}
+                Linked::KeptState { previous } => println!(
+                    "The sync state recorded for {} channel {} is kept, and is now recorded for {} channel {}.",
+                    previous.server_url, previous.channel_id, owner.server_url, owner.channel_id
+                ),
+                Linked::Replaced { state_moved_to: Some(moved), .. } => println!(
+                    "This folder had sync state for another link. It was moved to {} and is not used: the next \
+                     sync treats the folder as newly linked. It deletes nothing on either side, uploads files \
+                     the repo does not have, and keeps a file that differs from the repo's as a conflict copy. \
+                     If that state was for this same repository under another address, move it back to \
+                     .wabi-sync/state.json and run `wabi-sync link {channel} {} --keep-state` instead.",
+                    moved.display(),
+                    folder.display()
                 ),
             }
             println!(
@@ -327,7 +338,13 @@ async fn main() -> Result<()> {
                 Ok(()) => println!("server:    reachable"),
                 Err(e) => println!("server:    UNREACHABLE ({e})"),
             }
-            let state = SyncState::load(&folder)?;
+            let state = match SyncState::for_owner(&folder, StateOwner::new(&global.server_url, link.channel_id)) {
+                Ok(state) => state,
+                Err(e) => {
+                    println!("state:     {e:#}");
+                    return Ok(());
+                }
+            };
             println!("cursor:    {}", state.cursor);
             println!("baselines: {} paths", state.baselines.len());
             match client.manifest(link.channel_id).await {
@@ -350,12 +367,12 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Resubmit { path, folder } => {
-            LinkConfig::load(&folder)?;
+            let (global, link) = resolve(&folder)?;
             let path = path.replace('\\', "/");
             let path = path.trim_start_matches("./");
             // Not while a round is reading and writing the same state.
             let _lock = FolderLock::acquire(&folder)?;
-            let mut state = SyncState::load(&folder)?;
+            let mut state = SyncState::for_owner(&folder, StateOwner::new(&global.server_url, link.channel_id))?;
             let was_waiting = state.forget_review(path);
             let was_refused = state.refused_uploads.remove(path).is_some();
             if !was_waiting && !was_refused {
