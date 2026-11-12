@@ -195,7 +195,8 @@ jobs:
 
   # ------------------------------------------------------------------------
   # WabiDB crash-injection tests: #[ignore] + test-harness feature, so neither
-  # `cargo test --workspace` nor any other job runs them.
+  # `cargo test --workspace` nor any other job runs them. The second step runs
+  # the non-ignored tests that exist only with test-harness.
   # ------------------------------------------------------------------------
   power-loss:
     runs-on: ubuntu-latest
@@ -208,3 +209,8 @@ jobs:
 
       - name: Power-loss crash-injection tests
         run: cargo test --locked -p wabidb --features test-harness --lib tests::power_loss -- --ignored
+
+      # The other test-harness tests (process-crash children, recovery codes)
+      # ran nowhere before this step, and one of them failed unnoticed.
+      - name: WabiDB test-harness tests
+        run: cargo test --locked -p wabidb --features test-harness --lib
