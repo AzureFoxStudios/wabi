@@ -160,11 +160,12 @@ impl ChannelMembersProjection {
     }
 
     /// The ids of the channels `user_id` is a member of, in key order, as of
-    /// the last committed commit. Rows that do not decode are left out.
+    /// the last committed commit. Rows that do not decode are left out. One
+    /// indexed lookup (the `user_id` column), not a scan of every membership.
     pub fn channel_ids_of_user(state: &ProjectionState, user_id: u64) -> Result<Vec<String>> {
         let mut channels = Vec::new();
         state.read_model().read(|conn| {
-            read_model::scan(conn, Table::ChannelMembers, &[], None, false, |_key, value| {
+            read_model::scan_members_of_user(conn, user_id, |_key, value| {
                 if let Ok(record) = decode_record(value) {
                     if record.user_id == user_id {
                         channels.push(record.channel_id);
@@ -202,7 +203,7 @@ impl ChannelMembersProjection {
 pub(crate) fn remove_user_while_applying(state: &ProjectionState, user_id: u64) -> Result<()> {
     state.read_model().write(|conn| {
         let mut keys = Vec::new();
-        read_model::scan(conn, Table::ChannelMembers, &[], None, false, |key, value| {
+        read_model::scan_members_of_user(conn, user_id, |key, value| {
             if decode_record(value).is_ok_and(|record| record.user_id == user_id) {
                 keys.push(key.to_vec());
             }
@@ -216,12 +217,14 @@ pub(crate) fn remove_user_while_applying(state: &ProjectionState, user_id: u64) 
 }
 
 /// Test support: store a member row as it is, bypassing the log (legacy and
-/// corrupt rows no current event produces). The row is committed at once.
-/// The engine must not be applying a commit; nothing here checks that.
+/// corrupt rows no current event produces). `key` must end with the user id,
+/// as [`encode_key`] writes it. The row is committed at once. The engine must
+/// not be applying a commit; nothing here checks that.
 #[doc(hidden)]
 pub fn insert_raw_for_tests(state: &ProjectionState, key: &[u8], record: &[u8]) {
+    let user_id = u64::from_le_bytes(key[key.len() - 8..].try_into().unwrap());
     let model = state.read_model();
-    model.write(|conn| read_model::put_channel_member(conn, key, record)).unwrap();
+    model.write(|conn| read_model::put_channel_member(conn, key, user_id, record)).unwrap();
     model.finish_commit(state.applied_commit_seq()).unwrap();
 }
 
@@ -269,6 +272,7 @@ impl Projection for ChannelMembersProjection {
                     read_model::put_channel_member(
                         conn,
                         &encode_key(&change.channel_id, record.user_id),
+                        record.user_id,
                         &encode_record(record),
                     )?;
                 }
@@ -291,7 +295,7 @@ impl Projection for ChannelMembersProjection {
         };
         state.read_model().write(|conn| {
             if added {
-                read_model::put_channel_member(conn, &key, &encode_record(&record))?;
+                read_model::put_channel_member(conn, &key, record.user_id, &encode_record(&record))?;
             } else {
                 read_model::delete_channel_member(conn, &key)?;
             }

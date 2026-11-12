@@ -183,7 +183,9 @@ fn describe_members(state: &ProjectionState) -> Vec<String> {
             .read_model()
             .for_each_full_row(table, |columns| {
                 let name = table.name();
-                lines.push(format!("{name} {} {}", hex::encode(columns[0]), describe_value(name, columns[1])));
+                // The record is the last column (the members table also has the user id).
+                let record = columns[columns.len() - 1];
+                lines.push(format!("{name} {} {}", hex::encode(columns[0]), describe_value(name, record)));
                 Ok(())
             })
             .unwrap();
