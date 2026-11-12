@@ -655,6 +655,41 @@ pub fn local_status(state: &SyncState, local: &BTreeMap<String, String>) -> Loca
     status
 }
 
+/// How `wabi-sync watch` paces itself: it waits for file-system events, lets
+/// a burst of them settle, and then asks the server whether the feed moved.
+pub struct WatchPacer {
+    last_fs_event: std::time::Instant,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum WatchStep {
+    /// Keep waiting for events.
+    Wait,
+    /// Ask the server whether the feed moved, and run a round if it did or
+    /// if `local_changed`.
+    Poll { local_changed: bool },
+}
+
+impl WatchPacer {
+    pub fn new(now: std::time::Instant) -> Self {
+        Self { last_fs_event: now }
+    }
+
+    /// The wait for a file-system event ended at `now`, with an event or
+    /// with its timeout.
+    pub fn after_wait(&mut self, fs_event: bool, now: std::time::Instant) -> WatchStep {
+        if fs_event {
+            // Debounce: drain further events for a short window.
+            self.last_fs_event = now;
+            return WatchStep::Wait;
+        }
+        if now.duration_since(self.last_fs_event) < std::time::Duration::from_millis(500) {
+            return WatchStep::Wait;
+        }
+        WatchStep::Poll { local_changed: fs_event }
+    }
+}
+
 pub fn print_report(prefix: &str, report: &SyncReport) {
     for p in &report.downloaded {
         println!("{prefix} ↓ {p}");
@@ -731,6 +766,86 @@ mod tests {
         for path in [".gitignore", ".github/workflows/ci.yml", "wabi-conflict-notes.txt", "lore/readme.md"] {
             assert!(!is_internal(path), "{path}");
         }
+    }
+
+    /// B7. Only what must be excluded is: the link file and state directory
+    /// at the folder's root, and conflict copies as this client names them.
+    #[test]
+    fn names_that_only_look_internal_are_not() {
+        for path in [
+            "How.Wabi-Conflict-Works.md",
+            "about.wabi-conflict-handling.md",
+            "notes.wabi-conflict-old/a.md",
+            "docs.wabi-conflict-ab12cd34/a.md",
+            "nested/.wabi-sync/state.json",
+            "nested/.wabi-sync.json",
+            "a.txt.wabi-conflict-ab12cd34.bak",
+            "a.txt.wabi-conflict-",
+        ] {
+            assert!(!is_internal(path), "{path}");
+        }
+        for path in [
+            ".wabi-sync.json",
+            ".wabi-sync/state.json",
+            ".wabi-sync/lock",
+            "docs/file.txt.wabi-conflict-ab12cd34",
+            "docs/file.txt.wabi-conflict-ab12cd34-2",
+            "docs/file.txt.wabi-conflict-ab12cd34-17",
+            "big.bin.wabi-conflict-q-1a2b3c",
+            "big.bin.wabi-conflict-q-1a2b3c-3",
+            "gone.txt.wabi-conflict-deleted",
+            "gone.txt.wabi-conflict-deleted-2",
+            // A conflict copy of a file that itself looks like one.
+            "x.wabi-conflict-old.wabi-conflict-00ff00ff",
+        ] {
+            assert!(is_internal(path), "{path}");
+        }
+    }
+
+    /// B5. A conflict copy's name fits in one file name whatever the
+    /// original's length, keeps the marker and tag, and cuts on a character.
+    #[test]
+    fn conflict_copy_of_a_long_name_is_shortened() {
+        for name in ["n".repeat(250), "é".repeat(120), format!("{}.txt", "x".repeat(251))] {
+            let copy = conflict_path(&Path::new("docs").join(&name), "ab12cd34-12");
+            let copy_name = copy.file_name().unwrap().to_str().unwrap();
+            assert!(copy_name.len() <= 255, "{} bytes", copy_name.len());
+            assert!(copy_name.ends_with(".wabi-conflict-ab12cd34-12"), "{copy_name}");
+            assert!(name.starts_with(copy_name.strip_suffix(".wabi-conflict-ab12cd34-12").unwrap()));
+            assert!(is_internal(&format!("docs/{copy_name}")));
+            assert_eq!(copy.parent(), Some(Path::new("docs")));
+        }
+    }
+
+    /// B5. A link to nothing is left out of the scan; the scan goes on.
+    #[cfg(unix)]
+    #[test]
+    fn scan_goes_on_past_a_dangling_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
+        std::os::unix::fs::symlink("nowhere", dir.path().join("broken")).unwrap();
+        let scanned = scan_local(dir.path()).expect("the scan stopped at the link");
+        assert_eq!(scanned.keys().collect::<Vec<_>>(), vec!["a.txt"]);
+    }
+
+    /// B8. A local edit is pushed when the events have settled, whether or
+    /// not the server's feed moved.
+    #[test]
+    fn watch_runs_a_round_after_a_local_edit() {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        let mut pacer = WatchPacer::new(start);
+        // Nothing happened: only the feed can start a round.
+        assert_eq!(pacer.after_wait(false, start + Duration::from_millis(750)), WatchStep::Poll { local_changed: false });
+        // An editor saves: a burst of events, then quiet.
+        let edit = start + Duration::from_secs(5);
+        assert_eq!(pacer.after_wait(true, edit), WatchStep::Wait);
+        assert_eq!(pacer.after_wait(true, edit + Duration::from_millis(10)), WatchStep::Wait);
+        assert_eq!(
+            pacer.after_wait(false, edit + Duration::from_millis(760)),
+            WatchStep::Poll { local_changed: true },
+            "the edit was forgotten by the time a round could run"
+        );
     }
 
     #[test]

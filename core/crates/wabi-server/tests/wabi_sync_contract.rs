@@ -147,6 +147,21 @@ async fn fail_one_request(State(target): State<FailOnce>, request: Request, next
     }
 }
 
+/// A record of what the client asked for: every request's method, path and
+/// declared body length, in order. It changes nothing in either direction.
+type Requests = Arc<Mutex<Vec<(String, String, u64)>>>;
+
+async fn log_request(State(log): State<Requests>, request: Request, next: Next) -> Response {
+    let length = request
+        .headers()
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    log.lock().unwrap().push((request.method().to_string(), request.uri().path().to_string(), length));
+    next.run(request).await
+}
+
 struct Server {
     _dir: tempfile::TempDir,
     state: Arc<AppState>,
@@ -161,6 +176,10 @@ struct Server {
     viewer_login: String,
     null_etag: NullEtag,
     fail_once: FailOnce,
+    requests: Requests,
+    owner_id: u64,
+    viewer_id: u64,
+    lore: Arc<wabi_lore::LoreService>,
 }
 
 /// A server with one Lore repo and three members: the owner and an Artist,
@@ -202,6 +221,7 @@ async fn server() -> Server {
         format!(
             "#!/bin/sh\n\
              if [ \"$1\" = \"--offline\" ] && [ \"$2\" = \"--local\" ]; then shift 2; fi\n\
+             if [ \"$1\" = stage ] && [ -e '{fail_stage}' ]; then echo 'stage failed (test)' >&2; exit 1; fi\n\
              case \"$1\" in\n\
                commit) n=$(( $(cat '{counter}' 2>/dev/null || echo 0) + 1 )); echo $n > '{counter}'\n\
                  printf 'Revision  : %s\\nSignature : %032d\\nBranch    : main\\nDate      : Mon, 07 Sep 2026 00:00:00 +0000\\n    fixture\\nCommit succeeded\\n' $n $n ;;\n\
@@ -209,6 +229,7 @@ async fn server() -> Server {
                *) exit 0 ;;\n\
              esac\n",
             counter = counter.display(),
+            fail_stage = dir.path().join("fail-lore-stage").display(),
         ),
     )
     .unwrap();
@@ -221,15 +242,17 @@ async fn server() -> Server {
     }));
     let repo = i64::from_str_radix(channel.strip_prefix("ch_").unwrap(), 16).unwrap();
     lore.create_repo(repo, owner as i64, "repo").await.unwrap();
-    state.set_lore_service(lore).await;
+    state.set_lore_service(lore.clone()).await;
     state.wdb.lore_create_repo(repo, "repo", "embedded://repo", owner as i64).await.unwrap();
 
     let null_etag = NullEtag::default();
     let fail_once = FailOnce::default();
+    let requests = Requests::default();
     let app = axum::Router::new()
         .nest("/api", create_api_router(state.clone()).with_state(state.clone()))
         .layer(axum::middleware::from_fn_with_state(null_etag.clone(), null_one_manifest_etag))
-        .layer(axum::middleware::from_fn_with_state(fail_once.clone(), fail_one_request));
+        .layer(axum::middleware::from_fn_with_state(fail_once.clone(), fail_one_request))
+        .layer(axum::middleware::from_fn_with_state(requests.clone(), log_request));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
@@ -248,14 +271,22 @@ async fn server() -> Server {
         repo,
         null_etag,
         fail_once,
+        requests,
+        owner_id: owner,
+        viewer_id: viewer,
+        lore,
     }
 }
 
 impl Server {
     /// Mint a connect token through the real route, as the Connect panel does.
     async fn connect_token(&self, login: &str, scopes: &str) -> String {
+        self.connect_token_for(self.repo, login, scopes).await
+    }
+
+    async fn connect_token_for(&self, repo: i64, login: &str, scopes: &str) -> String {
         let response = reqwest::Client::new()
-            .post(format!("{}/api/addons/lore/repos/{}/connect-tokens", self.url, self.repo))
+            .post(format!("{}/api/addons/lore/repos/{}/connect-tokens", self.url, repo))
             .bearer_auth(login)
             .json(&json!({ "scopes": scopes }))
             .send()
@@ -272,12 +303,52 @@ impl Server {
     /// A folder linked to the repo the way `wabi-sync link ch_<hex> <folder>`
     /// links it, with a client holding `token`.
     fn folder(&self, token: &str) -> Folder {
+        self.folder_for(self.repo, token)
+    }
+
+    fn folder_for(&self, repo: i64, token: &str) -> Folder {
         let dir = tempfile::tempdir().unwrap();
-        let channel_id = LinkConfig::normalize_channel_id(&format!("ch_{:x}", self.repo)).unwrap();
+        let channel_id = LinkConfig::normalize_channel_id(&format!("ch_{:x}", repo)).unwrap();
         LinkConfig { server_url: self.url.clone(), channel_id }.save(dir.path()).unwrap();
         let link = LinkConfig::load(dir.path()).unwrap();
-        assert_eq!(link.channel_id, self.repo);
+        assert_eq!(link.channel_id, repo);
         Folder { client: WabiClient::new(&link.server_url, token), link, dir }
+    }
+
+    /// A second, empty Lore repo on the same server, in a channel of its
+    /// own, and the owner's write token for it.
+    async fn second_repo(&self) -> (i64, String) {
+        let owner = self.owner_id;
+        let channel = self.state.wdb.create_channel("repo-b", ChannelKind::Lore, owner, false).await.unwrap();
+        self.state.wdb.add_channel_member(&channel, owner, MemberRole::Member).await.unwrap();
+        let repo = i64::from_str_radix(channel.strip_prefix("ch_").unwrap(), 16).unwrap();
+        self.lore.create_repo(repo, owner as i64, "repo-b").await.unwrap();
+        self.state.wdb.lore_create_repo(repo, "repo-b", "embedded://repo-b", owner as i64).await.unwrap();
+        (repo, self.connect_token_for(repo, &self.owner_login, "write").await)
+    }
+
+    /// While set, the `lore` stand-in fails every `stage` command, which the
+    /// real handlers answer with 500.
+    fn lore_stage_fails(&self, fails: bool) {
+        let flag = self._dir.path().join("fail-lore-stage");
+        if fails {
+            std::fs::write(flag, b"").unwrap();
+        } else {
+            std::fs::remove_file(flag).unwrap();
+        }
+    }
+
+    /// Forget the requests seen so far.
+    fn forget_requests(&self) {
+        self.requests.lock().unwrap().clear();
+    }
+
+    /// The requests with `method` whose path contains `part`, since the last
+    /// `forget_requests`: how many, and the sum of their declared bodies.
+    fn requests(&self, method: &str, part: &str) -> (usize, u64) {
+        let log = self.requests.lock().unwrap();
+        let hits: Vec<u64> = log.iter().filter(|(m, p, _)| m == method && p.contains(part)).map(|(_, _, n)| *n).collect();
+        (hits.len(), hits.iter().sum())
     }
 
     async fn owner_folder(&self) -> Folder {
@@ -315,19 +386,69 @@ impl Folder {
         self.dir.path()
     }
 
-    /// One `wabi-sync sync` round: a new engine, so state goes through disk.
+    /// What every command starts with: a new engine, so state goes through disk.
+    fn engine(&self) -> anyhow::Result<SyncEngine<'_>> {
+        Ok(SyncEngine::new(&self.client, self.path(), &self.link))
+    }
+
+    /// One `wabi-sync sync` round.
     async fn sync(&self) -> anyhow::Result<SyncReport> {
-        SyncEngine::new(&self.client, self.path(), &self.link).sync().await
+        self.engine()?.sync().await
     }
 
     /// One `wabi-sync push`.
     async fn push(&self) -> anyhow::Result<SyncReport> {
-        SyncEngine::new(&self.client, self.path(), &self.link).push().await
+        self.engine()?.push().await
     }
 
     /// One `wabi-sync pull`.
     async fn pull(&self) -> anyhow::Result<SyncReport> {
-        SyncEngine::new(&self.client, self.path(), &self.link).pull().await
+        self.engine()?.pull().await
+    }
+
+    /// `wabi-sync link <repo> <this folder>` on a folder that is already
+    /// linked: the link file is written again and nothing else is touched.
+    fn relink(&mut self, server: &Server, repo: i64, token: &str) {
+        // The link file's time is how a state file with no owner is told
+        // from one that belongs to this link; keep the two apart.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        LinkConfig { server_url: server.url.clone(), channel_id: repo }.save(self.path()).unwrap();
+        self.link = LinkConfig::load(self.path()).unwrap();
+        self.client = WabiClient::new(&self.link.server_url, token);
+    }
+
+    fn state_file(&self) -> std::path::PathBuf {
+        self.path().join(".wabi-sync/state.json")
+    }
+
+    /// The state file as an older build would have left it: no owner.
+    fn forget_state_owner(&self) {
+        let mut state: Value = serde_json::from_slice(&std::fs::read(self.state_file()).unwrap()).unwrap();
+        state.as_object_mut().unwrap().remove("owner");
+        std::fs::write(self.state_file(), state.to_string()).unwrap();
+    }
+
+    /// Every file under the folder that is not the client's own, with its
+    /// contents.
+    fn files(&self) -> Vec<(String, String)> {
+        fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+            for entry in std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok()) {
+                let path = entry.path();
+                let rel = path.strip_prefix(root).unwrap().to_string_lossy().to_string();
+                if rel == ".wabi-sync" || rel == ".wabi-sync.json" {
+                    continue;
+                }
+                if path.is_dir() {
+                    walk(&path, root, out);
+                } else {
+                    out.push((rel, String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string()));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(self.path(), self.path(), &mut out);
+        out.sort();
+        out
     }
 
     fn write(&self, rel: &str, bytes: impl AsRef<[u8]>) {
@@ -1378,4 +1499,472 @@ async fn large_file_round_trip_is_quiet() {
     assert!(theirs.conflict_copies().is_empty());
     assert_quiet(&theirs.sync().await.unwrap());
     assert_eq!(mine.recorded(BIG, "upload").await, 2);
+}
+
+// -- Task 4.8g: whose state is it --------------------------------------------
+
+/// B1. A folder synced with one repo is linked to another, empty one. The
+/// baselines belong to the first repo; read against the second they say
+/// "every file vanished on the server and is clean here".
+#[tokio::test]
+async fn relinking_to_an_empty_repo_deletes_nothing() {
+    let server = server().await;
+    let mut folder = server.owner_folder().await;
+    let first_repo = server.owner_folder().await;
+    folder.write("a.txt", "one");
+    folder.write("docs/b.txt", "two");
+    folder.sync().await.unwrap();
+    let before = folder.files();
+
+    let (repo_b, token_b) = server.second_repo().await;
+    folder.relink(&server, repo_b, &token_b);
+    let report = folder.sync().await.unwrap();
+    assert!(report.deleted_local.is_empty(), "{}", describe(&report));
+    assert_eq!(folder.files(), before, "the folder lost files: {}", describe(&report));
+    assert_eq!(report.uploaded, vec!["a.txt", "docs/b.txt"], "{}", describe(&report));
+    assert_eq!(folder.listed().await, vec!["a.txt", "docs/b.txt"]);
+    // The first repo is as it was.
+    assert_eq!(first_repo.listed().await, vec!["a.txt", "docs/b.txt"]);
+    assert_quiet(&folder.sync().await.unwrap());
+}
+
+/// B1. The other repo holds a different file under the same name: both
+/// versions are kept, as for any file with no baseline.
+#[tokio::test]
+async fn relinking_to_a_repo_with_other_contents_keeps_both_versions() {
+    let server = server().await;
+    let mut folder = server.owner_folder().await;
+    folder.write("a.txt", "from the first repo");
+    folder.write("same.txt", "same in both");
+    folder.sync().await.unwrap();
+
+    let (repo_b, token_b) = server.second_repo().await;
+    let other = server.folder_for(repo_b, &token_b);
+    other.write("a.txt", "from the second repo");
+    other.write("same.txt", "same in both");
+    other.sync().await.unwrap();
+
+    folder.relink(&server, repo_b, &token_b);
+    let report = folder.sync().await.unwrap();
+    assert!(report.deleted_local.is_empty() && report.uploaded.is_empty(), "{}", describe(&report));
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert_eq!(folder.read("a.txt").as_deref(), Some(&b"from the second repo"[..]));
+    assert_eq!(folder.conflict_copy_contents(), vec!["from the first repo"]);
+    assert_eq!(folder.on_server("a.txt").await, b"from the second repo");
+    assert_quiet(&folder.sync().await.unwrap());
+}
+
+/// B1. A state file written before the owner was recorded, and then a new
+/// link file: the state is not this link's.
+#[tokio::test]
+async fn relinking_with_a_state_file_from_an_older_build_deletes_nothing() {
+    let server = server().await;
+    let mut folder = server.owner_folder().await;
+    folder.write("a.txt", "one");
+    folder.sync().await.unwrap();
+    folder.forget_state_owner();
+    let before = folder.files();
+
+    let (repo_b, token_b) = server.second_repo().await;
+    folder.relink(&server, repo_b, &token_b);
+    let report = folder.sync().await.unwrap();
+    assert!(report.deleted_local.is_empty(), "{}", describe(&report));
+    assert_eq!(folder.files(), before);
+    assert_eq!(folder.listed().await, vec!["a.txt"]);
+}
+
+/// B1. A state file written before the owner was recorded, with the link
+/// file it was made for: it goes on being used, and the owner is recorded.
+#[tokio::test]
+async fn a_state_file_from_an_older_build_is_kept_for_its_own_link() {
+    let server = server().await;
+    let folder = server.owner_folder().await;
+    folder.write("a.txt", "one");
+    folder.sync().await.unwrap();
+    folder.forget_state_owner();
+
+    // With its baseline, removing the file is a deletion to push. With no
+    // baseline the file would come back from the server.
+    std::fs::remove_file(folder.path().join("a.txt")).unwrap();
+    let report = folder.sync().await.unwrap();
+    assert_eq!(report.deleted_remote, vec!["a.txt"], "{}", describe(&report));
+    let state: Value = serde_json::from_slice(&std::fs::read(folder.state_file()).unwrap()).unwrap();
+    assert_eq!(state["owner"]["channel_id"], json!(server.repo), "no owner recorded: {state}");
+    assert_eq!(state["owner"]["server_url"], json!(server.url), "{state}");
+}
+
+// -- Task 4.8g: a state file that cannot be read, and two processes -----------
+
+/// B2. Half a state file. Read as "nothing was ever synced" it sends a stale
+/// file up and puts back a file someone else deleted.
+#[tokio::test]
+async fn a_state_file_that_cannot_be_read_stops_the_round() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    mine.write("a.txt", "v1");
+    mine.write("gone.txt", "to be deleted by the artist");
+    mine.sync().await.unwrap();
+    theirs.sync().await.unwrap();
+    theirs.write("a.txt", "v2");
+    std::fs::remove_file(theirs.path().join("gone.txt")).unwrap();
+    theirs.sync().await.unwrap();
+
+    let whole = std::fs::read(mine.state_file()).unwrap();
+    std::fs::write(mine.state_file(), &whole[..whole.len() / 2]).unwrap();
+    let before = mine.files();
+
+    let error = match mine.sync().await {
+        Ok(report) => panic!("the round ran without its state: {}", describe(&report)),
+        Err(error) => format!("{error:#}"),
+    };
+    assert!(error.contains(&mine.state_file().display().to_string()), "the file is not named: {error}");
+    assert!(error.contains("move it aside"), "no way out is offered: {error}");
+    assert_eq!(mine.files(), before, "the folder was changed");
+    assert_eq!(std::fs::read(mine.state_file()).unwrap(), &whole[..whole.len() / 2], "the state file was replaced");
+    assert_eq!(mine.listed().await, vec!["a.txt"], "gone.txt was put back");
+    assert_eq!(mine.on_server("a.txt").await, b"v2");
+    assert!(mine.push().await.is_err() && mine.pull().await.is_err());
+
+    // The way out the message offers: the folder starts as a fresh link.
+    std::fs::rename(mine.state_file(), mine.path().join(".wabi-sync/state.json.aside")).unwrap();
+    let report = mine.sync().await.unwrap();
+    assert_eq!(mine.read("a.txt").as_deref(), Some(&b"v2"[..]), "{}", describe(&report));
+    assert_eq!(mine.conflict_copy_contents(), vec!["v1"]);
+}
+
+/// B2. Two wabi-sync processes on one folder (`watch` and a manual `sync`).
+#[tokio::test]
+async fn two_engines_cannot_work_one_folder_at_once() {
+    let server = server().await;
+    let folder = server.owner_folder().await;
+    folder.write("a.txt", "v1");
+    folder.sync().await.unwrap();
+
+    let first = folder.engine().unwrap();
+    let error = match folder.engine() {
+        Ok(_) => panic!("a second engine started on a folder that is being synced"),
+        Err(error) => format!("{error:#}"),
+    };
+    assert!(error.contains("another wabi-sync"), "{error}");
+    assert!(error.contains(".wabi-sync/lock"), "the lock file is not named: {error}");
+    drop(first);
+    // The lock file stays where it is and holds nobody back.
+    assert!(folder.path().join(".wabi-sync/lock").exists());
+    assert_quiet(&folder.sync().await.unwrap());
+}
+
+// -- Task 4.8g: ignored paths --------------------------------------------------
+
+/// B3. A path the local `.wabiignore` starts to exclude is no longer synced.
+/// That is not a deletion.
+#[tokio::test]
+async fn a_newly_ignored_path_is_not_deleted_on_the_server() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    mine.write("scratch/notes.txt", "v1");
+    mine.write("keep.txt", "stays");
+    mine.sync().await.unwrap();
+    theirs.sync().await.unwrap();
+
+    mine.write(".wabiignore", "scratch\n");
+    let report = mine.sync().await.unwrap();
+    assert!(report.deleted_remote.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.listed().await, vec!["keep.txt", "scratch/notes.txt"]);
+    assert_eq!(mine.recorded("scratch/notes.txt", "delete").await, 0);
+    assert!(!mine.state().baselines.contains_key("scratch/notes.txt"), "the baseline was kept");
+    assert_eq!(mine.read("scratch/notes.txt").as_deref(), Some(&b"v1"[..]));
+
+    let report = theirs.sync().await.unwrap();
+    assert!(report.deleted_local.is_empty(), "{}", describe(&report));
+    assert_eq!(theirs.read("scratch/notes.txt").as_deref(), Some(&b"v1"[..]));
+
+    // Ignored in both directions: the other member's edit stays theirs.
+    theirs.write("scratch/notes.txt", "v2");
+    theirs.sync().await.unwrap();
+    mine.write("scratch/notes.txt", "my private notes");
+    assert_quiet(&mine.sync().await.unwrap());
+    assert_quiet(&mine.sync().await.unwrap());
+    assert_eq!(mine.read("scratch/notes.txt").as_deref(), Some(&b"my private notes"[..]));
+    assert_eq!(mine.on_server("scratch/notes.txt").await, b"v2");
+    assert!(mine.conflict_copies().is_empty());
+}
+
+// -- Task 4.8g: first link of a folder that already holds the files -----------
+
+/// B4. With no baseline every upload is create-only, and the server reads
+/// the whole body before it answers 409. A folder that already holds the
+/// repo's files must not send them to find that out.
+#[tokio::test]
+async fn first_link_of_a_filled_folder_sends_no_file_the_server_has() {
+    let server = server().await;
+    let theirs = server.artist_folder().await;
+    let names: Vec<String> = (0..5).map(|n| format!("docs/{n}.txt")).collect();
+    for name in &names {
+        theirs.write(name, format!("contents of {name}"));
+    }
+    theirs.write(BIG, big(7));
+    theirs.sync().await.unwrap();
+
+    let mine = server.owner_folder().await;
+    for name in &names {
+        mine.write(name, format!("contents of {name}"));
+    }
+    mine.write(BIG, big(7));
+    mine.write("only-here.txt", "new");
+    server.forget_requests();
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.uploaded, vec!["only-here.txt"], "{}", describe(&report));
+    assert!(report.conflicts.is_empty() && report.downloaded.is_empty(), "{}", describe(&report));
+
+    let (puts, put_bytes) = server.requests("PUT", "/files/");
+    let (gets, _) = server.requests("GET", "/files/");
+    println!("first link of a filled folder: {puts} PUT ({put_bytes} bytes), {gets} GET of file contents");
+    // The one file the server does not have.
+    assert_eq!((puts, put_bytes), (1, 3), "files the server already has were sent");
+    // A file over the full-hash limit has an etag only the server can
+    // compute, so its contents are fetched once and compared here.
+    assert_eq!(gets, 1, "small identical files were downloaded");
+    assert_eq!(server.requests("GET", &format!("/files/{BIG}")).0, 1);
+    assert_quiet(&mine.sync().await.unwrap());
+}
+
+// -- Task 4.8g: one path's trouble is one path's report -----------------------
+
+/// B5. The server answers 500 to a DELETE (here: its `lore stage` fails).
+#[tokio::test]
+async fn a_delete_answered_500_does_not_stop_the_round() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    mine.write("a.txt", "v1");
+    mine.write("b.txt", "v1");
+    mine.sync().await.unwrap();
+    theirs.write("c.txt", "from the artist");
+    theirs.sync().await.unwrap();
+
+    std::fs::remove_file(mine.path().join("a.txt")).unwrap();
+    std::fs::remove_file(mine.path().join("b.txt")).unwrap();
+    server.forget_requests();
+    server.lore_stage_fails(true);
+    let result = mine.sync().await;
+    server.lore_stage_fails(false);
+    let report = result.expect("one refused deletion must not stop the round");
+    assert_eq!(server.requests("DELETE", "/files/").0, 2, "the second deletion was not tried");
+    assert_eq!(report.downloaded, vec!["c.txt"], "{}", describe(&report));
+    assert!(report.deleted_remote.is_empty(), "{}", describe(&report));
+}
+
+/// B5. A conflict on a file whose name leaves no room for
+/// `.wabi-conflict-<tag>` within one file name.
+#[tokio::test]
+async fn a_conflict_on_a_very_long_name_still_keeps_both() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    let long = format!("{}.txt", "n".repeat(245));
+    mine.write(&long, "v1");
+    mine.write("other.txt", "v1");
+    mine.sync().await.unwrap();
+    theirs.sync().await.unwrap();
+    theirs.write(&long, "theirs");
+    theirs.write("other.txt", "v2");
+    theirs.sync().await.unwrap();
+
+    mine.write(&long, "mine");
+    let report = mine.sync().await.expect("the conflict copy could not be named");
+    assert_eq!(report.conflicts.len(), 1, "{}", describe(&report));
+    assert_eq!(report.downloaded, vec!["other.txt"], "{}", describe(&report));
+    assert_eq!(mine.read(&long).as_deref(), Some(&b"theirs"[..]));
+    assert_eq!(mine.conflict_copy_contents(), vec!["mine"], "the user's bytes are gone");
+    let copy = &mine.conflict_copies()[0];
+    assert!(copy.len() <= 255 && copy.starts_with("nnnn"), "{copy}");
+    assert!(report.conflicts[0].contains(copy.as_str()), "{}", describe(&report));
+    // The copy is not synced, and the next round has nothing to do.
+    assert_quiet(&mine.sync().await.unwrap());
+    assert_eq!(mine.listed().await, vec![long.as_str(), "other.txt"]);
+
+    // A second conflict on the same file gets a copy of its own.
+    theirs.sync().await.unwrap();
+    theirs.write(&long, "theirs again");
+    theirs.sync().await.unwrap();
+    mine.write(&long, "mine again");
+    mine.sync().await.unwrap();
+    assert_eq!(mine.conflict_copy_contents().len(), 2);
+}
+
+/// B5. The server has a file where this folder has a directory.
+#[tokio::test]
+async fn a_remote_file_where_a_local_directory_sits_does_not_stop_the_round() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    theirs.write("thing", "a file");
+    theirs.write("z.txt", "from the artist");
+    theirs.sync().await.unwrap();
+
+    std::fs::create_dir_all(mine.path().join("thing")).unwrap();
+    for _ in 0..2 {
+        let report = mine.sync().await.expect("one path that cannot be written must not stop the round");
+        assert_eq!(mine.read("z.txt").as_deref(), Some(&b"from the artist"[..]), "{}", describe(&report));
+        assert!(mine.path().join("thing").is_dir());
+    }
+    // The other way round: a file here where the server has a directory.
+    theirs.write("dir/inner.txt", "inside");
+    theirs.write("zz.txt", "later");
+    theirs.sync().await.unwrap();
+    mine.write("dir", "a file of mine");
+    let report = mine.sync().await.expect("one path that cannot be written must not stop the round");
+    assert_eq!(mine.read("zz.txt").as_deref(), Some(&b"later"[..]), "{}", describe(&report));
+    assert_eq!(mine.read("dir").as_deref(), Some(&b"a file of mine"[..]));
+}
+
+/// B5. A symbolic link to nothing.
+#[tokio::test]
+async fn a_dangling_symlink_does_not_stop_the_round() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    mine.write("a.txt", "v1");
+    mine.write("b.txt", "v1");
+    mine.sync().await.unwrap();
+
+    std::os::unix::fs::symlink("nowhere", mine.path().join("broken")).unwrap();
+    mine.write("c.txt", "new");
+    let report = mine.sync().await.expect("a dangling symlink must not stop the round");
+    assert_eq!(report.uploaded, vec!["c.txt"], "{}", describe(&report));
+
+    // A synced file replaced by a link to nothing cannot be read. That is
+    // not a deletion, and nothing is downloaded through the link.
+    std::fs::remove_file(mine.path().join("a.txt")).unwrap();
+    std::os::unix::fs::symlink(mine.path().join("../outside-the-folder"), mine.path().join("a.txt")).unwrap();
+    let report = mine.sync().await.unwrap();
+    assert!(report.deleted_remote.is_empty() && report.downloaded.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.on_server("a.txt").await, b"v1");
+    assert!(!mine.path().join("../outside-the-folder").exists());
+}
+
+/// B5. A refused file is sent whole again every round.
+#[tokio::test]
+async fn a_refused_file_is_not_sent_again_until_it_changes() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    mine.write("AUX.txt", "not a portable name");
+    mine.write("node_modules/pkg/x.js", "ignored by the repo's .wabiignore");
+    let first = mine.sync().await.unwrap();
+    assert_eq!(first.not_uploaded.len(), 2, "{}", describe(&first));
+
+    server.forget_requests();
+    let second = mine.sync().await.unwrap();
+    assert_eq!(server.requests("PUT", "/files/").0, 0, "refused files were sent again unchanged");
+    assert_eq!(second.not_uploaded.len(), 2, "{}", describe(&second));
+    assert!(second.not_uploaded[0].starts_with("AUX.txt (still not uploaded"), "{}", describe(&second));
+    assert!(second.not_uploaded[0].contains("400: Invalid repository file path"), "{}", describe(&second));
+    assert!(second.not_uploaded[1].contains("500"), "{}", describe(&second));
+
+    // Changed: offered again.
+    mine.write("AUX.txt", "edited");
+    let third = mine.sync().await.unwrap();
+    assert_eq!(server.requests("PUT", "/files/"), (1, 6));
+    assert!(third.not_uploaded[0].starts_with("AUX.txt (not uploaded: "), "{}", describe(&third));
+}
+
+/// B5. A refusal for lack of permission is about the member, not the file:
+/// one file per round asks again, and when it is accepted the rest follow.
+#[tokio::test]
+async fn files_refused_for_lack_of_permission_go_up_once_permission_is_given() {
+    let server = server().await;
+    let reader = server.folder(&server.viewer_login);
+    reader.write("one.txt", "1");
+    reader.write("two.txt", "2");
+    reader.write("three.txt", "3");
+    assert_eq!(reader.sync().await.unwrap().not_uploaded.len(), 3);
+
+    server.forget_requests();
+    let report = reader.sync().await.unwrap();
+    assert_eq!(report.not_uploaded.len(), 3, "{}", describe(&report));
+    assert_eq!(server.requests("PUT", "/files/").0, 1, "every refused file was sent again");
+
+    server
+        .state
+        .wdb
+        .ingest_event(
+            "rbac",
+            "assign_role",
+            &json!({ "userId": server.viewer_id, "workspaceId": "default-workspace", "role": "Artist", "assignedBy": server.owner_id }),
+        )
+        .await
+        .unwrap();
+    let report = reader.sync().await.unwrap();
+    assert_eq!(report.uploaded, vec!["one.txt", "three.txt", "two.txt"], "{}", describe(&report));
+    assert!(report.not_uploaded.is_empty(), "{}", describe(&report));
+}
+
+// -- Task 4.8g: the cursor ------------------------------------------------------
+
+/// B6. A server restored from a backup has a shorter feed than the cursor
+/// this folder stored. Nothing after that cursor ever appears.
+#[tokio::test]
+async fn a_cursor_ahead_of_the_feed_comes_back() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    mine.write("a.txt", "v1");
+    mine.sync().await.unwrap();
+    let end = mine.state().cursor;
+    assert!(end > 0);
+
+    // What the folder holds after the server went back in time.
+    let mut state = mine.state();
+    state.cursor = end + 10_000;
+    state.save(mine.path()).unwrap();
+    let ahead = state.cursor;
+
+    assert_quiet(&mine.sync().await.unwrap());
+    assert_eq!(mine.state().cursor, end, "the cursor stayed ahead of the feed");
+
+    // And what `watch` asks between rounds, before any round has repaired it.
+    theirs.write("b.txt", "from the artist");
+    theirs.sync().await.unwrap();
+    assert!(mine.client.remote_moved(server.repo, ahead).await.unwrap(), "a cursor ahead of the feed sees no change");
+    assert!(mine.client.remote_moved(server.repo, end).await.unwrap());
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.downloaded, vec!["b.txt"], "{}", describe(&report));
+    let cursor = mine.state().cursor;
+    assert!(cursor > end && cursor < ahead, "{cursor}");
+    assert!(!mine.client.remote_moved(server.repo, cursor).await.unwrap());
+}
+
+// -- Task 4.8g: names that only look like the client's own -------------------
+
+/// B7. The server accepts all of these; the client dropped them without a
+/// word, in both directions.
+#[tokio::test]
+async fn names_that_only_look_internal_are_synced() {
+    let server = server().await;
+    let mine = server.owner_folder().await;
+    let theirs = server.artist_folder().await;
+    let names = [
+        "How.Wabi-Conflict-Works.md",
+        "about.wabi-conflict-handling.md",
+        "notes.wabi-conflict-old/a.md",
+        "sub/.wabi-sync.json",
+        "sub/.wabi-sync/x.txt",
+    ];
+    for name in names {
+        mine.write(name, format!("contents of {name}"));
+    }
+    // A real conflict copy, which stays where it is.
+    mine.write("a.txt.wabi-conflict-0a1b2c3d", "mine");
+    let report = mine.sync().await.unwrap();
+    let mut expected: Vec<&str> = names.to_vec();
+    expected.sort();
+    assert_eq!(report.uploaded, expected, "{}", describe(&report));
+    assert_eq!(mine.listed().await, expected);
+
+    let report = theirs.sync().await.unwrap();
+    assert_eq!(report.downloaded, expected, "{}", describe(&report));
+    // The folder's own link file and state are still its own.
+    assert_eq!(LinkConfig::load(theirs.path()).unwrap().channel_id, server.repo);
+    assert_quiet(&mine.sync().await.unwrap());
 }
