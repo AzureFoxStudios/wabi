@@ -262,6 +262,7 @@ setups). They take precedence over `config.toml`:
 | `WABI_LORE_MAX_BLOB_MB` | `default_blob_max_size_mb` |
 | `WABI_LORE_AUTO_CREATE` | `auto_create_repos` |
 | `WABI_LORE_RECORDINGS_CHANNEL` | `recordings_channel_name` (empty string is treated as "not set") |
+| `WABI_LORE_REVCACHE_KEEP` | Not a `LoreConfig` field: `wabi-lore` reads it when the service starts. The number of revisions kept per repo in the revision cache (§8.4a). Default `0` = keep every cached revision. A positive number turns pruning on (test: `core/addons/lore/backend/src/lib.rs::tests::revcache_default_prunes_nothing`, `core/addons/lore/backend/src/lib.rs::tests::revcache_keeps_only_the_newest_revisions_and_pruned_ones_are_not_found`). An unparseable value falls back to `0`. |
 
 ---
 
@@ -383,7 +384,7 @@ Tests named here are `path::test_name`. Paths: `core/crates/wabi-server/src/api/
 | `POST` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Acquire a file lock. A read-only member or another repo's token is refused before any side effect (test: `core/crates/wabi-server/tests/lore_credential_contract.rs::read_only_and_cross_repo_writes_fail_before_file_side_effects`). No test covers a successful acquire or the `locked_by`/`locked_at` response. |
 | `DELETE` | `/api/addons/lore/repos/{channel_id}/lock/{*path}` | Release a lock. Same coverage as acquire. |
 
-> **Note on `GET .../files/{*path}`:** the current file is served from a private streamed snapshot that is removed when the response completes or the client disconnects (test: `core/crates/wabi-server/src/api/lore.rs::tests::streamed_snapshots_preserve_ranges_and_remove_private_files_on_completion_or_disconnect`). Earlier text described a stable cache under `$TMPDIR/wabi-lore-cache/` with a background cleanup task; no such cache exists in the code. Reads pinned with `?revision=` use a per-revision cache (tests: `core/addons/lore/backend/src/lib.rs::tests::test_rev_cache_roundtrip`, `core/addons/lore/backend/src/lib.rs::tests::revision_cache_never_follows_leaf_or_directory_links`); bounding and pruning it is *planned* (Task 4.2 in `docs/plans/2026-11-06-backend-plan.md`).
+> **Note on `GET .../files/{*path}`:** the current file is served from a private streamed snapshot that is removed when the response completes or the client disconnects (test: `core/crates/wabi-server/src/api/lore.rs::tests::streamed_snapshots_preserve_ranges_and_remove_private_files_on_completion_or_disconnect`). Earlier text described a stable cache under `$TMPDIR/wabi-lore-cache/` with a background cleanup task; no such cache exists in the code. Reads pinned with `?revision=` use a per-revision cache (tests: `core/addons/lore/backend/src/lib.rs::tests::test_rev_cache_roundtrip`, `core/addons/lore/backend/src/lib.rs::tests::revision_cache_never_follows_leaf_or_directory_links`); it is unbounded by default and can be bounded with `WABI_LORE_REVCACHE_KEEP` (see §8.4a, "Revision cache behaviour").
 
 ### 8.3 History & diff
 
@@ -422,6 +423,14 @@ Revision-pinned reads: `GET …/files/{path}?revision=<hash>` serves the bytes
 captured at commit time from `<lore_data_dir>/<channel_id>.revcache/<rev>/`
 (head reads come from the working tree). Only versions committed through Wabi
 are cached — pinned reads of older foreign revisions 4xx honestly.
+
+Revision cache behaviour:
+
+- By default every cached revision is kept and nothing is pruned (test: `core/addons/lore/backend/src/lib.rs::tests::revcache_default_prunes_nothing`).
+- With `WABI_LORE_REVCACHE_KEEP=N` (N > 0), after each commit only the newest `N` revisions of that repo stay in the cache (the one just committed always stays). Older cached revisions are deleted for good, because the cache is the only place Wabi reads old revisions from, and `?revision=` downloads of them answer **404** (tests: `core/addons/lore/backend/src/lib.rs::tests::revcache_keeps_only_the_newest_revisions_and_pruned_ones_are_not_found` for the directories and the not-found read, `core/crates/wabi-server/src/api/lore.rs::tests::pruned_revision_reads_map_to_not_found` for the 404 mapping; the HTTP route itself is not driven by a test).
+- "Newest" follows the commit order Wabi records in `<channel_id>.revcache/.order`, not file times (test: `core/addons/lore/backend/src/lib.rs::tests::revcache_pruning_follows_recorded_commit_order_not_directory_times`). Revisions cached before that file existed have no recorded order; they count as older than every recorded revision and are ordered among themselves by directory modification time. No test covers that legacy case.
+- A snapshot commit hard-links each file whose bytes are unchanged since the previous cached revision, and copies the rest (test: `core/addons/lore/backend/src/lib.rs::tests::snapshot_commit_hard_links_unchanged_files_and_copies_changed_ones`). If the link cannot be made it copies instead (test: `core/addons/lore/backend/src/lib.rs::tests::snapshot_commit_copies_when_the_link_cannot_be_made`, which forces the failure with an existing destination file; a filesystem that does not support hard links is not tested). A single-file upload caches only that file.
+- Deleting a repo removes its `<channel_id>.revcache` directory (test: `core/addons/lore/backend/src/lib.rs::tests::delete_repo_removes_the_revision_cache`).
 
 ### 8.4b Sync protocol (manifest + change feed)
 
