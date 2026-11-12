@@ -163,15 +163,14 @@ fn conflict_path(local: &Path, tag: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Put the bytes of `local` in a conflict copy next to it and return the
-/// copy's path. A file that is already there is never written over: it may
+/// Put `bytes`, the contents of `local`, in a conflict copy next to it and
+/// return the copy's path. A file that is already there is never written over: it may
 /// be the only place an earlier version of the user's work exists. The name
 /// is `<file>.wabi-conflict-<tag>`, then `-2`, `-3`, … until one is free. A
 /// name whose file already holds exactly these bytes is used as it is, so a
 /// round repeated after a failure does not pile up identical copies.
-fn save_conflict_copy(local: &Path, tag: &str) -> anyhow::Result<PathBuf> {
+fn save_conflict_copy(local: &Path, bytes: &[u8], tag: &str) -> anyhow::Result<PathBuf> {
     use std::io::Write;
-    let bytes = std::fs::read(local)?;
     let mut n = 1u32;
     loop {
         let candidate = if n == 1 {
@@ -181,7 +180,7 @@ fn save_conflict_copy(local: &Path, tag: &str) -> anyhow::Result<PathBuf> {
         };
         match std::fs::OpenOptions::new().write(true).create_new(true).open(&candidate) {
             Ok(mut file) => {
-                file.write_all(&bytes)?;
+                file.write_all(bytes)?;
                 file.sync_all()?;
                 return Ok(candidate);
             }
@@ -285,20 +284,23 @@ impl<'a> SyncEngine<'a> {
     /// bytes back in the file. Returns the line for the report.
     ///
     /// `server_etag` is `None` when the server has no such file.
-    async fn keep_both(&mut self, path: &str, server_etag: Option<&str>) -> anyhow::Result<String> {
+    ///
+    /// Returns `None`, and makes no copy, when both sides turn out to hold
+    /// the same bytes.
+    async fn keep_both(&mut self, path: &str, server_etag: Option<&str>) -> anyhow::Result<Option<String>> {
         let local_file = self.folder.join(path);
         let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let Some(server_etag) = server_etag else {
-            let copy = save_conflict_copy(&local_file, "deleted")?;
+            let copy = save_conflict_copy(&local_file, &std::fs::read(&local_file)?, "deleted")?;
             std::fs::remove_file(&local_file)?;
             self.state.baselines.remove(path);
             self.state.pending_review.remove(path);
             self.state.local_fingerprints.remove(path);
             self.save_state()?;
-            return Ok(format!(
+            return Ok(Some(format!(
                 "{path} (deleted on the server; your version is saved as {})",
                 name(&copy)
-            ));
+            )));
         };
         // Fetch before touching the folder: a failed download leaves the
         // user's file where it was.
@@ -307,18 +309,27 @@ impl<'a> SyncEngine<'a> {
             .download(self.link.channel_id, path, None)
             .await?
             .context("conflict download failed")?;
+        let mine = std::fs::read(&local_file)?;
+        if mine == bytes {
+            // The same bytes on both sides, which the etags could not show:
+            // over the full-hash limit the server's etag is never one the
+            // client can compute. Nothing to keep apart; adopt its etag.
+            self.state.pending_review.remove(path);
+            self.record_download(path, &bytes, server_etag)?;
+            return Ok(None);
+        }
         let tag = server_etag.chars().take(8).collect::<String>();
-        let copy = save_conflict_copy(&local_file, &tag)?;
+        let copy = save_conflict_copy(&local_file, &mine, &tag)?;
         std::fs::write(&local_file, &bytes)?;
         self.state.pending_review.remove(path);
         self.record_download(path, &bytes, server_etag)?;
         // On disk at once: a round that fails later must not find this
         // conflict a second time.
         self.save_state()?;
-        Ok(format!(
+        Ok(Some(format!(
             "{path} (changed on the server too; {path} now holds the server's version, yours is saved as {})",
             name(&copy)
-        ))
+        )))
     }
 
     /// Pull remote changes down (three-way against baselines). The state is
@@ -398,7 +409,7 @@ impl<'a> SyncEngine<'a> {
                 } else {
                     // Both sides changed.
                     let line = self.keep_both(path, Some(remote_etag)).await?;
-                    report.conflicts.push(line);
+                    report.conflicts.extend(line);
                 }
             }
         }
@@ -429,7 +440,7 @@ impl<'a> SyncEngine<'a> {
             } else {
                 // Deleted remotely, edited locally.
                 let line = self.keep_both(&path, None).await?;
-                report.conflicts.push(line);
+                report.conflicts.extend(line);
             }
         }
 
@@ -542,7 +553,7 @@ impl<'a> SyncEngine<'a> {
                         continue;
                     }
                     let line = self.keep_both(path, conflict.current_etag.as_deref()).await?;
-                    report.conflicts.push(line);
+                    report.conflicts.extend(line);
                 }
             }
         }
