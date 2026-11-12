@@ -32,6 +32,7 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 | 337 | 4.3 | Lore Range downloads read from the confined handle; ETag hashed under the gate on a miss; stream stops if the file changes. |
 | 339 | (plan) | This handoff note; removed the unused clock-based reference code in the `payments-us` addon. |
 | 341 | 4.7 | Lore health check runs the `lore` program; missing `lore`/`git` is 503, a bad import URL 400, a path `.wabiignore` excludes 422 (typed `wabi_lore::LoreError`). |
+| 334 | 3.5.1 | Messages move to the SQLite read model (`projections/read-model.sqlite3`). A rebuild replays the log into the messages only; the other projections still load from `snapshot.json`. Refuses to start rather than lose messages when the log is incomplete; bounded write-ahead log. Data directories from before this PR are not supported: wipe them. |
 | 340 | 4.8g | `wabi-sync` state records whose folder it is (server + channel) and refuses a mismatch; `link` moves old state aside; mass-delete guard (`--allow-mass-delete`); refusals (400/403/413/422) remembered per file, 5xx retried; one sync per folder (OS lock). |
 
 ## Open PRs
@@ -39,19 +40,17 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 | PR | Task | State | Next step |
 |---|---|---|---|
 | 329 | 4.8b | Green. **On hold.** | Needs the owner's result for `q1` from the real-`lore` checks (does a review-branch upload leave the mainline's files alone). If yes: merge `main` in, re-check CI, merge. If no: do Task 4.9 first. |
-| 334 | 3.5.1 | Six review rounds done. A rebuild replays the log into the messages only (commits at or below the snapshot go to `stores_in_read_model()` handlers); the other projections load from the snapshot as on `main`; the old-snapshot comparison was removed under the scope note. | Merge on green CI. After it lands the owner wipes the test server's data directory once (pre-PR directories are not supported). |
 
 ## Remaining tasks, in order
 
 1. **Owner:** run the real-`lore` checks on a machine with `lore` (paste block at the top of `docs/testing/LORE_REAL_BINARY_CHECKS.md`). Unblocks 329 and 4.9.
-2. **3.5.1 finish** (PR 334), as above.
-3. **4.9** (prompt in the prompts file once 329 merges; it is on 329's branch). A failed upload must not leave bytes in the shared tree; store the mainline's name; put the tree back at startup. Add: a `PUT` or `DELETE` can answer 500 after the server already wrote or removed the file, so the client's view and the tree disagree. (The ignored-path 500 is fixed: 422 since 341.) Needs the real-`lore` answers.
-4. **4.10** (prompt on 329's branch). Review uploads recorded and announced as commits; approval records nothing. Touches a durable record: AGENTS.md golden rule 5.
-5. **4.11** Server-side repository identity: a repository deleted and recreated under the same channel looks the same to `wabi-sync` today (the mass-delete guard in 340 is the only defence). Give each repository an id the client can compare.
-6. **3.5.2 to 3.5.n**: channels, channel_members, users, then the rest, one per PR, reusing 334's schema, generation and startup rules. Independent review for the first three.
-7. **3.5 follow-up**: batch the startup rebuild and keep progress (ADR-0001 asked for it); move SQLite I/O off async tasks.
-8. **Dependency upgrades** from Task 2.7: `zip` 2 to 9, `p256`/`crypto-bigint`, the unmaintained notices. Prompts still to write; wait until 334 merges (Cargo.lock).
-9. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
+2. **4.9** (prompt in the prompts file once 329 merges; it is on 329's branch). A failed upload must not leave bytes in the shared tree; store the mainline's name; put the tree back at startup. Add: a `PUT` or `DELETE` can answer 500 after the server already wrote or removed the file, so the client's view and the tree disagree. (The ignored-path 500 is fixed: 422 since 341.) Needs the real-`lore` answers.
+3. **4.10** (prompt on 329's branch). Review uploads recorded and announced as commits; approval records nothing. Touches a durable record: AGENTS.md golden rule 5.
+4. **4.11** Server-side repository identity: a repository deleted and recreated under the same channel looks the same to `wabi-sync` today (the mass-delete guard in 340 is the only defence). Give each repository an id the client can compare.
+5. **3.5.2 to 3.5.n**: channels, channel_members, users, then the rest, one per PR, reusing 334's schema, generation and startup rules. Independent review for the first three.
+6. **3.5 follow-up**: batch the startup rebuild and keep progress (ADR-0001 asked for it); move SQLite I/O off async tasks.
+7. **Dependency upgrades** from Task 2.7: `zip` 2 to 9, `p256`/`crypto-bigint`, the unmaintained notices. Prompts still to write.
+8. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
 
 Also small: `cargo test -p wabidb --features test-harness recovery_codes::tests::process_crashes_keep_code_owner_and_session_recovery_together` fails on `main` with "username is already taken". CI does not run it. Find out whether the test or the code is wrong.
 
