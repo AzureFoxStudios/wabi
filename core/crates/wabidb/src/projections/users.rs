@@ -236,22 +236,42 @@ fn committed_rows_named_by(
             _ => {}
         }
     }
+    // Each row with the folded name stored beside it.
     let mut rows = std::collections::BTreeMap::new();
     state.read_model().read(|conn| {
         for id in &ids {
             let key = encode_key(*id);
-            if let Some(bytes) = read_model::get(conn, Table::Users, &key)? {
-                rows.insert(key, bytes);
+            if let Some((folded, bytes)) = read_model::user_row(conn, &key)? {
+                rows.insert(key, (folded, bytes));
             }
         }
         for name in &names {
             for (key, bytes) in read_model::users_by_username(conn, name)? {
-                rows.insert(key, bytes);
+                rows.insert(key, (name.clone(), bytes));
             }
         }
         Ok(())
     })?;
-    rows.values().map(|bytes| decode_record(bytes)).collect()
+    rows.values()
+        .map(|(folded, bytes)| {
+            let record = decode_record(bytes)?;
+            // The name lookup trusts the stored fold. A row whose fold is not
+            // its record's (damage, a hand edit) could hide a taken name, so
+            // admission refuses rather than decide from it. Startup rebuilds
+            // such a file.
+            if record.username.to_lowercase() != *folded {
+                return Err(crate::error::WabiError::Corrupt {
+                    location: "users read model".into(),
+                    detail: format!(
+                        "the stored login name of account {} does not match its record; \
+                         restart to rebuild the read model",
+                        record.user_id
+                    ),
+                });
+            }
+            Ok(record)
+        })
+        .collect()
 }
 
 /// The stored bytes of an account, as of the last committed commit; `None`

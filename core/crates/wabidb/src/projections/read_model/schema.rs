@@ -22,6 +22,16 @@ pub(crate) const SCHEMA_VERSION: i64 = 4;
 ///   stores for an event (keys, values, which events it applies).
 pub const READ_MODEL_GENERATION: i64 = 4;
 
+/// The Unicode version of this build's `str::to_lowercase`, as
+/// `major.minor.update`. Stored in `read_model_meta` next to the generation:
+/// a toolchain whose standard library has other case mappings folds login
+/// names differently, so a file written by it is rebuilt like a file of
+/// another generation.
+pub(crate) fn unicode_version() -> String {
+    let (major, minor, update) = char::UNICODE_VERSION;
+    format!("{major}.{minor}.{update}")
+}
+
 /// The largest commit number any file may name. Anything above is damage or
 /// tampering, not a count of commits: a value near `u64::MAX` would stop the
 /// sequencer, and SQLite stores the number as a signed 64-bit integer.
@@ -82,6 +92,9 @@ pub(crate) const PROJECTIONS: [&str; 4] = [MESSAGES, CHANNELS, CHANNEL_MEMBERS, 
 ///
 /// `read_model_meta.sync_count` is bumped by every checkpoint sync, so that
 /// transaction always writes something for SQLite to sync.
+/// `read_model_meta.unicode_version` is the Unicode version of the build that
+/// created the file ([`unicode_version`]); `users.username_lower` depends on
+/// it, so a file from a build with other case mappings is rebuilt.
 ///
 /// `applied_commit_seq`: one row per projection stored here. Every commit
 /// whose events that projection handles, up to and including `seq`, is in the
@@ -91,7 +104,8 @@ CREATE TABLE read_model_meta (
     id INTEGER PRIMARY KEY CHECK (id = 0),
     schema_version INTEGER NOT NULL,
     generation INTEGER NOT NULL,
-    sync_count INTEGER NOT NULL DEFAULT 0
+    sync_count INTEGER NOT NULL DEFAULT 0,
+    unicode_version TEXT NOT NULL
 );
 CREATE TABLE applied_commit_seq (
     projection TEXT PRIMARY KEY,

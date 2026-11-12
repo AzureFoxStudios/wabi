@@ -914,3 +914,207 @@ async fn every_snapshot_and_read_model_pair_restarts_to_the_live_state() {
         }
     }
 }
+
+/// Open the stopped engine's read model file with a plain SQLite connection.
+fn raw_file(path: &Path) -> rusqlite::Connection {
+    rusqlite::Connection::open(read_model_file(path)).unwrap()
+}
+
+/// `username_lower` depends on the case mappings of the build that wrote it
+/// (`str::to_lowercase`). The file records that build's Unicode version; a
+/// file from a build with another one is rebuilt from the log, like a file of
+/// another generation. Here the stored version is changed and a row no event
+/// produced is planted with a fold the current build agrees with: only a
+/// rebuild removes it.
+#[tokio::test]
+async fn a_read_model_written_with_another_unicode_version_is_rebuilt() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    let alice = write(&engine, vec![registered(user("alice", "a"))]).await;
+    let live = all_user_reads(engine.projection_state());
+    close(engine, dir.path()).await;
+    let kept = user_file(dir.path());
+    let stored: String = raw_file(dir.path())
+        .query_row("SELECT unicode_version FROM read_model_meta", [], |row| row.get(0))
+        .unwrap();
+    let (major, minor, update) = char::UNICODE_VERSION;
+    assert_eq!(stored, format!("{major}.{minor}.{update}"));
+
+    {
+        let conn = raw_file(dir.path());
+        conn.execute("UPDATE read_model_meta SET unicode_version = '1.0.0'", []).unwrap();
+        let mut planted = user("planted", "p");
+        planted.user_id = 404;
+        conn.execute(
+            "INSERT INTO users (key, username_lower, record) VALUES (?1, 'planted', ?2)",
+            [404u64.to_be_bytes().to_vec(), encode_record(&planted)],
+        )
+        .unwrap();
+    }
+    let engine = open(dir.path()).await;
+    assert_eq!(all_user_reads(engine.projection_state()), live, "the planted row survived");
+    assert_eq!(users::find_by_username(engine.projection_state(), "ALICE").unwrap()[0].user_id, alice);
+    close(engine, dir.path()).await;
+    assert_eq!(user_file(dir.path()), kept);
+    let stored: String = raw_file(dir.path())
+        .query_row("SELECT unicode_version FROM read_model_meta", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(stored, format!("{major}.{minor}.{update}"));
+}
+
+/// A stale fold (the review's case: U+A7CB lowercases to U+0264 only since
+/// Unicode 16, so an older build stored the name unchanged) or a damaged one
+/// makes the login lookup miss the account and would let admission take its
+/// name again. Every start compares each row's `username_lower` with its
+/// record and rebuilds the file when one differs.
+#[tokio::test]
+async fn a_stored_login_name_that_differs_from_its_record_is_rebuilt_at_open() {
+    assert_eq!("\u{A7CB}x".to_lowercase(), "\u{264}x");
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    let old = write(&engine, vec![registered(user("\u{A7CB}x", "hash-old"))]).await;
+    let bob = write(&engine, vec![registered(user("bob", "hash-bob"))]).await;
+    close(engine, dir.path()).await;
+    let kept = user_file(dir.path());
+    {
+        let conn = raw_file(dir.path());
+        // What a build with Unicode 15 stored, and a damaged column.
+        conn.execute("UPDATE users SET username_lower = ?1 WHERE key = ?2", rusqlite::params!["\u{A7CB}x", old.to_be_bytes().to_vec()])
+            .unwrap();
+        conn.execute("UPDATE users SET username_lower = 'b0b' WHERE key = ?1", [bob.to_be_bytes().to_vec()])
+            .unwrap();
+    }
+    let engine = open(dir.path()).await;
+    let state = engine.projection_state();
+    assert_eq!(users::find_by_username(state, "\u{A7CB}x").unwrap()[0].user_id, old);
+    assert_eq!(users::find_by_username(state, "BOB").unwrap()[0].user_id, bob);
+    for name in ["\u{264}x", "Bob"] {
+        let error = commit(&engine, vec![registered(user(name, "h"))]).await.unwrap_err();
+        assert!(error.to_string().contains("username is already taken"), "{name}: {error}");
+    }
+    close(engine, dir.path()).await;
+    assert_eq!(user_file(dir.path()), kept);
+}
+
+/// While the engine runs, admission refuses to decide from a row whose
+/// stored fold differs from its record (it is only rebuilt at the next
+/// start): renaming an account whose row is damaged that way is refused, and
+/// nothing is written.
+#[tokio::test]
+async fn admission_refuses_a_row_whose_stored_login_name_differs_from_its_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    let bob = write(&engine, vec![registered(user("bob", "hash-bob"))]).await;
+    let state = engine.projection_state();
+    let model = state.read_model();
+    model
+        .write(|conn| {
+            conn.execute("UPDATE users SET username_lower = 'b0b' WHERE key = ?1", [bob.to_be_bytes().to_vec()])
+                .map(drop)
+                .map_err(|e| crate::error::WabiError::InternalInvariantViolated { invariant: e.to_string() })
+        })
+        .unwrap();
+    model.finish_commit(state.applied_commit_seq()).unwrap();
+    let before = engine.barrier().current();
+    let mut rename = patch(bob);
+    rename.username = "robert".into();
+    let error = commit(&engine, vec![updated(rename)]).await.unwrap_err();
+    assert!(error.to_string().contains("does not match its record"), "{error}");
+    assert_eq!(engine.barrier().current(), before);
+    close(engine, dir.path()).await;
+}
+
+/// Old password hashes and deleted accounts must not stay readable in the
+/// file's free space (`secure_delete`): `snapshot.json` was rewritten whole
+/// at every checkpoint, so it dropped them. 400 accounts, so pages are
+/// reused; one is deleted and another changes its password. Neither old hash
+/// is anywhere in the file after a clean stop, nor after another start and
+/// stop, and no write-ahead log holding them is left behind.
+#[tokio::test]
+async fn deleted_accounts_and_old_password_hashes_leave_no_bytes_in_the_file() {
+    let hash = |i: u64| format!("$2b$12$USER{i:04}HASH{}", "x".repeat(40));
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    let mut ids = Vec::new();
+    for i in 0..400 {
+        ids.push(write(&engine, vec![registered(user(&format!("user{i:04}"), &hash(i)))]).await);
+    }
+    write(&engine, vec![deleted(ids[100])]).await;
+    let mut password = patch(ids[200]);
+    password.password_hash = "$2b$12$NEWHASH".into();
+    write(&engine, vec![updated(password)]).await;
+    close(engine, dir.path()).await;
+
+    let check = |when: &str| {
+        let file = std::fs::read(read_model_file(dir.path())).unwrap();
+        let contains = |needle: &[u8]| file.windows(needle.len()).any(|window| window == needle);
+        assert!(contains(b"USER0101HASH"), "{when}: the file does not hold the hashes at all");
+        for gone in ["USER0100HASH", "USER0200HASH"] {
+            assert!(!contains(gone.as_bytes()), "{when}: {gone} is still in the file");
+        }
+        for suffix in ["-wal", "-shm"] {
+            let side = format!("{}{suffix}", read_model_file(dir.path()).display());
+            let bytes = std::fs::read(&side).unwrap_or_default();
+            assert!(
+                !bytes.windows(12).any(|window| window == b"USER0100HASH" || window == b"USER0200HASH"),
+                "{when}: an old hash is in {side}"
+            );
+        }
+    };
+    check("after a clean stop");
+    let engine = open(dir.path()).await;
+    close(engine, dir.path()).await;
+    check("after another start and stop");
+}
+
+/// The read model's files are owner-only even when a copy left them 0644 with
+/// a write-ahead log that still holds frames: the start tightens the database
+/// file, `-wal` and `-shm` before any connection opens them (SQLite creates
+/// `-shm` with the database file's mode).
+#[cfg(unix)]
+#[tokio::test]
+async fn the_read_model_files_are_made_owner_only_before_they_are_opened() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    write(&engine, vec![registered(user("alice", "a"))]).await;
+    close(engine, dir.path()).await;
+    let file = read_model_file(dir.path());
+    let side = |suffix: &str| std::path::PathBuf::from(format!("{}{suffix}", file.display()));
+    {
+        // A write never checkpointed, as after a crash: copy the log while
+        // it holds the frame, close, and put the copy back.
+        let conn = rusqlite::Connection::open(&file).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        conn.execute("UPDATE read_model_meta SET sync_count = sync_count + 1", []).unwrap();
+        let frames = std::fs::read(side("-wal")).unwrap();
+        drop(conn);
+        std::fs::write(side("-wal"), frames).unwrap();
+    }
+    assert!(std::fs::metadata(side("-wal")).unwrap().len() > 0, "no frames left in the write-ahead log");
+    let _ = std::fs::remove_file(side("-shm"));
+    for path in [file.clone(), side("-wal")] {
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let mode = |path: &std::path::Path| std::fs::metadata(path).map(|m| m.permissions().mode() & 0o777).ok();
+    // The start's probe opens a read-only connection to a file whose log
+    // holds frames, before the engine's own open; SQLite then creates `-shm`
+    // with the database file's mode.
+    let lock = super::wait_for_stopped_engine(dir.path()).await;
+    let state = crate::projections::read_model::ReadModel::probe(dir.path()).unwrap();
+    drop(lock);
+    assert!(matches!(state, crate::projections::read_model::FileState::Usable { .. }), "{state:?}");
+    for path in [file.clone(), side("-wal")] {
+        assert_eq!(mode(&path), Some(0o600), "after the probe: {}", path.display());
+    }
+    let engine = open(dir.path()).await;
+    for path in [file.clone(), side("-shm")] {
+        assert_eq!(mode(&path), Some(0o600), "while the engine runs: {}", path.display());
+    }
+    if let Some(found) = mode(&side("-wal")) {
+        assert_eq!(found, 0o600, "while the engine runs: -wal");
+    }
+    assert_eq!(users::find_by_username(engine.projection_state(), "alice").unwrap().len(), 1);
+    close(engine, dir.path()).await;
+}
