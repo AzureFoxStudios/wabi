@@ -416,6 +416,22 @@ pub async fn run(
             continue;
         }
 
+        // A halted engine takes no commands: one that could not apply a
+        // commit, or whose read model SQLite reported as damaged. Refused
+        // before anything is written, so no durable commit is left that the
+        // engine cannot apply. The flag clears only with a restart.
+        if !projection_state.is_healthy() {
+            for command in window {
+                let _ = command.response_tx.send(Err(WabiError::InternalInvariantViolated {
+                    invariant: "engine halted: projection application failed or the projection \
+                                read model is damaged; restart the engine (a damaged read model \
+                                is rebuilt from the log)"
+                        .into(),
+                }));
+            }
+            continue;
+        }
+
         // ---- Stage A: prepare + submit index entries (in seq order) ------
         let mut prepared: Vec<PreparedCommand> = Vec::with_capacity(window.len());
         let mut pending_message_parents = HashMap::new();

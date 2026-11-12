@@ -267,7 +267,13 @@ fn inventory(
 pub fn read_model_content_digest(data_dir: &Path) -> Result<Option<String>> {
     use crate::projections::read_model::{Frozen, ReadModel, Table};
     let model = match ReadModel::open_frozen(data_dir) {
-        Frozen::Missing | Frozen::Replaced(_) => return Ok(None),
+        Frozen::Missing | Frozen::Replaced(..) => return Ok(None),
+        Frozen::Refused(reason) => {
+            return Err(WabiError::Validation {
+                command: "read_model_content_digest".into(),
+                reason: format!("the projection read model cannot be used: {reason}"),
+            })
+        }
         Frozen::Unverifiable(reason) => {
             return Err(WabiError::Validation {
                 command: "read_model_content_digest".into(),
@@ -442,7 +448,13 @@ pub async fn inspect_frozen_locked(
     use crate::projections::read_model::{Frozen, ReadModel};
     let (read_model_present, read_model_note) = match ReadModel::open_frozen(&root) {
         Frozen::Missing => (false, Some("no read model file".to_string())),
-        Frozen::Replaced(reason) => (true, Some(format!("the engine would replace it: {reason}"))),
+        Frozen::Replaced(reason, _) => {
+            (true, Some(format!("the engine would replace it: {reason}")))
+        }
+        Frozen::Refused(reason) => {
+            tracing::warn!("offline inspection refuses the read model: {reason}");
+            return Err(refused("inspection cannot use the projection read model"));
+        }
         Frozen::Unverifiable(reason) => {
             tracing::warn!("offline inspection refuses the read model: {reason}");
             return Err(refused("inspection cannot verify the projection read model"));

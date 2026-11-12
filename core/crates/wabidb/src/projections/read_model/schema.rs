@@ -22,6 +22,11 @@ pub(crate) const SCHEMA_VERSION: i64 = 1;
 ///   stores for an event (keys, values, which events it applies).
 pub const READ_MODEL_GENERATION: i64 = 1;
 
+/// The largest commit number any file may name. Anything above is damage or
+/// tampering, not a count of commits: a value near `u64::MAX` would stop the
+/// sequencer, and SQLite stores the number as a signed 64-bit integer.
+pub(crate) const MAX_COMMIT_SEQ: u64 = 1 << 62;
+
 /// File name under `<data dir>/projections/`.
 pub(crate) const FILE_NAME: &str = "read-model.sqlite3";
 

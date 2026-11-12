@@ -376,19 +376,24 @@ pub(crate) fn quarantine_for_report(
 
 /// The height the saved projections add to what the engine continues
 /// above, for `check` and `verify`: the highest of the snapshot's watermark,
-/// the read model's `applied_commit_seq` and the manifest's recorded height.
-/// Computed with the engine's own functions.
+/// the read model's `applied_commit_seq` (also of a file the engine would
+/// replace) and the manifest's recorded height. Computed with the engine's
+/// own functions.
 ///
-/// An unreadable snapshot is an error in their report (the engine will not
-/// start on it) and counts as 0. So is a log that ends below a saved
-/// projection in a way the engine refuses (`engine::plan_startup`). A read
-/// model these read-only commands cannot judge is a warning.
+/// Errors, because the engine refuses to start: an unreadable snapshot, an
+/// implausible watermark or manifest height, an unreadable incomplete-log
+/// record, something at the read model's path that is not a file, and any
+/// case `engine::plan_startup` refuses (a log shorter than a saved projection
+/// without a usable read model at the snapshot's watermark, or a rebuild that
+/// is needed on a directory recorded as having an incomplete log).
+/// Warnings: a directory recorded as having an incomplete log that the engine
+/// would still open, and a read model these read-only commands cannot judge.
 pub(crate) fn snapshot_watermark_for_report(
     data_dir: &Path,
     errors: &mut Vec<String>,
     warnings: &mut Vec<String>,
 ) -> u64 {
-    use crate::projections::read_model::{FileState, ReadModel};
+    use crate::projections::read_model::{FileState, Peek, ReadModel, MAX_COMMIT_SEQ};
     let snapshot = match crate::engine::locks::ProjectionState::read_snapshot_watermark(data_dir) {
         Ok(watermark) => watermark.unwrap_or(0),
         Err(e) => {
@@ -398,21 +403,49 @@ pub(crate) fn snapshot_watermark_for_report(
             0
         }
     };
-    let mut height = snapshot.max(crate::engine::manifest_high_seq(data_dir));
+    if snapshot > MAX_COMMIT_SEQ {
+        errors.push(format!(
+            "the engine refuses to start: the snapshot's watermark {snapshot} is not a \
+             plausible commit number (above 2^62)"
+        ));
+    }
+    let manifest = crate::engine::manifest_high_seq(data_dir).unwrap_or_else(|e| {
+        errors.push(format!("the engine refuses to start: {e}"));
+        0
+    });
+    let incomplete = crate::engine::incomplete_log::load(data_dir).unwrap_or_else(|e| {
+        errors.push(format!("the engine refuses to start: {e}"));
+        None
+    });
+    let mut height = snapshot.max(manifest);
     match ReadModel::peek(data_dir) {
-        Ok(model) => {
-            if let FileState::Usable { applied } = &model {
+        Peek::State(model) => {
+            if let FileState::Usable { applied } | FileState::Unusable { applied, .. } = &model {
                 height = height.max(*applied);
             }
             let index_dir = data_dir.join("global").join("commit-index");
             if let Ok(entries) = crate::commit_index::batcher::read_all_entries(&index_dir) {
                 let index_high = entries.iter().map(|e| e.commit_seq).max().unwrap_or(0);
-                if let Err(detail) = crate::engine::plan_startup(index_high, snapshot, &model) {
-                    errors.push(format!("the engine refuses to start: {detail}"));
+                match crate::engine::plan_startup(index_high, snapshot, &model, incomplete) {
+                    Err(detail) => errors.push(format!("the engine refuses to start: {detail}")),
+                    Ok(plan) => {
+                        if let Some(below) = incomplete.or(plan.record_incomplete_below) {
+                            warnings.push(format!(
+                                "the log of this directory is incomplete below commit {below}{}: \
+                                 the engine starts only because the saved projections hold what \
+                                 the missing commits did, and it will refuse any start that \
+                                 needs a rebuild from the log (a lost read model, a read-model \
+                                 generation change, a quarantine). Back up the whole data \
+                                 directory now",
+                                if incomplete.is_some() { " (global/incomplete-log.json)" } else { "" }
+                            ));
+                        }
+                    }
                 }
             }
         }
-        Err(reason) => warnings.push(format!(
+        Peek::Refuses(reason) => errors.push(format!("the engine refuses to start: {reason}")),
+        Peek::NotExamined(reason) => warnings.push(format!(
             "projections/read-model.sqlite3 was not examined: {reason}; the engine examines it \
              when it starts"
         )),

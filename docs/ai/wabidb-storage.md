@@ -11,6 +11,7 @@ $DATA_DIR/                      (the engine directory, e.g. data/wabi-server/wab
 ├── global/commit-index/
 │   └── *.widx
 ├── global/quarantine.json      (only after `wabidb-cli quarantine`; see below)
+├── global/incomplete-log.json  (only after a start kept the saved projections over a log shorter than its checkpoint; see docs/ai/wabidb-engine.md)
 ├── streams/<kind>/<stream_dir>/events/
 │   ├── 00000001.wseg
 │   └── 00000002.wseg
