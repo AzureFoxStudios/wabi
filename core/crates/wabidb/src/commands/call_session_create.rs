@@ -275,15 +275,18 @@ mod tests {
         assert!(state.get("channels", room_id.as_bytes()).is_none());
         drop(engine);
         std::fs::remove_file(dir.path().join("projections/snapshot.json")).unwrap();
-        let engine = WabiDbEngine::open(WabiDbConfig {
-            data_dir: dir.path().to_path_buf(),
-            bootstrap_source: BootstrapSource::Provided([0u8; 32]),
-            bootstrap_salt: None,
-            allow_init: false,
-            replication_config: None,
-            sync_transport: None,
-            test_boot_wallclock_override: None,
-        })
+        let engine = crate::tests::reopen_after_drop(
+            WabiDbConfig {
+                data_dir: dir.path().to_path_buf(),
+                bootstrap_source: BootstrapSource::Provided([0u8; 32]),
+                bootstrap_salt: None,
+                allow_init: false,
+                replication_config: None,
+                sync_transport: None,
+                test_boot_wallclock_override: None,
+            },
+            None,
+        )
         .await
         .unwrap();
         assert_eq!(engine.barrier().current(), accepted.commit_seq);
