@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use wabi_sync::api::WabiClient;
 use wabi_sync::config::{GlobalConfig, LinkConfig, SyncState};
-use wabi_sync::sync::{self, print_report, SyncEngine};
+use wabi_sync::sync::{self, print_report, SyncEngine, SyncReport};
 
 #[derive(Parser)]
 #[command(
@@ -124,10 +124,23 @@ fn read_token_from_stdin() -> Result<String> {
     Ok(token)
 }
 
+/// A round's result. When it failed after settling a conflict, the conflict
+/// is printed before the error is returned: the user's file already holds
+/// the server's version.
+fn or_conflicts(engine: &mut SyncEngine<'_>, prefix: &str, result: Result<SyncReport>) -> Result<SyncReport> {
+    if result.is_err() {
+        for line in engine.take_unreported_conflicts() {
+            println!("{prefix} ⚠ conflict: {line}");
+        }
+    }
+    result
+}
+
 async fn run_sync_round(client: &WabiClient, folder: &PathBuf, prefix: &str) -> Result<()> {
     let link = LinkConfig::load(folder)?;
     let mut engine = SyncEngine::new(client, folder, &link);
-    let report = engine.sync().await?;
+    let result = engine.sync().await;
+    let report = or_conflicts(&mut engine, prefix, result)?;
     if !report.is_empty() {
         print_report(prefix, &report);
     }
@@ -246,7 +259,8 @@ async fn main() -> Result<()> {
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link);
             // The engine saves its state, also when this fails part-way.
-            let report = engine.push().await?;
+            let result = engine.push().await;
+            let report = or_conflicts(&mut engine, "[push]", result)?;
             if report.is_empty() {
                 println!("Nothing to push.");
             } else {
@@ -259,7 +273,8 @@ async fn main() -> Result<()> {
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link);
             // The engine saves its state, also when this fails part-way.
-            let report = engine.pull().await?;
+            let result = engine.pull().await;
+            let report = or_conflicts(&mut engine, "[pull]", result)?;
             if report.is_empty() {
                 println!("Up to date.");
             } else {

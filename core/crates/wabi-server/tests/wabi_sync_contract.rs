@@ -973,12 +973,31 @@ async fn a_conflict_is_reported_even_when_the_round_then_fails() {
     server.fail_next("GET", "/files/z.txt");
     assert!(mine.pull().await.is_err(), "the injected failure");
     assert_eq!(mine.read("a.txt").as_deref(), Some(&b"theirs"[..]));
+    // The line is on disk with the conflict it describes.
+    assert_eq!(mine.state().unreported_conflicts.len(), 1);
 
     let report = mine.pull().await.unwrap();
     assert_eq!(report.conflicts.len(), 1, "the conflict was never reported: {}", describe(&report));
     assert!(report.conflicts[0].starts_with("a.txt ("), "{}", describe(&report));
     // Once.
+    assert!(mine.state().unreported_conflicts.is_empty());
     assert_quiet(&mine.pull().await.unwrap());
+
+    // What the command line does with a failed round: it takes the lines to
+    // print them with the error, and they are not printed a second time.
+    theirs.write("a.txt", "theirs again");
+    theirs.write("z.txt", "newer");
+    theirs.sync().await.unwrap();
+    mine.write("a.txt", "mine again");
+    server.fail_next("GET", "/files/z.txt");
+    let mut engine = SyncEngine::new(&mine.client, mine.path(), &mine.link);
+    assert!(engine.sync().await.is_err(), "the injected failure");
+    let shown = engine.take_unreported_conflicts();
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(shown[0].starts_with("a.txt ("), "{shown:?}");
+    let report = mine.sync().await.unwrap();
+    assert!(report.conflicts.is_empty(), "reported twice: {}", describe(&report));
+    assert_eq!(report.downloaded, vec!["z.txt"], "{}", describe(&report));
 }
 
 // -- A file with no baseline -------------------------------------------------

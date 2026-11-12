@@ -285,9 +285,13 @@ impl<'a> SyncEngine<'a> {
     ///
     /// `server_etag` is `None` when the server has no such file.
     ///
-    /// Returns `None`, and makes no copy, when both sides turn out to hold
-    /// the same bytes.
-    async fn keep_both(&mut self, path: &str, server_etag: Option<&str>) -> anyhow::Result<Option<String>> {
+    /// When both sides turn out to hold the same bytes there is no copy and
+    /// no line. Otherwise the line for the user goes into the state, saved
+    /// in the same write as the conflict itself, and stays there until a
+    /// report that carries it is handed over (`finish`): the user's file
+    /// now holds someone else's version, and they are told even if the rest
+    /// of this round fails or the process is killed.
+    async fn keep_both(&mut self, path: &str, server_etag: Option<&str>) -> anyhow::Result<()> {
         let local_file = self.folder.join(path);
         let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let Some(server_etag) = server_etag else {
@@ -296,11 +300,11 @@ impl<'a> SyncEngine<'a> {
             self.state.baselines.remove(path);
             self.state.pending_review.remove(path);
             self.state.local_fingerprints.remove(path);
-            self.save_state()?;
-            return Ok(Some(format!(
+            self.state.unreported_conflicts.push(format!(
                 "{path} (deleted on the server; your version is saved as {})",
                 name(&copy)
-            )));
+            ));
+            return self.save_state();
         };
         // Fetch before touching the folder: a failed download leaves the
         // user's file where it was.
@@ -316,32 +320,55 @@ impl<'a> SyncEngine<'a> {
             // client can compute. Nothing to keep apart; adopt its etag.
             self.state.pending_review.remove(path);
             self.record_download(path, &bytes, server_etag)?;
-            return Ok(None);
+            return Ok(());
         }
         let tag = server_etag.chars().take(8).collect::<String>();
         let copy = save_conflict_copy(&local_file, &mine, &tag)?;
         std::fs::write(&local_file, &bytes)?;
         self.state.pending_review.remove(path);
         self.record_download(path, &bytes, server_etag)?;
-        // On disk at once: a round that fails later must not find this
-        // conflict a second time.
-        self.save_state()?;
-        Ok(Some(format!(
+        self.state.unreported_conflicts.push(format!(
             "{path} (changed on the server too; {path} now holds the server's version, yours is saved as {})",
             name(&copy)
-        )))
+        ));
+        // On disk at once: a round that fails later, or is killed, must not
+        // find this conflict a second time, and must not forget to report it.
+        self.save_state()
     }
 
-    /// Pull remote changes down (three-way against baselines). The state is
-    /// saved before this returns, also when the pull fails part-way: every
-    /// step records itself as soon as it is done, so the saved state is what
-    /// actually happened and a retry starts from there.
-    pub async fn pull(&mut self) -> anyhow::Result<SyncReport> {
-        let result = self.pull_steps().await;
+    /// The end of every round, successful or not. The state is saved either
+    /// way: each step records itself as soon as it is done, so the saved
+    /// state is what actually happened and a retry starts from there. A
+    /// successful round's report takes the conflict lines waiting in the
+    /// state (this round's and any left by a round that failed).
+    fn finish(&mut self, result: anyhow::Result<SyncReport>) -> anyhow::Result<SyncReport> {
+        let result = result.map(|mut report| {
+            let mut conflicts = std::mem::take(&mut self.state.unreported_conflicts);
+            conflicts.append(&mut report.conflicts);
+            report.conflicts = conflicts;
+            report
+        });
         let saved = self.save_state();
         let report = result?;
         saved?;
         Ok(report)
+    }
+
+    /// Conflicts settled by a round that then failed. The caller shows them
+    /// with the error; they are then no longer waiting to be reported.
+    pub fn take_unreported_conflicts(&mut self) -> Vec<String> {
+        let conflicts = std::mem::take(&mut self.state.unreported_conflicts);
+        if !conflicts.is_empty() {
+            // If this cannot be saved they are shown again next round.
+            let _ = self.save_state();
+        }
+        conflicts
+    }
+
+    /// Pull remote changes down (three-way against baselines).
+    pub async fn pull(&mut self) -> anyhow::Result<SyncReport> {
+        let result = self.pull_steps().await;
+        self.finish(result)
     }
 
     async fn pull_steps(&mut self) -> anyhow::Result<SyncReport> {
@@ -408,8 +435,7 @@ impl<'a> SyncEngine<'a> {
                     self.record_download(path, &bytes, remote_etag)?;
                 } else {
                     // Both sides changed.
-                    let line = self.keep_both(path, Some(remote_etag)).await?;
-                    report.conflicts.extend(line);
+                    self.keep_both(path, Some(remote_etag)).await?;
                 }
             }
         }
@@ -439,8 +465,7 @@ impl<'a> SyncEngine<'a> {
                 self.state.local_fingerprints.remove(&path);
             } else {
                 // Deleted remotely, edited locally.
-                let line = self.keep_both(&path, None).await?;
-                report.conflicts.extend(line);
+                self.keep_both(&path, None).await?;
             }
         }
 
@@ -466,14 +491,10 @@ impl<'a> SyncEngine<'a> {
         Ok(report)
     }
 
-    /// Push local changes up (three-way against baselines). Saves the state
-    /// before returning, as `pull` does.
+    /// Push local changes up (three-way against baselines).
     pub async fn push(&mut self) -> anyhow::Result<SyncReport> {
         let result = self.push_steps().await;
-        let saved = self.save_state();
-        let report = result?;
-        saved?;
-        Ok(report)
+        self.finish(result)
     }
 
     async fn push_steps(&mut self) -> anyhow::Result<SyncReport> {
@@ -556,8 +577,7 @@ impl<'a> SyncEngine<'a> {
                         self.state.baselines.insert(path.clone(), conflict.current_etag);
                         continue;
                     }
-                    let line = self.keep_both(path, conflict.current_etag.as_deref()).await?;
-                    report.conflicts.extend(line);
+                    self.keep_both(path, conflict.current_etag.as_deref()).await?;
                 }
             }
         }
@@ -603,10 +623,16 @@ impl<'a> SyncEngine<'a> {
 
     /// Full round: push local work first, then pull, then record cursor.
     pub async fn sync(&mut self) -> anyhow::Result<SyncReport> {
-        let mut pushed = self.push().await?;
-        let mut pulled = self.pull().await?;
-        self.state.cursor = self.client.feed_end(self.link.channel_id, self.state.cursor).await?;
+        let result = self.sync_steps().await;
+        self.finish(result)
+    }
+
+    async fn sync_steps(&mut self) -> anyhow::Result<SyncReport> {
+        let mut pushed = self.push_steps().await?;
+        // What the push did is on disk before the pull starts.
         self.save_state()?;
+        let pulled = self.pull_steps().await?;
+        self.state.cursor = self.client.feed_end(self.link.channel_id, self.state.cursor).await?;
         pushed.uploaded.extend(pulled.uploaded);
         pushed.downloaded.extend(pulled.downloaded);
         pushed.deleted_local.extend(pulled.deleted_local);
