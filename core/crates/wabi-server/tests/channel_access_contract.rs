@@ -1872,6 +1872,40 @@ async fn group_consent_is_device_owned_and_old_disconnect_cannot_evict_a_replace
     assert_eq!(denied["requestId"], "stale-resume");
 }
 
+/// Deleting an account (the guest reaper) removes it from every group. That
+/// is a membership change like a removal: a call rejoin pinned to the
+/// revision from before it must be refused, and the group's revision must
+/// move, or clients and call admission never learn the member left.
+#[tokio::test]
+async fn deleting_a_member_account_changes_the_group_revision_like_a_removal() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, peer, _) = users(&state).await;
+    let guest = state.wdb.create_user("Guest_deleted-member", None, "").await.unwrap();
+    let group = "group-deleted-member";
+    let revision = state
+        .wdb
+        .create_group(group, "Deleted member", member, &[member, peer, guest])
+        .await
+        .unwrap();
+    state.wdb.delete_user(guest).await.unwrap();
+    let after = wabidb::projections::channel_members::ChannelMembersProjection::revision(
+        &state.wdb.engine().projection_state(),
+        group,
+    )
+    .unwrap();
+    assert!(after > revision, "deleting a member left the group revision at {after}");
+
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut client = SocketClient::connect(&app, &jwt(&state, member)).await;
+    client.emit("call-initiate", json!({"channelId":group,"rejoin":true,"membershipRevision":revision.to_string(),"requestId":"stale-after-deletion"})).await;
+    let denied = client.event("call-error").await;
+    assert_eq!(denied["code"], "membership_changed");
+    assert_eq!(denied["requestId"], "stale-after-deletion");
+}
+
 #[tokio::test]
 async fn group_readmission_can_rebuild_empty_runtime_state_without_ringing_members() {
     let dir = tempfile::tempdir().unwrap();
