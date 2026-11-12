@@ -499,8 +499,19 @@ impl FolderLock {
                 );
             }
             // A file system with no locks (some network mounts): go on
-            // without one, as every build before this did.
-            Err(std::fs::TryLockError::Error(_)) => return Ok(Self { file }),
+            // without one, as every build before this did, and say so once.
+            Err(std::fs::TryLockError::Error(e)) => {
+                static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    eprintln!(
+                        "warning: {} cannot be locked ({e}): this file system has no file locks. wabi-sync goes \
+                         on without one, so do not run two wabi-sync commands on this folder at once (`watch` and \
+                         a manual `sync`, for example).",
+                        path.display()
+                    );
+                }
+                return Ok(Self { file });
+            }
         }
         let _ = file.set_len(0);
         let _ = writeln!(file, "{}", std::process::id());

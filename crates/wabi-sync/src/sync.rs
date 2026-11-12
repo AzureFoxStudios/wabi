@@ -634,8 +634,12 @@ impl<'a> SyncEngine<'a> {
         if manifest.read_only {
             bail!("this repo is a read-only mirror; wabi-sync cannot sync it");
         }
+        // A path the folder ignores is left out of what the manifest lists
+        // (below), so the deletion loop finds it "gone on the server" with
+        // no local file and drops its baseline, pending-review and
+        // fingerprint entries without touching the file. The push drops
+        // whatever else it has (`forget_ignored`).
         let scan = scan_folder(self.folder)?;
-        self.forget_ignored(&scan);
         let remote: BTreeMap<&str, &Option<String>> = manifest
             .files
             .iter()
