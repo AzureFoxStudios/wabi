@@ -2,6 +2,14 @@
 
 Where the backend plan (`2026-11-06-backend-plan.md`, prompts in `2026-11-06-backend-plan-prompts.md`) stands, and how to finish it. Written for whoever picks it up next, person or model.
 
+## Scope note from the owner (2026-11-12)
+
+Wabi is not deployed. The only data directory is a test server the owner can wipe. So:
+
+- Do not build or keep upgrade paths, compatibility checks or repairs whose only job is to carry data written by earlier pre-release builds. Say in the docs that such directories are not supported and should be wiped.
+- Keep everything that protects data written by the current build going forward: crash safety, refusing rather than silently losing, honest error text, the durable-record versioning rule (AGENTS.md golden rule 5) for records written from now on.
+- When a review finding only affects pre-release data, note it and move on.
+
 ## How the work is run
 
 - One task per cloud session, one PR per task. The coordinating session starts each task session, reviews its PR, fixes small things on the branch itself as new commits, and merges.
