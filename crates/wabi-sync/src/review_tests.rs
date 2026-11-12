@@ -541,3 +541,28 @@ async fn resubmit_clears_the_waiting_mark_and_uploads_again() {
     assert_eq!(h.read("a.txt").as_deref(), Some("my edit"));
     assert!(h.conflict_copies().is_empty());
 }
+
+/// Item 6. A file waiting for review that cannot be read for a round is
+/// still waiting when it can be read again: it is not sent a second time.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_pending_file_that_cannot_be_read_for_a_round_stays_pending() {
+    let h = Harness::start().await;
+    h.server(|f| f.route_to_review = true);
+    h.write("new.txt", "my new work");
+    h.sync().await.unwrap();
+    assert_eq!(h.server(|f| f.puts.clone()), vec!["new.txt"]);
+
+    let file = h.folder().join("new.txt");
+    let away = tempfile::tempdir().unwrap();
+    std::fs::copy(&file, away.path().join("new.txt")).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    std::os::unix::fs::symlink("nowhere", &file).unwrap();
+    h.sync().await.unwrap();
+    std::fs::remove_file(&file).unwrap();
+    std::fs::copy(away.path().join("new.txt"), &file).unwrap();
+
+    let report = h.sync().await.unwrap();
+    assert_eq!(h.server(|f| f.puts.clone()), vec!["new.txt"], "sent for review twice");
+    assert_eq!(report.waiting_review, vec!["new.txt"]);
+}
