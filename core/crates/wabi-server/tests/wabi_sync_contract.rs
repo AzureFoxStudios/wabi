@@ -515,7 +515,7 @@ impl Folder {
 
 fn describe(report: &SyncReport) -> String {
     format!(
-        "downloaded {:?}, uploaded {:?}, deleted_local {:?}, deleted_remote {:?}, conflicts {:?}, waiting_review {:?}, not_deleted {:?}, not_uploaded {:?}",
+        "downloaded {:?}, uploaded {:?}, deleted_local {:?}, deleted_remote {:?}, conflicts {:?}, waiting_review {:?}, not_deleted {:?}, not_uploaded {:?}, notices {:?}",
         report.downloaded,
         report.uploaded,
         report.deleted_local,
@@ -523,7 +523,8 @@ fn describe(report: &SyncReport) -> String {
         report.conflicts,
         report.waiting_review,
         report.not_deleted,
-        report.not_uploaded
+        report.not_uploaded,
+        report.notices
     )
 }
 
@@ -1524,6 +1525,10 @@ async fn relinking_to_an_empty_repo_deletes_nothing() {
     assert!(report.deleted_local.is_empty(), "{}", describe(&report));
     assert_eq!(folder.files(), before, "the folder lost files: {}", describe(&report));
     assert_eq!(report.uploaded, vec!["a.txt", "docs/b.txt"], "{}", describe(&report));
+    // The user is told once why the folder was treated as new.
+    assert_eq!(report.notices.len(), 1, "{}", describe(&report));
+    let was = format!("was recorded for {} channel {}, not for {} channel {repo_b}", server.url, server.repo, server.url);
+    assert!(report.notices[0].contains(&was), "{}", describe(&report));
     assert_eq!(folder.listed().await, vec!["a.txt", "docs/b.txt"]);
     // The first repo is as it was.
     assert_eq!(first_repo.listed().await, vec!["a.txt", "docs/b.txt"]);
@@ -1573,6 +1578,8 @@ async fn relinking_with_a_state_file_from_an_older_build_deletes_nothing() {
     assert!(report.deleted_local.is_empty(), "{}", describe(&report));
     assert_eq!(folder.files(), before);
     assert_eq!(folder.listed().await, vec!["a.txt"]);
+    assert!(report.notices[0].contains("was recorded for an earlier link of this folder"), "{}", describe(&report));
+    assert_quiet(&folder.sync().await.unwrap());
 }
 
 /// B1. A state file written before the owner was recorded, with the link

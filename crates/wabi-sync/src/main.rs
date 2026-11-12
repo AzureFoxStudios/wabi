@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use wabi_sync::api::WabiClient;
-use wabi_sync::config::{FolderLock, GlobalConfig, LinkConfig, SyncState};
+use wabi_sync::config::{FolderLock, GlobalConfig, LinkConfig, Linked, SyncState};
 use wabi_sync::sync::{self, print_report, SyncEngine, SyncReport};
 
 #[derive(Parser)]
@@ -129,6 +129,9 @@ fn read_token_from_stdin() -> Result<String> {
 /// the server's version.
 fn or_conflicts(engine: &mut SyncEngine<'_>, prefix: &str, result: Result<SyncReport>) -> Result<SyncReport> {
     if result.is_err() {
+        for line in engine.take_notices() {
+            println!("{prefix} note: {line}");
+        }
         for line in engine.take_unreported_conflicts() {
             println!("{prefix} ⚠ conflict: {line}");
         }
@@ -175,7 +178,21 @@ async fn main() -> Result<()> {
             std::fs::create_dir_all(&folder)
                 .with_context(|| format!("creating {}", folder.display()))?;
             let link = LinkConfig { server_url, channel_id };
-            link.save(&folder)?;
+            // The link file only; `.wabi-sync/` is never touched here.
+            match link.link(&folder)? {
+                Linked::Unchanged => {
+                    println!("{} is already linked to channel {channel_id}; nothing changed.", folder.display());
+                    return Ok(());
+                }
+                Linked::New => {}
+                Linked::Replaced { previous } => println!(
+                    "This folder was linked to {} channel {} and has sync state from then. That state is left \
+                     in .wabi-sync/ and is not used for the new link: the next sync treats the folder as \
+                     newly linked. It deletes nothing on either side, uploads files the new repo does not \
+                     have, and keeps a file that differs from the repo's as a conflict copy.",
+                    previous.server_url, previous.channel_id
+                ),
+            }
             println!(
                 "Linked {} → channel {channel_id}.\nRun `wabi-sync watch` in that folder to start syncing.",
                 folder.display()

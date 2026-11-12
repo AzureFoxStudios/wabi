@@ -126,6 +126,11 @@ impl WabiClient {
         }
     }
 
+    /// The server this client talks to, without a trailing slash.
+    pub fn server_url(&self) -> &str {
+        &self.base
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base, path)
     }

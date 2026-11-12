@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 
 use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
-use crate::config::{FolderLock, LinkConfig, SyncState, LINK_FILE, STATE_DIR};
+use crate::config::{FolderLock, LinkConfig, StateOwner, SyncState, LINK_FILE, STATE_DIR};
 use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 
 /// What every conflict copy has in its file name.
@@ -208,6 +208,8 @@ pub struct SyncReport {
     /// Local files the server refused, each with the reason. They stay as
     /// they are in the folder and are offered again on the next round.
     pub not_uploaded: Vec<String>,
+    /// Things the user should know that are about the folder, not one file.
+    pub notices: Vec<String>,
 }
 
 impl SyncReport {
@@ -221,6 +223,7 @@ impl SyncReport {
             waiting_review: Vec::new(),
             not_deleted: Vec::new(),
             not_uploaded: Vec::new(),
+            notices: Vec::new(),
         }
     }
 
@@ -233,6 +236,7 @@ impl SyncReport {
             && self.waiting_review.is_empty()
             && self.not_deleted.is_empty()
             && self.not_uploaded.is_empty()
+            && self.notices.is_empty()
     }
 }
 
@@ -241,6 +245,8 @@ pub struct SyncEngine<'a> {
     pub folder: &'a Path,
     pub link: &'a LinkConfig,
     pub state: SyncState,
+    /// Lines for the next report's `notices`.
+    notices: Vec<String>,
     /// Held until the engine is dropped: no other wabi-sync process reads
     /// or writes this folder's state meanwhile.
     _lock: FolderLock,
@@ -251,14 +257,16 @@ impl<'a> SyncEngine<'a> {
     /// state file is there and cannot be read.
     pub fn new(client: &'a WabiClient, folder: &'a Path, link: &'a LinkConfig) -> anyhow::Result<Self> {
         let lock = FolderLock::acquire(folder)?;
-        let mut state = SyncState::load(folder)?;
+        // A state recorded for another server or channel is not this link's.
+        let owner = StateOwner { server_url: client.server_url().to_string(), channel_id: link.channel_id };
+        let (mut state, notice) = SyncState::for_owner(folder, owner)?;
         // An earlier build synced conflict copies like any other file. With
         // no record of them here they are neither deleted nor replaced, on
         // the server or in the folder.
         state.baselines.retain(|path, _| !is_internal(path));
         state.pending_review.retain(|path, _| !is_internal(path));
         state.local_fingerprints.retain(|path, _| !is_internal(path));
-        Ok(Self { client, folder, link, state, _lock: lock })
+        Ok(Self { client, folder, link, state, notices: notice.into_iter().collect(), _lock: lock })
     }
 
     pub fn save_state(&self) -> anyhow::Result<()> {
@@ -352,6 +360,7 @@ impl<'a> SyncEngine<'a> {
             let mut conflicts = std::mem::take(&mut self.state.unreported_conflicts);
             conflicts.append(&mut report.conflicts);
             report.conflicts = conflicts;
+            report.notices.append(&mut self.notices);
             report
         });
         let saved = self.save_state();
@@ -369,6 +378,11 @@ impl<'a> SyncEngine<'a> {
             let _ = self.save_state();
         }
         conflicts
+    }
+
+    /// Notices of a round that failed, for the caller to show with the error.
+    pub fn take_notices(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.notices)
     }
 
     /// Pull remote changes down (three-way against baselines).
@@ -697,6 +711,9 @@ impl WatchPacer {
 }
 
 pub fn print_report(prefix: &str, report: &SyncReport) {
+    for p in &report.notices {
+        println!("{prefix} note: {p}");
+    }
     for p in &report.downloaded {
         println!("{prefix} ↓ {p}");
     }
