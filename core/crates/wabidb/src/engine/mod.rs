@@ -396,17 +396,17 @@ impl WabiDbEngine {
                  from the log will refuse. Take a backup of the whole data directory now",
                 data_dir.display()
             );
-        } else if let Some(first) = index_first_seq {
-            // A directory with no evidence of a hole: remember where its log
-            // starts, so that losing the head later can be seen.
-            if manifest_head.map_or(true, |recorded| first < recorded) {
-                if let Err(error) = update_manifest(data_dir, |object| {
-                    object.insert(LOG_HEAD_KEY.to_string(), serde_json::json!(first));
-                }) {
-                    tracing::warn!("could not record the log head in the manifest: {error}");
-                }
-            }
         }
+        // A directory with no evidence of a hole: remember where its log
+        // starts, so that losing the head later can be seen. Written only once
+        // this start has succeeded (a refused start changes nothing but what
+        // `REFUSAL_WRITES` lists).
+        let head_to_record = match (incomplete_below, index_first_seq) {
+            (None, Some(first)) if manifest_head.map_or(true, |recorded| first < recorded) => {
+                Some(first)
+            }
+            _ => None,
+        };
         let read_model = Arc::new(match &model_file {
             FileState::Unusable { reason, .. } => {
                 tracing::warn!(
@@ -416,16 +416,18 @@ impl WabiDbEngine {
             }
             _ => crate::projections::read_model::ReadModel::open(data_dir)?,
         });
-        let (state, legacy_message_keys) = match saved {
-            Some(loaded) if !rebuild => (loaded.state, Vec::new()),
+        // On a rebuild the saved snapshot is not used as state, but it is what
+        // the rebuilt projections are checked against (see `old_snapshot`).
+        let (state, old_snapshot) = match saved {
+            Some(loaded) if !rebuild => (loaded.state, None),
             Some(loaded) => {
                 tracing::warn!(
                     "projection read model covers commit {model_claimed_seq}, the snapshot \
                      covers {saved_watermark}; rebuilding every projection from the log"
                 );
-                (ProjectionState::new(), loaded.legacy_message_keys)
+                (ProjectionState::new(), Some(loaded))
             }
-            None => (ProjectionState::new(), Vec::new()),
+            None => (ProjectionState::new(), None),
         };
         if let Some(below) = incomplete_below {
             state.set_incomplete_log_below(below);
@@ -451,7 +453,54 @@ impl WabiDbEngine {
         // replayed, rolled back otherwise.
         // Returns the highest commit_seq observed on disk (orphans included).
         read_model.begin_startup(rebuild)?;
-        let replayed = replay::replay_projections(
+        // A rebuild must give back everything the old snapshot held at its
+        // own watermark. When the log has a hole an older build made, this is
+        // the only evidence left of it: the commits are gone, their rows are
+        // in the snapshot. The check runs when replay has applied exactly
+        // the commits the snapshot covers, so what happened after the
+        // snapshot cannot hide or fake a difference.
+        let refused = std::sync::atomic::AtomicBool::new(false);
+        let pause = old_snapshot.as_ref().map(|old| {
+            let refused = &refused;
+            let read_model = &read_model;
+            let first_indexed = index_first_seq;
+            replay::Pause {
+                at: old.watermark,
+                check: Box::new(move |replayed, learned| {
+                    if learned.incomplete {
+                        tracing::warn!(
+                            "global/quarantine.json lists a commit that could not be read in \
+                             full: the old snapshot is not checked against the rebuilt log"
+                        );
+                        return Ok(());
+                    }
+                    let found = lost_from_snapshot(old, replayed, learned, read_model)?;
+                    if let Some(lost) = found {
+                        refused.store(true, std::sync::atomic::Ordering::SeqCst);
+                        return Err(WabiError::Corrupt {
+                            location: ProjectionState::snapshot_path(data_dir).display().to_string(),
+                            detail: format!(
+                                "replaying the log gives back {} of the {} {} that \
+                                 projections/snapshot.json holds (first missing: {}); the log is \
+                                 incomplete (its first indexed commit is {}), so a rebuild from it \
+                                 would drop them. Repair required before startup: keep running the \
+                                 build that wrote this snapshot, or restore the whole data directory \
+                                 from a backup taken before the log lost commits (restoring only the \
+                                 missing log files is not enough once commits were written after \
+                                 the loss). {REFUSAL_WRITES}",
+                                lost.total - lost.missing,
+                                lost.total,
+                                lost.what,
+                                lost.first,
+                                first_indexed.map_or("none".to_string(), |first| first.to_string()),
+                            ),
+                        });
+                    }
+                    Ok(())
+                }),
+            }
+        });
+        let replayed = replay::replay_projections_with(
             data_dir,
             &key_registry,
             &bootstrap_key,
@@ -459,31 +508,14 @@ impl WabiDbEngine {
             &dispatch_table,
             &barrier,
             snapshot_watermark,
+            pause,
         )
         .await;
         let replay_high_seq = match replayed {
             Ok(high) => high,
             Err(error) => {
                 read_model.rollback();
-                return Err(error);
-            }
-        };
-        // A rebuild from the log must give back every message the old
-        // snapshot held. When the log has a hole an older build made, this
-        // is the only evidence left of it: the commits are gone, the messages
-        // are in the snapshot. (A quarantined commit's messages are expected
-        // to be missing, so a quarantine list turns the check off.)
-        if rebuild && !legacy_message_keys.is_empty() {
-            if quarantine::load(data_dir)?.is_empty() {
-                let (missing, first) = match read_model.missing_messages(&legacy_message_keys) {
-                    Ok(found) => found,
-                    Err(error) => {
-                        read_model.rollback();
-                        return Err(error);
-                    }
-                };
-                if missing > 0 {
-                    read_model.rollback();
+                if refused.load(std::sync::atomic::Ordering::SeqCst) {
                     if matches!(model_file, FileState::Missing | FileState::Unusable { .. }) {
                         // A file this start created, still empty.
                         let _ = crate::projections::read_model::ReadModel::remove_files(data_dir);
@@ -492,37 +524,20 @@ impl WabiDbEngine {
                     if claimed > manifest_high_seq {
                         let _ = raise_manifest_height(data_dir, claimed);
                     }
-                    return Err(WabiError::Corrupt {
-                        location: ProjectionState::snapshot_path(data_dir).display().to_string(),
-                        detail: format!(
-                            "replaying the log gives back {} of the {} messages that \
-                             projections/snapshot.json holds (first missing: {}); the log is \
-                             incomplete (its first indexed commit is {}), so a rebuild from it \
-                             would drop them. Repair required before startup: keep running the \
-                             build that wrote this snapshot, or restore the whole data directory \
-                             from a backup taken before the log lost commits (restoring only the \
-                             missing log files is not enough once commits were written after \
-                             the loss). {REFUSAL_WRITES}",
-                            legacy_message_keys.len() - missing,
-                            legacy_message_keys.len(),
-                            first
-                                .as_deref()
-                                .map(crate::projections::messages::describe_key)
-                                .unwrap_or_default(),
-                            index_first_seq.map_or("none".to_string(), |first| first.to_string()),
-                        ),
-                    });
                 }
-            } else {
-                tracing::warn!(
-                    "global/quarantine.json lists commits: the messages in the old snapshot \
-                     are not checked against the rebuilt log"
-                );
+                return Err(error);
             }
-        }
+        };
         if let Err(error) = read_model.commit_startup(barrier.current()) {
             read_model.rollback();
             return Err(error);
+        }
+        if let Some(first) = head_to_record {
+            if let Err(error) = update_manifest(data_dir, |object| {
+                object.insert(LOG_HEAD_KEY.to_string(), serde_json::json!(first));
+            }) {
+                tracing::warn!("could not record the log head in the manifest: {error}");
+            }
         }
 
         // 8. Create commit-index batcher
@@ -1279,12 +1294,92 @@ pub(crate) struct StartupPlan {
     pub record_incomplete_below: Option<u64>,
 }
 
-/// What a refused start may change. Said in every refusal, and in
-/// `docs/deployment/BACKUP_AND_RECOVERY.md`.
 /// Manifest field: the lowest commit in the commit index when this directory
 /// was last known to have a whole log head.
 pub(crate) const LOG_HEAD_KEY: &str = "log_head_commit";
 
+/// Indexes the engine fills from other indexes at open, not by replaying
+/// events; a replay does not reproduce them, so they are not compared.
+const DERIVED_INDEXES: [&str; 1] = [crate::projections::albums::ID_INDEX];
+
+/// What a rebuild failed to give back from the old snapshot.
+struct Lost {
+    missing: usize,
+    total: usize,
+    what: &'static str,
+    first: String,
+}
+
+/// Compare the old snapshot with the projections replay has just rebuilt at
+/// the snapshot's watermark. Every entry of the snapshot (the messages of an
+/// old in-memory messages index, and every row of its other indexes) must
+/// exist in the rebuild, or be a row a quarantined commit created.
+///
+/// Only keys are compared, and only in this direction. A rebuild may hold
+/// more than the snapshot (the membership and voice repair passes add rows
+/// older snapshots lack) and may store other bytes for the same key (record
+/// versions): neither means the log lost anything. What the check can see is
+/// a creation the log no longer holds; an edit or delete lost with the log,
+/// that leaves its key in place, it cannot.
+fn lost_from_snapshot(
+    old: &locks::LoadedSnapshot,
+    replayed: &ProjectionState,
+    learned: &replay::Learned,
+    read_model: &crate::projections::read_model::ReadModel,
+) -> Result<Option<Lost>> {
+    // Messages of an old in-memory index, minus those a quarantined commit made.
+    let mut excused = std::collections::HashSet::new();
+    learned.scratch.read_model().for_each_full_row(
+        crate::projections::read_model::Table::Messages,
+        |columns| {
+            if let Some(key) = columns.first() {
+                excused.insert(key.to_vec());
+            }
+            Ok(())
+        },
+    )?;
+    let keys: Vec<Vec<u8>> = old
+        .legacy_message_keys
+        .iter()
+        .filter(|key| !excused.contains(*key))
+        .cloned()
+        .collect();
+    let (missing, first) = read_model.missing_messages(&keys)?;
+    if missing > 0 {
+        return Ok(Some(Lost {
+            missing,
+            total: keys.len(),
+            what: "messages",
+            first: first
+                .as_deref()
+                .map(crate::projections::messages::describe_key)
+                .unwrap_or_default(),
+        }));
+    }
+    let mut names = old.state.index_names();
+    names.sort();
+    let mut total = 0;
+    let mut missing = 0;
+    let mut first = None;
+    for name in names.iter().filter(|name| !DERIVED_INDEXES.contains(&name.as_str())) {
+        old.state.for_each(name, |key, _| {
+            total += 1;
+            if replayed.get(name, key).is_none() && learned.scratch.get(name, key).is_none() {
+                missing += 1;
+                first.get_or_insert_with(|| format!("index {name}, key {}", hex::encode(key)));
+            }
+        });
+    }
+    Ok(first.map(|first| Lost {
+        missing,
+        total,
+        what: "entries in its other indexes",
+        first,
+    }))
+}
+
+/// What a refused start may change. Said in every refusal, and in
+/// `docs/deployment/BACKUP_AND_RECOVERY.md`.
 pub(crate) const REFUSAL_WRITES: &str = "This refusal changes no saved projection. It may \
 raise `highest_commit_seq` in storage-manifest.json to the highest commit any file names (so a \
 later start cannot hand those numbers out again), and SQLite may recreate \

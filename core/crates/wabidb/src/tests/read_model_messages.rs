@@ -1888,3 +1888,255 @@ async fn commit_numbers_stop_at_the_limit() {
         .to_string();
     assert!(text.contains("commit number limit reached") && text.contains("nothing was written"), "{text}");
 }
+
+// --- A saved snapshot is checked against the rebuilt log ------------------
+
+/// Turn a stopped directory into what an older build leaves: no read model, no
+/// incomplete-log evidence anywhere, and, when `legacy_messages`, the messages
+/// as an index of the snapshot (the format before the SQLite read model).
+fn as_an_older_build_left_it(path: &Path, legacy_messages: bool) {
+    let rows: Vec<(Vec<u8>, Vec<u8>)> = if legacy_messages && read_model_file(path).exists() {
+        rusqlite::Connection::open(read_model_file(path))
+            .unwrap()
+            .prepare("SELECT key, record FROM messages ORDER BY key")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    crate::projections::read_model::ReadModel::remove_files(path).unwrap();
+    let _ = std::fs::remove_file(crate::engine::incomplete_log::path(path));
+    edit_json(&path.join("storage-manifest.json"), |manifest| {
+        let object = manifest.as_object_mut().unwrap();
+        object.remove("incomplete_log_below");
+        object.remove("log_head_commit");
+    });
+    edit_json(&ProjectionState::snapshot_path(path), |snapshot| {
+        snapshot.as_object_mut().unwrap().remove("incomplete_log_below");
+        if !rows.is_empty() {
+            snapshot["indexes"].as_array_mut().unwrap().push(serde_json::json!([
+                "messages",
+                rows.iter()
+                    .map(|(key, value)| serde_json::json!({"key": hex::encode(key), "value": hex::encode(value)}))
+                    .collect::<Vec<_>>()
+            ]));
+        }
+    });
+}
+
+/// An event no projection handles: the engine keeps the latest payload of each
+/// event type in its `events` index, one key per type.
+async fn note(engine: &WabiDbEngine, kind: &str) -> u64 {
+    commit(engine, vec![event(kind, "notes", kind.as_bytes().to_vec())]).await.unwrap().commit_seq
+}
+
+/// Three commits that touch no message, then the log is lost and the engine
+/// (which has always opened such a directory) writes on. The saved snapshot
+/// still holds what commits 1 to 3 did. The directory is then made to look
+/// as an older build left it.
+async fn lost_three_commits_without_messages(path: &Path, lose: bool) {
+    let engine = open(path).await;
+    for (n, kind) in ["note_one", "note_two", "note_three"].into_iter().enumerate() {
+        assert_eq!(note(&engine, kind).await, n as u64 + 1);
+    }
+    close(engine, path).await;
+    if lose {
+        remove_the_log(path);
+    }
+    let engine = open(path).await;
+    assert_eq!(note(&engine, "note_four").await, 4);
+    close(engine, path).await;
+    as_an_older_build_left_it(path, false);
+}
+
+/// A hole that lost no message is still a hole: the old snapshot holds the
+/// rows of commits 1 to 3, a rebuild from the log would drop them, and the
+/// start refuses and changes nothing. With the whole log the same directory
+/// opens.
+#[tokio::test]
+async fn a_hole_that_lost_no_messages_is_not_rebuilt_from() {
+    let whole = tempfile::tempdir().unwrap();
+    lost_three_commits_without_messages(whole.path(), false).await;
+    let engine = open(whole.path()).await;
+    for kind in ["note_one", "note_two", "note_three", "note_four"] {
+        assert!(engine.projection_state().get("events", kind.as_bytes()).is_some(), "{kind}");
+    }
+    close(engine, whole.path()).await;
+
+    let holed = tempfile::tempdir().unwrap();
+    lost_three_commits_without_messages(holed.path(), true).await;
+    assert_eq!(index_seqs(holed.path()), [4]);
+    let before = tree_for_refusal(holed.path());
+    let text = refused(holed.path()).await;
+    println!("{text}");
+    for part in ["gives back 1 of the 4 entries in its other indexes", "index events", "first indexed commit is 4", "restore the whole data directory"] {
+        assert!(text.contains(part), "{part}: {text}");
+    }
+    assert!(tree_for_refusal(holed.path()) == before, "a refused start changed the directory");
+    assert!(!read_model_file(holed.path()).exists(), "the refused start left a read model");
+    assert_eq!(
+        crate::engine::manifest_field(holed.path(), "log_head_commit"),
+        None,
+        "a refused start must not write the log head"
+    );
+    // Refused again, not opened on the second try.
+    refused(holed.path()).await;
+}
+
+/// A start that succeeds records the head of the log; one that refuses does
+/// not (it is not among the files `REFUSAL_WRITES` names).
+#[tokio::test]
+async fn the_log_head_is_recorded_only_by_a_start_that_succeeds() {
+    let dir = tempfile::tempdir().unwrap();
+    lost_three_commits_without_messages(dir.path(), false).await;
+    assert_eq!(crate::engine::manifest_field(dir.path(), "log_head_commit"), None);
+    let engine = open(dir.path()).await;
+    close(engine, dir.path()).await;
+    assert_eq!(crate::engine::manifest_field(dir.path(), "log_head_commit"), Some(1));
+}
+
+/// Quarantine excludes only what the quarantined commits created. A
+/// quarantined commit that holds no message must not switch the check off:
+/// with the hole it still refuses; without it, the directory opens even though
+/// the snapshot holds the row of the quarantined commit.
+#[tokio::test]
+async fn a_quarantined_commit_excuses_only_what_it_created() {
+    for lose in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        lost_three_commits_without_messages(dir.path(), lose).await;
+        // Commit 4 (note_four) is the poison commit.
+        let evidence = (
+            crate::engine::manifest_field(dir.path(), "incomplete_log_below"),
+            crate::engine::incomplete_log::path(dir.path()).exists(),
+        );
+        assert_eq!(evidence, (None, false));
+        crate::cli::quarantine::quarantine(dir.path(), 4).unwrap();
+        if lose {
+            let text = refused(dir.path()).await;
+            assert!(text.contains("gives back 1 of the 4 entries"), "{text}");
+        } else {
+            let engine = open(dir.path()).await;
+            for kind in ["note_one", "note_two", "note_three"] {
+                assert!(engine.projection_state().get("events", kind.as_bytes()).is_some(), "{kind}");
+            }
+            assert!(engine.projection_state().get("events", b"note_four").is_none());
+            close(engine, dir.path()).await;
+        }
+    }
+}
+
+/// Directories whose history is full of the things a snapshot and a replay
+/// might disagree about must still open: edits, deletes, a channel clear,
+/// blank ids, two channels and an event no handler knows. Opened with the
+/// snapshot in the old format (messages as an index of it), and with a
+/// snapshot taken part-way through the history.
+#[tokio::test]
+async fn healthy_directories_are_not_refused_by_the_snapshot_check() {
+    // Whole history, old-format snapshot.
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    note(&engine, "note_one").await;
+    write_history(&engine).await;
+    note(&engine, "note_two").await;
+    let before = crate::projections::messages::stored_message_count(engine.projection_state());
+    close(engine, dir.path()).await;
+    as_an_older_build_left_it(dir.path(), true);
+    let engine = open(dir.path()).await;
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), before);
+    close(engine, dir.path()).await;
+
+    // A snapshot taken part-way: the commits after it replay on top.
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    note(&engine, "note_one").await;
+    send(&engine, "message_created", &message("ch_a", "m1", 7, 100)).await;
+    close(engine, dir.path()).await;
+    let snapshot_part_way = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
+    let engine = open(dir.path()).await;
+    write_history(&engine).await;
+    note(&engine, "note_two").await;
+    close(engine, dir.path()).await;
+    std::fs::write(ProjectionState::snapshot_path(dir.path()), snapshot_part_way).unwrap();
+    as_an_older_build_left_it(dir.path(), false);
+    let engine = open(dir.path()).await;
+    assert!(engine.projection_state().get("events", b"note_two").is_some());
+    assert_eq!(engine.projection_state().applied_commit_seq(), engine.barrier().current());
+    close(engine, dir.path()).await;
+}
+
+/// The messages of a quarantined commit are excused too, and only theirs: a
+/// quarantined message commit does not hide a hole's lost messages.
+#[tokio::test]
+async fn a_quarantined_message_commit_excuses_only_its_own_messages() {
+    for lose in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        five_commits(dir.path()).await;
+        if lose {
+            remove_the_log(dir.path());
+        }
+        let engine = open(dir.path()).await;
+        assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
+        close(engine, dir.path()).await;
+        as_an_older_build_left_it(dir.path(), true);
+        crate::cli::quarantine::quarantine(dir.path(), 6).unwrap();
+        if lose {
+            let text = refused(dir.path()).await;
+            assert!(text.contains("gives back 0 of the 5 messages"), "{text}");
+        } else {
+            let engine = open(dir.path()).await;
+            let state = engine.projection_state();
+            assert_eq!(crate::projections::messages::stored_message_count(state), 5);
+            assert_eq!(MessagesProjection::get_message(state, "ch_a", "m6").unwrap(), None);
+            close(engine, dir.path()).await;
+        }
+    }
+}
+
+/// A quarantined commit whose record cannot be read: what it created is not
+/// known, so the snapshot is not checked (said in the log), and the directory
+/// opens as it did before the check existed.
+#[tokio::test]
+async fn an_unreadable_quarantined_record_leaves_the_snapshot_unchecked() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    note(&engine, "note_one").await;
+    commit(&engine, vec![event("note_poison", "poison", b"x".to_vec())]).await.unwrap();
+    note(&engine, "note_three").await;
+    close(engine, dir.path()).await;
+    as_an_older_build_left_it(dir.path(), false);
+    crate::cli::quarantine::quarantine(dir.path(), 2).unwrap();
+    let mut damaged = 0;
+    for file in walk_files(&dir.path().join("streams")) {
+        if file.extension().is_some_and(|ext| ext == "wseg") && file.to_string_lossy().contains("poison") {
+            let mut bytes = std::fs::read(&file).unwrap();
+            let last = bytes.len() - 1;
+            bytes[last] ^= 0xff;
+            std::fs::write(&file, bytes).unwrap();
+            damaged += 1;
+        }
+    }
+    assert_eq!(damaged, 1);
+    let engine = open(dir.path()).await;
+    assert!(engine.projection_state().get("events", b"note_one").is_some());
+    assert!(engine.projection_state().get("events", b"note_poison").is_none());
+    close(engine, dir.path()).await;
+}
+
+fn walk_files(root: &Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}

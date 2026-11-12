@@ -456,6 +456,11 @@ impl ProjectionState {
         f(map)
     }
 
+    /// Names of the in-memory indexes (including empty ones).
+    pub(crate) fn index_names(&self) -> Vec<String> {
+        self.indexes.read().unwrap().keys().cloned().collect()
+    }
+
     /// Iterate the index, calling `f` for each key-value pair. The
     /// iteration is lock-free on the inner `SkipMap`; the outer `RwLock`
     /// is held only to look up the index.
