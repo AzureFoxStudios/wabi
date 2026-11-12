@@ -23,6 +23,19 @@
 //! transaction, committed by [`ReadModel::commit_startup`] only after replay
 //! validated the whole log, and rolled back otherwise.
 //!
+//! Waiting. Two things here could wait on another connection's lock while
+//! the caller holds the engine's application lock:
+//! - a write, when another connection holds the write lock. Within one
+//!   engine only the writer connection writes, and the engine's process lock
+//!   keeps other engines out, so only a foreign process that opens the file
+//!   for writing can cause it. The write then waits [`BUSY_TIMEOUT`], fails,
+//!   and the engine halts as for any commit it cannot apply.
+//! - a checkpoint of the write-ahead log, which waits for readers if asked
+//!   to truncate. This store's own pooled readers could cause that, so the
+//!   checkpoint taken at a projection checkpoint is `PASSIVE`, which never
+//!   waits. Only the one after startup replay truncates, before any reader
+//!   exists.
+//!
 //! No `rusqlite` type leaves this module's crate-private API.
 
 pub(crate) mod schema;
