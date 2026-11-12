@@ -392,7 +392,10 @@ fn clone_command(url: &Url, address: SocketAddr, destination: &Path) -> Command 
 }
 
 pub(crate) async fn bounded_output(mut command: Command, deadline: Duration) -> Result<Output> {
-    let mut child = command.spawn().context("Start Git operation")?;
+    let mut child = command
+        .spawn()
+        .map_err(|e| crate::spawn_error("git", Path::new("git"), e))
+        .context("Start Git operation")?;
     let stderr = child.stderr.take().context("Missing Git stderr")?;
     let stdout = child.stdout.take();
     let capture_stdout = async move {

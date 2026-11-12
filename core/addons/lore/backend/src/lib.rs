@@ -130,6 +130,57 @@ pub struct LoreUploadResult {
     pub review_branch: Option<String>,
 }
 
+/// Typed failures the API maps to specific statuses instead of a bare 500.
+/// They travel inside `anyhow::Error`; use [`LoreError::find`] to recover one.
+#[derive(Debug)]
+pub enum LoreError {
+    /// A program the addon shells out to (`lore`, `git`) could not be started.
+    /// Maps to 503.
+    DependencyMissing { program: String, detail: String },
+    /// The Git source URL for an import failed validation. Maps to 400.
+    InvalidImportUrl(String),
+    /// A write targets a path the repo's `.wabiignore` excludes. Maps to 422.
+    PathIgnored,
+}
+
+impl std::fmt::Display for LoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoreError::DependencyMissing { program, detail } => {
+                write!(f, "Lore addon dependency missing: {program} ({detail})")
+            }
+            LoreError::InvalidImportUrl(reason) => write!(f, "{reason}"),
+            LoreError::PathIgnored => write!(f, "path is ignored by .wabiignore"),
+        }
+    }
+}
+
+impl std::error::Error for LoreError {}
+
+impl LoreError {
+    /// The typed error inside `error`, if there is one.
+    pub fn find(error: &anyhow::Error) -> Option<&LoreError> {
+        error.downcast_ref::<LoreError>()
+    }
+}
+
+/// Turn a failure to start `program` into a typed error when the program is
+/// absent; any other I/O error passes through unchanged.
+pub(crate) fn spawn_error(program: &str, path: &std::path::Path, error: std::io::Error) -> anyhow::Error {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+    ) {
+        LoreError::DependencyMissing {
+            program: program.to_string(),
+            detail: format!("cannot run '{}': {error}", path.display()),
+        }
+        .into()
+    } else {
+        error.into()
+    }
+}
+
 /// Structured error for [`LoreService::import_from_git`], so the API can map
 /// distinct failure modes (existing repo → 409, clone failure → 502) to the
 /// correct HTTP statuses.
@@ -296,7 +347,8 @@ async fn run_lore(
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(120),
         cmd.kill_on_drop(true).args(args).output(),
-    ).await.map_err(|_| anyhow::anyhow!("Lore command timed out"))??;
+    ).await.map_err(|_| anyhow::anyhow!("Lore command timed out"))?
+        .map_err(|e| spawn_error("lore", binary, e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -915,7 +967,7 @@ impl LoreService {
         // rejection used to leave the uploaded bytes on disk.
         let filter = self.get_ignore_filter(channel_id, &repo.working_tree);
         if filter.is_ignored(repo_path) {
-            anyhow::bail!("path '{}' is ignored by .wabiignore", repo_path);
+            return Err(LoreError::PathIgnored.into());
         }
         Ok(repo)
     }
@@ -1376,7 +1428,8 @@ impl LoreService {
             .current_dir(&cache)
             .args(["ls-files"])
             .output()
-            .await?;
+            .await
+                .map_err(|e| spawn_error("git", std::path::Path::new("git"), e))?;
         if !output.status.success() {
             anyhow::bail!(
                 "git ls-files failed: {}",
@@ -2087,7 +2140,8 @@ impl LoreService {
             .current_dir(&cache)
             .args(&args)
             .output()
-            .await?;
+            .await
+                .map_err(|e| spawn_error("git", std::path::Path::new("git"), e))?;
         if !output.status.success() {
             anyhow::bail!(
                 "git log failed: {}",
@@ -2643,7 +2697,8 @@ impl LoreService {
                 .current_dir(&cache)
                 .args(["diff", from, to, "--", repo_path])
                 .output()
-                .await?;
+                .await
+                .map_err(|e| spawn_error("git", std::path::Path::new("git"), e))?;
             if !output.status.success() {
                 anyhow::bail!(
                     "git diff failed: {}",
@@ -2678,21 +2733,30 @@ impl LoreService {
         }
     }
 
-    /// Health check — verify the Lore CLI and, in sidecar/remote modes, that
-    /// the configured lore server is actually reachable (TCP connect with a
-    /// short timeout). Embedded mode is offline-local only.
+    /// Health check — run `<lore_binary_path> --version` in every mode, and in
+    /// sidecar/remote modes also check the configured lore server is reachable
+    /// (TCP connect with a short timeout). Embedded mode has no server to ping,
+    /// but it still needs the binary: every request shells out to it.
     pub async fn health_check(&self) -> anyhow::Result<()> {
-        // Embedded mode is offline-local only — no server to ping.
+        let path = &self.config.lore_binary_path;
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            Command::new(path).arg("--version").kill_on_drop(true).output(),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!("Lore CLI '{}' did not answer --version within 10s", path.display())
+        })?
+        .map_err(|e| spawn_error("lore", path, e))?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "Lore CLI '{}' failed --version: {}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
         if matches!(self.config.mode, LoreMode::Embedded) {
             return Ok(());
-        }
-        // Verify the CLI is available
-        let output = Command::new(&self.config.lore_binary_path)
-            .arg("--version")
-            .output()
-            .await?;
-        if !output.status.success() {
-            anyhow::bail!("Lore CLI not available: {}", String::from_utf8_lossy(&output.stderr));
         }
 
         // Verify the configured lore server is reachable — a present CLI with
@@ -2886,7 +2950,8 @@ impl LoreService {
                 .current_dir(&cache)
                 .args(["status", "--short"])
                 .output()
-                .await?;
+                .await
+                .map_err(|e| spawn_error("git", std::path::Path::new("git"), e))?;
             if !output.status.success() {
                 anyhow::bail!(
                     "git status failed: {}",
@@ -2939,6 +3004,9 @@ impl LoreService {
         upstream_url: &str,
     ) -> Result<LoreRepo, LoreImportError> {
         let _io = self.io_gate.lock().await;
+        git_remote::validate_source_target(upstream_url).map_err(|e| {
+            LoreImportError::Other(LoreError::InvalidImportUrl(e.to_string()).into())
+        })?;
         if let Some(existing) = self.get_repo(channel_id).await {
             // Adopt EMPTY repos — with auto-create on, every new lore channel
             // gets a repo the moment it exists, and "create project channel →
@@ -3509,6 +3577,56 @@ mod tests {
             .await.unwrap();
         service.repos.write().await.get_mut(&42).unwrap().class = RepoClass::Native;
         (service, repo)
+    }
+
+    fn service_with_binary(mode: LoreMode, binary: PathBuf, data: &std::path::Path) -> LoreService {
+        LoreService::new(LoreConfig {
+            mode,
+            lore_data_dir: data.to_path_buf(),
+            lore_binary_path: binary,
+            ..LoreConfig::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn health_check_fails_naming_the_path_when_the_binary_is_missing() {
+        let data = tempfile::tempdir().unwrap();
+        let missing = data.path().join("no-such-lore");
+        // Embedded used to return Ok without looking; sidecar already probed.
+        for mode in [LoreMode::Embedded, LoreMode::Sidecar] {
+            let service = service_with_binary(mode, missing.clone(), data.path());
+            let error = service.health_check().await.expect_err("no binary, so not healthy");
+            assert!(matches!(
+                LoreError::find(&error),
+                Some(LoreError::DependencyMissing { program, .. }) if program == "lore"
+            ), "{error:#}");
+            assert!(error.to_string().contains(missing.to_str().unwrap()), "{error:#}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn health_check_passes_in_embedded_mode_with_a_working_binary() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = tempfile::tempdir().unwrap();
+        let binary = data.path().join("lore-stand-in");
+        std::fs::write(&binary, "#!/bin/sh\n[ \"$1\" = --version ] && echo lore-stand-in 0\n").unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let service = service_with_binary(LoreMode::Embedded, binary, data.path());
+        service.health_check().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_git_that_cannot_start_is_a_missing_dependency() {
+        let mut command = Command::new("definitely-not-a-git-binary");
+        command.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+        let error = git_remote::bounded_output(command, std::time::Duration::from_secs(5))
+            .await
+            .expect_err("nothing to run");
+        assert!(matches!(
+            LoreError::find(&error),
+            Some(LoreError::DependencyMissing { program, .. }) if program == "git"
+        ), "{error:#}");
     }
 
     #[cfg(unix)]
