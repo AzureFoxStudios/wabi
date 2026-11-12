@@ -361,6 +361,22 @@ impl SyncReport {
     }
 }
 
+/// Setting this to `1` is `--allow-mass-delete` for every command, `watch`
+/// included.
+pub const ALLOW_MASS_DELETE_ENV: &str = "WABI_SYNC_ALLOW_MASS_DELETE";
+
+/// Fewer deletions than this in one round are never questioned.
+const MASS_DELETE_MIN: usize = 3;
+
+/// Which side a round's deletions would empty.
+#[derive(Clone, Copy)]
+enum Side {
+    /// Files deleted here because the server no longer lists them.
+    Folder,
+    /// Files deleted on the server because they are gone from here.
+    Server,
+}
+
 pub struct SyncEngine<'a> {
     pub client: &'a WabiClient,
     pub folder: &'a Path,
@@ -369,7 +385,7 @@ pub struct SyncEngine<'a> {
     /// Lines for the next report's `notices`.
     notices: Vec<String>,
     /// Go ahead with a round that deletes most of the synced files on one
-    /// side (`--allow-mass-delete`). (Stub: not looked at yet.)
+    /// side (`--allow-mass-delete`, or `WABI_SYNC_ALLOW_MASS_DELETE=1`).
     pub allow_mass_delete: bool,
     /// Held until the engine is dropped: no other wabi-sync process reads
     /// or writes this folder's state meanwhile.
@@ -391,7 +407,8 @@ impl<'a> SyncEngine<'a> {
         state.pending_review.retain(|path, _| !is_internal(path));
         state.local_fingerprints.retain(|path, _| !is_internal(path));
         state.refused_uploads.retain(|path, _| !is_internal(path));
-        Ok(Self { client, folder, link, state, notices: Vec::new(), allow_mass_delete: false, _lock: lock })
+        let allow_mass_delete = std::env::var_os(ALLOW_MASS_DELETE_ENV).is_some_and(|v| v == "1");
+        Ok(Self { client, folder, link, state, notices: Vec::new(), allow_mass_delete, _lock: lock })
     }
 
     pub fn save_state(&self) -> anyhow::Result<()> {
@@ -430,6 +447,41 @@ impl<'a> SyncEngine<'a> {
             parent = above;
         }
         None
+    }
+
+    /// A round is about to delete `doomed` synced files on `side`. When that
+    /// is at least `MASS_DELETE_MIN` and more than half of the files this
+    /// folder has synced, it stops before deleting any, unless allowed.
+    ///
+    /// The server keeps no identity for a repo: one deleted and created
+    /// again in the same channel looks like every file deleted, and each
+    /// member's round would delete each clean file, leaving no copy
+    /// anywhere. A folder emptied by accident would empty the server the
+    /// same way.
+    fn guard_mass_delete(&self, doomed: usize, side: Side) -> anyhow::Result<()> {
+        let synced = self.state.baselines.values().filter(|b| b.is_some()).count();
+        if self.allow_mass_delete || doomed < MASS_DELETE_MIN || doomed * 2 <= synced {
+            return Ok(());
+        }
+        let go_ahead = format!(
+            "If they were deleted on purpose, run the command again with --allow-mass-delete (for `watch`, set \
+             {ALLOW_MASS_DELETE_ENV}=1)."
+        );
+        match side {
+            Side::Folder => bail!(
+                "this round would delete {doomed} of the {synced} synced files in this folder, because the server \
+                 no longer lists them. Nothing has been deleted. Check the repository first: if it was deleted \
+                 or replaced on the server, the files here may be the only copy left. If it was created again \
+                 empty, move .wabi-sync/state.json aside and sync, and the files here are uploaded to it. \
+                 {go_ahead}"
+            ),
+            Side::Server => bail!(
+                "this round would delete {doomed} of the {synced} synced files on the server, because they are \
+                 gone from this folder. Nothing has been deleted. If they were removed by accident, move \
+                 .wabi-sync/state.json aside and sync: they are downloaded again and nothing is deleted. \
+                 {go_ahead}"
+            ),
+        }
     }
 
     /// Stop tracking every path the folder's `.wabiignore` now excludes. A
@@ -569,6 +621,20 @@ impl<'a> SyncEngine<'a> {
         report.skipped = scan.skipped_lines();
         let local = &scan.files;
 
+        // What the deletion loop below would delete here, counted first.
+        let doomed = self
+            .state
+            .baselines
+            .iter()
+            .filter(|(path, baseline)| {
+                baseline.is_some()
+                    && !remote.contains_key(path.as_str())
+                    && !scan.could_not_read(path)
+                    && local.get(*path).is_some_and(|etag| self.state.local_matches_baseline(path, etag))
+            })
+            .count();
+        self.guard_mass_delete(doomed, Side::Folder)?;
+
         // Remote files: download new/changed when we have no diverging local edit.
         for (path, remote_etag) in &remote {
             // Nothing is known about the local side of this path.
@@ -683,6 +749,16 @@ impl<'a> SyncEngine<'a> {
         self.forget_ignored(&scan);
         report.skipped = scan.skipped_lines();
         let local = &scan.files;
+
+        // What the deletion loop below would delete on the server, counted
+        // before anything is sent.
+        let doomed = self
+            .state
+            .baselines
+            .iter()
+            .filter(|(path, baseline)| baseline.is_some() && !local.contains_key(*path) && !scan.could_not_read(path))
+            .count();
+        self.guard_mass_delete(doomed, Side::Server)?;
 
         // A refusal for lack of permission (403) is about the member, not
         // the file, and ends when the member is given the right or a new

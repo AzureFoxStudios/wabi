@@ -2306,6 +2306,13 @@ async fn an_emptied_folder_does_not_empty_the_server() {
     assert_eq!(server.requests("DELETE", "/files/").0, 0);
     assert_eq!(theirs.listed().await.len(), 4);
     assert!(theirs.sync().await.unwrap().deleted_local.is_empty());
+
+    // The way back the message offers: the files come down again.
+    std::fs::rename(mine.state_file(), mine.path().join(".wabi-sync/state.json.emptied")).unwrap();
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.downloaded.len(), 4, "{}", describe(&report));
+    assert!(report.deleted_remote.is_empty(), "{}", describe(&report));
+    assert_eq!(mine.files().len(), 4);
 }
 
 /// H1. Below the guard: two files, or fewer than half.
