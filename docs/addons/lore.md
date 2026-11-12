@@ -965,8 +965,12 @@ One-shot commands: `push`, `pull`, `sync`, `status`, `lock <path>`,
 
 **How it decides what to move** (three-way, per file):
 
-- Local state: a recursive walk with gitignore-style `.wabiignore` matching
-  (plus hard-skips for `.wabi-sync*`, `.lore/`, `.git/`, repo sidecars).
+- Local state: a recursive walk with gitignore-style `.wabiignore` matching,
+  plus hard-skips for the link file `.wabi-sync.json` and the state directory
+  `.wabi-sync/` (at any depth, so a folder linked inside another keeps its own
+  state; a nested one is reported as skipped), conflict copies
+  (`<file>.wabi-conflict-<tag>`), `.lore/`, `.git/` and repo sidecars. Other
+  names that merely contain `.wabi-conflict-` or `.wabi-sync` sync normally.
 - Remote state: the manifest (§8.4b).
 - Baseline: the etag each path had at last successful sync, stored in
   `.wabi-sync/state.json` alongside the change-feed cursor.
