@@ -32,6 +32,8 @@ const SUPPORTED_FORMAT_VERSION: u16 = 1;
 pub struct VerifyReport {
     pub ok: bool,
     pub errors: Vec<String>,
+    /// Things that do not fail the check but an operator must know.
+    pub warnings: Vec<String>,
     pub manifest: Option<ManifestSummary>,
     /// `.wseg` files verified.
     pub segments_verified: usize,
@@ -49,13 +51,16 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
         return Ok(VerifyReport {
             ok: false,
             errors: vec!["missing storage-manifest.json".into()],
+            warnings: Vec::new(),
             manifest: None,
             segments_verified: 0,
             quarantined_commits: Vec::new(),
         });
     }
     let quarantine = super::quarantine_for_report(data_dir, &mut errors);
-    let snapshot_watermark = super::snapshot_watermark_for_report(data_dir, &mut errors);
+    let mut warnings = Vec::new();
+    let snapshot_watermark =
+        super::snapshot_watermark_for_report(data_dir, &mut errors, &mut warnings);
 
     let manifest_raw = tokio::fs::read_to_string(&manifest_path).await.map_err(WabiError::Io)?;
     let manifest: ManifestSummary = serde_json::from_str(&manifest_raw).map_err(|e| {
@@ -124,6 +129,7 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
     Ok(VerifyReport {
         ok: errors.is_empty(),
         errors,
+        warnings,
         manifest: Some(manifest),
         segments_verified,
         quarantined_commits,

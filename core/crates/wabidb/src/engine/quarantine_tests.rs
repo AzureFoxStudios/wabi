@@ -135,7 +135,7 @@ async fn refuse_then_quarantine_then_start(path: &std::path::Path, expected_deta
     drop(crate::tests::wait_for_stopped_engine(path).await);
 
     // Without the snapshot, a later startup replays the whole log again.
-    crate::engine::locks::ProjectionState::remove_snapshot(path);
+    crate::engine::locks::ProjectionState::remove_saved_projections_for_tests(path);
     let engine = crate::tests::reopen_after_drop(config(path), None).await.unwrap();
     let state = engine.projection_state();
     assert!(state.get(test_poison::INDEX, &2u64.to_be_bytes()).is_none());

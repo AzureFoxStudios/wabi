@@ -23,6 +23,15 @@ const SKIPPED: &[&str] = &[
     "data/tailcat/addr.txt",
     "data/jwt_secret",
     "data/wabidb/root_key",
+    // The SQLite read model is derived from the log. The paused engine still
+    // serves reads, so SQLite's write-ahead log and shared-memory file are in
+    // use during the copy, and a database file copied without them is not a
+    // state the engine wrote. None of the three is exported. A restored
+    // checkpoint has no read model; the engine builds one from the log,
+    // which a checkpoint holds whole, when it first opens.
+    "data/wabidb/projections/read-model.sqlite3",
+    "data/wabidb/projections/read-model.sqlite3-wal",
+    "data/wabidb/projections/read-model.sqlite3-shm",
 ];
 
 // Configuration includes secrets: never derive Debug or return this through
