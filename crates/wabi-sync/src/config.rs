@@ -53,7 +53,7 @@ impl GlobalConfig {
 }
 
 /// The per-folder link file (`.wabi-sync.json`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkConfig {
     pub server_url: String,
     /// Numeric channel id (canonical form; hex `ch_…` ids are normalized on link).
@@ -77,6 +77,24 @@ impl LinkConfig {
         Ok(())
     }
 
+    /// What `wabi-sync link` does to a folder. It writes the link file and
+    /// nothing else: an existing state directory is left exactly as it is.
+    /// Whether that state may be used is decided when a round starts, from
+    /// the owner recorded in it (`SyncState::owner`). A link that says what
+    /// the folder's link file already says is not written again, so that a
+    /// state file with no recorded owner is not taken for another link's.
+    pub fn link(&self, folder: &Path) -> anyhow::Result<Linked> {
+        let previous = Self::load(folder).ok();
+        if previous.as_ref() == Some(self) {
+            return Ok(Linked::Unchanged);
+        }
+        self.save(folder)?;
+        Ok(match previous {
+            Some(previous) if SyncState::path_for(folder).exists() => Linked::Replaced { previous },
+            _ => Linked::New,
+        })
+    }
+
     /// Accept `ch_<hex>`, `0x<hex>`, or decimal; normalize to the decimal id.
     pub fn normalize_channel_id(input: &str) -> anyhow::Result<i64> {
         let input = input.trim();
@@ -94,6 +112,26 @@ impl LinkConfig {
     }
 }
 
+/// What `LinkConfig::link` found and did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Linked {
+    /// The folder had no link, or had one and no sync state.
+    New,
+    /// The folder was already linked to this server and channel.
+    Unchanged,
+    /// The folder was linked elsewhere and has sync state from then. The
+    /// state stays on disk and the next round does not use it.
+    Replaced { previous: LinkConfig },
+}
+
+/// The server and channel a state file describes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateOwner {
+    /// The server the client talks to, without a trailing slash.
+    pub server_url: String,
+    pub channel_id: i64,
+}
+
 /// Mutable sync state: the last-synced etag per path (the three-way baseline)
 /// plus the change-feed cursor. None = the file did not exist remotely at
 /// last sync.
@@ -104,6 +142,14 @@ impl LinkConfig {
 /// pending is byte-identical to what older builds write).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncState {
+    /// The server and channel the baselines below were synced with. Read
+    /// against any other repo they say "every file was deleted on the
+    /// server", so a state with another owner is not used (`for_owner`).
+    /// Missing in state files written before this field existed; such a
+    /// file belongs to the link it is found with, and gets its owner on the
+    /// next save. A build without this field drops it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<StateOwner>,
     pub cursor: u64,
     pub baselines: BTreeMap<String, Option<String>>,
     /// Paths whose last upload the server routed to a review branch, with the
@@ -184,8 +230,45 @@ impl SyncState {
         }
     }
 
-    fn path_for(folder: &Path) -> PathBuf {
+    pub fn path_for(folder: &Path) -> PathBuf {
         folder.join(STATE_DIR).join("state.json")
+    }
+
+    /// The state of `folder` for a round with `owner`: the saved state when
+    /// it is that owner's, and otherwise an empty one, with a line that says
+    /// so for the user. An empty state has no baseline for any path, which
+    /// deletes nothing and overwrites nothing: every local file is new work
+    /// (uploaded create-only, or kept as a conflict copy when the server has
+    /// something else under that name).
+    ///
+    /// A state file with no owner recorded is used as it is, unless the
+    /// folder's link file was written after it: then the link has changed
+    /// since that state was saved, and nothing says it was made for this one.
+    pub fn for_owner(folder: &Path, owner: StateOwner) -> anyhow::Result<(Self, Option<String>)> {
+        let mut state = Self::load(folder)?;
+        let foreign = match &state.owner {
+            Some(recorded) if *recorded == owner => None,
+            Some(recorded) => Some(format!("{} channel {}", recorded.server_url, recorded.channel_id)),
+            None => {
+                let written = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
+                match (written(folder.join(LINK_FILE)), written(Self::path_for(folder))) {
+                    (Some(link), Some(state)) if link > state => Some("an earlier link of this folder".to_string()),
+                    _ => None,
+                }
+            }
+        };
+        let notice = foreign.map(|recorded_for| {
+            // Conflicts already settled in this folder are still to be told.
+            state = Self { unreported_conflicts: std::mem::take(&mut state.unreported_conflicts), ..Self::default() };
+            format!(
+                "the sync state in this folder was recorded for {recorded_for}, not for {} channel {}; it is not \
+                 used. The folder is treated as newly linked: nothing is deleted on either side, and a file \
+                 that differs from the server's is kept as a conflict copy",
+                owner.server_url, owner.channel_id
+            )
+        });
+        state.owner = Some(owner);
+        Ok((state, notice))
     }
 
     /// The state of `folder`, or an empty one when the folder has never been
@@ -335,6 +418,77 @@ mod tests {
         assert_eq!(loaded.cursor, 42);
         assert_eq!(loaded.baselines.get("a.txt"), Some(&Some("etag-a".into())));
         assert_eq!(loaded.baselines.get("b.txt"), Some(&None));
+    }
+
+    /// B1. `link` on a linked folder: the link file only, and not even that
+    /// when nothing changes.
+    #[test]
+    fn link_writes_the_link_file_and_leaves_the_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = LinkConfig { server_url: "http://one".into(), channel_id: 1 };
+        assert_eq!(first.link(dir.path()).unwrap(), Linked::New);
+        // Linked elsewhere before any round ran: there is no state to speak of.
+        let second = LinkConfig { server_url: "http://one".into(), channel_id: 2 };
+        assert_eq!(second.link(dir.path()).unwrap(), Linked::New);
+
+        let owner = |link: &LinkConfig| StateOwner { server_url: link.server_url.clone(), channel_id: link.channel_id };
+        let (mut state, notice) = SyncState::for_owner(dir.path(), owner(&second)).unwrap();
+        assert_eq!(notice, None);
+        state.baselines.insert("a.txt".into(), Some("etag".into()));
+        state.save(dir.path()).unwrap();
+        let saved = state_json(dir.path());
+
+        let link_file = dir.path().join(LINK_FILE);
+        let written = std::fs::metadata(&link_file).unwrap().modified().unwrap();
+        assert_eq!(second.link(dir.path()).unwrap(), Linked::Unchanged);
+        assert_eq!(std::fs::metadata(&link_file).unwrap().modified().unwrap(), written, "written again");
+
+        assert_eq!(first.link(dir.path()).unwrap(), Linked::Replaced { previous: second.clone() });
+        assert_eq!(LinkConfig::load(dir.path()).unwrap(), first);
+        assert_eq!(state_json(dir.path()), saved, "link touched the state");
+
+        // The state is the second link's: not used for the first, and used
+        // again if the folder is linked back before a round replaces it.
+        let (state, notice) = SyncState::for_owner(dir.path(), owner(&first)).unwrap();
+        assert!(state.baselines.is_empty());
+        assert_eq!(state.owner, Some(owner(&first)));
+        let notice = notice.expect("the user is told");
+        assert!(notice.contains("http://one channel 2") && notice.contains("nothing is deleted"), "{notice}");
+        let (state, notice) = SyncState::for_owner(dir.path(), owner(&second)).unwrap();
+        assert_eq!((state.baselines.len(), notice), (1, None));
+    }
+
+    /// B1. A state file with no owner belongs to the link it is found with,
+    /// unless the link file was written after it.
+    #[test]
+    fn state_with_no_owner_is_judged_by_the_link_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = LinkConfig { server_url: "http://one".into(), channel_id: 1 };
+        let owner = StateOwner { server_url: "http://one".into(), channel_id: 1 };
+        link.save(dir.path()).unwrap();
+        let mut state = SyncState::default();
+        state.baselines.insert("a.txt".into(), Some("etag".into()));
+        state.unreported_conflicts.push("b.txt (told later)".into());
+        state.save(dir.path()).unwrap();
+        assert!(!state_json(dir.path()).contains("owner"), "an older build's file has no such key");
+        let later = |seconds| std::time::SystemTime::now() + std::time::Duration::from_secs(seconds);
+        let touch = |path: PathBuf, when| std::fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+
+        touch(SyncState::path_for(dir.path()), later(10));
+        let (kept, notice) = SyncState::for_owner(dir.path(), owner.clone()).unwrap();
+        assert_eq!((kept.baselines.len(), notice), (1, None));
+        assert_eq!(kept.owner, Some(owner.clone()));
+
+        touch(dir.path().join(LINK_FILE), later(20));
+        let (fresh, notice) = SyncState::for_owner(dir.path(), owner.clone()).unwrap();
+        assert!(fresh.baselines.is_empty());
+        assert!(notice.unwrap().contains("an earlier link of this folder"));
+        assert_eq!(fresh.unreported_conflicts.len(), 1, "a settled conflict is still reported");
+
+        // Once saved with its owner, the link file's time no longer matters.
+        kept.save(dir.path()).unwrap();
+        touch(dir.path().join(LINK_FILE), later(30));
+        assert_eq!(SyncState::for_owner(dir.path(), owner).unwrap().0.baselines.len(), 1);
     }
 
     /// B2. A state file that cannot be read is an error that names the file
