@@ -44,7 +44,7 @@ pub struct InspectionReceipt {
     pub full_history_replayed: bool,
     /// The saved projection equals the replayed one, as far as it was
     /// compared. The snapshot's indexes are always compared. The SQLite read
-    /// model (messages) is compared only when `read_model_compared` is true.
+    /// model (messages, channels) is compared only when `read_model_compared` is true.
     /// **A caller that certifies a directory must also require
     /// `!read_model_present || read_model_compared`.**
     pub persisted_projection_matches: bool,
@@ -443,9 +443,9 @@ pub async fn inspect_frozen_locked(
             "inspection snapshot watermark differs from checkpoint",
         ));
     }
-    // Messages live in the SQLite read model. Its rows are compared when
+    // Messages and channels live in the SQLite read model. Its rows are compared when
     // the engine would serve the file as it is. When the engine would replace
-    // or rebuild it, there is no saved state of the messages to compare; the
+    // or rebuild it, there is no saved state of them to compare; the
     // receipt says so. When the engine would serve it but it cannot be read
     // without changing the tree, or fails a full integrity check, inspection
     // refuses. The file is opened read-only and immutable.

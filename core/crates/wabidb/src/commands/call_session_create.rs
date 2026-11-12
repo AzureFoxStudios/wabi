@@ -272,7 +272,9 @@ mod tests {
         .unwrap();
         assert_eq!(placement.epoch, 1);
         assert_eq!(placement.owner_node_id, "node-1");
-        assert!(state.get("channels", room_id.as_bytes()).is_none());
+        assert!(crate::projections::channels::ChannelProjection::stored_record(state, &room_id)
+            .unwrap()
+            .is_none());
         drop(engine);
         std::fs::remove_file(dir.path().join("projections/snapshot.json")).unwrap();
         let engine = crate::tests::reopen_after_drop(
