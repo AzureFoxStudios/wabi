@@ -379,7 +379,8 @@ impl<'a> SyncEngine<'a> {
                     (None, b) => b.is_none(), // both absent → clean
                     (Some(_), None) => false, // local-only file → diverged
                 };
-                self.state.pending_review.remove(*path);
+                // The state is changed only once the path is settled: a step
+                // that fails must leave it describing the folder as it is.
                 if !local_has || local_clean {
                     let bytes = self
                         .client
@@ -392,6 +393,7 @@ impl<'a> SyncEngine<'a> {
                     }
                     std::fs::write(&full, &bytes)?;
                     report.downloaded.push(path.to_string());
+                    self.state.pending_review.remove(*path);
                     self.record_download(path, &bytes, remote_etag)?;
                 } else {
                     // Both sides changed.
@@ -415,8 +417,6 @@ impl<'a> SyncEngine<'a> {
             }
             let local_etag = local.get(&path);
             let local_clean = local_etag.map(|le| self.state.local_matches_baseline(&path, le)).unwrap_or(true);
-            self.state.pending_review.remove(&path);
-            self.state.local_fingerprints.remove(&path);
             let local_file = self.folder.join(&path);
             if local_clean {
                 if local_etag.is_some() {
@@ -424,6 +424,8 @@ impl<'a> SyncEngine<'a> {
                     report.deleted_local.push(path.clone());
                 }
                 self.state.baselines.remove(&path);
+                self.state.pending_review.remove(&path);
+                self.state.local_fingerprints.remove(&path);
             } else {
                 // Deleted remotely, edited locally.
                 let line = self.keep_both(&path, None).await?;
@@ -531,11 +533,11 @@ impl<'a> SyncEngine<'a> {
                     report.not_uploaded.push(format!("{path} (not uploaded: {refusal})"));
                 }
                 UploadOutcome::Conflict(conflict) => {
-                    self.state.pending_review.remove(path);
-                    self.state.local_fingerprints.remove(path);
                     if conflict.current_etag.as_deref() == Some(sent_etag.as_str()) {
                         // The server already holds these very bytes (the
                         // same edit made twice): nothing to keep apart.
+                        self.state.pending_review.remove(path);
+                        self.state.local_fingerprints.remove(path);
                         self.state.baselines.insert(path.clone(), conflict.current_etag);
                         continue;
                     }
