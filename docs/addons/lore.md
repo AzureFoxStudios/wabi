@@ -490,7 +490,7 @@ cannot fall back to anonymous signed-URL access; signed downloads without an
 Authorization header remain supported.
 
 See the [credential-boundary work record](../plans/2026-09-07-lore-credential-boundary.md)
-for contract tests, legacy membership snapshot repair and verification limits.
+for contract tests and verification limits. (The legacy membership snapshot repair it describes was removed in PR 345; memberships are now rebuilt from the log.)
 
 ### 8.5 Health
 
