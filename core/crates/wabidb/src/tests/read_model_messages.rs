@@ -206,6 +206,43 @@ fn all_reads(state: &ProjectionState) -> String {
     out
 }
 
+/// Warn-level log lines written while the returned guard is alive, on this thread.
+#[derive(Clone, Default)]
+struct Logs(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl Logs {
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+    }
+}
+
+impl std::io::Write for Logs {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logs {
+    type Writer = Logs;
+    fn make_writer(&'a self) -> Logs {
+        self.clone()
+    }
+}
+
+fn capture_warnings() -> (Logs, tracing::subscriber::DefaultGuard) {
+    let logs = Logs::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(logs.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    (logs, tracing::subscriber::set_default(subscriber))
+}
+
 fn read_model_file(path: &Path) -> std::path::PathBuf {
     ProjectionState::read_model_path(path)
 }
@@ -596,6 +633,41 @@ fn tree(path: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> 
     files
 }
 
+/// What a refused start may not change: every file except the lock, the
+/// manifest (a refusal may raise its recorded height) and SQLite's `-shm`
+/// index (rebuilt from the log; a refusal may recreate it).
+fn tree_for_refusal(path: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    let mut files = tree(path);
+    files.retain(|name, _| {
+        let name = name.to_string_lossy();
+        name != "storage-manifest.json" && !name.ends_with("-shm") && !name.ends_with(".tmp")
+    });
+    files
+}
+
+fn manifest_height(path: &Path) -> u64 {
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path.join("storage-manifest.json")).unwrap()).unwrap();
+    value["highest_commit_seq"].as_u64().unwrap()
+}
+
+fn copy_tree(from: &Path, to: &Path, skip: &dyn Fn(&str) -> bool) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if skip(&name) {
+            continue;
+        }
+        let target = to.join(&name);
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target, skip);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
 async fn refused(path: &Path) -> String {
     let error = super::reopen_after_drop(config(path), None).await.unwrap_err();
     drop(super::wait_for_stopped_engine(path).await);
@@ -645,13 +717,14 @@ async fn a_log_shorter_than_the_checkpoint_is_never_rebuilt_from() {
 
     // 1. No read model.
     std::fs::remove_file(read_model_file(dir.path())).unwrap();
-    let before = tree(dir.path());
+    let before = tree_for_refusal(dir.path());
     let text = refused(dir.path()).await;
     println!("refused: {text}");
     for part in ["ends at commit 0", "covers commit 5", "no read model", "Repair required"] {
         assert!(text.contains(part), "{part}: {text}");
     }
-    assert!(tree(dir.path()) == before, "a refused start changed the directory");
+    assert!(text.contains("may raise `highest_commit_seq`"), "{text}");
+    assert!(tree_for_refusal(dir.path()) == before, "a refused start changed the directory");
     assert!(!read_model_file(dir.path()).exists());
     let report = crate::cli::check::check(dir.path()).await.unwrap();
     assert!(!report.ok);
@@ -667,10 +740,10 @@ async fn a_log_shorter_than_the_checkpoint_is_never_rebuilt_from() {
         .unwrap()
         .execute("UPDATE read_model_meta SET generation = generation + 1", [])
         .unwrap();
-    let before = tree(dir.path());
+    let before = tree_for_refusal(dir.path());
     let text = refused(dir.path()).await;
     assert!(text.contains("claims commit 5") && text.contains("cannot be used"), "{text}");
-    assert!(tree(dir.path()) == before, "the unusable file was replaced");
+    assert!(tree_for_refusal(dir.path()) == before, "the unusable file was replaced");
 
     // 3. A usable read model ahead of the snapshot (and so of the log).
     std::fs::write(read_model_file(dir.path()), &read_model).unwrap();
@@ -678,33 +751,178 @@ async fn a_log_shorter_than_the_checkpoint_is_never_rebuilt_from() {
         .unwrap()
         .execute("UPDATE applied_commit_seq SET seq = 9", [])
         .unwrap();
+    let before = tree_for_refusal(dir.path());
     let text = refused(dir.path()).await;
     assert!(text.contains("read model covers commit 9"), "{text}");
-    assert_eq!(file_contents(dir.path()).0, 5, "its rows were deleted");
+    assert!(tree_for_refusal(dir.path()) == before, "a refused start changed the directory");
 
     // With the read model as the engine left it, the directory opens.
     std::fs::write(read_model_file(dir.path()), &read_model).unwrap();
     assert!(crate::cli::check::check(dir.path()).await.unwrap().errors.is_empty());
     let engine = open(dir.path()).await;
     assert_eq!(engine.projection_state().applied_commit_seq(), 5);
-    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
+    // Case 3 above named commit 9. Its refusal kept that in the manifest, so
+    // the numbers up to 9 are not handed out again even though the file that
+    // claimed them is gone.
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 10);
 }
 
 /// A rebuild never lets the sequencer fall below a commit a saved projection
 /// named. Here the log is whole and the read model is another build's file
 /// that claims a commit above the snapshot: more than the index holds, so
-/// this too is refused rather than rebuilt.
+/// this is refused rather than rebuilt, and `wabidb-cli check` says the same.
+/// The refusal records the claimed height in the manifest, so that the
+/// obvious repair, deleting the read model, cannot hand those numbers out.
 #[tokio::test]
-async fn an_unusable_read_model_claiming_more_than_the_log_is_refused() {
+async fn an_unusable_read_model_claiming_more_than_the_log_is_refused_and_its_claim_is_kept() {
     let dir = tempfile::tempdir().unwrap();
     five_commits(dir.path()).await;
-    {
-        let conn = rusqlite::Connection::open(read_model_file(dir.path())).unwrap();
-        conn.execute("UPDATE read_model_meta SET generation = generation + 1", []).unwrap();
-        conn.execute("UPDATE applied_commit_seq SET seq = 40", []).unwrap();
+    let read_model = std::fs::read(read_model_file(dir.path())).unwrap();
+    for generation_bumped in [true, false] {
+        std::fs::write(read_model_file(dir.path()), &read_model).unwrap();
+        {
+            let conn = rusqlite::Connection::open(read_model_file(dir.path())).unwrap();
+            if generation_bumped {
+                conn.execute("UPDATE read_model_meta SET generation = generation + 1", []).unwrap();
+            }
+            conn.execute("UPDATE applied_commit_seq SET seq = 40", []).unwrap();
+        }
+        let before = tree_for_refusal(dir.path());
+        let text = refused(dir.path()).await;
+        assert!(
+            text.contains("ends at commit 5") && text.contains("commit 40"),
+            "{generation_bumped}: {text}"
+        );
+        assert!(tree_for_refusal(dir.path()) == before);
+        assert_eq!(manifest_height(dir.path()), 40, "the claim was not kept");
+        assert!(!dir.path().join("storage-manifest.json.tmp").exists());
+        let report = crate::cli::check::check(dir.path()).await.unwrap();
+        assert!(
+            report.errors.iter().any(|e| e.contains("refuses to start") && e.contains("commit 40")),
+            "{generation_bumped}: check disagrees with the engine: {:?}",
+            report.errors
+        );
+        // Reset the manifest for the second round.
+        let manifest = dir.path().join("storage-manifest.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+        value["highest_commit_seq"] = serde_json::json!(5);
+        std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
     }
+
+    // The operator deletes the read model. The claim of 40 left with the file;
+    // the manifest kept it, so the next commit is above it.
+    let manifest = dir.path().join("storage-manifest.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    value["highest_commit_seq"] = serde_json::json!(1);
+    std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+    let _ = refused(dir.path()).await;
+    assert_eq!(manifest_height(dir.path()), 40);
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
+    let engine = open(dir.path()).await;
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 41);
+}
+
+/// Something that is not a file where the read model belongs: the engine
+/// refuses, and `check` and `verify` say so as an error, not a warning.
+#[tokio::test]
+async fn a_directory_where_the_read_model_belongs_is_refused_by_the_engine_and_by_check() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    std::fs::remove_file(read_model_file(dir.path())).unwrap();
+    std::fs::create_dir(read_model_file(dir.path())).unwrap();
     let text = refused(dir.path()).await;
-    assert!(text.contains("ends at commit 5") && text.contains("claims commit 40"), "{text}");
+    assert!(text.contains("not a regular file"), "{text}");
+    for errors in [
+        crate::cli::check::check(dir.path()).await.unwrap().errors,
+        crate::cli::verify::verify(dir.path()).await.unwrap().errors,
+    ] {
+        assert!(
+            errors.iter().any(|e| e.contains("refuses to start") && e.contains("not a regular file")),
+            "{errors:?}"
+        );
+    }
+}
+
+/// A rebuild request beside a file that is gone (a crash between removing
+/// the two): there is nothing to rebuild, the start fills the new file from
+/// the log, and the request is gone afterwards, so the next start does not
+/// rebuild again.
+#[tokio::test]
+async fn a_stale_rebuild_request_is_cleared_when_the_file_it_was_for_is_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    crate::projections::read_model::ReadModel::request_rebuild(dir.path(), "left by a crash").unwrap();
+    std::fs::remove_file(read_model_file(dir.path())).unwrap();
+    let marker = dir.path().join("projections/read-model.rebuild");
+    assert!(marker.is_file());
+    let engine = open(dir.path()).await;
+    assert!(!marker.exists(), "the stale request was kept");
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), 5);
+    close(engine, dir.path()).await;
+    assert_eq!(
+        crate::projections::read_model::ReadModel::probe(dir.path()).unwrap(),
+        crate::projections::read_model::FileState::Usable { applied: 5 }
+    );
+}
+
+/// A rebuild request that is a directory is not "no request": ignoring it
+/// could skip a rebuild somebody asked for, so the engine refuses.
+#[tokio::test]
+async fn a_rebuild_request_that_is_a_directory_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    std::fs::create_dir(dir.path().join("projections/read-model.rebuild")).unwrap();
+    let before = tree_for_refusal(dir.path());
+    let text = refused(dir.path()).await;
+    assert!(text.contains("rebuild request is not a regular file"), "{text}");
+    assert!(tree_for_refusal(dir.path()) == before);
+    let report = crate::cli::check::check(dir.path()).await.unwrap();
+    assert!(
+        report.errors.iter().any(|e| e.contains("refuses to start") && e.contains("rebuild request")),
+        "{:?}",
+        report.errors
+    );
+}
+
+/// The manifest's recorded height is trusted only up to 2^62. Above it the
+/// manifest is corrupt: `u64::MAX` would stop the sequencer at its first
+/// write on every restart, and 2^63 does not fit the SQLite column.
+#[tokio::test]
+async fn an_implausible_manifest_height_or_watermark_is_a_corrupt_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    let manifest = dir.path().join("storage-manifest.json");
+    let good = std::fs::read(&manifest).unwrap();
+    for height in [u64::MAX, 1u64 << 63, (1u64 << 62) + 1] {
+        let mut value: serde_json::Value = serde_json::from_slice(&good).unwrap();
+        value["highest_commit_seq"] = serde_json::json!(height);
+        std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        let before = tree(dir.path());
+        let text = refused(dir.path()).await;
+        assert!(text.contains("not a plausible commit number"), "{height}: {text}");
+        assert!(tree(dir.path()) == before, "{height}: the directory changed");
+        let report = crate::cli::check::check(dir.path()).await.unwrap();
+        assert!(
+            report.errors.iter().any(|e| e.contains("refuses to start") && e.contains("plausible")),
+            "{height}: {:?}",
+            report.errors
+        );
+    }
+    // 2^62 itself is accepted.
+    let mut value: serde_json::Value = serde_json::from_slice(&good).unwrap();
+    value["highest_commit_seq"] = serde_json::json!(1u64 << 62);
+    std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+    let engine = open(dir.path()).await;
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, (1u64 << 62) + 1);
+    close(engine, dir.path()).await;
+
+    std::fs::write(&manifest, &good).unwrap();
+    let snapshot = ProjectionState::snapshot_path(dir.path());
+    let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&snapshot).unwrap()).unwrap();
+    value["watermark"] = serde_json::json!(u64::MAX);
+    std::fs::write(&snapshot, serde_json::to_vec(&value).unwrap()).unwrap();
+    let text = refused(dir.path()).await;
+    assert!(text.contains("not a plausible commit number"), "{text}");
 }
 
 /// The sequencer continues above the manifest's recorded height too, even
@@ -807,6 +1025,22 @@ async fn damage_at_run_time_makes_the_engine_unhealthy_and_the_next_start_rebuil
     }
     assert!(failed, "no read touched the damaged pages");
     assert!(!engine.is_healthy());
+    // A damaged engine takes no commands, of any kind, and writes nothing:
+    // refused before the log is touched, as after a commit it could not apply.
+    let indexed = || {
+        crate::commit_index::batcher::read_all_entries(&dir.path().join("global/commit-index"))
+            .unwrap()
+            .len()
+    };
+    let before = indexed();
+    for events in [
+        vec![poison_event(b"a commit that has nothing to do with messages")],
+        vec![message_event("message_created", &message("ch_a", "late", 7, 999))],
+    ] {
+        let refused = commit(&engine, events).await.unwrap_err().to_string();
+        assert!(refused.contains("engine halted"), "{refused}");
+    }
+    assert_eq!(indexed(), before, "a halted engine wrote to the log");
     close(engine, dir.path()).await;
 
     assert!(ProjectionState::read_model_path(dir.path()).with_extension("rebuild").is_file());
@@ -1024,4 +1258,257 @@ async fn measure_read_model_rebuild() {
         size(&file)
     );
     assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), total);
+}
+
+
+// ---------------------------------------------------------------------------
+// A directory whose log is incomplete (second review of PR 334).
+// ---------------------------------------------------------------------------
+
+/// Five messages, the log removed, one start (which keeps both saved
+/// projections over the short log and records that) and one more message:
+/// the index is at 6, snapshot and read model at 6, and nothing in the log
+/// shows any more that commits 1 to 5 are missing.
+async fn incomplete_log_directory(path: &Path) {
+    five_commits(path).await;
+    remove_the_log(path);
+    let engine = open(path).await;
+    assert_eq!(crate::engine::incomplete_log::load(path).unwrap(), Some(5), "no record at start");
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
+    close(engine, path).await;
+    assert_eq!(ProjectionState::read_snapshot_watermark(path).unwrap(), Some(5 + 1));
+    assert_eq!(file_contents(path).2, 6);
+}
+
+/// The record is what keeps the guard working after a write. Without it the
+/// engine opens in keep-both mode, writes one message, and then, once the
+/// read model is lost in any of the three ways below, rebuilds from a log
+/// that holds one message and drops the other five and every in-memory row.
+#[tokio::test]
+async fn a_directory_recorded_as_incomplete_never_rebuilds_from_its_log() {
+    let source = tempfile::tempdir().unwrap();
+    incomplete_log_directory(source.path()).await;
+
+    let lose_the_read_model: [(&str, &dyn Fn(&Path)); 3] = [
+        ("the file is deleted", &|path| {
+            std::fs::remove_file(read_model_file(path)).unwrap();
+        }),
+        ("a rebuild is requested", &|path| {
+            crate::projections::read_model::ReadModel::request_rebuild(path, "run-time damage").unwrap();
+        }),
+        ("the generation changes", &|path| {
+            rusqlite::Connection::open(read_model_file(path))
+                .unwrap()
+                .execute("UPDATE read_model_meta SET generation = generation + 1", [])
+                .unwrap();
+        }),
+    ];
+    for (name, lose) in lose_the_read_model {
+        let dir = tempfile::tempdir().unwrap();
+        copy_tree(source.path(), dir.path(), &|_| false);
+        lose(dir.path());
+        let before = tree_for_refusal(dir.path());
+        let text = refused(dir.path()).await;
+        println!("{name}: {text}");
+        for part in ["incomplete below commit 5", "cannot be rebuilt", "restore", "incomplete-log.json"] {
+            assert!(text.contains(part), "{name}: {part}: {text}");
+        }
+        assert!(tree_for_refusal(dir.path()) == before, "{name}: a refused start changed the directory");
+        assert_eq!(crate::engine::incomplete_log::load(dir.path()).unwrap(), Some(5));
+        let check = crate::cli::check::check(dir.path()).await.unwrap();
+        assert!(!check.ok, "{name}");
+        assert!(
+            check.errors.iter().any(|e| e.contains("refuses to start") && e.contains("incomplete below commit 5")),
+            "{name}: {:?}",
+            check.errors
+        );
+        let verify = crate::cli::verify::verify(dir.path()).await.unwrap();
+        assert!(
+            verify.errors.iter().any(|e| e.contains("refuses to start") && e.contains("incomplete below commit 5")),
+            "{name}: {:?}",
+            verify.errors
+        );
+    }
+
+    // The same directory with its read model starts, and says what it is.
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(source.path(), dir.path(), &|_| false);
+    let check = crate::cli::check::check(dir.path()).await.unwrap();
+    assert!(check.ok, "{:?}", check.errors);
+    assert!(
+        check.warnings.iter().any(|w| w.contains("incomplete below commit 5") && w.contains("Back up")),
+        "{:?}",
+        check.warnings
+    );
+    let verify = crate::cli::verify::verify(dir.path()).await.unwrap();
+    assert!(verify.ok, "{:?}", verify.errors);
+    assert!(verify.warnings.iter().any(|w| w.contains("incomplete below commit 5")), "{:?}", verify.warnings);
+    let (logs, guard) = capture_warnings();
+    let engine = open(dir.path()).await;
+    drop(guard);
+    assert!(
+        logs.text().lines().any(|line| line.contains("WARN") && line.contains("incomplete below commit 5")),
+        "no warning at start:\n{}",
+        logs.text()
+    );
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), 6);
+    close(engine, dir.path()).await;
+}
+
+/// What the live checkpoint export produces: the tree without the read model
+/// and its side files. The record travels with it, so the first start of the
+/// copy refuses instead of dropping five messages.
+#[tokio::test]
+async fn a_copy_without_the_read_model_keeps_the_record_and_refuses() {
+    let source = tempfile::tempdir().unwrap();
+    incomplete_log_directory(source.path()).await;
+    let copy = tempfile::tempdir().unwrap();
+    copy_tree(source.path(), copy.path(), &|name| name.starts_with("read-model.sqlite3"));
+    assert!(!read_model_file(copy.path()).exists());
+    assert_eq!(crate::engine::incomplete_log::load(copy.path()).unwrap(), Some(5));
+    let text = refused(copy.path()).await;
+    assert!(text.contains("incomplete below commit 5") && text.contains("there is no read model"), "{text}");
+}
+
+/// `wabidb-cli quarantine` needs a rebuild, so on such a directory it refuses
+/// up front, writes nothing and says why.
+#[tokio::test]
+async fn quarantine_refuses_a_directory_recorded_as_incomplete() {
+    let dir = tempfile::tempdir().unwrap();
+    incomplete_log_directory(dir.path()).await;
+    let before = tree(dir.path());
+    let error = crate::cli::quarantine::quarantine(dir.path(), 6).unwrap_err().to_string();
+    println!("{error}");
+    assert!(error.contains("incomplete below commit 5") && error.contains("would no longer start"), "{error}");
+    assert!(tree(dir.path()) == before, "quarantine wrote before refusing");
+    assert!(!dir.path().join("projections/read-model.rebuild").exists());
+    assert!(!crate::engine::quarantine::path(dir.path()).exists());
+}
+
+/// A record that cannot be read stops startup: ignoring it would allow the
+/// rebuild it exists to prevent.
+#[tokio::test]
+async fn an_unreadable_incomplete_log_record_refuses_startup() {
+    let dir = tempfile::tempdir().unwrap();
+    incomplete_log_directory(dir.path()).await;
+    let record = crate::engine::incomplete_log::path(dir.path());
+    for content in [&b"not json"[..], br#"{"version":9,"incomplete_below":5}"#] {
+        std::fs::write(&record, content).unwrap();
+        let text = refused(dir.path()).await;
+        assert!(text.contains("incomplete-log.json"), "{text}");
+        let check = crate::cli::check::check(dir.path()).await.unwrap();
+        assert!(check.errors.iter().any(|e| e.contains("refuses to start")), "{:?}", check.errors);
+    }
+}
+
+/// The rules of `plan_startup` over every combination of what is on disk.
+#[test]
+fn plan_startup_never_rebuilds_a_directory_recorded_as_incomplete() {
+    use crate::engine::plan_startup;
+    use crate::projections::read_model::FileState;
+    let usable = |applied| FileState::Usable { applied };
+    let unusable = |applied| FileState::Unusable { reason: "test".into(), applied };
+    let states = [FileState::Missing, usable(0), usable(5), usable(9), unusable(0), unusable(5), unusable(40)];
+    for index_high in [0u64, 5, 6, 9, 40] {
+        for snapshot in [0u64, 5, 9] {
+            for model in &states {
+                for incomplete in [None, Some(5)] {
+                    let plan = plan_startup(index_high, snapshot, model, incomplete);
+                    let (usable_model, model_seq) = match model {
+                        FileState::Missing => (false, 0),
+                        FileState::Usable { applied } => (true, *applied),
+                        FileState::Unusable { applied, .. } => (false, *applied),
+                    };
+                    let reaches = index_high >= snapshot.max(model_seq);
+                    let needs_rebuild = !usable_model || model_seq < snapshot;
+                    let label = format!("index {index_high} snapshot {snapshot} {model:?} incomplete {incomplete:?}");
+                    match (reaches, needs_rebuild, incomplete) {
+                        (true, true, Some(_)) => {
+                            let error = plan.err().unwrap_or_else(|| panic!("rebuilt: {label}"));
+                            assert!(error.contains("incomplete below commit 5"), "{label}: {error}");
+                        }
+                        (true, rebuild, _) => {
+                            let plan = plan.unwrap_or_else(|e| panic!("{label}: {e}"));
+                            assert_eq!((plan.rebuild, plan.record_incomplete_below), (rebuild, None), "{label}");
+                        }
+                        (false, _, _) if usable_model && model_seq == snapshot => {
+                            let plan = plan.unwrap_or_else(|e| panic!("{label}: {e}"));
+                            assert_eq!(
+                                (plan.rebuild, plan.record_incomplete_below),
+                                (false, Some(snapshot)),
+                                "{label}"
+                            );
+                        }
+                        (false, _, _) => {
+                            let error = plan.err().unwrap_or_else(|| panic!("started: {label}"));
+                            assert!(error.contains("Repair required"), "{label}: {error}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What a refused start may touch.
+// ---------------------------------------------------------------------------
+
+/// A crash leaves the read model with frames in its write-ahead log. The
+/// refusal must not fold them into the file or remove the log: reading the
+/// file to decide must not change it. Only `-shm`, an index SQLite rebuilds,
+/// may differ.
+#[tokio::test]
+async fn a_refusal_from_an_unclean_stop_leaves_the_database_and_its_log_as_they_were() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    remove_the_log(dir.path());
+    // Frames in the log: a committed update that was never checkpointed, as a
+    // killed engine leaves it. The connection is leaked so nothing closes it.
+    {
+        let conn = rusqlite::Connection::open(read_model_file(dir.path())).unwrap();
+        conn.execute("UPDATE applied_commit_seq SET seq = 4", []).unwrap();
+        std::mem::forget(conn);
+    }
+    let model = read_model_file(dir.path());
+    let wal = std::path::PathBuf::from(format!("{}-wal", model.display()));
+    assert!(std::fs::metadata(&wal).unwrap().len() > 0, "the setup left no frames");
+    let (db_before, wal_before) = (std::fs::read(&model).unwrap(), std::fs::read(&wal).unwrap());
+    let before = tree_for_refusal(dir.path());
+
+    let text = refused(dir.path()).await;
+    println!("{text}");
+    assert!(text.contains("the read model covers commit 4"), "{text}");
+    assert!(std::fs::read(&model).unwrap() == db_before, "the refusal rewrote the database");
+    assert!(std::fs::read(&wal).unwrap() == wal_before, "the refusal changed or removed the log");
+    assert!(tree_for_refusal(dir.path()) == before);
+    // The same through the lock-free commands.
+    let check = crate::cli::check::check(dir.path()).await.unwrap();
+    assert!(check.warnings.iter().any(|w| w.contains("was not examined")), "{:?}", check.warnings);
+    assert!(std::fs::read(&model).unwrap() == db_before && std::fs::read(&wal).unwrap() == wal_before);
+}
+
+/// The probe of a clean directory creates no file either.
+#[tokio::test]
+async fn probing_a_cleanly_stopped_read_model_creates_and_removes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    let before = tree(dir.path());
+    let names = |path: &Path| {
+        let mut names: Vec<_> = std::fs::read_dir(path.join("projections"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    let listing = names(dir.path());
+    for _ in 0..3 {
+        assert_eq!(
+            crate::projections::read_model::ReadModel::probe(dir.path()).unwrap(),
+            crate::projections::read_model::FileState::Usable { applied: 5 }
+        );
+    }
+    assert_eq!(names(dir.path()), listing);
+    assert!(tree(dir.path()) == before);
 }

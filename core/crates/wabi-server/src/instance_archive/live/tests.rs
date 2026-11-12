@@ -527,6 +527,33 @@ fn exporter_refuses_existing_output_without_replacing_it() {
     assert_eq!(fs::read(output).unwrap(), b"keep existing");
 }
 
+/// A directory whose log is incomplete below some commit carries a record of
+/// that (`wabidb/global/incomplete-log.json`). The export leaves the read
+/// model out, so the record must travel: without it the restored copy would
+/// rebuild from the short log and drop what only the checkpoint held. With
+/// it, the copy's first start refuses (wabidb's
+/// `a_copy_without_the_read_model_keeps_the_record_and_refuses`).
+#[test]
+fn the_incomplete_log_record_is_exported() {
+    let fixture = Fixture::new();
+    let record = br#"{"version":1,"incomplete_below":5}"#;
+    fs::write(fixture.data.join("wabidb/global/incomplete-log.json"), record).unwrap();
+    fixture.export("with-record.age", fixture.metadata()).unwrap();
+    let target = fixture.temp.path().join("restored-with-record");
+    restore(
+        &fixture.temp.path().join("with-record.age"),
+        &fixture.identity_path,
+        &target,
+        false,
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(target.join("data/wabidb/global/incomplete-log.json")).unwrap(),
+        record
+    );
+}
+
 /// The SQLite read model is derived from the log and in use while the paused
 /// engine serves reads, so a live checkpoint leaves it and SQLite's side
 /// files out. The restored copy has none; the engine builds one from the log.

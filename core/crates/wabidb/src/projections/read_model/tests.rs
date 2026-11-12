@@ -310,7 +310,8 @@ fn frozen_kind(dir: &Path) -> &'static str {
     match ReadModel::open_frozen(dir) {
         Frozen::Missing => "missing",
         Frozen::Usable(_) => "usable",
-        Frozen::Replaced(_) => "replaced",
+        Frozen::Replaced(..) => "replaced",
+        Frozen::Refused(_) => "refused",
         Frozen::Unverifiable(_) => "unverifiable",
     }
 }
@@ -327,7 +328,7 @@ fn a_frozen_open_reads_a_stopped_file_and_changes_nothing() {
     model.finish_commit(4).unwrap();
     // The engine would recover these frames and serve them.
     assert_eq!(frozen_kind(dir.path()), "unverifiable");
-    assert!(ReadModel::peek(dir.path()).is_err());
+    assert!(matches!(ReadModel::peek(dir.path()), Peek::NotExamined(_)));
     // A read connection is open too; closing must still fold the log in.
     assert_eq!(rows(&model), 1);
     drop(model);
@@ -358,7 +359,7 @@ fn a_frozen_open_reads_a_stopped_file_and_changes_nothing() {
     assert!(frozen.write(|_| Ok(())).is_err());
     frozen.sync(99).unwrap();
     drop(frozen);
-    assert_eq!(ReadModel::peek(dir.path()), Ok(FileState::Usable { applied: 4 }));
+    assert_eq!(ReadModel::peek(dir.path()), Peek::State(FileState::Usable { applied: 4 }));
     assert_eq!(listing(dir.path()), before);
 
     // An index that disagrees with its table passes the engine's quick
@@ -396,7 +397,7 @@ fn a_path_with_spaces_and_percent_signs_still_opens_frozen() {
     put(&model, b"k", b"body");
     model.finish_commit(1).unwrap();
     drop(model);
-    assert_eq!(ReadModel::peek(&dir), Ok(FileState::Usable { applied: 1 }));
+    assert_eq!(ReadModel::peek(&dir), Peek::State(FileState::Usable { applied: 1 }));
 }
 
 #[test]
@@ -420,4 +421,131 @@ fn scans_are_in_key_order_within_bounds() {
     assert_eq!(collect(b"a", Some(b"b"), false), ["a1", "a2"]);
     assert_eq!(collect(b"a", Some(b"b"), true), ["a3", "a2"]);
     assert_eq!(collect(b"a2", None, true), ["b1", "a3"]);
+}
+
+fn wal_len(dir: &Path) -> u64 {
+    std::fs::metadata(sidecar(&ReadModel::path(dir), "-wal")).map_or(0, |wal| wal.len())
+}
+
+/// Reader threads that never pause (each runs one short statement after
+/// another, so some statement is almost always running) against a writer
+/// doing `commits` one-message commits and a checkpoint sync every 500.
+/// Returns the largest write-ahead log seen and the longest single call of
+/// the writer's `finish_commit` or `sync`.
+fn run_under_sustained_reads(threshold: u64, commits: u32) -> (u64, Duration) {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(ReadModel::open(dir.path()).unwrap());
+    model.set_wal_threshold_for_tests(threshold);
+    for n in 0..2_000u32 {
+        let key = n.to_be_bytes();
+        model.write(|conn| put_message(conn, &key, "ch", &format!("seed{n}"), 1, &[1u8; 200])).unwrap();
+    }
+    model.finish_commit(1).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let readers: Vec<_> = (0..4)
+        .map(|_| {
+            let (model, stop) = (Arc::clone(&model), Arc::clone(&stop));
+            std::thread::spawn(move || {
+                let mut statements = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    let mut rows = 0;
+                    model
+                        .read(|conn| {
+                            scan(conn, Table::Messages, &[], None, true, |_, _| {
+                                rows += 1;
+                                Ok(rows < 300)
+                            })
+                        })
+                        .unwrap();
+                    statements += 1;
+                }
+                statements
+            })
+        })
+        .collect();
+    let (mut peak, mut longest) = (0u64, Duration::ZERO);
+    for n in 2..=commits {
+        let key = [&[9u8][..], &n.to_be_bytes()].concat();
+        model
+            .write(|conn| {
+                put_message(conn, &key, "ch", &format!("m{n}"), 7, &[2u8; 1_000])?;
+                put_version(conn, &key, "ch", &format!("m{n}"), &[2u8; 1_000])
+            })
+            .unwrap();
+        let started = Instant::now();
+        model.finish_commit(u64::from(n)).unwrap();
+        if n % 500 == 0 {
+            model.sync(u64::from(n)).unwrap();
+        }
+        longest = longest.max(started.elapsed());
+        peak = peak.max(wal_len(dir.path()));
+    }
+    stop.store(true, Ordering::Relaxed);
+    let statements: u64 = readers.into_iter().map(|reader| reader.join().unwrap()).sum();
+    println!(
+        "threshold {threshold}: peak write-ahead log {:.1} MB, longest finish_commit or sync \
+         {:.1?}, {statements} read statements, database {:.1} MB",
+        peak as f64 / 1e6,
+        longest,
+        std::fs::metadata(ReadModel::path(dir.path())).unwrap().len() as f64 / 1e6
+    );
+    (peak, longest)
+}
+
+/// The write-ahead log under readers that never pause: unbounded without the
+/// trim (SQLite can restart the log only when no reader uses it), and held
+/// near the threshold with it, without any commit or checkpoint waiting for a
+/// reader longer than the gate's cap.
+#[test]
+fn the_write_ahead_log_stays_bounded_while_readers_never_pause() {
+    const COMMITS: u32 = 6_000;
+    let (without, _) = run_under_sustained_reads(u64::MAX, COMMITS);
+    let (with, longest) = run_under_sustained_reads(1024 * 1024, COMMITS);
+    assert!(
+        without > 16 * 1024 * 1024,
+        "the load did not reproduce the growth ({without} bytes), so this test proves nothing"
+    );
+    // Threshold plus 16 commits of growth, with room for the commit in flight.
+    assert!(with < 8 * 1024 * 1024, "the log reached {with} bytes with the trim on");
+    assert!(longest < Duration::from_secs(1), "a commit or checkpoint stalled for {longest:?}");
+}
+
+/// A reader that stays inside a statement for much longer than the cap cannot
+/// hold the writer: the checkpoint gives up after the cap, and the reader
+/// finishes undisturbed. (The 5-second stall this replaced must stay gone.)
+#[test]
+fn a_reader_pinned_for_a_long_time_cannot_hold_a_checkpoint() {
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(ReadModel::open(dir.path()).unwrap());
+    model.set_wal_threshold_for_tests(0);
+    put(&model, b"k", b"body");
+    model.finish_commit(1).unwrap();
+    let (entered, entered_rx) = std::sync::mpsc::channel();
+    let reader = {
+        let model = Arc::clone(&model);
+        std::thread::spawn(move || {
+            model
+                .read(|conn| {
+                    let rows = count(conn, Table::Messages)?;
+                    entered.send(()).unwrap();
+                    std::thread::sleep(Duration::from_millis(600));
+                    Ok(rows)
+                })
+                .unwrap()
+        })
+    };
+    entered_rx.recv().unwrap();
+    put(&model, b"k2", b"body");
+    model.finish_commit(2).unwrap();
+    let started = Instant::now();
+    model.sync(2).unwrap();
+    let took = started.elapsed();
+    println!("sync with a reader pinned for 600 ms: {took:?}");
+    assert!(took < Duration::from_millis(300), "the checkpoint waited for the reader: {took:?}");
+    assert_eq!(reader.join().unwrap(), 1);
+    // The gate is open again.
+    assert_eq!(rows(&model), 2);
 }

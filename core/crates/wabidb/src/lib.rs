@@ -53,7 +53,10 @@
 //!   with mode 0600 and is not encrypted (test:
 //!   `tests::read_model_messages::the_read_model_file_is_owner_only_and_messages_leave_the_snapshot`).
 //!   The engine never rebuilds it from a log that ends below a saved projection (test:
-//!   `tests::read_model_messages::a_log_shorter_than_the_checkpoint_is_never_rebuilt_from`).
+//!   `tests::read_model_messages::a_log_shorter_than_the_checkpoint_is_never_rebuilt_from`),
+//!   and once it has kept the saved projections over such a log it records that in
+//!   `global/incomplete-log.json` and never rebuilds again (test:
+//!   `tests::read_model_messages::a_directory_recorded_as_incomplete_never_rebuilds_from_its_log`).
 //!   The other projections are to follow, one at a time (*planned*).
 //! - **Retention** (`retention`): backup helpers that copy and hash files (tests:
 //!   `retention::data_backup::tests::backup_populated`,
