@@ -27,6 +27,8 @@ pub(crate) struct Fake {
     pub(crate) review: BTreeMap<String, Vec<u8>>,
     pub(crate) route_to_review: bool,
     pub(crate) delete_forbidden: bool,
+    /// How many of the next file downloads are answered 502.
+    pub(crate) fail_downloads: u32,
     pub(crate) puts: Vec<String>,
     pub(crate) deletes: Vec<String>,
     /// Stands in for the server-side mtime of each mainline file: bumped on
@@ -121,6 +123,10 @@ fn respond(fake: &Shared, method: &str, target: &str, if_match: Option<&str>, bo
         "currentEtag": current,
     });
     match method {
+        "GET" if f.fail_downloads > 0 => {
+            f.fail_downloads -= 1;
+            json(502, serde_json::json!({"error": "injected by the test", "type": "BadGateway"}))
+        }
         "GET" => match f.mainline.get(&file) {
             Some(bytes) => (200, bytes.clone()),
             None => json(404, serde_json::json!({"error": "File not found", "type": "NotFound"})),
@@ -485,4 +491,53 @@ async fn mainline_delete_while_pending_keeps_the_local_version() {
     assert_eq!(copies.len(), 1);
     assert_eq!(h.read(&copies[0]).as_deref(), Some("my edit"));
     assert!(h.state().pending_review.is_empty());
+}
+
+/// `wabi-sync status`: a file waiting for review is not "changed since last
+/// sync" (it was sent), and status says that it is waiting.
+#[tokio::test]
+async fn status_says_a_file_is_waiting_for_review() {
+    use crate::sync::{local_status, scan_local};
+    let h = with_pending_edit().await;
+    h.write("new.txt", "not sent yet");
+
+    let status = local_status(&h.state(), &scan_local(h.folder()).unwrap());
+    assert_eq!(status.waiting_review, vec!["a.txt"]);
+    assert_eq!(status.changed, vec!["new.txt"]);
+
+    // Edited again: what is waiting is no longer what is in the folder.
+    h.write("a.txt", "my second edit");
+    let status = local_status(&h.state(), &scan_local(h.folder()).unwrap());
+    assert!(status.waiting_review.is_empty());
+    assert_eq!(status.changed, vec!["a.txt", "new.txt"]);
+}
+
+/// A rejected review upload: nothing tells the client, so the file is
+/// reported as waiting on every round until the user runs `resubmit`. The
+/// next round then uploads the same bytes as a new review request.
+#[tokio::test]
+async fn resubmit_clears_the_waiting_mark_and_uploads_again() {
+    let h = with_pending_edit().await;
+    // The reviewer rejects: the review branch goes, the mainline is as it was.
+    h.server(|f| f.review.clear());
+    for _ in 0..2 {
+        let report = h.sync().await.unwrap();
+        assert_eq!(report.waiting_review, vec!["a.txt"]);
+        assert!(report.uploaded.is_empty());
+    }
+
+    let mut state = h.state();
+    assert!(!state.forget_review("never-sent.txt"));
+    assert!(state.forget_review("a.txt"));
+    assert!(!state.forget_review("a.txt"), "already forgotten");
+    state.save(h.folder()).unwrap();
+
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.uploaded, vec!["a.txt"]);
+    assert_eq!(report.waiting_review, vec!["a.txt"], "it is a new review request");
+    assert!(report.conflicts.is_empty());
+    assert_eq!(h.server(|f| f.puts.clone()), vec!["a.txt", "a.txt"]);
+    assert_eq!(h.server(|f| f.review.get("a.txt").cloned()), Some(b"my edit".to_vec()));
+    assert_eq!(h.read("a.txt").as_deref(), Some("my edit"));
+    assert!(h.conflict_copies().is_empty());
 }

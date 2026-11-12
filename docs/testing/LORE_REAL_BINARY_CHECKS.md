@@ -56,6 +56,7 @@ If `lore` only exists inside a container, run the same command inside it from a 
 | `q2_observe_a_staged_file_across_a_branch_switch` | Does a staged, uncommitted file follow a branch switch? What does a retry of the same path do afterwards? | Observation only. If the file follows, a promote that fails after staging leaves it on the mainline. |
 | `q5_observe_a_restart_while_on_a_review_branch` | If the server stops while the tree is on a review branch, where does the next direct upload land? | Observation only. Known gap: nothing puts the tree back at startup. |
 | `q6_observe_a_review_upload_during_a_staged_batch` | A commit holder has staged a batch and not sealed it. A member without `lore.commit` uploads, which goes to a review branch. Is the staged file swept into the review commit, is the branch switch refused, or are the two kept apart? Does sealing the batch afterwards pick up the review bytes? | Observation only. Either of the first two is a way for one member to disturb another's work, and review bytes in the sealed batch would be a leak to the mainline. |
+| `q7_observe_how_a_branch_switch_changes_an_open_file` | When the lore program changes a file on a branch switch, does it write in place or replace the file? A handle opened before the switch is read again afterwards. | Observation only. Range downloads read from an open handle after the service's gate is released. If the program writes in place, a download in progress during a review upload could see the other branch's bytes; the server guards against that by stopping the response, and this says whether the guard is ever needed. |
 | `basic_direct_operations_work` | Upload, second revision, identical bytes again, delete, health check. | The basics differ from what the stand-in pretends. |
 
 ## Checks in the running app (need a browser, not covered above)
@@ -82,6 +83,7 @@ approve: worked / failed, with the OBSERVED lines
 q2 staged file follows a branch switch: yes / no; retry of the same path: <what happened>
 q5 upload after restart landed on: mainline / the left-behind branch / failed
 q6 review upload during a staged batch: succeeded / refused; batch file ended up in: the batch / the review commit; review bytes on the mainline after sealing: yes / no
+q7 branch switch: replaced the file (old handle still reads v1) / wrote in place (old handle reads something else)
 basic: identical-bytes upload: <what happened>
 
 anything that failed because of HOME=/var/wabi/lore or another environment reason:

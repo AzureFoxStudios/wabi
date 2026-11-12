@@ -289,3 +289,50 @@ async fn state_from_an_older_build_is_filled_in_on_the_next_sync() {
     assert_eq!(puts(&h), 2);
     assert!(h.conflict_copies().is_empty());
 }
+
+/// A linked folder whose edit of `big.bin` (1 → 2) is waiting for review.
+async fn with_pending_big_edit() -> Harness {
+    let h = with_uploaded_big().await;
+    h.server(|f| f.route_to_review = true);
+    write_big(&h, 2);
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.waiting_review, vec![BIG]);
+    h
+}
+
+/// A large edit is waiting for review, the mainline changes, and the round
+/// that finds the conflict fails while fetching the mainline's version. The
+/// edit must survive the next round, in a conflict copy.
+#[tokio::test]
+async fn failed_conflict_round_does_not_lose_a_large_pending_edit() {
+    let h = with_pending_big_edit().await;
+    h.server(|f| {
+        f.set_mainline(BIG, big(3));
+        f.fail_downloads = 1;
+    });
+    assert!(h.sync().await.is_err(), "the injected failure");
+    assert_eq!(read_big(&h), big(2), "the failed round touched the file");
+
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{:?} / downloaded {:?}", report.conflicts, report.downloaded);
+    assert_eq!(read_big(&h), big(3));
+    let copies = h.conflict_copies();
+    assert_eq!(copies.len(), 1, "the edit is gone: {copies:?}");
+    assert_eq!(std::fs::read(h.folder().join(&copies[0])).unwrap(), big(2));
+}
+
+/// A large review upload is approved: the mainline holds the same bytes under
+/// an etag the client could not predict. That is not a conflict.
+#[tokio::test]
+async fn approved_large_review_upload_makes_no_conflict_copy() {
+    let h = with_pending_big_edit().await;
+    h.server(|f| f.set_mainline(BIG, big(2)));
+
+    let report = h.sync().await.unwrap();
+    assert!(report.conflicts.is_empty(), "{:?}", report.conflicts);
+    assert!(h.conflict_copies().is_empty(), "{:?}", h.conflict_copies());
+    assert_eq!(read_big(&h), big(2));
+    assert!(h.state().pending_review.is_empty());
+    assert!(h.sync().await.unwrap().is_empty());
+    assert_eq!(puts(&h), 2, "uploaded again");
+}

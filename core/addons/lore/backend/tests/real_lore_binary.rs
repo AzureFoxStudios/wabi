@@ -389,6 +389,83 @@ async fn q6_observe_a_review_upload_during_a_staged_batch() {
     );
 }
 
+/// Q7. When the lore program changes a working-tree file on a branch switch,
+/// does it write the file in place or replace it? Range downloads (Task 4.3)
+/// read from an open handle after the service's gate is released. With a
+/// program that replaces files the handle keeps the old bytes; with one that
+/// writes in place a reader can see the other branch's bytes. Observation
+/// only.
+#[tokio::test]
+#[ignore = "needs the real lore program: set WABI_LORE_REAL_BINARY"]
+async fn q7_observe_how_a_branch_switch_changes_an_open_file() {
+    use std::io::{Read, Seek, SeekFrom};
+
+    fn identity(path: &Path) -> String {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            match std::fs::metadata(path) {
+                Ok(meta) => format!("inode {} size {}", meta.ino(), meta.len()),
+                Err(error) => format!("unreadable: {error}"),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            match std::fs::metadata(path) {
+                Ok(meta) => format!("size {} modified {:?}", meta.len(), meta.modified().ok()),
+                Err(error) => format!("unreadable: {error}"),
+            }
+        }
+    }
+    fn read_all(handle: &mut std::fs::File) -> String {
+        let mut bytes = Vec::new();
+        match handle.seek(SeekFrom::Start(0)).and_then(|_| handle.read_to_end(&mut bytes)) {
+            Ok(_) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) => format!("read failed: {error}"),
+        }
+    }
+
+    let repo = Repo::new().await;
+    let mainline = repo.current_branch().await;
+    repo.promote(
+        "a.txt",
+        b"v2 on the review branch, and longer than v1",
+        "",
+        Some("uploads/check-inplace"),
+    )
+    .await
+    .expect("review-branch promote");
+    assert_eq!(repo.read("a.txt").as_deref(), Some(&b"v1"[..]));
+
+    let path = repo.tree.join("a.txt");
+    let mut handle = std::fs::File::open(&path).expect("open a.txt on the mainline");
+    println!("OBSERVED q7: before the switch: path is {}, handle reads {:?}", identity(&path), read_all(&mut handle));
+
+    repo.service
+        .switch_branch(CHANNEL, "uploads/check-inplace")
+        .await
+        .expect("switch to the review branch");
+    println!(
+        "OBSERVED q7: on the review branch: path is {}, path reads {:?}",
+        identity(&path),
+        repo.read("a.txt").map(|b| String::from_utf8_lossy(&b).into_owned())
+    );
+    println!(
+        "OBSERVED q7: the handle opened BEFORE the switch now reads {:?} (still \"v1\" means the program replaced the file; anything else means it wrote in place)",
+        read_all(&mut handle)
+    );
+
+    repo.service
+        .switch_branch(CHANNEL, &mainline)
+        .await
+        .expect("switch back");
+    println!(
+        "OBSERVED q7: back on the mainline: path is {}, the old handle reads {:?}",
+        identity(&path),
+        read_all(&mut handle)
+    );
+}
+
 /// Basic operations the stand-in only pretends to do: delete, a second
 /// revision of one path, and the health check.
 #[tokio::test]

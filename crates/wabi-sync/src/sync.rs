@@ -10,15 +10,33 @@ use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
 use crate::config::{LinkConfig, SyncState, LINK_FILE, STATE_DIR};
 use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 
-/// Paths never synced regardless of ignore files.
+/// What every conflict copy has in its file name.
+const CONFLICT_MARKER: &str = ".wabi-conflict-";
+
+/// Paths never synced regardless of ignore files, in either direction:
+/// - this tool's own link file and state directory;
+/// - conflict copies, which belong to the folder they were made in;
+/// - the names the server refuses as repository metadata, at any depth and
+///   in any letter case (`reserved` and `ignore_file` in the Lore addon's
+///   `confined_fs.rs`).
 fn is_internal(rel: &str) -> bool {
-    rel == LINK_FILE
-        || rel == ".wabiignore"
-        || rel == ".loreignore"
-        || rel == ".wabi-repo.json"
-        || rel.starts_with(&(STATE_DIR.to_string() + "/"))
-        || rel.starts_with(".lore/")
-        || rel.starts_with(".git/")
+    rel.split('/').any(|component| {
+        let name = component.to_ascii_lowercase();
+        name == LINK_FILE
+            || name == STATE_DIR
+            || name.contains(CONFLICT_MARKER)
+            || matches!(
+                name.as_str(),
+                ".git"
+                    | ".lore"
+                    | ".mirror-cache"
+                    | ".wabi-repo.json"
+                    | ".wabi-mirror-fetched-at"
+                    | ".wabiignore"
+                    | ".loreignore"
+            )
+            || name.starts_with(".wabi-publish-")
+    })
 }
 
 /// Glob-style `.wabiignore` matching: `**` spans `/`, `*` within a segment.
@@ -145,6 +163,38 @@ fn conflict_path(local: &Path, tag: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// Put `bytes`, the contents of `local`, in a conflict copy next to it and
+/// return the copy's path. A file that is already there is never written over: it may
+/// be the only place an earlier version of the user's work exists. The name
+/// is `<file>.wabi-conflict-<tag>`, then `-2`, `-3`, … until one is free. A
+/// name whose file already holds exactly these bytes is used as it is, so a
+/// round repeated after a failure does not pile up identical copies.
+fn save_conflict_copy(local: &Path, bytes: &[u8], tag: &str) -> anyhow::Result<PathBuf> {
+    use std::io::Write;
+    let mut n = 1u32;
+    loop {
+        let candidate = if n == 1 {
+            conflict_path(local, tag)
+        } else {
+            conflict_path(local, &format!("{tag}-{n}"))
+        };
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(mut file) => {
+                file.write_all(bytes)?;
+                file.sync_all()?;
+                return Ok(candidate);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if std::fs::read(&candidate).is_ok_and(|existing| existing == bytes) {
+                    return Ok(candidate);
+                }
+                n += 1;
+            }
+            Err(e) => return Err(e).with_context(|| format!("writing {}", candidate.display())),
+        }
+    }
+}
+
 pub struct SyncReport {
     pub downloaded: Vec<String>,
     pub uploaded: Vec<String>,
@@ -155,6 +205,9 @@ pub struct SyncReport {
     pub waiting_review: Vec<String>,
     /// Local deletions the server refused (403).
     pub not_deleted: Vec<String>,
+    /// Local files the server refused, each with the reason. They stay as
+    /// they are in the folder and are offered again on the next round.
+    pub not_uploaded: Vec<String>,
 }
 
 impl SyncReport {
@@ -167,6 +220,7 @@ impl SyncReport {
             conflicts: Vec::new(),
             waiting_review: Vec::new(),
             not_deleted: Vec::new(),
+            not_uploaded: Vec::new(),
         }
     }
 
@@ -178,6 +232,7 @@ impl SyncReport {
             && self.conflicts.is_empty()
             && self.waiting_review.is_empty()
             && self.not_deleted.is_empty()
+            && self.not_uploaded.is_empty()
     }
 }
 
@@ -190,12 +245,14 @@ pub struct SyncEngine<'a> {
 
 impl<'a> SyncEngine<'a> {
     pub fn new(client: &'a WabiClient, folder: &'a Path, link: &'a LinkConfig) -> Self {
-        Self {
-            client,
-            folder,
-            link,
-            state: SyncState::load(folder).unwrap_or_default(),
-        }
+        let mut state = SyncState::load(folder).unwrap_or_default();
+        // An earlier build synced conflict copies like any other file. With
+        // no record of them here they are neither deleted nor replaced, on
+        // the server or in the folder.
+        state.baselines.retain(|path, _| !is_internal(path));
+        state.pending_review.retain(|path, _| !is_internal(path));
+        state.local_fingerprints.retain(|path, _| !is_internal(path));
+        Self { client, folder, link, state }
     }
 
     pub fn save_state(&self) -> anyhow::Result<()> {
@@ -218,8 +275,103 @@ impl<'a> SyncEngine<'a> {
         Ok(())
     }
 
+    /// The user and someone else both changed `path`. The rule, wherever the
+    /// conflict is found: the canonical name ends up holding the server's
+    /// version (nothing, when the file was deleted there), the user's version
+    /// goes to a conflict copy next to it, and the baseline becomes the
+    /// server's. The client never sends the user's version over the other
+    /// change by itself; the user does that by putting the conflict copy's
+    /// bytes back in the file. Returns the line for the report.
+    ///
+    /// `server_etag` is `None` when the server has no such file.
+    ///
+    /// When both sides turn out to hold the same bytes there is no copy and
+    /// no line. Otherwise the line for the user goes into the state, saved
+    /// in the same write as the conflict itself, and stays there until a
+    /// report that carries it is handed over (`finish`): the user's file
+    /// now holds someone else's version, and they are told even if the rest
+    /// of this round fails or the process is killed.
+    async fn keep_both(&mut self, path: &str, server_etag: Option<&str>) -> anyhow::Result<()> {
+        let local_file = self.folder.join(path);
+        let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let Some(server_etag) = server_etag else {
+            let copy = save_conflict_copy(&local_file, &std::fs::read(&local_file)?, "deleted")?;
+            std::fs::remove_file(&local_file)?;
+            self.state.baselines.remove(path);
+            self.state.pending_review.remove(path);
+            self.state.local_fingerprints.remove(path);
+            self.state.unreported_conflicts.push(format!(
+                "{path} (deleted on the server; your version is saved as {})",
+                name(&copy)
+            ));
+            return self.save_state();
+        };
+        // Fetch before touching the folder: a failed download leaves the
+        // user's file where it was.
+        let bytes = self
+            .client
+            .download(self.link.channel_id, path, None)
+            .await?
+            .context("conflict download failed")?;
+        let mine = std::fs::read(&local_file)?;
+        if mine == bytes {
+            // The same bytes on both sides, which the etags could not show:
+            // over the full-hash limit the server's etag is never one the
+            // client can compute. Nothing to keep apart; adopt its etag.
+            self.state.pending_review.remove(path);
+            self.record_download(path, &bytes, server_etag)?;
+            return Ok(());
+        }
+        let tag = server_etag.chars().take(8).collect::<String>();
+        let copy = save_conflict_copy(&local_file, &mine, &tag)?;
+        std::fs::write(&local_file, &bytes)?;
+        self.state.pending_review.remove(path);
+        self.record_download(path, &bytes, server_etag)?;
+        self.state.unreported_conflicts.push(format!(
+            "{path} (changed on the server too; {path} now holds the server's version, yours is saved as {})",
+            name(&copy)
+        ));
+        // On disk at once: a round that fails later, or is killed, must not
+        // find this conflict a second time, and must not forget to report it.
+        self.save_state()
+    }
+
+    /// The end of every round, successful or not. The state is saved either
+    /// way: each step records itself as soon as it is done, so the saved
+    /// state is what actually happened and a retry starts from there. A
+    /// successful round's report takes the conflict lines waiting in the
+    /// state (this round's and any left by a round that failed).
+    fn finish(&mut self, result: anyhow::Result<SyncReport>) -> anyhow::Result<SyncReport> {
+        let result = result.map(|mut report| {
+            let mut conflicts = std::mem::take(&mut self.state.unreported_conflicts);
+            conflicts.append(&mut report.conflicts);
+            report.conflicts = conflicts;
+            report
+        });
+        let saved = self.save_state();
+        let report = result?;
+        saved?;
+        Ok(report)
+    }
+
+    /// Conflicts settled by a round that then failed. The caller shows them
+    /// with the error; they are then no longer waiting to be reported.
+    pub fn take_unreported_conflicts(&mut self) -> Vec<String> {
+        let conflicts = std::mem::take(&mut self.state.unreported_conflicts);
+        if !conflicts.is_empty() {
+            // If this cannot be saved they are shown again next round.
+            let _ = self.save_state();
+        }
+        conflicts
+    }
+
     /// Pull remote changes down (three-way against baselines).
     pub async fn pull(&mut self) -> anyhow::Result<SyncReport> {
+        let result = self.pull_steps().await;
+        self.finish(result)
+    }
+
+    async fn pull_steps(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
         let manifest = self.client.manifest(self.link.channel_id).await?;
         if manifest.read_only {
@@ -229,12 +381,19 @@ impl<'a> SyncEngine<'a> {
         let remote: BTreeMap<&str, &Option<String>> = manifest
             .files
             .iter()
+            .filter(|f| !is_internal(&f.path))
             .map(|f| (f.path.as_str(), &f.etag))
             .collect();
 
         // Remote files: download new/changed when we have no diverging local edit.
         for (path, remote_etag) in &remote {
-            let remote_etag = remote_etag.as_deref().unwrap_or("");
+            // The server sends a null etag when it could not hash the file.
+            // That says nothing about whether the file changed, so the path
+            // is left as it is this round: not fetched again over the local
+            // copy, not a conflict, and (being listed) not deleted.
+            let Some(remote_etag) = remote_etag.as_deref() else {
+                continue;
+            };
             // A review upload was approved: the mainline now has the etag we
             // uploaded, so it becomes the ordinary baseline.
             if self.state.pending_review.get(*path).map(String::as_str) == Some(remote_etag) {
@@ -245,6 +404,15 @@ impl<'a> SyncEngine<'a> {
             let local_etag = local.get(*path);
             let remote_changed = baseline.as_deref().unwrap_or("") != remote_etag;
             let local_has = local_etag.is_some();
+            if remote_changed && local_etag.map(String::as_str) == Some(remote_etag) {
+                // The folder already holds the server's bytes: a download or
+                // a conflict that an interrupted round did not get to
+                // record, or the same edit made in two places.
+                self.state.pending_review.remove(*path);
+                self.state.local_fingerprints.remove(*path);
+                self.state.baselines.insert(path.to_string(), Some(remote_etag.to_string()));
+                continue;
+            }
             if remote_changed {
                 // The mainline moved to something other than what is waiting
                 // for review; the branches below settle the path (a pending
@@ -255,7 +423,8 @@ impl<'a> SyncEngine<'a> {
                     (None, b) => b.is_none(), // both absent → clean
                     (Some(_), None) => false, // local-only file → diverged
                 };
-                self.state.pending_review.remove(*path);
+                // The state is changed only once the path is settled: a step
+                // that fails must leave it describing the folder as it is.
                 if !local_has || local_clean {
                     let bytes = self
                         .client
@@ -268,24 +437,11 @@ impl<'a> SyncEngine<'a> {
                     }
                     std::fs::write(&full, &bytes)?;
                     report.downloaded.push(path.to_string());
+                    self.state.pending_review.remove(*path);
                     self.record_download(path, &bytes, remote_etag)?;
                 } else {
-                    // Both sides changed → keep both, server wins the canonical name.
-                    let tag = remote_etag.chars().take(8).collect::<String>();
-                    let local_file = self.folder.join(path);
-                    let copy = conflict_path(&local_file, &tag);
-                    std::fs::rename(&local_file, &copy)?;
-                    let bytes = self
-                        .client
-                        .download(self.link.channel_id, path, None)
-                        .await?
-                        .context("conflict download failed")?;
-                    std::fs::write(&local_file, &bytes)?;
-                    report.conflicts.push(format!(
-                        "{path} (your version saved as {})",
-                        copy.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-                    ));
-                    self.record_download(path, &bytes, remote_etag)?;
+                    // Both sides changed.
+                    self.keep_both(path, Some(remote_etag)).await?;
                 }
             }
         }
@@ -304,8 +460,6 @@ impl<'a> SyncEngine<'a> {
             }
             let local_etag = local.get(&path);
             let local_clean = local_etag.map(|le| self.state.local_matches_baseline(&path, le)).unwrap_or(true);
-            self.state.pending_review.remove(&path);
-            self.state.local_fingerprints.remove(&path);
             let local_file = self.folder.join(&path);
             if local_clean {
                 if local_etag.is_some() {
@@ -313,34 +467,11 @@ impl<'a> SyncEngine<'a> {
                     report.deleted_local.push(path.clone());
                 }
                 self.state.baselines.remove(&path);
+                self.state.pending_review.remove(&path);
+                self.state.local_fingerprints.remove(&path);
             } else {
-                // Deleted remotely, edited locally → keep as conflict copy.
-                let tag = baseline.map(|b| b.chars().take(8).collect::<String>()).unwrap_or_default();
-                let copy = conflict_path(&local_file, &tag);
-                std::fs::rename(&local_file, &copy).ok();
-                report.conflicts.push(format!(
-                    "{path} (deleted on server; your version saved as conflict copy)"
-                ));
-                self.state.baselines.remove(&path);
-            }
-        }
-
-        // Adopt etags for remote files we already have and haven't diverged on
-        // (first link: everything local-unchanged gets its baseline).
-        for (path, remote_etag) in &remote {
-            if !self.state.baselines.contains_key(*path) {
-                let local_etag = local.get(*path);
-                match (local_etag, remote_etag) {
-                    (Some(le), Some(re)) if le == re => {
-                        self.state.baselines.insert(path.to_string(), Some(le.clone()));
-                    }
-                    (None, Some(re)) => {
-                        // We lack the file locally and have no baseline — leave
-                        // for the next pull's remote_changed branch.
-                        let _ = re;
-                    }
-                    _ => {}
-                }
+                // Deleted remotely, edited locally.
+                self.keep_both(&path, None).await?;
             }
         }
 
@@ -349,6 +480,11 @@ impl<'a> SyncEngine<'a> {
 
     /// Push local changes up (three-way against baselines).
     pub async fn push(&mut self) -> anyhow::Result<SyncReport> {
+        let result = self.push_steps().await;
+        self.finish(result)
+    }
+
+    async fn push_steps(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
         let local = scan_local(self.folder)?;
 
@@ -386,7 +522,11 @@ impl<'a> SyncEngine<'a> {
                     path,
                     bytes,
                     &message,
-                    baseline.as_deref(),
+                    // Never unconditional. With no baseline the upload is
+                    // create-only (`If-Match: ""`): if the server has a file
+                    // at this path that this folder never saw, it answers
+                    // 409 and both versions are kept.
+                    Some(baseline.as_deref().unwrap_or("")),
                 )
                 .await?;
             match outcome {
@@ -410,25 +550,21 @@ impl<'a> SyncEngine<'a> {
                         self.state.baselines.insert(path.clone(), Some(adopted));
                     }
                 }
+                UploadOutcome::Refused(refusal) => {
+                    // Nothing changed on either side; the rest of the round
+                    // does not depend on this file.
+                    report.not_uploaded.push(format!("{path} (not uploaded: {refusal})"));
+                }
                 UploadOutcome::Conflict(conflict) => {
-                    self.state.pending_review.remove(path);
-                    self.state.local_fingerprints.remove(path);
-                    let tag = conflict
-                        .current_etag
-                        .as_deref()
-                        .unwrap_or("server")
-                        .chars()
-                        .take(8)
-                        .collect::<String>();
-                    let local_file = self.folder.join(path);
-                    let copy = conflict_path(&local_file, &tag);
-                    std::fs::copy(&local_file, &copy)?;
-                    report.conflicts.push(format!(
-                        "{path} (server had newer changes; your version saved as {})",
-                        copy.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-                    ));
-                    // Adopt server state; the next pull fills the canonical file.
-                    self.state.baselines.insert(path.clone(), conflict.current_etag.clone());
+                    if conflict.current_etag.as_deref() == Some(sent_etag.as_str()) {
+                        // The server already holds these very bytes (the
+                        // same edit made twice): nothing to keep apart.
+                        self.state.pending_review.remove(path);
+                        self.state.local_fingerprints.remove(path);
+                        self.state.baselines.insert(path.clone(), conflict.current_etag);
+                        continue;
+                    }
+                    self.keep_both(path, conflict.current_etag.as_deref()).await?;
                 }
             }
         }
@@ -474,11 +610,16 @@ impl<'a> SyncEngine<'a> {
 
     /// Full round: push local work first, then pull, then record cursor.
     pub async fn sync(&mut self) -> anyhow::Result<SyncReport> {
-        let mut pushed = self.push().await?;
-        let mut pulled = self.pull().await?;
-        let changes = self.client.changes(self.link.channel_id, 0).await?;
-        self.state.cursor = changes.latest_seq;
+        let result = self.sync_steps().await;
+        self.finish(result)
+    }
+
+    async fn sync_steps(&mut self) -> anyhow::Result<SyncReport> {
+        let mut pushed = self.push_steps().await?;
+        // What the push did is on disk before the pull starts.
         self.save_state()?;
+        let pulled = self.pull_steps().await?;
+        self.state.cursor = self.client.feed_end(self.link.channel_id, self.state.cursor).await?;
         pushed.uploaded.extend(pulled.uploaded);
         pushed.downloaded.extend(pulled.downloaded);
         pushed.deleted_local.extend(pulled.deleted_local);
@@ -489,6 +630,29 @@ impl<'a> SyncEngine<'a> {
         pushed.waiting_review.retain(|p| self.state.pending_review.contains_key(p));
         Ok(pushed)
     }
+}
+
+/// What `wabi-sync status` says about the files in the folder.
+pub struct LocalStatus {
+    /// Changed since the last sync and not sent anywhere yet.
+    pub changed: Vec<String>,
+    /// Sent to a review branch, unchanged since, and not on the mainline.
+    pub waiting_review: Vec<String>,
+}
+
+pub fn local_status(state: &SyncState, local: &BTreeMap<String, String>) -> LocalStatus {
+    let mut status = LocalStatus { changed: Vec::new(), waiting_review: Vec::new() };
+    for (path, etag) in local {
+        if state.local_matches_baseline(path, etag) {
+            continue;
+        }
+        if state.local_matches_pending(path, etag) {
+            status.waiting_review.push(path.clone());
+        } else {
+            status.changed.push(path.clone());
+        }
+    }
+    status
 }
 
 pub fn print_report(prefix: &str, report: &SyncReport) {
@@ -512,6 +676,9 @@ pub fn print_report(prefix: &str, report: &SyncReport) {
     }
     for p in &report.not_deleted {
         println!("{prefix} ⚠ {p} (not deleted: you do not have permission)");
+    }
+    for p in &report.not_uploaded {
+        println!("{prefix} ⚠ {p}");
     }
 }
 
@@ -542,6 +709,28 @@ mod tests {
         assert!(is_internal(".lore/config"));
         assert!(is_internal(".git/HEAD"));
         assert!(!is_internal("src/main.rs"));
+        // The server's reserved names, at any depth and in any case.
+        for path in [
+            "sub/.git/config",
+            "sub/.Lore/head",
+            "a/.wabi-repo.json",
+            "a/.mirror-cache/x",
+            ".wabi-mirror-fetched-at",
+            "a/.wabi-publish-123/x",
+            ".wabiignore",
+            "sub/.WabiIgnore",
+            "sub/.loreignore",
+            "nested/.wabi-sync/state.json",
+            "nested/.wabi-sync.json",
+        ] {
+            assert!(is_internal(path), "{path}");
+        }
+        // Conflict copies.
+        assert!(is_internal("docs/file.txt.wabi-conflict-ab12cd34"));
+        assert!(is_internal("docs/file.txt.wabi-conflict-ab12cd34-2"));
+        for path in [".gitignore", ".github/workflows/ci.yml", "wabi-conflict-notes.txt", "lore/readme.md"] {
+            assert!(!is_internal(path), "{path}");
+        }
     }
 
     #[test]
@@ -559,6 +748,11 @@ mod tests {
         std::fs::write(dir.path().join("node_modules/pkg/x.js"), b"junk").unwrap();
         std::fs::write(dir.path().join(".wabiignore"), "node_modules\n").unwrap();
         std::fs::write(dir.path().join(".wabi-sync.json"), b"{}").unwrap();
+        std::fs::create_dir_all(dir.path().join(".wabi-sync")).unwrap();
+        std::fs::write(dir.path().join(".wabi-sync/state.json"), b"{}").unwrap();
+        std::fs::write(dir.path().join("src/main.rs.wabi-conflict-ab12cd34"), b"mine").unwrap();
+        std::fs::create_dir_all(dir.path().join("src/.git")).unwrap();
+        std::fs::write(dir.path().join("src/.git/config"), b"x").unwrap();
         let scanned = scan_local(dir.path()).unwrap();
         assert_eq!(scanned.len(), 1);
         assert!(scanned.contains_key("src/main.rs"));
