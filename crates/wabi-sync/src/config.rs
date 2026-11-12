@@ -126,6 +126,14 @@ pub struct SyncState {
     /// drops the whole map when it saves, so it never leaves a stale entry.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub local_fingerprints: BTreeMap<String, String>,
+    /// Report lines for conflicts that are settled in the folder (the file
+    /// holds the server's version, the user's is in a conflict copy) and
+    /// that no report has carried to the user yet, because the round failed
+    /// or was killed after settling them. Emptied when a report takes them.
+    /// Optional on read and left out when empty, like the two maps above; a
+    /// build without this field drops it, and with it only the notice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreported_conflicts: Vec<String>,
 }
 
 impl SyncState {
