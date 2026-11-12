@@ -34,12 +34,16 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 | 341 | 4.7 | Lore health check runs the `lore` program; missing `lore`/`git` is 503, a bad import URL 400, a path `.wabiignore` excludes 422 (typed `wabi_lore::LoreError`). |
 | 334 | 3.5.1 | Messages move to the SQLite read model (`projections/read-model.sqlite3`). A rebuild replays the log into the messages only; the other projections still load from `snapshot.json`. Refuses to start rather than lose messages when the log is incomplete; bounded write-ahead log. Data directories from before this PR are not supported: wipe them. |
 | 343 | 3.5.2 | Channels move to the read model (table `channels`, schema 2, generation 2). Room placement skips its same-commit check for commits the read model already holds; rows an update creates get creation time 0 so replay is deterministic. Independent review: no blocker; its one should-fix test is in. |
+| 344 | (fix) | Recovery-code crash test registered the same username twice (test bug, not a lockout); CI's `power-loss` job now also runs `cargo test -p wabidb --features test-harness --lib`. |
+| 345 | 3.5.3 | Channel members move to the read model (tables `channel_members` with an indexed `user_id`, `channel_membership_versions`; generation 3). User deletion's membership cascade follows the read-model watermark (`Projection::apply_to_read_model`). Review: 225 snapshot/read-model restart pairs all match live; a full-table scan on every socket join was replaced by an index (8.9 ms to 12 µs at 50k memberships). |
 | 340 | 4.8g | `wabi-sync` state records whose folder it is (server + channel) and refuses a mismatch; `link` moves old state aside; mass-delete guard (`--allow-mass-delete`); refusals (400/403/413/422) remembered per file, 5xx retried; one sync per folder (OS lock). |
 
 ## Open PRs
 
 | PR | Task | State | Next step |
 |---|---|---|---|
+| 346 | 2.7a | `zip` 2.4.2 to 9.1.3; removes the four zip advisories. Tests for hostile uploaded archives added first. | Merge on green. |
+| (soon) | 3.5.4 | Users to the read model, in progress (session `session_012VCxQKhHg672gjV5tiAd1c`). | Independent review; preflight uniqueness under concurrency, credential fields, login-path lookups indexed. |
 | 329 | 4.8b | Green. **On hold.** | Needs the owner's result for `q1` from the real-`lore` checks (does a review-branch upload leave the mainline's files alone). If yes: merge `main` in, re-check CI, merge. If no: do Task 4.9 first. |
 
 ## Remaining tasks, in order
@@ -48,10 +52,11 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 2. **4.9** (prompt in the prompts file once 329 merges; it is on 329's branch). A failed upload must not leave bytes in the shared tree; store the mainline's name; put the tree back at startup. Add: a `PUT` or `DELETE` can answer 500 after the server already wrote or removed the file, so the client's view and the tree disagree. (The ignored-path 500 is fixed: 422 since 341.) Needs the real-`lore` answers.
 3. **4.10** (prompt on 329's branch). Review uploads recorded and announced as commits; approval records nothing. Touches a durable record: AGENTS.md golden rule 5.
 4. **4.11** Server-side repository identity: a repository deleted and recreated under the same channel looks the same to `wabi-sync` today (the mass-delete guard in 340 is the only defence). Give each repository an id the client can compare.
-5. **3.5.3 to 3.5.n**: channel_members, users, then the rest, one per PR, reusing 334's schema, generation and startup rules. Independent review for the first three.
+5. **3.5.5 to 3.5.n**: the remaining projections, one per PR, reusing the same schema, generation and startup rules (see 343 and 345 for cross-projection reads during replay and the replay-floor mutation test). Independent review at least for users (3.5.4) and anything an in-memory projection reads during apply.
 6. **3.5 follow-up**: batch the startup rebuild and keep progress (ADR-0001 asked for it); move SQLite I/O off async tasks.
-7. **Dependency upgrades** from Task 2.7: `zip` 2 to 9, `p256`/`crypto-bigint`, the unmaintained notices. Prompts still to write.
-8. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
+7. **Dependency upgrades** from Task 2.7: `zip` is PR 346. Still to do: `rusqlite` 0.40 to 0.41 (`libsqlite3-sys` 0.39) for RUSTSEC-2026-0459 (a crafted database + `-wal` pair can return stale memory; Wabi only opens its own 0600 files, so low exposure; do it after 3.5.4 to avoid conflicts); `p256`/`crypto-bigint` (a RustCrypto major bump; `wabi-consensus` pins `p256`). **Owner decisions:** accept the six unmaintained notices with a written expiry or not; the `bans` wildcard rule for four in-workspace path dependencies.
+8. **Membership revision on user deletion.** Deleting a user removes their memberships but does not bump each channel's membership revision (same before 345). E2EE rekeying and call access compare that revision, so clients are not told. Small; touches durable output, so bump the read-model generation.
+9. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
 
 Phase 5 is new features, not hardening; stop and ask the owner before starting it.
 
