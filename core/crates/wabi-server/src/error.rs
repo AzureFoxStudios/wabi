@@ -60,6 +60,32 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         // Internal errors may carry host paths, database records or upstream
         // URLs with credentials. Preserve diagnostics in server logs only.
+        #[cfg(feature = "wabi-lore")]
+        if let Self::Anyhow(error) = &self {
+            if let Some(typed) = wabi_lore::LoreError::find(error) {
+                let (status, error_type, message) = match typed {
+                    wabi_lore::LoreError::DependencyMissing { program, .. } => {
+                        // The detail names a host path; keep it in the log.
+                        tracing::error!(error = ?self, "lore dependency missing");
+                        (
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "ServiceUnavailable",
+                            format!("Lore addon dependency missing: {program}"),
+                        )
+                    }
+                    wabi_lore::LoreError::InvalidImportUrl(reason) => {
+                        (StatusCode::BAD_REQUEST, "BadRequest", reason.clone())
+                    }
+                    wabi_lore::LoreError::PathIgnored => (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "Unprocessable",
+                        typed.to_string(),
+                    ),
+                };
+                return (status, Json(json!({ "error": message, "type": error_type })))
+                    .into_response();
+            }
+        }
         let error_type = match &self {
             Self::BadRequest(_) => "BadRequest",
             Self::Unauthorized(_) => "Unauthorized",
