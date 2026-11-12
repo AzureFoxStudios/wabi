@@ -388,7 +388,7 @@ impl Folder {
 
     /// What every command starts with: a new engine, so state goes through disk.
     fn engine(&self) -> anyhow::Result<SyncEngine<'_>> {
-        Ok(SyncEngine::new(&self.client, self.path(), &self.link))
+        SyncEngine::new(&self.client, self.path(), &self.link)
     }
 
     /// One `wabi-sync sync` round.
@@ -1113,11 +1113,13 @@ async fn a_conflict_is_reported_even_when_the_round_then_fails() {
     theirs.sync().await.unwrap();
     mine.write("a.txt", "mine again");
     server.fail_next("GET", "/files/z.txt");
-    let mut engine = SyncEngine::new(&mine.client, mine.path(), &mine.link);
+    let mut engine = SyncEngine::new(&mine.client, mine.path(), &mine.link).unwrap();
     assert!(engine.sync().await.is_err(), "the injected failure");
     let shown = engine.take_unreported_conflicts();
     assert_eq!(shown.len(), 1, "{shown:?}");
     assert!(shown[0].starts_with("a.txt ("), "{shown:?}");
+    // The command ends, and with it the engine and its hold on the folder.
+    drop(engine);
     let report = mine.sync().await.unwrap();
     assert!(report.conflicts.is_empty(), "reported twice: {}", describe(&report));
     assert_eq!(report.downloaded, vec!["z.txt"], "{}", describe(&report));

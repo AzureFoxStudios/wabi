@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 
 use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
-use crate::config::{LinkConfig, SyncState, LINK_FILE, STATE_DIR};
+use crate::config::{FolderLock, LinkConfig, SyncState, LINK_FILE, STATE_DIR};
 use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 
 /// What every conflict copy has in its file name.
@@ -241,18 +241,24 @@ pub struct SyncEngine<'a> {
     pub folder: &'a Path,
     pub link: &'a LinkConfig,
     pub state: SyncState,
+    /// Held until the engine is dropped: no other wabi-sync process reads
+    /// or writes this folder's state meanwhile.
+    _lock: FolderLock,
 }
 
 impl<'a> SyncEngine<'a> {
-    pub fn new(client: &'a WabiClient, folder: &'a Path, link: &'a LinkConfig) -> Self {
-        let mut state = SyncState::load(folder).unwrap_or_default();
+    /// Fails when another process holds the folder, or when the folder's
+    /// state file is there and cannot be read.
+    pub fn new(client: &'a WabiClient, folder: &'a Path, link: &'a LinkConfig) -> anyhow::Result<Self> {
+        let lock = FolderLock::acquire(folder)?;
+        let mut state = SyncState::load(folder)?;
         // An earlier build synced conflict copies like any other file. With
         // no record of them here they are neither deleted nor replaced, on
         // the server or in the folder.
         state.baselines.retain(|path, _| !is_internal(path));
         state.pending_review.retain(|path, _| !is_internal(path));
         state.local_fingerprints.retain(|path, _| !is_internal(path));
-        Self { client, folder, link, state }
+        Ok(Self { client, folder, link, state, _lock: lock })
     }
 
     pub fn save_state(&self) -> anyhow::Result<()> {

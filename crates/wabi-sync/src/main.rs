@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use wabi_sync::api::WabiClient;
-use wabi_sync::config::{GlobalConfig, LinkConfig, SyncState};
+use wabi_sync::config::{FolderLock, GlobalConfig, LinkConfig, SyncState};
 use wabi_sync::sync::{self, print_report, SyncEngine, SyncReport};
 
 #[derive(Parser)]
@@ -138,7 +138,7 @@ fn or_conflicts(engine: &mut SyncEngine<'_>, prefix: &str, result: Result<SyncRe
 
 async fn run_sync_round(client: &WabiClient, folder: &PathBuf, prefix: &str) -> Result<()> {
     let link = LinkConfig::load(folder)?;
-    let mut engine = SyncEngine::new(client, folder, &link);
+    let mut engine = SyncEngine::new(client, folder, &link)?;
     let result = engine.sync().await;
     let report = or_conflicts(&mut engine, prefix, result)?;
     if !report.is_empty() {
@@ -233,7 +233,14 @@ async fn main() -> Result<()> {
                 };
 
                 // Push local work when the FS moved; always poll the feed.
-                let cursor = SyncState::load(&folder).unwrap_or_default().cursor;
+                let cursor = match SyncState::load(&folder) {
+                    Ok(state) => state.cursor,
+                    Err(e) => {
+                        eprintln!("[watch] {e}");
+                        tokio::time::sleep(Duration::from_secs(interval.max(1))).await;
+                        continue;
+                    }
+                };
                 match client.remote_moved(link.channel_id, cursor).await {
                     Ok(remote_moved) => {
                         if fs_nudge || remote_moved {
@@ -251,7 +258,7 @@ async fn main() -> Result<()> {
         Command::Push { folder } => {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
-            let mut engine = SyncEngine::new(&client, &folder, &link);
+            let mut engine = SyncEngine::new(&client, &folder, &link)?;
             // The engine saves its state, also when this fails part-way.
             let result = engine.push().await;
             let report = or_conflicts(&mut engine, "[push]", result)?;
@@ -265,7 +272,7 @@ async fn main() -> Result<()> {
         Command::Pull { folder } => {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
-            let mut engine = SyncEngine::new(&client, &folder, &link);
+            let mut engine = SyncEngine::new(&client, &folder, &link)?;
             // The engine saves its state, also when this fails part-way.
             let result = engine.pull().await;
             let report = or_conflicts(&mut engine, "[pull]", result)?;
@@ -317,6 +324,8 @@ async fn main() -> Result<()> {
             LinkConfig::load(&folder)?;
             let path = path.replace('\\', "/");
             let path = path.trim_start_matches("./");
+            // Not while a round is reading and writing the same state.
+            let _lock = FolderLock::acquire(&folder)?;
             let mut state = SyncState::load(&folder)?;
             if !state.forget_review(path) {
                 anyhow::bail!("{path} is not waiting for review (see `wabi-sync status`)");

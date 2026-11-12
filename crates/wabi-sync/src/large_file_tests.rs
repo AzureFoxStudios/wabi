@@ -216,7 +216,7 @@ async fn mainline_delete_of_a_large_file() {
     write_big(&h, 2);
     h.server(|f| f.mainline.remove(BIG));
     // Pull only: a full round would first upload the edit (409, conflict).
-    let mut engine = crate::sync::SyncEngine::new(&h.client, h.folder(), &h.link);
+    let mut engine = crate::sync::SyncEngine::new(&h.client, h.folder(), &h.link).unwrap();
     let report = engine.pull().await.unwrap();
     assert!(report.deleted_local.is_empty());
     assert_eq!(report.conflicts.len(), 1);

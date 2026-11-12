@@ -267,7 +267,7 @@ impl Harness {
 
     /// One `wabi-sync sync` round: a fresh engine, so state goes through disk.
     pub(crate) async fn sync(&self) -> anyhow::Result<SyncReport> {
-        SyncEngine::new(&self.client, self.folder(), &self.link).sync().await
+        SyncEngine::new(&self.client, self.folder(), &self.link)?.sync().await
     }
 
     pub(crate) fn server<R>(&self, f: impl FnOnce(&mut Fake) -> R) -> R {
@@ -380,7 +380,7 @@ async fn stale_delete_is_still_reported_as_a_conflict() {
     std::fs::remove_file(h.folder().join("a.txt")).unwrap();
     h.server(|f| f.mainline.insert("a.txt".into(), b"changed on server".to_vec()));
 
-    let mut engine = SyncEngine::new(&h.client, h.folder(), &h.link);
+    let mut engine = SyncEngine::new(&h.client, h.folder(), &h.link).unwrap();
     let report = engine.push().await.unwrap();
     assert_eq!(report.conflicts.len(), 1);
     assert!(report.not_deleted.is_empty());
