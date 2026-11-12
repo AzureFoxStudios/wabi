@@ -63,6 +63,32 @@ pub fn quarantine(data_dir: &Path, commit_seq: u64) -> Result<QuarantineReport> 
         });
     }
 
+    // Quarantining makes the next start rebuild the read model without the
+    // commit. On a directory whose log is incomplete that rebuild is
+    // impossible, so the command would leave it unstartable. Refuse first.
+    if let Some(below) = crate::engine::incomplete_log::load(data_dir)? {
+        return Err(WabiError::Validation {
+            command: "quarantine".into(),
+            reason: format!(
+                "the log of this directory is incomplete below commit {below} \
+                 (global/incomplete-log.json), so the read model cannot be rebuilt from it, and \
+                 quarantining a commit needs that rebuild: the directory would no longer start. \
+                 Restore the missing log files from a backup first, then remove \
+                 global/incomplete-log.json"
+            ),
+        });
+    }
+    // The read model may already hold this commit's rows (it commits every
+    // commit; the snapshot does so every 1,000). Ask the next start to
+    // rebuild it, before the list is written: a crash in between then costs
+    // a rebuild, not a quarantined commit that is still served. The file is
+    // not deleted here; startup decides, knowing how far the log reaches.
+    if crate::engine::locks::ProjectionState::read_model_path(data_dir).exists() {
+        crate::projections::read_model::ReadModel::request_rebuild(
+            data_dir,
+            &format!("commit {commit_seq} was quarantined"),
+        )?;
+    }
     let (seqs, already_quarantined) = crate::engine::quarantine::append(data_dir, commit_seq)?;
     Ok(QuarantineReport {
         commit_seq,

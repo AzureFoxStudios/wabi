@@ -70,7 +70,7 @@ async fn actual_moderation_commands_survive_snapshot_and_full_replay() {
         drop(store);
         if full_replay {
             let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
-            ProjectionState::remove_snapshot(dir.path());
+            ProjectionState::remove_saved_projections_for_tests(dir.path());
             drop(stopped);
         }
         let store = writer_drain::retry(
@@ -91,7 +91,7 @@ async fn actual_moderation_commands_survive_snapshot_and_full_replay() {
         drop(store);
         if full_replay {
             let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
-            ProjectionState::remove_snapshot(dir.path());
+            ProjectionState::remove_saved_projections_for_tests(dir.path());
             drop(stopped);
         }
         let store = writer_drain::retry(

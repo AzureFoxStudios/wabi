@@ -57,6 +57,7 @@
 
 use crate::error::{ErrorCategory, Result, WabiError};
 use crate::projections::handler::{DispatchTable, DurableEvent};
+use crate::projections::read_model::{ReadModel, Table};
 use crossbeam_skiplist::SkipMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
@@ -64,6 +65,7 @@ use std::ops::Bound;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::RwLock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
@@ -179,7 +181,9 @@ impl From<DispatchItem> for DispatchCommit {
     }
 }
 
-/// The projection state: per-index `SkipMap`s plus a watermark.
+/// The projection state: per-index `SkipMap`s plus a watermark, and the
+/// SQLite read model for the projections that have moved there (ADR-0001;
+/// messages so far).
 ///
 /// The `indexes` field is wrapped in `RwLock` so the dispatcher can insert
 /// new indexes on first use. Reads of an existing index are still
@@ -198,7 +202,24 @@ pub struct ProjectionState {
     applied_commit_seq: tokio::sync::watch::Sender<u64>,
     /// Count of fully applied commands, used for periodic checkpointing.
     dispatch_count: AtomicU64,
+    /// See `SnapshotData::incomplete_log_below`; zero when there is none.
+    incomplete_log_below: AtomicU64,
+    /// Projections that live in SQLite (ADR-0001). The engine attaches its
+    /// file-backed store before replay; a bare state gets an in-memory one
+    /// on first use.
+    read_model: OnceLock<Arc<ReadModel>>,
 }
+
+/// Index names the messages projection used while it lived in the skip maps.
+/// A snapshot saved by such a build still lists them; they are not loaded,
+/// because the read model is rebuilt from the log instead.
+pub(crate) const LEGACY_MESSAGE_INDEXES: [&str; 5] = [
+    "messages",
+    "messages_by_channel",
+    "messages_by_author",
+    "messages_by_channel_time",
+    "message_by_id_v1",
+];
 
 /// Canonical diagnostic for an in-memory projection view. No record bytes or
 /// individual key hashes are exposed. Empty indexes have no semantic content.
@@ -224,6 +245,31 @@ impl ProjectionState {
             indexes: RwLock::new(HashMap::new()),
             applied_commit_seq: tokio::sync::watch::channel(0).0,
             dispatch_count: AtomicU64::new(0),
+            incomplete_log_below: AtomicU64::new(0),
+            read_model: OnceLock::new(),
+        }
+    }
+
+    /// Carry the incomplete-log evidence into every snapshot this state writes.
+    pub(crate) fn set_incomplete_log_below(&self, below: u64) {
+        self.incomplete_log_below.fetch_max(below, Ordering::AcqRel);
+    }
+
+    /// The SQLite read model of this state. A state the engine did not open
+    /// (unit tests, offline inspection's replay) gets an in-memory one.
+    pub(crate) fn read_model(&self) -> &ReadModel {
+        self.read_model.get_or_init(|| Arc::new(ReadModel::in_memory()))
+    }
+
+    /// The read model, if this state has used or been given one.
+    pub(crate) fn read_model_if_any(&self) -> Option<&ReadModel> {
+        self.read_model.get().map(Arc::as_ref)
+    }
+
+    /// Give this state its read model. Call before anything reads or applies.
+    pub(crate) fn attach_read_model(&self, model: Arc<ReadModel>) {
+        if self.read_model.set(model).is_err() {
+            panic!("projection read model attached twice");
         }
     }
 
@@ -238,7 +284,9 @@ impl ProjectionState {
     }
 
     pub fn is_healthy(&self) -> bool {
-        !self.apply_failed.load(Ordering::Acquire) && !self.application.is_poisoned()
+        !self.apply_failed.load(Ordering::Acquire)
+            && !self.application.is_poisoned()
+            && !self.read_model_if_any().is_some_and(ReadModel::is_damaged)
     }
 
     /// Insert a key-value pair into a named index. Used by the dispatcher.
@@ -274,10 +322,25 @@ impl ProjectionState {
     /// Fingerprint a complete healthy view under the application lock, without
     /// creating indexes, saving a snapshot, or materializing another data copy.
     /// The caller selects ceilings for decoded key/value bytes and entry count.
+    ///
+    /// Covers the in-memory indexes and then each non-empty table of the
+    /// SQLite read model (key and record of every row, in key order).
     pub fn content_fingerprint(
         &self,
         max_entries: u64,
         max_record_bytes: u64,
+    ) -> Result<ProjectionContentFingerprint> {
+        self.content_fingerprint_of(max_entries, max_record_bytes, true)
+    }
+
+    /// [`Self::content_fingerprint`], optionally without the read model's
+    /// tables. Offline inspection uses that when a directory holds no read
+    /// model it could compare.
+    pub(crate) fn content_fingerprint_of(
+        &self,
+        max_entries: u64,
+        max_record_bytes: u64,
+        with_read_model: bool,
     ) -> Result<ProjectionContentFingerprint> {
         let invalid = || WabiError::Validation {
             command: "projection_content_fingerprint".into(),
@@ -323,9 +386,45 @@ impl ProjectionState {
                 }
             }
         }
+        let mut nonempty = u64::try_from(ordered.len()).map_err(|_| invalid())?;
+        if let Some(model) = self.read_model_if_any().filter(|_| with_read_model) {
+            for table in Table::ALL {
+                // Hashed like an index named `read_model/<table>`. A table
+                // with no rows, like an empty index, adds nothing.
+                let mut rows = 0u64;
+                let mut table_hash = blake3::Hasher::new();
+                // Every column the engine reads, not only the key and the
+                // record: its lookups by ID and by author use the others.
+                model.for_each_full_row(table, |columns| {
+                    rows += 1;
+                    entries = entries.checked_add(1).ok_or_else(invalid)?;
+                    let (record, others) = columns.split_last().ok_or_else(invalid)?;
+                    let record = crate::format::versioned::fingerprint_bytes(record);
+                    for bytes in others.iter().copied().chain([record]) {
+                        let length = u64::try_from(bytes.len()).map_err(|_| invalid())?;
+                        record_bytes = record_bytes.checked_add(length).ok_or_else(invalid)?;
+                        if entries > max_entries || record_bytes > max_record_bytes {
+                            return Err(invalid());
+                        }
+                        table_hash.update(&length.to_le_bytes());
+                        table_hash.update(bytes);
+                    }
+                    Ok(())
+                })?;
+                if rows == 0 {
+                    continue;
+                }
+                nonempty += 1;
+                let name = format!("read_model/{}", table.name());
+                hash.update(&(name.len() as u64).to_le_bytes());
+                hash.update(name.as_bytes());
+                hash.update(&rows.to_le_bytes());
+                hash.update(table_hash.finalize().as_bytes());
+            }
+        }
         Ok(ProjectionContentFingerprint {
             watermark,
-            nonempty_indexes: u64::try_from(ordered.len()).map_err(|_| invalid())?,
+            nonempty_indexes: nonempty,
             entries,
             record_bytes,
             blake3: hash.finalize().to_hex().to_string(),
@@ -564,7 +663,26 @@ struct SnapshotEntry {
 #[derive(Serialize, Deserialize)]
 struct SnapshotData {
     watermark: u64,
+    /// The commit below which the log of this directory is incomplete, copied
+    /// from `global/incomplete-log.json` so that removing that file by hand is
+    /// not enough to allow a rebuild (`engine::incomplete_log`). Older builds
+    /// ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    incomplete_log_below: Option<u64>,
     indexes: Vec<(String, Vec<SnapshotEntry>)>,
+}
+
+/// What `check` and `verify` read from `snapshot.json` without building state.
+pub(crate) struct SnapshotHeader {
+    pub watermark: u64,
+    pub incomplete_log_below: Option<u64>,
+}
+
+/// A loaded snapshot, with what the engine needs besides its state.
+pub(crate) struct LoadedSnapshot {
+    pub state: ProjectionState,
+    pub watermark: u64,
+    pub incomplete_log_below: Option<u64>,
 }
 
 impl ProjectionState {
@@ -620,6 +738,17 @@ impl ProjectionState {
         // checkpointing a partial commit can replay non-idempotent effects twice.
         let watermark = self.applied_commit_seq();
 
+        // The snapshot is the replay starting point for every projection, so
+        // the read model must durably cover it first. A crash after this line
+        // and before the rename leaves the read model ahead of the snapshot,
+        // which startup handles; the reverse would lose message events.
+        if let Some(model) = self.read_model_if_any() {
+            model.sync(watermark)?;
+        }
+        // Power-loss harness only (no-op in a normal build): the read model
+        // is durable at the watermark and the snapshot is not written yet.
+        crate::sequencer::crash_point("crash_between_read_model_sync_and_snapshot");
+
         let indexes = self
             .indexes
             .read()
@@ -641,8 +770,10 @@ impl ProjectionState {
         }
         drop(indexes);
 
+        let incomplete = self.incomplete_log_below.load(Ordering::Acquire);
         let data = SnapshotData {
             watermark,
+            incomplete_log_below: (incomplete > 0).then_some(incomplete),
             indexes: snapshot_indexes,
         };
 
@@ -673,12 +804,19 @@ impl ProjectionState {
     ///
     /// Returns `None` if the snapshot file does not exist (fresh data dir).
     pub fn load_snapshot(data_dir: &Path) -> Result<Option<(Self, u64)>> {
+        Ok(Self::load_snapshot_full(data_dir)?.map(|loaded| (loaded.state, loaded.watermark)))
+    }
+
+    pub(crate) fn load_snapshot_full(data_dir: &Path) -> Result<Option<LoadedSnapshot>> {
         let Some(data) = Self::read_snapshot_data(data_dir)? else {
             return Ok(None);
         };
 
         let state = ProjectionState::new();
         for (name, entries) in &data.indexes {
+            if LEGACY_MESSAGE_INDEXES.contains(&name.as_str()) {
+                continue;
+            }
             for entry in entries {
                 state.insert(
                     name,
@@ -689,8 +827,22 @@ impl ProjectionState {
             }
         }
         state.set_applied_commit_seq(data.watermark);
+        if let Some(below) = data.incomplete_log_below {
+            state.set_incomplete_log_below(below);
+        }
 
-        Ok(Some((state, data.watermark)))
+        Ok(Some(LoadedSnapshot {
+            state,
+            watermark: data.watermark,
+            incomplete_log_below: data.incomplete_log_below,
+        }))
+    }
+
+    pub(crate) fn read_snapshot_header(data_dir: &Path) -> Result<Option<SnapshotHeader>> {
+        Ok(Self::read_snapshot_data(data_dir)?.map(|data| SnapshotHeader {
+            watermark: data.watermark,
+            incomplete_log_below: data.incomplete_log_below,
+        }))
     }
 
     /// The watermark of the snapshot file, without building its state.
@@ -721,6 +873,22 @@ impl ProjectionState {
     pub fn remove_snapshot(data_dir: &Path) {
         let path = Self::snapshot_path(data_dir);
         let _ = std::fs::remove_file(path);
+    }
+
+    /// Test support: remove every saved projection (the snapshot file and the
+    /// SQLite read model) so the next open replays the whole log. The engine
+    /// must be stopped; nothing here checks the lock. Not for operators: with
+    /// a log shorter than the saved projections this deletes the only copy
+    /// of their state.
+    #[doc(hidden)]
+    pub fn remove_saved_projections_for_tests(data_dir: &Path) {
+        Self::remove_snapshot(data_dir);
+        let _ = ReadModel::remove_files(data_dir);
+    }
+
+    /// Path of the SQLite read model, relative to the data directory.
+    pub fn read_model_path(data_dir: &Path) -> std::path::PathBuf {
+        ReadModel::path(data_dir)
     }
 
     /// Increment the dispatch counter and save a checkpoint snapshot if the
@@ -855,6 +1023,10 @@ async fn run_dispatcher(
                 };
                 if let Err(e) = handler.apply(&event, &state) {
                     state.apply_failed.store(true, Ordering::Release);
+                    // The read model keeps none of a commit that failed.
+                    if let Some(model) = state.read_model_if_any() {
+                        model.rollback();
+                    }
                     let invariant = format!(
                         "durable commit {} projection {} failed: {e}; engine halted, repair required before retry",
                         commit.commit_seq, item.event_type
@@ -872,6 +1044,24 @@ async fn run_dispatcher(
                 let key = item.event_type.as_bytes().to_vec();
                 let value = item.payload.clone();
                 state.insert("events", key, value, item.commit_seq);
+            }
+        }
+        // One read-model transaction per commit: its rows are committed
+        // before the watermark says the commit is readable.
+        if let Some(model) = state.read_model_if_any() {
+            if let Err(e) = model.finish_commit(commit.commit_seq) {
+                state.apply_failed.store(true, Ordering::Release);
+                model.rollback();
+                let error = WabiError::InternalInvariantViolated {
+                    invariant: format!(
+                        "durable commit {} could not be stored in the projection read model: {e}; \
+                         engine halted, restart replays it from the log",
+                        commit.commit_seq
+                    ),
+                };
+                tracing::error!("{error}");
+                let _ = commit.applied_tx.send(Err(error));
+                return;
             }
         }
         state.advance_watermark(commit.commit_seq);
@@ -1013,7 +1203,7 @@ mod tests {
                     }
                 }
             }
-            ProjectionState::remove_snapshot(dir.path());
+            ProjectionState::remove_saved_projections_for_tests(dir.path());
         }
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         applier.await.unwrap();
@@ -1311,9 +1501,10 @@ mod tests {
             let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
         }
 
-        // The message should be in the "messages" index via MessagesProjection.
-        let stored = state.get("messages", &key);
-        assert!(stored.is_some(), "message should be in 'messages' index");
+        // The message should be stored by MessagesProjection.
+        assert_eq!(key, encode_key(&msg.channel_id, &msg.message_id));
+        let stored = MessagesProjection::get_message(&state, "ch_01", "msg_01").unwrap();
+        assert_eq!(stored, Some(msg), "message should be stored by its handler");
 
         // The message should NOT be in the generic "events" index.
         let events_entry = state.get("events", b"message_created");

@@ -79,7 +79,7 @@ async fn adapter_id_lookup_tracks_edits_clear_and_event_replay() {
     let before = store.engine().barrier().current();
     drop(store);
     let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = writer_drain::retry(
         || WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into()),
@@ -92,12 +92,16 @@ async fn adapter_id_lookup_tracks_edits_clear_and_event_replay() {
         reopened.get_message_typed(&id).await.unwrap(),
         Some(cleared)
     );
+    // The lookup by ID is an index of the SQLite read model, which
+    // `remove_snapshot` deleted too: the answer above came from the log.
+    assert!(ProjectionState::read_model_path(dir.path()).is_file());
     assert_eq!(
         reopened
             .engine()
             .projection_state()
             .index_len(message_lookup::INDEX),
-        1
+        0,
+        "the in-memory ID index no longer exists"
     );
     assert!(reopened
         .list_messages_typed(&room, 10)

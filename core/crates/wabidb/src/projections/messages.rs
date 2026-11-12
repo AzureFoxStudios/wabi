@@ -4,8 +4,7 @@ use crate::format::versioned::{self, RecordFormat};
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
 use crate::projections::query::{apply_limit, MessagesFilter, QueryableProjection};
-use crate::projections::secondary_index::SecondaryIndex;
-use crossbeam_skiplist::SkipMap;
+use crate::projections::read_model::{self, Table};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -179,6 +178,21 @@ fn decode_unversioned(buf: &[u8]) -> Result<MessageRecord> {
     }
 }
 
+/// A message key as text, for error messages: `channel <id>, message <id>`.
+pub(crate) fn describe_key(key: &[u8]) -> String {
+    fn take(bytes: &[u8]) -> Option<(&str, &[u8])> {
+        let length = usize::try_from(u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?)).ok()?;
+        let end = 8usize.checked_add(length)?;
+        Some((std::str::from_utf8(bytes.get(8..end)?).ok()?, bytes.get(end..)?))
+    }
+    take(key)
+        .and_then(|(channel, rest)| take(rest).map(|(message, _)| (channel, message)))
+        .map_or_else(
+            || format!("key {}", hex::encode(key)),
+            |(channel, message)| format!("channel {channel}, message {message}"),
+        )
+}
+
 pub fn encode_key(channel_id: &str, message_id: &str) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
@@ -312,6 +326,52 @@ fn prefix_successor(prefix: &[u8]) -> Vec<u8> {
     unreachable!("channel prefix has no successor")
 }
 
+/// Key prefix shared by every row of one channel, in both tables.
+fn channel_prefix(channel_id: &str) -> Vec<u8> {
+    let mut prefix = (channel_id.len() as u64).to_le_bytes().to_vec();
+    prefix.extend_from_slice(channel_id.as_bytes());
+    prefix
+}
+
+/// Key of a `message_versions` row: one per message event, in a channel's
+/// time order. Messages sharing a timestamp stay in commit order, and a later
+/// event of one message sorts after its earlier ones.
+fn version_key(channel_id: &str, created_at_micros: i64, commit_seq: u64, message_id: &str) -> Vec<u8> {
+    let mut key = Vec::with_capacity(8 + channel_id.len() + 8 + 8 + 8 + message_id.len());
+    key.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
+    key.extend_from_slice(channel_id.as_bytes());
+    key.extend_from_slice(&created_at_micros.to_be_bytes()); // BE: sortable
+    key.extend_from_slice(&commit_seq.to_be_bytes());
+    key.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
+    key.extend_from_slice(message_id.as_bytes());
+    key
+}
+
+/// Store one event's version of a message: it becomes the latest row, and a
+/// version row is added. Both rows hold the same bytes and take their id from
+/// `record`, so the tables cannot disagree about a message's id.
+fn store_version(state: &ProjectionState, record: &MessageRecord, commit_seq: u64) -> Result<()> {
+    let value = encode_record(record);
+    let key = encode_key(&record.channel_id, &record.message_id);
+    let version = version_key(
+        &record.channel_id,
+        record.created_at_micros,
+        commit_seq,
+        &record.message_id,
+    );
+    state.read_model().write(|conn| {
+        read_model::put_message(
+            conn,
+            &key,
+            &record.channel_id,
+            &record.message_id,
+            record.author_user_id,
+            &value,
+        )?;
+        read_model::put_version(conn, &version, &record.channel_id, &record.message_id, &value)
+    })
+}
+
 impl Projection for MessagesProjection {
     fn event_type(&self) -> &str {
         "message_created"
@@ -326,18 +386,24 @@ impl Projection for MessagesProjection {
         ]
     }
 
+    fn stores_in_read_model(&self) -> bool {
+        true
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
-        let result = match event.event_type.as_str() {
+        // Startup replay begins at the snapshot of the in-memory projections.
+        // The read model may already hold later commits; its own
+        // `applied_commit_seq` says which.
+        if event.commit_seq <= state.read_model().replay_floor() {
+            return Ok(());
+        }
+        match event.event_type.as_str() {
             "message_created" => self.apply_created(event, state),
             "message_edited" => self.apply_edited(event, state),
             "message_deleted" => self.apply_deleted(event, state),
             "channel_messages_cleared" => self.apply_channel_cleared(event, state),
             _ => Ok(()),
-        };
-        if result.is_ok() {
-            apply_secondary_indexes(event, state);
         }
-        result
     }
 }
 
@@ -349,10 +415,11 @@ impl MessagesProjection {
         message_id: &str,
     ) -> Result<Option<MessageRecord>> {
         let key = encode_key(channel_id, message_id);
-        match state.get("messages", &key) {
-            None => Ok(None),
-            Some(bytes) => decode_record(&bytes).map(Some),
-        }
+        state
+            .read_model()
+            .read(|conn| read_model::get(conn, Table::Messages, &key))?
+            .map(|bytes| decode_record(&bytes))
+            .transpose()
     }
 
     /// List messages in a channel. When `include_deleted` is false (the
@@ -362,32 +429,30 @@ impl MessagesProjection {
         channel_id: &str,
         include_deleted: bool,
     ) -> Result<Vec<MessageRecord>> {
-        let mut prefix = Vec::new();
-        prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
-        prefix.extend_from_slice(channel_id.as_bytes());
+        let prefix = channel_prefix(channel_id);
+        let upper = prefix_successor(&prefix);
         let mut results = Vec::new();
-        state.prefix_scan("messages", &prefix, |_key, value| {
-            if let Ok(record) = decode_record(value) {
-                if include_deleted || !record.is_deleted {
-                    results.push(record);
+        state.read_model().read(|conn| {
+            read_model::scan(conn, Table::Messages, &prefix, Some(&upper), false, |_key, value| {
+                if let Ok(record) = decode_record(value) {
+                    if include_deleted || !record.is_deleted {
+                        results.push(record);
+                    }
                 }
-            }
-        });
+                Ok(true)
+            })
+        })?;
         Ok(results)
     }
 
     /// Bounded tail query (t_ee2420fe): fetch the most recent `limit`
-    /// messages of a channel by reverse-iterating the index, visiting
-    /// O(limit) records instead of decode-all + sort + truncate.
+    /// messages of a channel by walking the time-ordered version rows
+    /// backwards, visiting O(limit) records instead of decode-all + sort +
+    /// truncate.
     ///
-    /// Ordering caveat: the current UUID id generation carries no ordering,
-    /// so lexicographic index order is NOT chronological within a channel
-    /// that contains UUID ids. This method therefore walks back until it has
-    /// `limit` live messages AND has passed all UUID-generation rows; the
-    /// caller (adapter) re-sorts the returned batch by created_at_micros.
-    /// For a channel whose newest messages are all UUID ids this visits only
-    /// those rows — the common case. A channel with interleaved generations
-    /// may visit extra rows but still returns correct data.
+    /// Edit and delete events add version rows (later commit sequence in the
+    /// key) rather than overwriting, so walking backwards the first row seen
+    /// per message id is its latest state; older versions are skipped.
     pub fn list_messages_tail(
         state: &ProjectionState,
         channel_id: &str,
@@ -397,44 +462,37 @@ impl MessagesProjection {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let mut prefix = Vec::new();
-        prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
-        prefix.extend_from_slice(channel_id.as_bytes());
+        let prefix = channel_prefix(channel_id);
+        let upper = prefix_successor(&prefix);
 
         let mut results_rev: Vec<MessageRecord> = Vec::with_capacity(limit);
-        // Walk the TIME-ordered secondary index (messages_by_channel_time:
-        // key = channel, created_at BE, commit_seq BE, id) newest-first. The
-        // primary index is id-string-ordered and carries no chronology for
-        // UUID ids — the wrong index here was the source of a test bug.
-        //
-        // Edit/delete events append NEW entries (later commit_seq in the key)
-        // rather than overwriting, so walking backwards the first entry seen
-        // per message id is its latest state; older versions are skipped.
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        state.prefix_scan_reverse("messages_by_channel_time", &prefix, |_key, value| {
-            if results_rev.len() >= limit {
-                return false; // window full — early exit
-            }
-            let record = match decode_record(value) {
-                Ok(r) => r,
-                Err(_) => return true,
-            };
-            if !seen_ids.insert(record.message_id.clone()) {
-                return true; // older version of an already-resolved message
-            }
-            if !include_deleted && record.is_deleted {
-                return true;
-            }
-            results_rev.push(record);
-            true
-        });
+        state.read_model().read(|conn| {
+            read_model::scan(conn, Table::MessageVersions, &prefix, Some(&upper), true, |_key, value| {
+                if results_rev.len() >= limit {
+                    return Ok(false); // window full — early exit
+                }
+                let record = match decode_record(value) {
+                    Ok(r) => r,
+                    Err(_) => return Ok(true),
+                };
+                if !seen_ids.insert(record.message_id.clone()) {
+                    return Ok(true); // older version of an already-resolved message
+                }
+                if !include_deleted && record.is_deleted {
+                    return Ok(true);
+                }
+                results_rev.push(record);
+                Ok(true)
+            })
+        })?;
         results_rev.reverse();
         results_rev.truncate(limit);
         Ok(results_rev)
     }
 
-    /// Read a bounded chronological page from the durable time index. The
-    /// cursor is looked up through the channel-scoped primary key, so a
+    /// Read a bounded chronological page from the time-ordered version rows.
+    /// The cursor is looked up through the channel-scoped primary key, so a
     /// message from another room cannot reveal or steer this room's history.
     /// `has_more` describes the requested direction: older for Latest/Before,
     /// newer for After.
@@ -444,8 +502,6 @@ impl MessagesProjection {
         cursor: MessagePageCursor<'_>,
         limit: usize,
     ) -> Result<MessagePage> {
-        use std::ops::Bound::{Excluded, Included};
-
         if limit == 0 {
             return Ok(MessagePage { messages: Vec::new(), has_more: false });
         }
@@ -461,8 +517,7 @@ impl MessagesProjection {
                 Some((record.created_at_micros, record.message_id))
             }
         };
-        let mut prefix = (channel_id.len() as u64).to_le_bytes().to_vec();
-        prefix.extend_from_slice(channel_id.as_bytes());
+        let prefix = channel_prefix(channel_id);
         let mut lower = prefix.clone();
         let mut upper = prefix_successor(&prefix);
         if let Some((time, _)) = &boundary {
@@ -484,24 +539,17 @@ impl MessagesProjection {
             bucket: std::collections::BTreeMap::new(),
             messages: Vec::with_capacity(limit.saturating_add(1)),
         };
-        state.with_index("messages_by_channel_time", |index| -> Result<()> {
-            if after {
-                for entry in index.range((Included(lower), Excluded(upper))) {
-                    if !page.visit(entry.value())? { break; }
-                }
-            } else {
-                for entry in index.range((Included(lower), Excluded(upper))).rev() {
-                    if !page.visit(entry.value())? { break; }
-                }
-            }
-            Ok(())
+        state.read_model().read(|conn| {
+            read_model::scan(conn, Table::MessageVersions, &lower, Some(&upper), !after, |_key, value| {
+                page.visit(value)
+            })
         })?;
         Ok(page.finish(limit))
     }
 
     /// Select expired records before applying a batch limit. A busy channel's
     /// recent tail must not hide older records from the retention sweep.
-    /// Uses the existing nonnegative Unix-microsecond time index; no wire change.
+    /// Uses the nonnegative Unix-microsecond time order; no wire change.
     pub fn list_messages_expired(
         state: &ProjectionState,
         channel_id: &str,
@@ -521,78 +569,69 @@ impl MessagesProjection {
         through_micros: i64,
         limit: usize,
     ) -> Result<Vec<MessageRecord>> {
-        use std::ops::Bound::{Excluded, Included};
         let from_micros = from_micros.max(0);
         if limit == 0 || through_micros < from_micros { return Ok(Vec::new()); }
-        let mut prefix = (channel_id.len() as u64).to_le_bytes().to_vec();
-        prefix.extend_from_slice(channel_id.as_bytes());
+        let prefix = channel_prefix(channel_id);
         let mut lower = prefix.clone();
         lower.extend_from_slice(&(from_micros as u64).to_be_bytes());
         let mut upper = prefix.clone();
         // All supported timestamps are nonnegative. u64 also represents the
         // exclusive successor of i64::MAX without overflowing.
         upper.extend_from_slice(&(through_micros as u64 + 1).to_be_bytes());
-        state.with_index("messages_by_channel_time", |index| {
-            let mut seen = std::collections::HashSet::new();
-            let mut records = Vec::with_capacity(limit.min(1000));
-            for entry in index.range((Included(lower), Excluded(upper))).rev() {
-                let record = decode_record(entry.value())?;
-                // Edits and deletes append index versions at the same original
+        let mut seen = std::collections::HashSet::new();
+        let mut records = Vec::with_capacity(limit.min(1000));
+        state.read_model().read(|conn| {
+            read_model::scan(conn, Table::MessageVersions, &lower, Some(&upper), true, |_key, value| {
+                let record = decode_record(value)?;
+                // Edits and deletes add versions at the same original
                 // timestamp. Resolve the latest version before applying the limit.
-                if !seen.insert(record.message_id.clone()) || record.is_deleted { continue; }
+                if !seen.insert(record.message_id.clone()) || record.is_deleted { return Ok(true); }
                 if record.created_at_micros >= from_micros && record.created_at_micros <= through_micros {
                     records.push(record);
-                    if records.len() == limit { break; }
+                    if records.len() == limit { return Ok(false); }
                 }
-            }
-            Ok(records)
-        })
+                Ok(true)
+            })
+        })?;
+        Ok(records)
     }
 
-    /// Remove all soft-deleted records from the `messages` primary index and
-    /// from the channel, author, time and ID lookup indexes. All historical
-    /// time-index versions are removed so an older live row cannot reappear.
-    /// Returns the total number of entries removed.
+    /// Remove all soft-deleted messages: their latest row and every stored
+    /// version, so an older live version cannot reappear. Returns the number
+    /// of rows removed (one latest row plus one row per event of each removed
+    /// message).
+    ///
+    /// Nothing in the server calls this. Compaction is not an event, so a
+    /// read model rebuilt from the log holds the removed rows again.
     pub fn compact(state: &ProjectionState) -> usize {
-        let deleted_ids = std::cell::RefCell::new(std::collections::HashSet::new());
-        let primary = state.compact_index("messages", |_key, value| {
-            if let Ok(record) = decode_record_lenient(value) {
-                if record.is_deleted {
-                    deleted_ids.borrow_mut().insert(super::message_lookup::key(
-                        &record.channel_id,
-                        &record.message_id,
-                    ));
-                    return true;
+        let model = state.read_model();
+        let removed = model.write(|conn| {
+            let mut deleted = Vec::new();
+            read_model::scan(conn, Table::Messages, &[], None, false, |key, value| {
+                if let Ok(record) = decode_record_lenient(value) {
+                    if record.is_deleted {
+                        deleted.push((key.to_vec(), record.channel_id, record.message_id));
+                    }
                 }
+                Ok(true)
+            })?;
+            let mut removed = 0;
+            for (key, channel_id, message_id) in deleted {
+                removed += read_model::delete_message(conn, &key)?;
+                removed += read_model::delete_versions(conn, &channel_id, &message_id)?;
             }
-            false
+            Ok(removed)
         });
-        let deleted_ids = deleted_ids.into_inner();
-        let by_channel = state.compact_index("messages_by_channel", |_key, value| {
-            decode_record_lenient(value)
-                .ok()
-                .map_or(false, |r| r.is_deleted)
-        });
-        let by_author = state.compact_index("messages_by_author", |_key, value| {
-            decode_record_lenient(value)
-                .ok()
-                .map_or(false, |r| r.is_deleted)
-        });
-        // Time indexes contain multiple historical versions. Remove every
-        // version of a compacted ID so an older live version cannot reappear.
-        let by_time = state.compact_index("messages_by_channel_time", |_key, value| {
-            decode_record_lenient(value).is_ok_and(|record| {
-                deleted_ids.contains(&super::message_lookup::key(
-                    &record.channel_id,
-                    &record.message_id,
-                ))
-            })
-        });
-        let by_id = deleted_ids
-            .iter()
-            .filter(|key| state.remove(super::message_lookup::INDEX, key))
-            .count();
-        primary + by_channel + by_author + by_time + by_id
+        match removed.and_then(|removed| {
+            model.finish_commit(model.messages_applied_seq()).map(|()| removed)
+        }) {
+            Ok(removed) => removed,
+            Err(error) => {
+                model.rollback();
+                tracing::error!("messages compaction failed: {error}");
+                0
+            }
+        }
     }
 
     fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
@@ -604,30 +643,17 @@ impl MessagesProjection {
         if record.message_id.trim().is_empty() {
             record.message_id = format!("msg_{:x}", event.commit_seq);
         }
-        let key = encode_key(&record.channel_id, &record.message_id);
-        let value = encode_record(&record);
-        state.insert("messages", key, value, event.commit_seq);
-        super::message_lookup::write(state, &record, event.commit_seq);
-        Ok(())
+        store_version(state, &record, event.commit_seq)
     }
 
     fn apply_edited(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let update: MessageRecord = decode_record(&event.payload)?;
-        // Reconstruct the composite key from the update's channel + message id.
-        let key = encode_key(&update.channel_id, &update.message_id);
-        let value = encode_record(&update);
-        state.insert("messages", key, value, event.commit_seq);
-        super::message_lookup::write(state, &update, event.commit_seq);
-        Ok(())
+        store_version(state, &update, event.commit_seq)
     }
 
     fn apply_deleted(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let update: MessageRecord = decode_record(&event.payload)?;
-        let key = encode_key(&update.channel_id, &update.message_id);
-        let value = encode_record(&update);
-        state.insert("messages", key, value, event.commit_seq);
-        super::message_lookup::write(state, &update, event.commit_seq);
-        Ok(())
+        store_version(state, &update, event.commit_seq)
     }
 
     fn apply_channel_cleared(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
@@ -643,29 +669,24 @@ impl MessagesProjection {
                 detail: "channel does not match the event stream".into(),
             });
         }
-        let mut prefix = (clear.channel_id.len() as u64).to_le_bytes().to_vec();
-        prefix.extend_from_slice(clear.channel_id.as_bytes());
+        let prefix = channel_prefix(&clear.channel_id);
+        let upper = prefix_successor(&prefix);
         let mut records = Vec::new();
-        let mut decode_error = None;
-        state.prefix_scan("messages", &prefix, |_key, value| match decode_record(value) {
-            Ok(record) if !record.is_deleted => records.push(record),
-            Ok(_) => {}
-            Err(error) => decode_error = Some(error),
-        });
-        if let Some(error) = decode_error {
-            return Err(error);
-        }
+        // Read inside this commit's transaction, so messages created by
+        // earlier events of the same command are cleared too.
+        state.read_model().write(|conn| {
+            read_model::scan(conn, Table::Messages, &prefix, Some(&upper), false, |_key, value| {
+                let record = decode_record(value)?;
+                if !record.is_deleted {
+                    records.push(record);
+                }
+                Ok(true)
+            })
+        })?;
         for mut record in records {
             record.is_deleted = true;
             record.edited_at_micros = Some(clear.cleared_at_micros);
-            let deletion = DurableEvent {
-                commit_seq: event.commit_seq,
-                stream_id: event.stream_id.clone(),
-                event_type: "message_deleted".into(),
-                payload: encode_record(&record),
-            };
-            self.apply_deleted(&deletion, state)?;
-            apply_secondary_indexes(&deletion, state);
+            store_version(state, &record, event.commit_seq)?;
         }
         Ok(())
     }
@@ -681,89 +702,88 @@ impl QueryableProjection for MessagesProjection {
         filter: &MessagesFilter,
     ) -> Result<Vec<MessageRecord>> {
         match (&filter.channel_id, &filter.author_id) {
-            // Channel-scoped queries use the time-ordered secondary index:
-            // walk BACKWARDS from the newest entry and stop at `limit`.
+            // Channel-scoped queries use the time-ordered version rows:
+            // walk BACKWARDS from the newest and stop at `limit`.
             // O(limit) instead of decode-all + sort + truncate (finding #4).
             (Some(channel_id), _) => {
-                let mut prefix = Vec::new();
-                prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
-                prefix.extend_from_slice(channel_id.as_bytes());
+                let prefix = channel_prefix(channel_id);
+                let upper = prefix_successor(&prefix);
                 let limit = filter.limit.unwrap_or(usize::MAX);
                 let since_seq = filter.since_seq;
                 let mut results: Vec<MessageRecord> = Vec::with_capacity(limit.min(1024));
-                // Walking backwards, the FIRST entry seen for a message id is
+                // Walking backwards, the FIRST row seen for a message id is
                 // its newest state (later events land on later keys). Track
                 // seen ids so edit/delete duplicates of the same message are
                 // collapsed to their latest version.
                 let mut seen_ids: std::collections::HashSet<String> =
                     std::collections::HashSet::new();
-                state.prefix_scan_reverse("messages_by_channel_time", &prefix, |_key, value| {
-                    if results.len() >= limit {
-                        return false; // early exit — window is full
-                    }
-                    match decode_record(value) {
-                        Ok(record) => {
-                            if !seen_ids.insert(record.message_id.clone()) {
-                                return true; // older version of an already-resolved message
-                            }
-                            if !filter.include_deleted && record.is_deleted {
-                                return true; // skip, keep walking
-                            }
-                            if let Some(author) = filter.author_id {
-                                if record.author_user_id != author {
-                                    return true;
-                                }
-                            }
-                            // seq-monotonic output is preserved by the index's
-                            // commit order; `since_seq` filters legacy
-                            // hex-seq ids (UUID ids never match and are
-                            // always newer than any stored watermark).
-                            if let Some(since) = since_seq {
-                                let seq = record
-                                    .message_id
-                                    .strip_prefix("msg_")
-                                    .and_then(|h| u64::from_str_radix(h, 16).ok());
-                                match seq {
-                                    Some(s) if s < since => return true,
-                                    _ => {} // UUID id or newer seq: keep
-                                }
-                            }
-                            results.push(record);
-                            true
+                state.read_model().read(|conn| {
+                    read_model::scan(conn, Table::MessageVersions, &prefix, Some(&upper), true, |_key, value| {
+                        if results.len() >= limit {
+                            return Ok(false); // early exit — window is full
                         }
-                        Err(_) => true,
-                    }
-                });
-                // Index walk is newest-first; callers expect oldest-first.
+                        let Ok(record) = decode_record(value) else {
+                            return Ok(true);
+                        };
+                        if !seen_ids.insert(record.message_id.clone()) {
+                            return Ok(true); // older version of an already-resolved message
+                        }
+                        if !filter.include_deleted && record.is_deleted {
+                            return Ok(true); // skip, keep walking
+                        }
+                        if let Some(author) = filter.author_id {
+                            if record.author_user_id != author {
+                                return Ok(true);
+                            }
+                        }
+                        // seq-monotonic output is preserved by the key's
+                        // commit order; `since_seq` filters legacy
+                        // hex-seq ids (UUID ids never match and are
+                        // always newer than any stored watermark).
+                        if let Some(since) = since_seq {
+                            let seq = record
+                                .message_id
+                                .strip_prefix("msg_")
+                                .and_then(|h| u64::from_str_radix(h, 16).ok());
+                            if matches!(seq, Some(s) if s < since) {
+                                return Ok(true);
+                            }
+                        }
+                        results.push(record);
+                        Ok(true)
+                    })
+                })?;
+                // The walk is newest-first; callers expect oldest-first.
                 results.reverse();
                 Ok(results)
             }
-            // Author-scoped queries (no channel) use messages_by_author.
+            // Author-scoped queries (no channel) use the author index.
             (None, Some(author_id)) => {
-                let mut prefix = Vec::new();
-                prefix.extend_from_slice(&(author_id.to_le_bytes()));
                 let mut results = Vec::new();
-                state.prefix_scan("messages_by_author", &prefix, |_key, value| {
-                    if let Ok(record) = decode_record(value) {
-                        if !filter.include_deleted && record.is_deleted {
-                            return;
+                state.read_model().read(|conn| {
+                    read_model::messages_by_author(conn, *author_id, |value| {
+                        if let Ok(record) = decode_record(value) {
+                            if filter.include_deleted || !record.is_deleted {
+                                results.push(record);
+                            }
                         }
-                        results.push(record);
-                    }
-                });
+                    })
+                })?;
                 filter_since_and_limit(results, filter)
             }
-            // No indexed dimension: scan the primary index.
+            // No indexed dimension: scan every latest row.
             (None, None) => {
                 let mut results = Vec::new();
-                state.for_each("messages", |_key, value| {
-                    if let Ok(record) = decode_record(value) {
-                        if !filter.include_deleted && record.is_deleted {
-                            return;
+                state.read_model().read(|conn| {
+                    read_model::scan(conn, Table::Messages, &[], None, false, |_key, value| {
+                        if let Ok(record) = decode_record(value) {
+                            if filter.include_deleted || !record.is_deleted {
+                                results.push(record);
+                            }
                         }
-                        results.push(record);
-                    }
-                });
+                        Ok(true)
+                    })
+                })?;
                 filter_since_and_limit(results, filter)
             }
         }
@@ -771,14 +791,13 @@ impl QueryableProjection for MessagesProjection {
 }
 
 /// Apply the `since_seq` / `limit` portions of a `MessagesFilter` to a result
-/// set collected from a secondary or primary index. `since_seq` is derived
+/// set collected from the author index or a full scan. `since_seq` is derived
 /// from the message id (`msg_{:x}` of its commit_seq).
 ///
-/// **Ordering**: secondary index `prefix_scan` returns results in
-/// lexicographic key order (`msg_{:x}` hex). After decode + filter that is
-/// NOT strictly commit_seq order when message ids have mixed widths
-/// (msg_9 vs msg_10). We sort by parsed numeric commit_seq so the caller
-/// gets seq-monotonic output regardless of key encoding.
+/// **Ordering**: the scans return rows in key order (`msg_{:x}` hex). After
+/// decode + filter that is NOT strictly commit_seq order when message ids
+/// have mixed widths (msg_9 vs msg_10). We sort by parsed numeric commit_seq
+/// so the caller gets seq-monotonic output regardless of key encoding.
 fn filter_since_and_limit(
     mut results: Vec<MessageRecord>,
     filter: &MessagesFilter,
@@ -804,287 +823,77 @@ fn filter_since_and_limit(
     Ok(results)
 }
 
-/// Secondary index: one entry per (channel_id, message_id) so a channel's
-/// messages can be enumerated without scanning the primary index. The key
-/// mirrors the primary `messages` key encoding; the value is the encoded
-/// `MessageRecord` (with message_id rewritten on create, matching primary).
-pub struct MessagesByChannelIndex;
 
-impl SecondaryIndex for MessagesByChannelIndex {
-    fn name(&self) -> &str {
-        "messages_by_channel"
-    }
-
-    fn extract_keys(&self, event: &DurableEvent) -> Vec<Vec<u8>> {
-        if !matches!(
-            event.event_type.as_str(),
-            "message_created" | "message_edited" | "message_deleted"
-        ) {
-            return vec![];
-        }
-        let record: MessageRecord = match decode_record(&event.payload) {
-            Ok(r) => r,
-            Err(_) => return vec![],
-        };
-        let message_id = resolved_message_id(event, &record);
-        vec![encode_key(&record.channel_id, &message_id)]
-    }
-
-    fn apply(&self, index: &SkipMap<Vec<u8>, Vec<u8>>, event: &DurableEvent) {
-        for key in self.extract_keys(event) {
-            index.insert(key, reencoded_payload(event));
-        }
-    }
-}
-
-/// Secondary index: one entry per (author_user_id, message_id) so a user's
-/// messages can be enumerated across channels. The value is the encoded
-/// `MessageRecord`.
-pub struct MessagesByAuthorIndex;
-
-impl SecondaryIndex for MessagesByAuthorIndex {
-    fn name(&self) -> &str {
-        "messages_by_author"
-    }
-
-    fn extract_keys(&self, event: &DurableEvent) -> Vec<Vec<u8>> {
-        if !matches!(
-            event.event_type.as_str(),
-            "message_created" | "message_edited" | "message_deleted"
-        ) {
-            return vec![];
-        }
-        let record: MessageRecord = match decode_record(&event.payload) {
-            Ok(r) => r,
-            Err(_) => return vec![],
-        };
-        let message_id = resolved_message_id(event, &record);
-        vec![author_index_key(record.author_user_id, &message_id)]
-    }
-
-    fn apply(&self, index: &SkipMap<Vec<u8>, Vec<u8>>, event: &DurableEvent) {
-        for key in self.extract_keys(event) {
-            index.insert(key, reencoded_payload(event));
-        }
-    }
-}
-
-/// Key of a `messages_by_author` entry: author id, then the length-prefixed
-/// message id.
-fn author_index_key(author_user_id: u64, message_id: &str) -> Vec<u8> {
-    let mut key = Vec::with_capacity(16 + message_id.len());
-    key.extend_from_slice(&author_user_id.to_le_bytes());
-    key.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
-    key.extend_from_slice(message_id.as_bytes());
-    key
-}
-
-/// Rebuild `messages_by_channel` and `messages_by_author` when an older build
-/// saved entries in them under the wrong key.
-///
-/// Before Task 3.4 a `message_created` event was indexed under
-/// `msg_{commit_seq:x}` even when the record carried its own id, while edits
-/// and deletes used the record's id. A saved projection from such a build
-/// therefore holds entries whose key does not match the id inside the value,
-/// and may have lost others that two messages overwrote. Replay no longer
-/// writes them, so a state loaded from that projection would differ from the
-/// log until its next full rebuild.
-///
-/// An entry is wrongly keyed when its key is not the one its own record gives.
-/// If there is none, nothing is touched. If there is one, both indexes are
-/// rebuilt from indexes the old build kept right:
-///
-/// - `messages_by_channel` becomes a copy of `messages`. Every event writes
-///   the same key and value to both, so replay makes them identical.
-/// - `messages_by_author` takes, for each author and message id, the record of
-///   the latest event in `messages_by_channel_time`, whose keys carry the
-///   commit sequence. That is the entry replay leaves. A primary row the time
-///   index does not cover is added from `messages`.
-///
-/// A value that does not decode cannot be judged, so it never starts a
-/// rebuild. A rebuild replaces both indexes whole, so it does not survive one.
-///
-/// Run at engine open before the dispatcher starts, and on the saved view in
-/// offline inspection. Returns the number of wrongly keyed entries found; zero
-/// for a projection written by a build with the fix.
-///
-/// Known limits, all for shapes the server does not write (it sends one
-/// message event per command, and the time index covers every message):
-///
-/// - Events of one commit share a sequence number. Two events for one author
-///   and message id in the same commit cannot be put in order, so the
-///   `messages_by_author` entry kept can differ from replay.
-/// - If one commit created a message with its own id and then one with a
-///   blank id, the old build overwrote the first entry with a rightly keyed
-///   one. Nothing is wrongly keyed, so nothing is rebuilt.
-/// - Where the time index is missing events, the `messages` fallback cannot
-///   tell which room's row is later, or recover a former author's entry.
-pub fn rekey_legacy_index_entries(state: &ProjectionState) -> usize {
-    let mut wrong = 0;
-    for index in ["messages_by_channel", "messages_by_author"] {
-        state.for_each(index, |key, value| {
-            if let Ok(record) = decode_record(value) {
-                let right = match index {
-                    "messages_by_channel" => encode_key(&record.channel_id, &record.message_id),
-                    _ => author_index_key(record.author_user_id, &record.message_id),
-                };
-                if right != key {
-                    wrong += 1;
-                }
-            }
-        });
-    }
-    if wrong == 0 {
-        return 0;
-    }
-    let seq = state.applied_commit_seq();
-
-    let mut primary = Vec::new();
-    state.for_each("messages", |key, value| primary.push((key.to_vec(), value.to_vec())));
-
-    // Latest event per author and message id, by commit sequence.
-    let mut by_author: std::collections::HashMap<Vec<u8>, (u64, Vec<u8>)> =
-        std::collections::HashMap::new();
-    state.for_each("messages_by_channel_time", |key, value| {
-        let (Some(event_seq), Ok(record)) = (time_key_commit_seq(key), decode_record(value))
-        else {
-            return;
-        };
-        let author_key = author_index_key(record.author_user_id, &record.message_id);
-        match by_author.get(&author_key) {
-            Some((kept, _)) if *kept > event_seq => {}
-            _ => {
-                by_author.insert(author_key, (event_seq, value.to_vec()));
-            }
-        }
-    });
-    for (_, value) in &primary {
-        if let Ok(record) = decode_record(value) {
-            by_author
-                .entry(author_index_key(record.author_user_id, &record.message_id))
-                .or_insert_with(|| (0, value.clone()));
-        }
-    }
-
-    state.compact_index("messages_by_channel", |_, _| true);
-    state.compact_index("messages_by_author", |_, _| true);
-    for (key, value) in primary {
-        state.insert("messages_by_channel", key, value, seq);
-    }
-    for (key, (_, value)) in by_author {
-        state.insert("messages_by_author", key, value, seq);
-    }
-    wrong
-}
-
-/// The commit sequence inside a `messages_by_channel_time` key: length-prefixed
-/// channel id, creation time, commit sequence, length-prefixed message id.
-fn time_key_commit_seq(key: &[u8]) -> Option<u64> {
-    let channel_len = usize::try_from(u64::from_le_bytes(key.get(..8)?.try_into().ok()?)).ok()?;
-    let start = 8usize.checked_add(channel_len)?.checked_add(8)?;
-    let bytes = key.get(start..start.checked_add(8)?)?;
-    Some(u64::from_be_bytes(bytes.try_into().ok()?))
-}
-
-/// Message id as `apply_created` stores it: the writer-stamped id, or the
-/// `msg_{commit_seq:x}` fallback when a created event left it empty. Every
-/// index key must use this so primary and secondary rows agree.
-fn resolved_message_id(event: &DurableEvent, record: &MessageRecord) -> String {
-    if event.event_type == "message_created" && record.message_id.trim().is_empty() {
-        format!("msg_{:x}", event.commit_seq)
-    } else {
-        record.message_id.clone()
-    }
-}
-
-/// Re-encode a message event's payload so the secondary index stores the
-/// exact same `MessageRecord` the primary `messages` index stores. The
-/// primary path (apply_created) prefers the writer-stamped id (UUID) and
-/// only falls back to `msg_{commit_seq:x}` when the writer left it empty —
-/// mirror that exactly so secondary and primary values are byte-consistent.
-fn reencoded_payload(event: &DurableEvent) -> Vec<u8> {
-    let mut record: MessageRecord = match decode_record(&event.payload) {
-        Ok(r) => r,
-        Err(_) => return event.payload.clone(),
-    };
-    if event.event_type == "message_created" && record.message_id.trim().is_empty() {
-        record.message_id = format!("msg_{:x}", event.commit_seq);
-    }
-    encode_record(&record)
-}
-
-/// Secondary index: one entry per (channel_id, created_at_micros,
-/// message_id). Time-ordered within a channel so history queries can walk it
-/// BACKWARDS and early-exit at `limit` — O(limit) instead of decode-everything
-/// + sort (perf audit finding #4). Ids are UUIDs by design (commit_seq ids
-/// collapsed client keyed lists), so key order on the id itself is meaningless;
-/// created_at_micros is what carries ordering. Replay rebuilds this index
-/// automatically like the others.
-pub struct MessagesByChannelTimeIndex;
-
-impl SecondaryIndex for MessagesByChannelTimeIndex {
-    fn name(&self) -> &str {
-        "messages_by_channel_time"
-    }
-
-    fn extract_keys(&self, event: &DurableEvent) -> Vec<Vec<u8>> {
-        if !matches!(
-            event.event_type.as_str(),
-            "message_created" | "message_edited" | "message_deleted"
-        ) {
-            return vec![];
-        }
-        let record: MessageRecord = match decode_record(&event.payload) {
-            Ok(r) => r,
-            Err(_) => return vec![],
-        };
-        // Mirror reencoded_payload's id handling: prefer the writer-stamped
-        // id; fall back to commit_seq only when the writer left it empty, so
-        // the trailing id disambiguator matches the primary record's id.
-        let message_id = resolved_message_id(event, &record);
-        let mut buf =
-            Vec::with_capacity(8 + 2 + record.channel_id.len() + 8 + 8 + 2 + message_id.len());
-        buf.extend_from_slice(&(record.channel_id.len() as u64).to_le_bytes());
-        buf.extend_from_slice(record.channel_id.as_bytes());
-        buf.extend_from_slice(&record.created_at_micros.to_be_bytes()); // BE: sortable
-                                                                        // commit_seq tiebreaker: messages sharing a timestamp stay in
-                                                                        // commit order (seq-monotonic), preserving the old query's ordering
-                                                                        // contract for equal-timestamp rows.
-        buf.extend_from_slice(&event.commit_seq.to_be_bytes());
-        buf.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
-        buf.extend_from_slice(message_id.as_bytes());
-        vec![buf]
-    }
-
-    fn apply(&self, index: &SkipMap<Vec<u8>, Vec<u8>>, event: &DurableEvent) {
-        for key in self.extract_keys(event) {
-            index.insert(key, reencoded_payload(event));
-        }
-    }
-}
-
-/// The registered secondary indexes for `MessagesProjection`. Kept as a
-/// single source of truth so both the live dispatcher and replay can iterate
-/// them. Order is stable; it is only used for iteration.
-pub const MESSAGES_SECONDARY_INDEXES: &[&dyn SecondaryIndex] = &[
-    &MessagesByChannelIndex,
-    &MessagesByAuthorIndex,
-    &MessagesByChannelTimeIndex,
-];
-
-/// Apply all registered secondary indexes for the messages projection to the
-/// given event. Called from the same path as the primary `apply` so replays
-/// rebuild them automatically.
-pub fn apply_secondary_indexes(event: &DurableEvent, state: &ProjectionState) {
-    for index in MESSAGES_SECONDARY_INDEXES {
-        let name = index.name().to_string();
-        state.with_index(&name, |map| index.apply(map, event));
-    }
+/// Number of messages stored (latest rows). Tests that used to count the
+/// in-memory `messages` index use this.
+#[cfg(test)]
+pub(crate) fn stored_message_count(state: &ProjectionState) -> usize {
+    let mut rows = 0;
+    state
+        .read_model()
+        .for_each_row(Table::Messages, |_, _| {
+            rows += 1;
+            Ok(())
+        })
+        .unwrap();
+    rows
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The projection's rows under the names and keys of the in-memory
+    /// indexes it had before the read model, so these tests still state what
+    /// each of those indexes held:
+    /// - `messages`, `messages_by_channel`: the latest row of each message,
+    ///   keyed by channel and message id;
+    /// - `messages_by_author`: the same rows keyed by author and message id;
+    /// - `messages_by_channel_time`: one row per message event.
+    fn stored_entries(state: &ProjectionState, index: &str, prefix: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let table = match index {
+            "messages_by_channel_time" => Table::MessageVersions,
+            "messages" | "messages_by_channel" | "messages_by_author" => Table::Messages,
+            other => panic!("not a messages index: {other}"),
+        };
+        let mut entries = Vec::new();
+        state
+            .read_model()
+            .for_each_full_row(table, |columns| {
+                // key, channel_id, message_id, author_user_id, record: the
+                // columns themselves, so a wrong lookup column fails here.
+                let [key, channel_id, message_id, author, value] = columns else {
+                    panic!("unexpected columns");
+                };
+                let record = decode_record(value).unwrap();
+                assert_eq!(*channel_id, record.channel_id.as_bytes(), "channel column");
+                assert_eq!(*message_id, record.message_id.as_bytes(), "message id column");
+                let key = if index == "messages_by_author" {
+                    assert_eq!(*author, (record.author_user_id as i64).to_le_bytes(), "author column");
+                    let mut author_key = author.to_vec();
+                    author_key.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
+                    author_key.extend_from_slice(message_id);
+                    author_key
+                } else {
+                    key.to_vec()
+                };
+                if key.starts_with(prefix) {
+                    entries.push((key, value.to_vec()));
+                }
+                Ok(())
+            })
+            .unwrap();
+        entries.sort();
+        entries
+    }
+
+    /// What `state.get(index, key)` returned before the read model.
+    fn stored_value(state: &ProjectionState, index: &str, key: &[u8]) -> Option<Vec<u8>> {
+        stored_entries(state, index, key)
+            .into_iter()
+            .find(|(stored_key, _)| stored_key == key)
+            .map(|(_, value)| value)
+    }
 
     fn sample_msg() -> MessageRecord {
         MessageRecord {
@@ -1261,11 +1070,17 @@ mod tests {
 
         let mut visited = 0usize;
         let mut keys: Vec<String> = Vec::new();
-        state.prefix_scan_reverse("messages", &prefix, |k, _v| {
-            visited += 1;
-            keys.push(String::from_utf8_lossy(k).to_string());
-            visited < 2 // early exit after 2
-        });
+        let upper = prefix_successor(&prefix);
+        state
+            .read_model()
+            .read(|conn| {
+                read_model::scan(conn, Table::Messages, &prefix, Some(&upper), true, |k, _v| {
+                    visited += 1;
+                    keys.push(String::from_utf8_lossy(k).to_string());
+                    Ok(visited < 2) // early exit after 2
+                })
+            })
+            .unwrap();
         assert_eq!(visited, 2, "early exit must stop iteration");
         // Highest key first.
         let first_id_start = keys[0].rfind("msg_").expect("key embeds msg id");
@@ -1298,7 +1113,7 @@ mod tests {
         // The writer-stamped UUID id is kept (golden rule 3: ids are UUIDs
         // end-to-end; a seq-only id collapses in client keyed lists).
         let key = encode_key("ch_01", "msg_01");
-        let stored = state.get("messages", &key).unwrap();
+        let stored = stored_value(&state, "messages", &key).unwrap();
         let decoded = decode_record(&stored).unwrap();
         assert_eq!(decoded.message_id, "msg_01");
         assert_eq!(decoded.author_user_id, 42);
@@ -1314,7 +1129,7 @@ mod tests {
         };
         proj.apply(&legacy_event, &state).unwrap();
         let legacy_key = encode_key("ch_01", "msg_7");
-        assert!(state.get("messages", &legacy_key).is_some());
+        assert!(stored_value(&state, "messages", &legacy_key).is_some());
     }
 
     #[test]
@@ -1340,7 +1155,7 @@ mod tests {
         proj.apply(&create_event, &state).unwrap();
 
         let stored_key = encode_key("ch_01", &format!("msg_{:x}", create_event.commit_seq));
-        let stored = state.get("messages", &stored_key).unwrap();
+        let stored = stored_value(&state, "messages", &stored_key).unwrap();
         let mut stored_record = decode_record(&stored).unwrap();
 
         // Simulate editing the stored record
@@ -1354,7 +1169,7 @@ mod tests {
         };
         proj.apply(&edit_event, &state).unwrap();
 
-        let decoded = decode_record(&state.get("messages", &stored_key).unwrap()).unwrap();
+        let decoded = decode_record(&stored_value(&state, "messages", &stored_key).unwrap()).unwrap();
         assert_eq!(decoded.encrypted_body_ref, "edited_body");
         assert_eq!(decoded.edited_at_micros, Some(2_000_000));
     }
@@ -1374,7 +1189,7 @@ mod tests {
         proj.apply(&create_event, &state).unwrap();
 
         let stored_key = encode_key("ch_01", &format!("msg_{:x}", create_event.commit_seq));
-        let stored = state.get("messages", &stored_key).unwrap();
+        let stored = stored_value(&state, "messages", &stored_key).unwrap();
         let mut stored_record = decode_record(&stored).unwrap();
         stored_record.is_deleted = true;
         let delete_event = DurableEvent {
@@ -1385,7 +1200,7 @@ mod tests {
         };
         proj.apply(&delete_event, &state).unwrap();
 
-        let decoded = decode_record(&state.get("messages", &stored_key).unwrap()).unwrap();
+        let decoded = decode_record(&stored_value(&state, "messages", &stored_key).unwrap()).unwrap();
         assert!(decoded.is_deleted);
     }
 
@@ -1393,7 +1208,7 @@ mod tests {
     fn missing_returns_none() {
         let state = ProjectionState::new();
         let key = encode_key("ch_99", "msg_99");
-        assert!(state.get("messages", &key).is_none());
+        assert!(stored_value(&state, "messages", &key).is_none());
     }
 
     #[test]
@@ -1496,7 +1311,7 @@ mod tests {
         }
         // Mark the middle message as deleted.
         let key = encode_key("ch_01", &format!("msg_{:x}", 2));
-        let stored = state.get("messages", &key).unwrap();
+        let stored = stored_value(&state, "messages", &key).unwrap();
         let mut deleted = decode_record(&stored).unwrap();
         deleted.is_deleted = true;
         proj.apply(&make_event(4, "message_deleted", &deleted), &state)
@@ -1529,7 +1344,7 @@ mod tests {
         }
         // Delete message 2.
         let key = encode_key("ch_01", &format!("msg_{:x}", 2));
-        let stored = state.get("messages", &key).unwrap();
+        let stored = stored_value(&state, "messages", &key).unwrap();
         let mut deleted = decode_record(&stored).unwrap();
         deleted.is_deleted = true;
         proj.apply(&make_event(4, "message_deleted", &deleted), &state)
@@ -1544,8 +1359,10 @@ mod tests {
         );
 
         let removed = MessagesProjection::compact(&state);
-        // One primary, channel, author and ID entry, plus both time versions.
-        assert_eq!(removed, 6);
+        // The latest row plus both versions (create and delete). Before the
+        // read model this was 6: the channel, author and ID index entries
+        // were separate rows.
+        assert_eq!(removed, 3);
         // After compaction: only 2 entries remain.
         assert_eq!(
             MessagesProjection::list_messages(&state, "ch_01", true)
@@ -1586,7 +1403,7 @@ mod tests {
 
         let expected_id = format!("msg_{:x}", event.commit_seq);
         let key = encode_key("ch_01", &expected_id);
-        let value = state.get("messages_by_channel", &key);
+        let value = stored_value(&state, "messages_by_channel", &key);
         assert!(
             value.is_some(),
             "messages_by_channel should contain the key"
@@ -1625,7 +1442,7 @@ mod tests {
         prefix.extend_from_slice(&("ch_01".len() as u64).to_le_bytes());
         prefix.extend_from_slice(b"ch_01");
         let mut count = 0;
-        state.prefix_scan("messages_by_channel", &prefix, |_k, _v| count += 1);
+        count += stored_entries(&state, "messages_by_channel", &prefix).len();
         assert_eq!(
             count, 3,
             "ch_01 should have 3 entries in messages_by_channel"
@@ -1635,7 +1452,7 @@ mod tests {
         prefix2.extend_from_slice(&("ch_02".len() as u64).to_le_bytes());
         prefix2.extend_from_slice(b"ch_02");
         let mut count2 = 0;
-        state.prefix_scan("messages_by_channel", &prefix2, |_k, _v| count2 += 1);
+        count2 += stored_entries(&state, "messages_by_channel", &prefix2).len();
         assert_eq!(
             count2, 1,
             "ch_02 should have 1 entry in messages_by_channel"
@@ -1660,7 +1477,7 @@ mod tests {
         key.extend_from_slice(&(42u64).to_le_bytes());
         key.extend_from_slice(&(expected_id.len() as u64).to_le_bytes());
         key.extend_from_slice(expected_id.as_bytes());
-        let value = state.get("messages_by_author", &key);
+        let value = stored_value(&state, "messages_by_author", &key);
         assert!(value.is_some(), "messages_by_author should contain the key");
         let decoded = decode_record(&value.unwrap()).unwrap();
         assert_eq!(decoded.author_user_id, 42);
@@ -1682,7 +1499,7 @@ mod tests {
 
         // Edit: re-inserts under the same secondary keys.
         let stored_key = encode_key("ch_01", &msg_id);
-        let stored = state.get("messages", &stored_key).unwrap();
+        let stored = stored_value(&state, "messages", &stored_key).unwrap();
         let mut edited = decode_record(&stored).unwrap();
         edited.encrypted_body_ref = "edited".into();
         proj.apply(
@@ -1698,7 +1515,7 @@ mod tests {
 
         // By-channel key still present with edited body.
         let ch_key = encode_key("ch_01", &msg_id);
-        let value = state.get("messages_by_channel", &ch_key).unwrap();
+        let value = stored_value(&state, "messages_by_channel", &ch_key).unwrap();
         let decoded = decode_record(&value).unwrap();
         assert_eq!(decoded.encrypted_body_ref, "edited");
 
@@ -1716,9 +1533,8 @@ mod tests {
             &state,
         )
         .unwrap();
-        assert!(state.get("messages_by_channel", &ch_key).is_some());
-        assert!(state
-            .get("messages_by_author", &author_key(7, &msg_id))
+        assert!(stored_value(&state, "messages_by_channel", &ch_key).is_some());
+        assert!(stored_value(&state, "messages_by_author", &author_key(7, &msg_id))
             .is_some());
     }
 
@@ -1773,31 +1589,7 @@ mod tests {
     }
 
     fn collect_index(state: &ProjectionState, index: &str) -> Vec<(Vec<u8>, Vec<u8>)> {
-        let mut entries = Vec::new();
-        state.for_each(index, |k, v| entries.push((k.to_vec(), v.to_vec())));
-        entries.sort();
-        entries
-    }
-
-    #[test]
-    fn secondary_index_trait_const_registered() {
-        assert_eq!(MESSAGES_SECONDARY_INDEXES.len(), 3);
-        assert_eq!(MESSAGES_SECONDARY_INDEXES[0].name(), "messages_by_channel");
-        assert_eq!(MESSAGES_SECONDARY_INDEXES[1].name(), "messages_by_author");
-        assert_eq!(
-            MESSAGES_SECONDARY_INDEXES[2].name(),
-            "messages_by_channel_time"
-        );
-        // Only message_* events should yield keys.
-        let non_msg = DurableEvent {
-            commit_seq: 1,
-            stream_id: "x".into(),
-            event_type: "channel_created".into(),
-            payload: vec![],
-        };
-        assert!(MESSAGES_SECONDARY_INDEXES[0]
-            .extract_keys(&non_msg)
-            .is_empty());
+        stored_entries(state, index, &[])
     }
 
     // --- QueryableProjection tests -----------------------------------------
@@ -1942,7 +1734,7 @@ mod tests {
         .unwrap();
         // Soft-delete message 2 (created under commit_seq 2 → msg_2).
         let key = encode_key("ch_01", &format!("msg_{:x}", 2));
-        let stored = state.get("messages", &key).expect("message 2 should exist");
+        let stored = stored_value(&state, "messages", &key).expect("message 2 should exist");
         let mut deleted = decode_record_lenient(&stored).unwrap();
         deleted.is_deleted = true;
         proj.apply(&make_event(3, "message_deleted", &deleted), &state)
@@ -2155,9 +1947,7 @@ mod tests {
     }
 
     fn index_count(state: &ProjectionState, index: &str, prefix: &[u8]) -> usize {
-        let mut n = 0;
-        state.prefix_scan(index, prefix, |_k, _v| n += 1);
-        n
+        stored_entries(state, index, prefix).len()
     }
 
     fn uuid_message() -> MessageRecord {
@@ -2220,259 +2010,70 @@ mod tests {
         assert_eq!(results[0].encrypted_body_ref, "edited");
     }
 
-    /// Apply an event the way a build before Task 3.4 did: the primary row,
-    /// id lookup and time index as today, and the channel and author entries
-    /// keyed by `msg_{commit_seq:x}` for a create and by the record's id for
-    /// an edit or delete.
-    fn apply_before_3_4(state: &ProjectionState, seq: u64, kind: &str, record: &MessageRecord) {
-        let event = make_event(seq, kind, record);
-        let projection = MessagesProjection;
-        match kind {
-            "message_created" => projection.apply_created(&event, state),
-            "message_edited" => projection.apply_edited(&event, state),
-            "message_deleted" => projection.apply_deleted(&event, state),
-            other => panic!("unexpected event type {other}"),
-        }
-        .unwrap();
-        let id = if kind == "message_created" {
-            format!("msg_{seq:x}")
-        } else {
-            record.message_id.clone()
-        };
-        let value = reencoded_payload(&event);
-        state.insert(
-            "messages_by_channel",
-            encode_key(&record.channel_id, &id),
-            value.clone(),
-            seq,
-        );
-        state.insert(
-            "messages_by_author",
-            author_key(record.author_user_id, &id),
-            value,
-            seq,
-        );
-        state.with_index("messages_by_channel_time", |map| {
-            MessagesByChannelTimeIndex.apply(map, &event)
-        });
-    }
-
-    type Events<'a> = &'a [(u64, &'a str, &'a MessageRecord)];
-
-    /// The state the fixed code builds from the same events.
-    fn replayed(events: Events) -> ProjectionState {
+    /// Tripwire for `READ_MODEL_GENERATION`. The hash covers every row this
+    /// projection stores for a fixed set of events. If it changes, replay now
+    /// writes something else (a record version was bumped, or a handler
+    /// stores other keys or values), and a read model written by the previous
+    /// build would disagree with the log.
+    ///
+    /// When this fails: bump `READ_MODEL_GENERATION`, then update both values
+    /// here together. Never update the hash alone.
+    #[test]
+    fn stored_rows_are_pinned_to_the_read_model_generation() {
         let state = ProjectionState::new();
-        for (seq, kind, record) in events {
-            MessagesProjection
-                .apply(&make_event(*seq, kind, record), &state)
+        let proj = MessagesProjection;
+        let mut own_id = uuid_message();
+        proj.apply(&make_event(1, "message_created", &own_id), &state).unwrap();
+        let mut assigned_id = base_record("", "ch_01", 2_000_000);
+        assigned_id.files = vec![FileAttachmentRecord {
+            file_url: "/uploads/a".into(),
+            file_name: "a.png".into(),
+            file_size: 3,
+        }];
+        proj.apply(&make_event(2, "message_created", &assigned_id), &state).unwrap();
+        own_id.encrypted_body_ref = "edited".into();
+        own_id.edited_at_micros = Some(3_000_000);
+        proj.apply(&make_event(3, "message_edited", &own_id), &state).unwrap();
+        proj.apply(&make_event(4, "message_created", &base_record("other", "ch_02", 4_000_000)), &state)
+            .unwrap();
+        let mut deleted = base_record("other", "ch_02", 4_000_000);
+        deleted.is_deleted = true;
+        proj.apply(&make_event(5, "message_deleted", &deleted), &state).unwrap();
+        let clear = ChannelMessagesCleared { channel_id: "ch_01".into(), cleared_at_micros: 6_000_000 };
+        proj.apply(
+            &DurableEvent {
+                commit_seq: 6,
+                stream_id: "ch_01".into(),
+                event_type: "channel_messages_cleared".into(),
+                payload: serde_json::to_vec(&clear).unwrap(),
+            },
+            &state,
+        )
+        .unwrap();
+
+        let mut hash = blake3::Hasher::new();
+        let mut rows = 0;
+        for table in Table::ALL {
+            hash.update(table.name().as_bytes());
+            state
+                .read_model()
+                .for_each_row(table, |key, record| {
+                    rows += 1;
+                    for bytes in [key, record] {
+                        hash.update(&(bytes.len() as u64).to_le_bytes());
+                        hash.update(bytes);
+                    }
+                    Ok(())
+                })
                 .unwrap();
         }
-        state
-    }
-
-    const ALL_MESSAGE_INDEXES: [&str; 5] = [
-        "messages",
-        "messages_by_channel",
-        "messages_by_author",
-        "messages_by_channel_time",
-        crate::projections::message_lookup::INDEX,
-    ];
-
-    /// Build the state an older build saved, repair it, and require every
-    /// message index to equal a replay by the fixed code.
-    fn assert_repair_matches_replay(name: &str, events: Events) {
-        let want = replayed(events);
-        let state = ProjectionState::new();
-        for (seq, kind, record) in events {
-            apply_before_3_4(&state, *seq, kind, record);
-        }
-        assert!(
-            rekey_legacy_index_entries(&state) > 0,
-            "{name}: the old layout must hold a wrongly keyed entry"
-        );
-        for index in ALL_MESSAGE_INDEXES {
-            assert_eq!(
-                collect_index(&state, index),
-                collect_index(&want, index),
-                "{name}: {index}"
-            );
-        }
-        assert_eq!(rekey_legacy_index_entries(&state), 0, "{name}: second run");
-    }
-
-    fn message(id: &str, channel: &str, author: u64, body: &str) -> MessageRecord {
-        MessageRecord {
-            message_id: id.into(),
-            channel_id: channel.into(),
-            author_user_id: author,
-            encrypted_body_ref: body.into(),
-            ..uuid_message()
-        }
-    }
-
-    const UUID: &str = "0b9d6c1e-1111-4222-8333-444455556666";
-    const OTHER: &str = "7c1f0a52-9999-4aaa-8bbb-ccccddddeeee";
-
-    #[test]
-    fn repair_of_one_message_matches_replay() {
-        let created = message(UUID, "ch_01", 7, "first");
-        let edited = message(UUID, "ch_01", 7, "edited");
-        let mut deleted = edited.clone();
-        deleted.is_deleted = true;
-        assert_repair_matches_replay("create", &[(5, "message_created", &created)]);
-        assert_repair_matches_replay(
-            "create, edit",
-            &[(5, "message_created", &created), (6, "message_edited", &edited)],
-        );
-        assert_repair_matches_replay(
-            "create, edit, delete",
-            &[
-                (5, "message_created", &created),
-                (6, "message_edited", &edited),
-                (7, "message_deleted", &deleted),
-            ],
-        );
-        assert_repair_matches_replay(
-            "create, delete, create again",
-            &[
-                (5, "message_created", &created),
-                (6, "message_deleted", &deleted),
-                (7, "message_created", &created),
-            ],
-        );
-        assert_repair_matches_replay(
-            "create, edit, create again",
-            &[
-                (5, "message_created", &created),
-                (6, "message_edited", &edited),
-                (7, "message_created", &created),
-            ],
-        );
-    }
-
-    #[test]
-    fn repair_matches_replay_when_an_own_id_looks_like_a_legacy_key() {
-        // `msg_5` is one message's own id and, in the old layout, the key of
-        // whatever was created at commit 5. The old build let one overwrite
-        // the other; the repair must bring both back.
-        let own = message("msg_5", "ch_01", 7, "own id msg_5");
-        let own_edited = message("msg_5", "ch_01", 7, "own id msg_5, edited");
-        let later = message(UUID, "ch_01", 7, "created at commit 5");
-        assert_repair_matches_replay(
-            "own id created first",
-            &[(3, "message_created", &own), (5, "message_created", &later)],
-        );
-        assert_repair_matches_replay(
-            "edit lands on a neighbour's legacy key",
-            &[
-                (3, "message_created", &own),
-                (5, "message_created", &later),
-                (7, "message_edited", &own_edited),
-            ],
-        );
-        let other_room = message(UUID, "ch_02", 7, "created at commit 5");
-        assert_repair_matches_replay(
-            "same author, other room",
-            &[(3, "message_created", &own), (5, "message_created", &other_room)],
-        );
-        let blank = message("", "ch_01", 7, "blank id at commit 3");
-        let named = message("msg_3", "ch_01", 7, "own id msg_3");
-        assert_repair_matches_replay(
-            "blank id, then the id its fallback gave",
-            &[(3, "message_created", &blank), (5, "message_created", &named)],
-        );
-    }
-
-    #[test]
-    fn repair_matches_replay_for_two_messages_in_one_commit() {
-        // Events of one command share a commit sequence, so the old build
-        // keyed both `msg_5` and the second overwrote the first.
-        let first = message(UUID, "ch_01", 7, "first");
-        let second = message(OTHER, "ch_01", 7, "second");
-        assert_repair_matches_replay(
-            "two creates, one commit",
-            &[(5, "message_created", &first), (5, "message_created", &second)],
-        );
-    }
-
-    #[test]
-    fn repair_matches_replay_when_author_entries_collide_or_move() {
-        // The author key has no room in it: the later event wins.
-        let room_one = message(UUID, "ch_01", 7, "room one");
-        let room_two = message(UUID, "ch_02", 7, "room two");
-        assert_repair_matches_replay(
-            "same author and id in two rooms",
-            &[(5, "message_created", &room_one), (6, "message_created", &room_two)],
-        );
-        assert_repair_matches_replay(
-            "same author and id in two rooms, other order",
-            &[(5, "message_created", &room_two), (6, "message_created", &room_one)],
-        );
-        // A delete that names another author leaves the first author's entry.
-        let mut deleted_as_other = message(UUID, "ch_01", 99, "room one");
-        deleted_as_other.is_deleted = true;
-        assert_repair_matches_replay(
-            "delete carries another author",
-            &[
-                (5, "message_created", &room_one),
-                (6, "message_deleted", &deleted_as_other),
-            ],
-        );
-    }
-
-    #[test]
-    fn repair_adds_a_primary_row_the_time_index_does_not_cover() {
-        let created = message(UUID, "ch_01", 7, "first");
-        let events = [(5, "message_created", &created)];
-        let want = replayed(&events);
-        let state = ProjectionState::new();
-        apply_before_3_4(&state, 5, "message_created", &created);
-        state.compact_index("messages_by_channel_time", |_, _| true);
-
-        assert_eq!(rekey_legacy_index_entries(&state), 2);
+        assert_eq!(rows, 3 + 7, "three messages, seven message versions");
+        let stored = hash.finalize().to_hex().to_string();
+        println!("generation {} rows {stored}", read_model::READ_MODEL_GENERATION);
         assert_eq!(
-            collect_index(&state, "messages_by_author"),
-            collect_index(&want, "messages_by_author")
+            (read_model::READ_MODEL_GENERATION, stored.as_str()),
+            (1, "8bd61196391107fb6ace5af422a2520b1d22b618b4a0eeac30280933c9c33dca"),
+            "replay stores different rows: bump READ_MODEL_GENERATION and update this pin with it"
         );
-    }
-
-    #[test]
-    fn rekey_leaves_a_correct_projection_alone() {
-        // A blank id falls back to `msg_{seq:x}` in the record itself, so its
-        // key is right and must not be mistaken for a legacy entry.
-        let blank = message("", "ch_01", 7, "blank");
-        let named = message(UUID, "ch_01", 7, "named");
-        let padded = message(" x ", "ch_01", 7, "padded");
-        let events = [
-            (5, "message_created", &blank),
-            (6, "message_created", &named),
-            (7, "message_created", &padded),
-            (8, "message_edited", &named),
-        ];
-        let state = replayed(&events);
-        let want = replayed(&events);
-
-        assert_eq!(rekey_legacy_index_entries(&state), 0);
-        for index in ALL_MESSAGE_INDEXES {
-            assert_eq!(collect_index(&state, index), collect_index(&want, index), "{index}");
-        }
-    }
-
-    #[test]
-    fn rekey_does_not_bring_back_a_message_with_no_primary_row() {
-        let created = uuid_message();
-        let state = ProjectionState::new();
-        let value = encode_record(&created);
-        state.insert(
-            "messages_by_channel",
-            encode_key(&created.channel_id, "msg_5"),
-            value.clone(),
-            5,
-        );
-        state.insert("messages_by_author", author_key(7, "msg_5"), value, 5);
-
-        assert_eq!(rekey_legacy_index_entries(&state), 2);
-        assert_eq!(state.index_len("messages_by_channel"), 0);
-        assert_eq!(state.index_len("messages_by_author"), 0);
     }
 }

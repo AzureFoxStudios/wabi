@@ -8,6 +8,12 @@
 //! lines: Task 3.4 changed their keys from `msg_{commit_seq:x}` to the
 //! message's own id. The saved snapshot still holds the old keys.
 //!
+//! Since Task 3.5 messages live in the SQLite read model, which the fixture
+//! does not have: opening it rebuilds them from the log, and the snapshot's
+//! message indexes are not loaded. `describe_state` lists the read model's
+//! rows under the names and keys those five indexes had, so `expected.txt`
+//! still says what the messages must be.
+//!
 //! Do not regenerate the fixture: the generator now writes versioned records,
 //! so a regenerated directory would no longer prove anything about old data.
 //! A payload versioned later than the fixture (Task 3.1b) gets its old-format
@@ -112,8 +118,57 @@ fn describe_state(state: &ProjectionState) -> String {
             lines.push(format!("{name} {key} {}", describe_value(name, &value)));
         }
     }
+    lines.extend(describe_messages(state));
     lines.sort();
     lines.join("\n") + "\n"
+}
+
+/// The read model's message rows as lines of the five in-memory indexes that
+/// held them before Task 3.5, with the keys those indexes used.
+fn describe_messages(state: &ProjectionState) -> Vec<String> {
+    use crate::projections::read_model::Table;
+    let mut lines = Vec::new();
+    let model = state.read_model();
+    let mut found = Vec::new();
+    // The lookup lines come from the lookup columns the engine's SQL indexes
+    // are built on, not from the record, and from the indexed queries.
+    model
+        .for_each_full_row(Table::Messages, |columns| {
+            let [key, _channel_id, id, author, value] = columns else {
+                panic!("unexpected columns");
+            };
+            let id_prefixed = [&(id.len() as u64).to_le_bytes()[..], id].concat();
+            let author_key = [&author[..], &id_prefixed].concat();
+            let lookup_key = [&id_prefixed[..], key].concat();
+            let shown = describe_value("messages", value);
+            lines.push(format!("messages {} {shown}", hex::encode(key)));
+            lines.push(format!("messages_by_channel {} {shown}", hex::encode(key)));
+            lines.push(format!("messages_by_author {} {shown}", hex::encode(author_key)));
+            lines.push(format!(
+                "message_by_id_v1 {} raw {}",
+                hex::encode(lookup_key),
+                hex::encode(key)
+            ));
+            found.push(messages::decode_record(value)?);
+            Ok(())
+        })
+        .unwrap();
+    // Each row must also be found through the SQL index on the message ID.
+    for record in found {
+        let by_id = crate::projections::message_lookup::get(state, &record.message_id).unwrap();
+        assert_eq!(by_id.as_ref(), Some(&record), "lookup by ID");
+    }
+    model
+        .for_each_full_row(Table::MessageVersions, |columns| {
+            lines.push(format!(
+                "messages_by_channel_time {} {}",
+                hex::encode(columns[0]),
+                describe_value("messages", columns[4])
+            ));
+            Ok(())
+        })
+        .unwrap();
+    lines
 }
 
 fn event(stream_id: &str, stream_kind: u8, event_type: &str, plaintext: Vec<u8>) -> EventToWrite {
@@ -454,6 +509,12 @@ async fn pre_versioning_log_with_new_writes_replays() {
 /// as raw postcard comes out of this build's replay with a version-1 header.
 /// That is the same content, and inspection must say the two match.
 async fn inspect(data: &Path) -> crate::error::Result<bool> {
+    inspect_receipt(data).await.map(|receipt| receipt.persisted_projection_matches)
+}
+
+async fn inspect_receipt(
+    data: &Path,
+) -> crate::error::Result<crate::engine::offline_inspect::InspectionReceipt> {
     use crate::engine::offline_inspect::{inspect_frozen, InspectionLimits};
     let indexed =
         crate::commit_index::batcher::read_all_entries(&data.join("global/commit-index")).unwrap();
@@ -461,7 +522,7 @@ async fn inspect(data: &Path) -> crate::error::Result<bool> {
     let prefix = crate::replication::commit_prefix_fingerprint(&indexed, seq);
     inspect_frozen(data, &BOOTSTRAP, seq, &prefix, InspectionLimits::default())
         .await
-        .map(|inspected| inspected.receipt.persisted_projection_matches)
+        .map(|inspected| inspected.receipt)
 }
 
 #[tokio::test]
@@ -469,29 +530,56 @@ async fn pre_versioning_directory_passes_offline_inspection() {
     let scratch = scratch_copy();
     let matches = inspect(&scratch.path().join("data")).await;
     assert!(matches!(matches, Ok(true)), "{:?}", matches.map_err(|e| e.to_string()));
+    // The fixture has no read model, so its messages have no saved state to
+    // compare: the snapshot's message indexes are not what the engine loads.
+    let receipt = inspect_receipt(&scratch.path().join("data")).await.unwrap();
+    assert!(!receipt.read_model_compared);
 }
 
-/// The fixture's snapshot was saved by a build that keyed a created message's
-/// channel and author index entries by `msg_{commit_seq:x}` (Task 3.4). Opening
-/// it moves them to the message's own id and saves the corrected projection.
+/// The fixture's snapshot was saved by a build that kept messages in it, with
+/// a created message's channel and author entries keyed by
+/// `msg_{commit_seq:x}` (Task 3.4), and the fixture has no read model. Opening
+/// it does not repair or load those entries: messages are rebuilt from the log
+/// into the read model, and the snapshot file is left alone until the engine
+/// next saves one, which then holds no message index.
 #[tokio::test]
-async fn opening_rewrites_wrongly_keyed_message_index_entries() {
+async fn opening_rebuilds_messages_from_the_log_not_the_snapshot() {
     let scratch = scratch_copy();
     let data = scratch.path().join("data");
-    let (saved, _) = ProjectionState::load_snapshot(&data).unwrap().unwrap();
-    assert_eq!(
-        messages::rekey_legacy_index_entries(&saved),
-        2,
-        "the fixture must still hold the old keys, or this test proves nothing"
+    let snapshot = ProjectionState::snapshot_path(&data);
+    let before = std::fs::read(&snapshot).unwrap();
+    let index_names = |bytes: &[u8]| -> Vec<String> {
+        let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        json["indexes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|index| index[0].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert!(
+        index_names(&before).iter().any(|name| name == "messages_by_channel"),
+        "the fixture must still hold the old message indexes, or this test proves nothing"
     );
-
-    // Read the file while the engine is still open: closing saves a snapshot
-    // anyway, so only this shows that open itself saved the corrected one.
-    let engine = reopen(&data).await;
+    assert!(!ProjectionState::read_model_path(&data).exists());
     let (saved, _) = ProjectionState::load_snapshot(&data).unwrap().unwrap();
-    assert_eq!(messages::rekey_legacy_index_entries(&saved), 0);
-    assert_eq!(describe_state(&saved), expected());
+    assert!(describe_messages(&saved).is_empty());
+
+    let engine = reopen(&data).await;
+    assert!(ProjectionState::read_model_path(&data).is_file());
+    assert_eq!(std::fs::read(&snapshot).unwrap(), before, "open rewrote the snapshot");
+    assert_eq!(describe_messages(&engine.projection_state()).len(), 5);
+    assert_eq!(describe_state(&engine.projection_state()), expected());
     drop(engine);
+    drop(super::wait_for_stopped_engine(&data).await);
+
+    let after = index_names(&std::fs::read(&snapshot).unwrap());
+    for legacy in crate::engine::locks::LEGACY_MESSAGE_INDEXES {
+        assert!(!after.iter().any(|name| name == legacy), "{legacy} saved again");
+    }
+    // The next open uses the read model as it is and reads the same.
+    let engine = reopen(&data).await;
+    assert_eq!(describe_state(&engine.projection_state()), expected());
 }
 
 /// The same after an upgrade: this build opened the old directory, wrote a
@@ -530,6 +618,8 @@ async fn upgraded_directory_passes_offline_inspection() {
 
     let matches = inspect(&data).await;
     assert!(matches!(matches, Ok(true)), "{:?}", matches.map_err(|e| e.to_string()));
+    // This build wrote a read model on the way; its rows were compared too.
+    assert!(inspect_receipt(&data).await.unwrap().read_model_compared);
 }
 
 // ---------------------------------------------------------------------------
@@ -672,4 +762,6 @@ async fn raw_event_payloads_pass_offline_inspection() {
 
     let matches = inspect(&data).await;
     assert!(matches!(matches, Ok(true)), "{:?}", matches.map_err(|e| e.to_string()));
+    // This build wrote a read model on the way; its rows were compared too.
+    assert!(inspect_receipt(&data).await.unwrap().read_model_compared);
 }

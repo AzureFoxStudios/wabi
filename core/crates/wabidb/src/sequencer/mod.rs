@@ -416,10 +416,44 @@ pub async fn run(
             continue;
         }
 
+        // A halted engine takes no commands: one that could not apply a
+        // commit, or whose read model SQLite reported as damaged. Refused
+        // before anything is written, so no durable commit is left that the
+        // engine cannot apply. The flag clears only with a restart.
+        if !projection_state.is_healthy() {
+            for command in window {
+                let _ = command.response_tx.send(Err(WabiError::InternalInvariantViolated {
+                    invariant: "engine halted: projection application failed or the projection \
+                                read model is damaged; restart the engine (a damaged read model \
+                                is rebuilt from the log)"
+                        .into(),
+                }));
+            }
+            continue;
+        }
+
         // ---- Stage A: prepare + submit index entries (in seq order) ------
         let mut prepared: Vec<PreparedCommand> = Vec::with_capacity(window.len());
         let mut pending_message_parents = HashMap::new();
+        // Set when a command finds no commit number left below the limit.
+        let mut seq_limit_reached = false;
         for command in window {
+            if seq_limit_reached || next_commit_seq > crate::projections::read_model::MAX_COMMIT_SEQ {
+                // No file may name a commit above the limit: the next start
+                // would refuse the directory (and a number near `u64::MAX`
+                // cannot be stored). Fail this command cleanly, fail the rest
+                // of the window the same way, finish what is already
+                // prepared, and halt after it.
+                seq_limit_reached = true;
+                let _ = command.response_tx.send(Err(WabiError::InternalInvariantViolated {
+                    invariant: format!(
+                        "commit number limit reached: the next commit would be {next_commit_seq}, \
+                         above 2^62; nothing was written and the engine halted (the storage \
+                         manifest's highest_commit_seq is not a plausible count of commits)"
+                    ),
+                }));
+                continue;
+            }
             let commit_seq = next_commit_seq;
             next_commit_seq = commit_seq.checked_add(1).ok_or_else(|| {
                 crate::error::WabiError::InternalInvariantViolated {
@@ -569,6 +603,13 @@ pub async fn run(
             }
         }
         drop(admission);
+        if seq_limit_reached {
+            return Err(WabiError::InternalInvariantViolated {
+                invariant: format!(
+                    "commit number limit reached at {next_commit_seq}; engine halted"
+                ),
+            });
+        }
     }
 
     // Graceful shutdown: close all open writers.

@@ -155,6 +155,36 @@ pub async fn replay_projections(
     barrier: &LinearizabilityBarrier,
     snapshot_watermark: u64,
 ) -> Result<u64> {
+    replay_projections_with(
+        data_dir,
+        key_registry,
+        bootstrap_key,
+        projection_state,
+        dispatch_table,
+        barrier,
+        snapshot_watermark,
+        false,
+    )
+    .await
+}
+
+/// [`replay_projections`], optionally also rebuilding the SQLite read model
+/// from the whole log. With `rebuild_read_model`, the commits at or below
+/// `snapshot_watermark` go only to the handlers whose rows live in the read
+/// model (`Projection::stores_in_read_model`); every other projection keeps
+/// what the snapshot holds, exactly as without a rebuild. Commits above the
+/// watermark go to every handler, as always.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn replay_projections_with(
+    data_dir: &Path,
+    key_registry: &Mutex<StreamKeyRegistry>,
+    bootstrap_key: &[u8; 32],
+    projection_state: &ProjectionState,
+    dispatch_table: &DispatchTable,
+    barrier: &LinearizabilityBarrier,
+    snapshot_watermark: u64,
+    rebuild_read_model: bool,
+) -> Result<u64> {
     let membership_repair =
         super::membership_repair::MembershipRepair::from_snapshot(projection_state)?;
     let mut voice_repair =
@@ -187,6 +217,7 @@ pub async fn replay_projections(
         if committed.values().filter(|e| !quarantine.contains(&e.commit_seq)).any(|e| {
             e.event_refs.iter().any(|r| {
                 e.commit_seq > snapshot_watermark
+                    || rebuild_read_model
                     || membership_repair
                         .as_ref()
                         .is_some_and(|repair| repair.includes(&r.stream_id_hash))
@@ -225,6 +256,7 @@ pub async fn replay_projections(
         projection_state,
         dispatch_table,
         snapshot_watermark,
+        rebuild_read_model,
         membership_repair,
         voice_repair,
         quarantine,
@@ -646,6 +678,8 @@ struct Applier<'a> {
     projection_state: &'a ProjectionState,
     dispatch_table: &'a DispatchTable,
     snapshot_watermark: u64,
+    /// Also rebuild the read model from the commits at or below the watermark.
+    rebuild_read_model: bool,
     membership_repair: Option<super::membership_repair::MembershipRepair>,
     voice_repair: Option<crate::projections::voice_restrictions::LegacyVoiceRepair>,
     /// Commits the operator quarantined: never recovered or applied.
@@ -666,6 +700,7 @@ impl Applier<'_> {
     /// pass asks for.
     fn needed(&self, commit_seq: u64, stream_hash: &[u8; 16]) -> bool {
         commit_seq > self.snapshot_watermark
+            || self.rebuild_read_model
             || self
                 .membership_repair
                 .as_ref()
@@ -727,19 +762,32 @@ impl Applier<'_> {
         self.check_recovered(entry, events.len())?;
 
         if commit_seq <= self.snapshot_watermark {
-            if let Some(repair) = self.membership_repair.as_mut() {
-                for Decoded { event, .. } in &events {
-                    let hash: [u8; 16] = blake3::hash(event.stream_id.as_bytes()).as_bytes()[..16]
-                        .try_into()
-                        .unwrap();
+            // Without a read-model rebuild every recovered record is one a
+            // repair pass asked for; with one, filter by what each asks for.
+            for Decoded { event, .. } in &events {
+                let hash: [u8; 16] = blake3::hash(event.stream_id.as_bytes()).as_bytes()[..16]
+                    .try_into()
+                    .unwrap();
+                if let Some(repair) = self.membership_repair.as_mut() {
                     if repair.includes(&hash) {
                         repair.observe(event)?;
                     }
                 }
+                if let Some(repair) = self.voice_repair.as_mut() {
+                    if !self.rebuild_read_model || repair.includes(&hash) {
+                        repair.observe(event)?;
+                    }
+                }
             }
-            if let Some(repair) = self.voice_repair.as_mut() {
+            if self.rebuild_read_model {
                 for Decoded { event, .. } in &events {
-                    repair.observe(event)?;
+                    if let Some(handler) = self
+                        .dispatch_table
+                        .get(&event.event_type)
+                        .filter(|handler| handler.stores_in_read_model())
+                    {
+                        self.apply_one(handler.as_ref(), event)?;
+                    }
                 }
             }
             return Ok(());
@@ -749,29 +797,7 @@ impl Applier<'_> {
         self.finish_repairs()?;
         for Decoded { event, .. } in &events {
             if let Some(handler) = self.dispatch_table.get(&event.event_type) {
-                // A panic must not escape open(). The partly applied state
-                // is discarded with the failed open.
-                let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    handler.apply(event, self.projection_state)
-                }));
-                let failure = match applied {
-                    Ok(Ok(())) => None,
-                    Ok(Err(e)) => Some(format!("replay failed: {e}")),
-                    Err(panic) => Some(format!("handler panicked: {}", panic_message(&*panic))),
-                };
-                if let Some(failure) = failure {
-                    return Err(crate::error::WabiError::Corrupt {
-                        location: format!(
-                            "projection {} at commit {}",
-                            event.event_type, event.commit_seq
-                        ),
-                        detail: format!(
-                            "{failure}; repair required before startup (copy the data \
-                             directory, then `wabidb-cli quarantine --seq {}` skips this commit)",
-                            event.commit_seq
-                        ),
-                    });
-                }
+                self.apply_one(handler.as_ref(), event)?;
             } else {
                 // Match the live dispatcher's forward-compatible fallback.
                 self.projection_state.insert(
@@ -784,6 +810,27 @@ impl Applier<'_> {
             self.replayed += 1;
         }
         Ok(())
+    }
+
+    /// Apply one event to the projections. A panic must not escape open();
+    /// the partly applied state is discarded with the failed open.
+    fn apply_one(&self, handler: &dyn crate::projections::handler::Projection, event: &DurableEvent) -> Result<()> {
+        let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handler.apply(event, self.projection_state)
+        }));
+        let failure = match applied {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(e)) => format!("replay failed: {e}"),
+            Err(panic) => format!("handler panicked: {}", panic_message(&*panic)),
+        };
+        Err(crate::error::WabiError::Corrupt {
+            location: format!("projection {} at commit {}", event.event_type, event.commit_seq),
+            detail: format!(
+                "{failure}; repair required before startup (copy the data \
+                 directory, then `wabidb-cli quarantine --seq {}` skips this commit)",
+                event.commit_seq
+            ),
+        })
     }
 
     /// Finish the repair passes once, before the first post-snapshot event.

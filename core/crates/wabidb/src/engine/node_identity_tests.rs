@@ -331,7 +331,7 @@ async fn replay_preserves_remote_placement_without_granting_remote_write_identit
     let before = engine.barrier().current();
     drop(engine);
     let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = crate::tests::reopen_after_drop(config(dir.path()), Some("site-a"))
         .await

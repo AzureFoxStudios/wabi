@@ -72,6 +72,14 @@ pub trait Projection: Send + Sync {
         vec![self.event_type()]
     }
 
+    /// Whether this handler's rows live in the SQLite read model (and not in
+    /// the in-memory projections). A rebuild of the read model from the log
+    /// applies only these handlers to the commits the snapshot already covers.
+    /// Such a handler must read nothing but the read model while it applies.
+    fn stores_in_read_model(&self) -> bool {
+        false
+    }
+
     /// Apply the event to the projection state. Called by the dispatcher
     /// after the event is durable.
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()>;

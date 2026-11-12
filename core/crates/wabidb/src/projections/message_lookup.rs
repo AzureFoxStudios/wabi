@@ -1,27 +1,19 @@
-//! Compact derived message-ID lookup. Primary records and replay encodings are
-//! unchanged. Multiple legacy rooms may retain the same ID; an ID-only request
-//! must reject that ambiguity rather than choose a room by iteration order.
+//! Message lookup by ID alone. Multiple legacy rooms may retain the same ID;
+//! an ID-only request must reject that ambiguity rather than choose a room.
+//!
+//! The lookup is an index on the read model's `messages` table, so it cannot
+//! be missing an entry or point at a row that is gone.
 
 use crate::{
     engine::locks::ProjectionState,
     error::{Result, WabiError},
-    projections::messages::{decode_record, encode_key, MessageRecord},
+    projections::messages::{decode_record, MessageRecord},
+    projections::read_model,
 };
-use std::collections::HashMap;
 
+/// Error location of a failed lookup. The name of the in-memory index this
+/// replaced, kept so the error reads the same.
 pub const INDEX: &str = "message_by_id_v1";
-
-fn prefix(message_id: &str) -> Vec<u8> {
-    let mut key = (message_id.len() as u64).to_le_bytes().to_vec();
-    key.extend_from_slice(message_id.as_bytes());
-    key
-}
-
-pub fn key(channel_id: &str, message_id: &str) -> Vec<u8> {
-    let mut key = prefix(message_id);
-    key.extend_from_slice(&encode_key(channel_id, message_id));
-    key
-}
 
 fn corrupt(detail: impl Into<String>) -> WabiError {
     WabiError::Corrupt {
@@ -30,44 +22,21 @@ fn corrupt(detail: impl Into<String>) -> WabiError {
     }
 }
 
-pub fn write(state: &ProjectionState, record: &MessageRecord, commit_seq: u64) {
-    state.insert(
-        INDEX,
-        key(&record.channel_id, &record.message_id),
-        encode_key(&record.channel_id, &record.message_id),
-        commit_seq,
-    );
-}
-
 pub fn get(state: &ProjectionState, message_id: &str) -> Result<Option<MessageRecord>> {
-    // Bound the ambiguity check to two pointers; resolve primary rows after
-    // releasing the index lock, never from inside the scan callback.
-    let mut matches = Vec::with_capacity(2);
-    state.prefix_scan_reverse(INDEX, &prefix(message_id), |key, value| {
-        matches.push((key.to_vec(), value.to_vec()));
-        matches.len() < 2
-    });
-    if matches.len() > 1 {
+    // Two rows are enough to see the ambiguity.
+    let mut rows = state
+        .read_model()
+        .read(|conn| read_model::messages_by_id(conn, message_id))?;
+    if rows.len() > 1 {
         return Err(corrupt(format!(
             "message ID {message_id} belongs to multiple rooms"
         )));
     }
-    let Some((lookup_key, primary_key)) = matches.pop() else {
-        if state.index_len(INDEX) != state.index_len("messages") {
-            return Err(corrupt(
-                "message ID lookup is incomplete; startup rebuild is required",
-            ));
-        }
+    let Some((channel_id, bytes)) = rows.pop() else {
         return Ok(None);
     };
-    let bytes = state
-        .get("messages", &primary_key)
-        .ok_or_else(|| corrupt(format!("message {message_id} points to a missing row")))?;
     let record = decode_record(&bytes)?;
-    if record.message_id != message_id
-        || encode_key(&record.channel_id, message_id) != primary_key
-        || key(&record.channel_id, message_id) != lookup_key
-    {
+    if record.message_id != message_id || record.channel_id != channel_id {
         return Err(corrupt(format!(
             "message {message_id} lookup does not match its row"
         )));
@@ -75,55 +44,13 @@ pub fn get(state: &ProjectionState, message_id: &str) -> Result<Option<MessageRe
     Ok(Some(record))
 }
 
-/// Run at engine open before the dispatcher starts. Validate existing pointers
-/// before inserting missing ones; leave records and the applied watermark alone.
-pub fn rebuild(state: &ProjectionState) -> Result<usize> {
-    let count = state.index_len("messages");
-    let mut expected = HashMap::with_capacity(count);
-    let mut error = None;
-    state.for_each("messages", |primary_key, bytes| {
-        match decode_record(bytes) {
-            Ok(record) => {
-                if encode_key(&record.channel_id, &record.message_id) != primary_key {
-                    error = Some(corrupt("primary message key does not match its record"));
-                }
-                expected.insert(
-                    key(&record.channel_id, &record.message_id),
-                    primary_key.to_vec(),
-                );
-            }
-            Err(failure) => error = Some(failure),
-        }
-    });
-    if let Some(error) = error {
-        return Err(error);
-    }
-    state.for_each(INDEX, |key, value| {
-        if expected.get(key).map(Vec::as_slice) != Some(value) {
-            error = Some(corrupt(
-                "existing message ID pointer conflicts with primary state",
-            ));
-        }
-    });
-    if let Some(error) = error {
-        return Err(error);
-    }
-    let mut inserted = 0;
-    for (lookup_key, primary_key) in expected {
-        if state.get(INDEX, &lookup_key).is_none() {
-            state.insert(INDEX, lookup_key, primary_key, state.applied_commit_seq());
-            inserted += 1;
-        }
-    }
-    Ok(inserted)
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::projections::{
         handler::{DurableEvent, Projection},
-        messages::{encode_record, MessagesProjection},
+        messages::{encode_key, encode_record, MessagesProjection},
+        read_model::Table,
     };
 
     pub(crate) fn record(room: &str, id: &str) -> MessageRecord {
@@ -171,8 +98,9 @@ pub(crate) mod tests {
         apply(&state, "message_deleted", &row, 3);
         assert_eq!(get(&state, "msg_a").unwrap(), Some(row));
         assert!(MessagesProjection::compact(&state) >= 4);
-        assert_eq!(state.index_len(INDEX), 0);
-        assert_eq!(state.index_len("messages_by_channel_time"), 0);
+        let rows = |table| state.read_model().read(|conn| read_model::count(conn, table)).unwrap();
+        assert_eq!(rows(Table::Messages), 0);
+        assert_eq!(rows(Table::MessageVersions), 0);
         assert_eq!(get(&state, "msg_a").unwrap(), None);
     }
 
@@ -198,55 +126,27 @@ pub(crate) mod tests {
         assert_eq!(get(&state, "shared").unwrap(), Some(b));
     }
 
+    /// A snapshot saved while messages lived in the in-memory indexes still
+    /// lists them. They are not loaded: the read model is rebuilt from the
+    /// log, so nothing can be read from a stale copy.
     #[test]
-    fn legacy_snapshot_rebuild_preserves_records_and_watermark() {
+    fn legacy_snapshot_message_indexes_are_not_loaded() {
         let dir = tempfile::tempdir().unwrap();
         let state = ProjectionState::new();
         let row = record("ch_a", "msg_a");
-        state.insert(
-            "messages",
-            encode_key("ch_a", "msg_a"),
-            encode_record(&row),
-            9,
-        );
+        for index in crate::engine::locks::LEGACY_MESSAGE_INDEXES {
+            state.insert(index, encode_key("ch_a", "msg_a"), encode_record(&row), 9);
+        }
+        state.insert("users", b"kept".to_vec(), b"row".to_vec(), 9);
         state.set_applied_commit_seq(9);
         state.save_snapshot(dir.path()).unwrap();
         let (restored, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
         assert_eq!(watermark, 9);
-        assert!(get(&restored, "msg_a").is_err());
-        assert_eq!(rebuild(&restored).unwrap(), 1);
-        assert_eq!(get(&restored, "msg_a").unwrap(), Some(row.clone()));
-        restored.save_snapshot(dir.path()).unwrap();
-        let (reopened, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
-        assert_eq!(watermark, 9);
-        assert_eq!(rebuild(&reopened).unwrap(), 0);
-        assert_eq!(get(&reopened, "msg_a").unwrap(), Some(row));
-    }
-
-    #[test]
-    fn corrupt_primary_or_lookup_fails_before_rebuild_mutation() {
-        for wrong_pointer in [false, true] {
-            let state = ProjectionState::new();
-            let row = record("ch_a", "msg_a");
-            let primary = encode_key("ch_a", "msg_a");
-            state.insert(
-                "messages",
-                if wrong_pointer {
-                    primary.clone()
-                } else {
-                    b"bad-key".to_vec()
-                },
-                encode_record(&row),
-                1,
-            );
-            if wrong_pointer {
-                state.insert(INDEX, key("ch_a", "msg_a"), b"wrong-target".to_vec(), 1);
-                assert!(get(&state, "msg_a").is_err());
-            }
-            let before = state.index_len(INDEX);
-            assert!(rebuild(&state).is_err());
-            assert_eq!(state.index_len(INDEX), before);
+        for index in crate::engine::locks::LEGACY_MESSAGE_INDEXES {
+            assert_eq!(restored.index_len(index), 0, "{index}");
         }
+        assert_eq!(restored.get("users", b"kept"), Some(b"row".to_vec()));
+        assert_eq!(get(&restored, "msg_a").unwrap(), None);
     }
 
     #[test]
@@ -254,13 +154,19 @@ pub(crate) mod tests {
         let state = ProjectionState::new();
         let row = record("ch_a", "msg_a");
         apply(&state, "message_created", &row, 1);
-        state.insert("messages", encode_key("ch_b", "unrelated"), vec![0xff], 2);
-        state.insert(
-            INDEX,
-            key("ch_b", "unrelated"),
-            encode_key("ch_b", "unrelated"),
-            2,
-        );
+        state
+            .read_model()
+            .write(|conn| {
+                read_model::put_message(
+                    conn,
+                    &encode_key("ch_b", "unrelated"),
+                    "ch_b",
+                    "unrelated",
+                    1,
+                    &[0xff],
+                )
+            })
+            .unwrap();
         assert_eq!(get(&state, "msg_a").unwrap(), Some(row));
         assert!(get(&state, "unrelated").is_err());
         assert_eq!(get(&state, "absent").unwrap(), None);
