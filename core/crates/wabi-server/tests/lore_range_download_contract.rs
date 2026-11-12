@@ -178,8 +178,10 @@ fn sha256(bytes: &[u8]) -> String {
     hex::encode(sha2::Sha256::digest(bytes))
 }
 
-fn pattern(len: usize, salt: u8) -> Vec<u8> {
-    (0..len).map(|i| (i as u8).wrapping_mul(31).wrapping_add(salt)).collect()
+/// `len` bytes of a repeating pattern; `shift` makes two patterns differ.
+/// Plain test content, nothing cryptographic.
+fn pattern(len: usize, shift: u8) -> Vec<u8> {
+    (0..len).map(|i| (i as u8).wrapping_mul(31).wrapping_add(shift)).collect()
 }
 
 /// A Range request for 1 KiB of a 50 MiB file answers 206 with exactly those
