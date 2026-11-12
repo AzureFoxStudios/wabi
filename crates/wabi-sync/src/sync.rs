@@ -387,7 +387,13 @@ impl<'a> SyncEngine<'a> {
 
         // Remote files: download new/changed when we have no diverging local edit.
         for (path, remote_etag) in &remote {
-            let remote_etag = remote_etag.as_deref().unwrap_or("");
+            // The server sends a null etag when it could not hash the file.
+            // That says nothing about whether the file changed, so the path
+            // is left as it is this round: not fetched again over the local
+            // copy, not a conflict, and (being listed) not deleted.
+            let Some(remote_etag) = remote_etag.as_deref() else {
+                continue;
+            };
             // A review upload was approved: the mainline now has the etag we
             // uploaded, so it becomes the ordinary baseline.
             if self.state.pending_review.get(*path).map(String::as_str) == Some(remote_etag) {
@@ -398,7 +404,7 @@ impl<'a> SyncEngine<'a> {
             let local_etag = local.get(*path);
             let remote_changed = baseline.as_deref().unwrap_or("") != remote_etag;
             let local_has = local_etag.is_some();
-            if remote_changed && !remote_etag.is_empty() && local_etag.map(String::as_str) == Some(remote_etag) {
+            if remote_changed && local_etag.map(String::as_str) == Some(remote_etag) {
                 // The folder already holds the server's bytes: a download or
                 // a conflict that an interrupted round did not get to
                 // record, or the same edit made in two places.
@@ -466,25 +472,6 @@ impl<'a> SyncEngine<'a> {
             } else {
                 // Deleted remotely, edited locally.
                 self.keep_both(&path, None).await?;
-            }
-        }
-
-        // Adopt etags for remote files we already have and haven't diverged on
-        // (first link: everything local-unchanged gets its baseline).
-        for (path, remote_etag) in &remote {
-            if !self.state.baselines.contains_key(*path) {
-                let local_etag = local.get(*path);
-                match (local_etag, remote_etag) {
-                    (Some(le), Some(re)) if le == re => {
-                        self.state.baselines.insert(path.to_string(), Some(le.clone()));
-                    }
-                    (None, Some(re)) => {
-                        // We lack the file locally and have no baseline — leave
-                        // for the next pull's remote_changed branch.
-                        let _ = re;
-                    }
-                    _ => {}
-                }
             }
         }
 

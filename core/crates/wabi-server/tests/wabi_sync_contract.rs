@@ -693,14 +693,16 @@ async fn manifest_entry_with_a_null_etag_decodes() {
     assert_eq!(mine.read("a.txt").as_deref(), Some(&b"v1"[..]));
     assert!(mine.conflict_copies().is_empty());
     assert_eq!(mine.state().baselines.get("a.txt"), Some(&Some(etag_for_bytes(b"v1"))));
-    // A folder that does not.
+    // A folder that does not: it waits for an etag too.
     let theirs = server.artist_folder().await;
-    theirs.sync().await.expect("a first round with a null etag in the manifest");
+    assert_quiet(&theirs.sync().await.expect("a first round with a null etag in the manifest"));
+    assert_eq!(theirs.read("a.txt"), None);
 
     // Once the server can say the etag again, both folders settle.
     *server.null_etag.lock().unwrap() = None;
     assert_quiet(&mine.sync().await.unwrap());
-    theirs.sync().await.unwrap();
+    let report = theirs.sync().await.unwrap();
+    assert_eq!(report.downloaded, vec!["a.txt"], "{}", describe(&report));
     assert_eq!(theirs.read("a.txt").as_deref(), Some(&b"v1"[..]));
     assert_quiet(&theirs.sync().await.unwrap());
     assert_eq!(mine.recorded("a.txt", "upload").await, 1);
