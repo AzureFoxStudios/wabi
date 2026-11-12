@@ -125,6 +125,9 @@ enum Fault {
     /// Never answer: the client is left waiting, as when its process is
     /// about to be killed.
     Stall,
+    /// Answer 500 in the shape of the server's own internal error, with
+    /// nothing done on the server.
+    InternalError,
 }
 type FailOnce = Arc<Mutex<Option<(Fault, String, String)>>>;
 
@@ -139,6 +142,11 @@ async fn fail_one_request(State(target): State<FailOnce>, request: Request, next
     match fault {
         None => next.run(request).await,
         Some(Fault::Stall) => std::future::pending().await,
+        Some(Fault::InternalError) => Response::builder()
+            .status(500)
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"Internal server error","type":"Internal"}"#))
+            .unwrap(),
         Some(Fault::BadGateway) => Response::builder()
             .status(502)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -364,6 +372,12 @@ impl Server {
         *self.fail_once.lock().unwrap() = Some((Fault::BadGateway, method.into(), suffix.into()));
     }
 
+    /// The next `method` request whose path ends with `suffix` is answered
+    /// 500 without reaching the handler.
+    fn answer_500_next(&self, method: &str, suffix: &str) {
+        *self.fail_once.lock().unwrap() = Some((Fault::InternalError, method.into(), suffix.into()));
+    }
+
     /// The next `method` request whose path ends with `suffix` is never answered.
     fn stall_next(&self, method: &str, suffix: &str) {
         *self.fail_once.lock().unwrap() = Some((Fault::Stall, method.into(), suffix.into()));
@@ -515,7 +529,7 @@ impl Folder {
 
 fn describe(report: &SyncReport) -> String {
     format!(
-        "downloaded {:?}, uploaded {:?}, deleted_local {:?}, deleted_remote {:?}, conflicts {:?}, waiting_review {:?}, not_deleted {:?}, not_uploaded {:?}, notices {:?}",
+        "downloaded {:?}, uploaded {:?}, deleted_local {:?}, deleted_remote {:?}, conflicts {:?}, waiting_review {:?}, not_deleted {:?}, not_uploaded {:?}, skipped {:?}, notices {:?}",
         report.downloaded,
         report.uploaded,
         report.deleted_local,
@@ -524,6 +538,7 @@ fn describe(report: &SyncReport) -> String {
         report.waiting_review,
         report.not_deleted,
         report.not_uploaded,
+        report.skipped,
         report.notices
     )
 }
@@ -1763,6 +1778,27 @@ async fn a_delete_answered_500_does_not_stop_the_round() {
     assert_eq!(server.requests("DELETE", "/files/").0, 2, "the second deletion was not tried");
     assert_eq!(report.downloaded, vec!["c.txt"], "{}", describe(&report));
     assert!(report.deleted_remote.is_empty(), "{}", describe(&report));
+    let line = |path: &str| {
+        format!("{path} (not deleted on the server, which answered 500: Internal server error; asked again next round if it is still there)")
+    };
+    assert_eq!(report.skipped, vec![line("a.txt"), line("b.txt")]);
+    // This server had already taken both files out of its working tree
+    // when `stage` failed, so the pull of the same round found them gone
+    // and there is nothing left to ask for.
+    assert_eq!(mine.listed().await, vec!["c.txt"]);
+    assert_quiet(&mine.sync().await.unwrap());
+
+    // A 500 that leaves the file on the server: it stays tracked, and the
+    // deletion is asked for again and goes through.
+    std::fs::remove_file(mine.path().join("c.txt")).unwrap();
+    server.answer_500_next("DELETE", "/files/c.txt");
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.skipped, vec![line("c.txt")]);
+    assert!(mine.read("c.txt").is_none(), "the file came back: {}", describe(&report));
+    assert!(mine.state().baselines["c.txt"].is_some());
+    let report = mine.sync().await.unwrap();
+    assert_eq!(report.deleted_remote, vec!["c.txt"], "{}", describe(&report));
+    assert!(mine.listed().await.is_empty());
 }
 
 /// B5. A conflict on a file whose name leaves no room for
@@ -1818,6 +1854,10 @@ async fn a_remote_file_where_a_local_directory_sits_does_not_stop_the_round() {
         let report = mine.sync().await.expect("one path that cannot be written must not stop the round");
         assert_eq!(mine.read("z.txt").as_deref(), Some(&b"from the artist"[..]), "{}", describe(&report));
         assert!(mine.path().join("thing").is_dir());
+        assert_eq!(
+            report.skipped,
+            vec!["thing (not downloaded: thing is a directory in this folder and a file on the server; rename one of the two)"],
+        );
     }
     // The other way round: a file here where the server has a directory.
     theirs.write("dir/inner.txt", "inside");
@@ -1827,6 +1867,15 @@ async fn a_remote_file_where_a_local_directory_sits_does_not_stop_the_round() {
     let report = mine.sync().await.expect("one path that cannot be written must not stop the round");
     assert_eq!(mine.read("zz.txt").as_deref(), Some(&b"later"[..]), "{}", describe(&report));
     assert_eq!(mine.read("dir").as_deref(), Some(&b"a file of mine"[..]));
+    assert!(
+        report.skipped.contains(
+            &"dir/inner.txt (not downloaded: dir is a file in this folder and a directory on the server; rename one of the two)"
+                .to_string()
+        ),
+        "{}",
+        describe(&report)
+    );
+    assert!(report.not_uploaded.iter().any(|line| line.starts_with("dir (not uploaded: ")), "{}", describe(&report));
 }
 
 /// B5. A symbolic link to nothing.
@@ -1842,6 +1891,13 @@ async fn a_dangling_symlink_does_not_stop_the_round() {
     mine.write("c.txt", "new");
     let report = mine.sync().await.expect("a dangling symlink must not stop the round");
     assert_eq!(report.uploaded, vec!["c.txt"], "{}", describe(&report));
+    // Said once, though the push and the pull both scanned the folder.
+    assert_eq!(
+        report.skipped,
+        vec!["broken (not synced: it is a symbolic link to something that is not there)"],
+        "{}",
+        describe(&report)
+    );
 
     // A synced file replaced by a link to nothing cannot be read. That is
     // not a deletion, and nothing is downloaded through the link.
@@ -1849,8 +1905,11 @@ async fn a_dangling_symlink_does_not_stop_the_round() {
     std::os::unix::fs::symlink(mine.path().join("../outside-the-folder"), mine.path().join("a.txt")).unwrap();
     let report = mine.sync().await.unwrap();
     assert!(report.deleted_remote.is_empty() && report.downloaded.is_empty(), "{}", describe(&report));
+    assert_eq!(report.skipped.len(), 2, "{}", describe(&report));
+    assert!(report.skipped[0].starts_with("a.txt (not synced: "), "{}", describe(&report));
     assert_eq!(mine.on_server("a.txt").await, b"v1");
     assert!(!mine.path().join("../outside-the-folder").exists());
+    assert!(mine.state().baselines["a.txt"].is_some(), "the file is no longer tracked");
 }
 
 /// B5. A refused file is sent whole again every round.

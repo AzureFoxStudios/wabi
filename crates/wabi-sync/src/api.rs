@@ -59,7 +59,7 @@ pub struct Conflict {
 
 /// A PUT the server turned down for a reason that concerns this one file (or
 /// this one user's right to write), not the whole round.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {
     pub status: u16,
     /// The `error` text of the server's answer; may be empty.
@@ -100,6 +100,8 @@ pub enum DeleteOutcome {
     Conflict,
     /// 403: the caller may not delete on the mainline.
     Forbidden,
+    /// 400 or 500: the server did not carry out this one deletion.
+    Failed(Refusal),
 }
 
 /// Minimal percent-encoding for query components (keep unreserved chars).
@@ -311,6 +313,15 @@ impl WabiClient {
         }
         if resp.status() == reqwest::StatusCode::FORBIDDEN {
             return Ok(DeleteOutcome::Forbidden);
+        }
+        // As for an upload: 400 is a path the server does not accept, and
+        // 500 is its answer when its own store fails on this file. Neither
+        // says anything about the other paths of the round.
+        if matches!(resp.status().as_u16(), 400 | 500) {
+            let status = resp.status().as_u16();
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let reason = body["error"].as_str().unwrap_or_default().to_string();
+            return Ok(DeleteOutcome::Failed(Refusal { status, reason }));
         }
         self.check_status(resp).await?;
         Ok(DeleteOutcome::Deleted)
