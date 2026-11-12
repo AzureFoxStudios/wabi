@@ -174,7 +174,7 @@ async fn all_workspace_events_accept_local_and_legacy_writes_and_replay_same_sta
     assert!(engine.is_healthy());
     drop(engine);
     let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = crate::tests::reopen_after_drop(config(dir.path()), Some("site-a"))
         .await

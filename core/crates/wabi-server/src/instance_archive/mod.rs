@@ -447,10 +447,25 @@ fn canonical_projection_snapshot(data: &Path) -> Result<(u64, String)> {
         entries.sort_by_key(|entry| entry.to_string());
     }
     indexes.sort_by(|left, right| left[0].as_str().cmp(&right[0].as_str()));
-    Ok((
-        watermark,
-        hex::encode(Sha256::digest(serde_json::to_vec(&record)?)),
-    ))
+    let snapshot_sha256 = hex::encode(Sha256::digest(serde_json::to_vec(&record)?));
+    // Messages live in the SQLite read model beside the snapshot. Like the
+    // snapshot, two copies with the same content are not the same bytes (a
+    // rebuild from the log lays the file out afresh), so its content digest
+    // is folded in here and its files stay out of the byte-for-byte tree
+    // hash. A tree without a read model keeps the digest it always had.
+    let projection_sha256 = match wabidb::engine::offline_inspect::read_model_content_digest(
+        &data.join("wabidb"),
+    )? {
+        None => snapshot_sha256,
+        Some(read_model) => {
+            let mut both = Sha256::new();
+            both.update(b"wabi/passive-move/projections/v2\0");
+            both.update(snapshot_sha256.as_bytes());
+            both.update(read_model.as_bytes());
+            hex::encode(both.finalize())
+        }
+    };
+    Ok((watermark, projection_sha256))
 }
 
 fn passive_move_claims(data: &Path, uploads: &Path) -> Result<PassiveMoveClaims> {
@@ -468,7 +483,11 @@ fn passive_move_claims(data: &Path, uploads: &Path) -> Result<PassiveMoveClaims>
     for entry in &entries {
         if matches!(
             entry.archive_path.as_str(),
-            "data/wabidb/writer-fenced-v1" | "data/wabidb/projections/snapshot.json"
+            "data/wabidb/writer-fenced-v1"
+                | "data/wabidb/projections/snapshot.json"
+                | "data/wabidb/projections/read-model.sqlite3"
+                | "data/wabidb/projections/read-model.sqlite3-wal"
+                | "data/wabidb/projections/read-model.sqlite3-shm"
         ) {
             continue;
         }
@@ -1509,6 +1528,125 @@ mod tests {
             true
         )
         .is_err());
+    }
+
+    /// A real engine directory at `data/wabidb` with two messages, stopped.
+    fn engine_with_messages(data: &Path) {
+        use wabidb::engine::{WabiDbConfig, WabiDbEngine};
+        use wabidb::projections::messages::{encode_record, MessageRecord};
+        use wabidb::sequencer::types::{CommandCommit, EventToWrite};
+        let engine_dir = data.join("wabidb");
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let mut config = WabiDbConfig::new(
+                engine_dir.clone(),
+                wabidb::crypto::bootstrap::BootstrapSource::Provided([0x51; 32]),
+            );
+            config.allow_init = true;
+            let engine = WabiDbEngine::open(config).await.unwrap();
+            engine.get_or_create_stream_key("ch_a").await.unwrap();
+            for id in ["one", "two"] {
+                let record = MessageRecord {
+                    message_id: id.into(),
+                    channel_id: "ch_a".into(),
+                    author_user_id: 7,
+                    author_device_id: "device".into(),
+                    created_at_micros: 1,
+                    encrypted_body_ref: format!("body {id}"),
+                    idempotency_key: None,
+                    edit_history: vec![],
+                    edited_at_micros: None,
+                    is_deleted: false,
+                    is_spoiler: false,
+                    files: vec![],
+                };
+                engine
+                    .run_command(CommandCommit {
+                        room_owner_precondition: None,
+                        caller_user_id: 7,
+                        caller_device_id: "device".into(),
+                        command_name: "passive_move_fixture".into(),
+                        idempotency_key: None,
+                        essential: true,
+                        response_tx: tokio::sync::oneshot::channel().0,
+                        events: vec![EventToWrite {
+                            stream_id: "ch_a".into(),
+                            stream_kind: 1,
+                            event_type: "message_created".into(),
+                            record_kind: wabidb::format::record::RecordKind::Event,
+                            plaintext: encode_record(&record),
+                        }],
+                    })
+                    .await
+                    .unwrap();
+            }
+            drop(engine);
+            // Stopped means the read model's write-ahead log is folded in.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                match wabidb::engine::offline_inspect::read_model_content_digest(&engine_dir) {
+                    Ok(Some(_)) => break,
+                    _ if std::time::Instant::now() < deadline => {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await
+                    }
+                    other => panic!("engine did not stop cleanly: {other:?}"),
+                }
+            }
+        });
+    }
+
+    fn copy_tree(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+
+    /// The read model is compared like the snapshot: by what it holds. A
+    /// rebuild from the log gives the same rows in a different file, and
+    /// that must still be the same instance; a changed row must not.
+    #[test]
+    fn passive_move_claims_compare_the_read_model_by_content_not_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let (source, copy) = (temp.path().join("source"), temp.path().join("copy"));
+        fs::create_dir_all(source.join("data")).unwrap();
+        fs::create_dir_all(source.join("uploads")).unwrap();
+        engine_with_messages(&source.join("data"));
+        copy_tree(&source, &copy);
+        let claims = |root: &Path| passive_move_claims(&root.join("data"), &root.join("uploads"));
+        let original = claims(&source).unwrap();
+        assert_eq!(claims(&copy).unwrap(), original);
+
+        // Same rows, other bytes: what a rebuilt file looks like.
+        let read_model = copy.join("data/wabidb/projections/read-model.sqlite3");
+        let sql = |statement: &str| {
+            let changed = rusqlite::Connection::open(&read_model).unwrap().execute(statement, []).unwrap();
+            assert!(changed > 0, "{statement}");
+        };
+        sql("UPDATE read_model_meta SET sync_count = sync_count + 1");
+        assert_ne!(
+            fs::read(&read_model).unwrap(),
+            fs::read(source.join("data/wabidb/projections/read-model.sqlite3")).unwrap()
+        );
+        assert_eq!(claims(&copy).unwrap(), original, "same rows in a different file");
+
+        // Another author on one row, which only the lookup column shows.
+        sql("UPDATE messages SET author_user_id = 8 WHERE message_id = 'two'");
+        let changed = claims(&copy).unwrap();
+        assert_ne!(changed.projection_sha256, original.projection_sha256);
+        assert_eq!(changed.tree_sha256, original.tree_sha256);
+
+        // Without a read model the digest is the snapshot's alone, as before.
+        fs::remove_file(&read_model).unwrap();
+        let (_, snapshot_only) = canonical_projection_snapshot(&copy.join("data")).unwrap();
+        assert_ne!(snapshot_only, original.projection_sha256);
+        assert_eq!(snapshot_only.len(), 64);
     }
 
     #[test]

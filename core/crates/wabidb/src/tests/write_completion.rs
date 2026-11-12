@@ -378,7 +378,7 @@ async fn restart_preserves_event_order_within_a_multi_stream_commit() {
     }
     drop(engine);
     let stopped = super::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path()); // force event-log replay
+    ProjectionState::remove_saved_projections_for_tests(dir.path()); // force event-log replay
     drop(stopped);
     let reopened = reopen_after_drop(dir.path()).await;
     assert_eq!(
@@ -434,7 +434,7 @@ async fn membership_removal_survives_snapshot_and_full_replay() {
         drop(engine);
         let stopped = super::wait_for_stopped_engine(dir.path()).await;
         if replay {
-            ProjectionState::remove_snapshot(dir.path());
+            ProjectionState::remove_saved_projections_for_tests(dir.path());
         }
         drop(stopped);
         let engine = reopen_after_drop(dir.path()).await;
@@ -602,7 +602,7 @@ async fn missing_indexed_event_refuses_startup_instead_of_restoring_partial_comm
         .unwrap();
     drop(engine);
     let stopped = super::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     // Fault injection against this test's temporary segment only.
     std::fs::remove_file(dir.path().join("streams/other/b/events/00000001.wseg")).unwrap();
     drop(stopped);
@@ -632,7 +632,7 @@ async fn restart_accepts_shared_streams_used_by_different_workspace_surfaces() {
         .unwrap();
     drop(engine);
     let stopped = super::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = reopen_after_drop(dir.path()).await;
     assert_eq!(

@@ -42,7 +42,34 @@ pub struct InspectionReceipt {
     pub indexed_commits: u64,
     pub observed_high_sequence: u64,
     pub full_history_replayed: bool,
+    /// The saved projection equals the replayed one, as far as it was
+    /// compared. The snapshot's indexes are always compared. The SQLite read
+    /// model (messages) is compared only when `read_model_compared` is true.
+    /// **A caller that certifies a directory must also require
+    /// `!read_model_present || read_model_compared`.**
     pub persisted_projection_matches: bool,
+    /// `projections/read-model.sqlite3` exists.
+    pub read_model_present: bool,
+    /// Every row of the read model (all columns) was compared with the
+    /// replay, after a full SQLite integrity check of the file.
+    ///
+    /// Messages are NOT compared, and this is false, when:
+    /// - there is no read model file (`read_model_present` is false): the
+    ///   engine builds one from the log at its first start;
+    /// - the file has another schema version or generation, or a rebuild was
+    ///   requested for it (`projections/read-model.rebuild`): the engine
+    ///   replaces it and fills the new one from the log;
+    /// - the file is this build's but covers fewer commits than the
+    ///   checkpoint: the engine rebuilds it from the log.
+    ///
+    /// In each of those cases `read_model_note` says which. Inspection
+    /// refuses the directory, instead of reporting a match, when the engine
+    /// would serve the file but it cannot be verified: its write-ahead log
+    /// still holds frames, it fails the integrity check, or it claims more
+    /// commits than the checkpoint.
+    pub read_model_compared: bool,
+    /// Why the read model was not compared, when it was not.
+    pub read_model_note: Option<String>,
 }
 
 /// Rebuilt view for typed read assertions. It has no durable mutation handle.
@@ -80,6 +107,10 @@ enum InventoryEntry {
 #[serde(deny_unknown_fields)]
 struct SavedView {
     watermark: u64,
+    /// Carried over from `global/incomplete-log.json`; not projection content.
+    #[serde(default)]
+    #[allow(dead_code)]
+    incomplete_log_below: Option<u64>,
     indexes: Vec<(String, Vec<SavedEntry>)>,
 }
 #[derive(Deserialize)]
@@ -121,6 +152,11 @@ fn read_saved_view(root: &Path, limits: &InspectionLimits) -> Result<ProjectionS
             }
             if !keys.insert(key.clone()) {
                 return Err(refused("duplicate inspection projection key"));
+            }
+            // A snapshot saved before messages moved to the read model still
+            // lists their indexes. The engine does not load them either.
+            if super::locks::LEGACY_MESSAGE_INDEXES.contains(&name.as_str()) {
+                continue;
             }
             state.insert(&name, key, value, saved.watermark);
         }
@@ -221,6 +257,52 @@ fn inventory(
         }
     }
     Ok(entries)
+}
+
+/// A digest of what a stopped engine's read model holds: its
+/// `applied_commit_seq` and every row (all columns) of every table, in key
+/// order. Two read models with the same rows have the same digest even when
+/// the files differ byte for byte, which they do after a rebuild.
+///
+/// `Ok(None)` when there is no file, or only one the engine would replace
+/// and rebuild from the log. An error when the file cannot be verified
+/// without changing the directory (its write-ahead log still holds frames)
+/// or fails SQLite's integrity check. Nothing is created or changed.
+pub fn read_model_content_digest(data_dir: &Path) -> Result<Option<String>> {
+    use crate::projections::read_model::{Frozen, ReadModel, Table};
+    let model = match ReadModel::open_frozen(data_dir) {
+        Frozen::Missing | Frozen::Replaced(..) => return Ok(None),
+        Frozen::Refused(reason) => {
+            return Err(WabiError::Validation {
+                command: "read_model_content_digest".into(),
+                reason: format!("the projection read model cannot be used: {reason}"),
+            })
+        }
+        Frozen::Unverifiable(reason) => {
+            return Err(WabiError::Validation {
+                command: "read_model_content_digest".into(),
+                reason: format!("the projection read model cannot be verified: {reason}"),
+            })
+        }
+        Frozen::Usable(model) => model,
+    };
+    let mut hash = blake3::Hasher::new();
+    hash.update(b"wabi/read-model-content/v1\0");
+    hash.update(&model.messages_applied_seq().to_le_bytes());
+    for table in Table::ALL {
+        hash.update(table.name().as_bytes());
+        hash.update(&[0]);
+        model.for_each_full_row(table, |columns| {
+            hash.update(&[1]);
+            for column in columns {
+                hash.update(&(column.len() as u64).to_le_bytes());
+                hash.update(column);
+            }
+            Ok(())
+        })?;
+        hash.update(&[2]);
+    }
+    Ok(Some(hash.finalize().to_hex().to_string()))
 }
 
 /// Verify every indexed event against a full replay from an empty view, then
@@ -361,12 +443,50 @@ pub async fn inspect_frozen_locked(
             "inspection snapshot watermark differs from checkpoint",
         ));
     }
-    // The engine rebuilds two message indexes when it opens a projection that
-    // an older build saved with wrongly keyed entries. Compare what it would
-    // then hold: a match means the directory opens to the state the log gives,
-    // not that the file is byte for byte what replay writes.
-    crate::projections::messages::rekey_legacy_index_entries(&saved);
-    let saved_fingerprint = saved.content_fingerprint(limits.max_entries, limits.max_file_bytes)?;
+    // Messages live in the SQLite read model. Its rows are compared when
+    // the engine would serve the file as it is. When the engine would replace
+    // or rebuild it, there is no saved state of the messages to compare; the
+    // receipt says so. When the engine would serve it but it cannot be read
+    // without changing the tree, or fails a full integrity check, inspection
+    // refuses. The file is opened read-only and immutable.
+    use crate::projections::read_model::{Frozen, ReadModel};
+    let (read_model_present, read_model_note) = match ReadModel::open_frozen(&root) {
+        Frozen::Missing => (false, Some("no read model file".to_string())),
+        Frozen::Replaced(reason, _) => {
+            (true, Some(format!("the engine would replace it: {reason}")))
+        }
+        Frozen::Refused(reason) => {
+            tracing::warn!("offline inspection refuses the read model: {reason}");
+            return Err(refused("inspection cannot use the projection read model"));
+        }
+        Frozen::Unverifiable(reason) => {
+            tracing::warn!("offline inspection refuses the read model: {reason}");
+            return Err(refused("inspection cannot verify the projection read model"));
+        }
+        Frozen::Usable(model) => {
+            let applied = model.messages_applied_seq();
+            if applied > expected_seq {
+                return Err(refused("inspection read model is ahead of the checkpoint"));
+            }
+            if applied == expected_seq {
+                saved.attach_read_model(Arc::new(model));
+                (true, None)
+            } else {
+                (
+                    true,
+                    Some(format!(
+                        "it covers commit {applied}, below the checkpoint; the engine would rebuild it"
+                    )),
+                )
+            }
+        }
+    };
+    let read_model_compared = read_model_present && read_model_note.is_none();
+    let saved_fingerprint = saved.content_fingerprint_of(
+        limits.max_entries,
+        limits.max_file_bytes,
+        read_model_compared,
+    )?;
     let state = Arc::new(ProjectionState::new());
     let barrier = LinearizabilityBarrier::new(state.clone());
     let registry = tokio::sync::Mutex::new(StreamKeyRegistry::new());
@@ -387,7 +507,12 @@ pub async fn inspect_frozen_locked(
     .await
     .map_err(|_| refused("inspection replay deadline elapsed"))??;
     let rebuilt = state.content_fingerprint(limits.max_entries, limits.max_file_bytes)?;
-    if rebuilt != saved_fingerprint || barrier.current() != expected_seq {
+    let comparable = if read_model_compared {
+        rebuilt.clone()
+    } else {
+        state.content_fingerprint_of(limits.max_entries, limits.max_file_bytes, false)?
+    };
+    if comparable != saved_fingerprint || barrier.current() != expected_seq {
         return Err(refused(
             "inspection replay differs from persisted projection",
         ));
@@ -414,6 +539,9 @@ pub async fn inspect_frozen_locked(
             observed_high_sequence: high,
             full_history_replayed: true,
             persisted_projection_matches: true,
+            read_model_present,
+            read_model_compared,
+            read_model_note,
         },
     })
 }

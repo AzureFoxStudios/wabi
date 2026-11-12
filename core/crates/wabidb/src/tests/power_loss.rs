@@ -522,6 +522,222 @@ fn crash_after_projection_update() {
 }
 
 // ---------------------------------------------------------------------------
+// Task 3.5: messages live in the SQLite read model, the other projections in
+// the snapshot file. A crash can leave the two at different commits.
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "test-harness")]
+fn crash_message(id: &str, body: &str) -> crate::projections::messages::MessageRecord {
+    crate::projections::messages::MessageRecord {
+        message_id: id.into(),
+        channel_id: "ch_crash".into(),
+        author_user_id: 7,
+        author_device_id: "crash".into(),
+        created_at_micros: 1,
+        encrypted_body_ref: body.into(),
+        idempotency_key: None,
+        edit_history: vec![],
+        edited_at_micros: None,
+        is_deleted: false,
+        is_spoiler: false,
+        files: vec![],
+    }
+}
+
+#[cfg(feature = "test-harness")]
+fn crash_message_cmd(kind: &str, id: &str, body: &str) -> CommandCommit {
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    CommandCommit {
+        room_owner_precondition: None,
+        caller_user_id: 7,
+        caller_device_id: "crash".into(),
+        command_name: "crash_message".into(),
+        idempotency_key: None,
+        events: vec![EventToWrite {
+            stream_id: "ch_crash".into(),
+            event_type: kind.into(),
+            stream_kind: 1,
+            record_kind: RecordKind::Event,
+            plaintext: crate::projections::messages::encode_record(&crash_message(id, body)),
+        }],
+        essential: true,
+        response_tx: tx,
+    }
+}
+
+#[cfg(feature = "test-harness")]
+fn crash_config(data_dir: &std::path::Path) -> WabiDbConfig {
+    WabiDbConfig {
+        data_dir: data_dir.to_path_buf(),
+        bootstrap_source: BootstrapSource::Provided([0xABu8; 32]),
+        bootstrap_salt: None,
+        allow_init: true,
+        replication_config: None,
+        sync_transport: None,
+        test_boot_wallclock_override: None,
+    }
+}
+
+/// Child of the two read-model crash tests. Opens the directory the parent
+/// prepared (messages m1..m5, cleanly stopped), writes m6..m9 and an edit of
+/// m2, then either takes a projection checkpoint or writes one more message.
+/// The configured crash point ends the process inside that last step.
+#[cfg(feature = "test-harness")]
+#[test]
+fn run_read_model_crash_child() {
+    let Ok(step) = std::env::var("WABIDB_READ_MODEL_CRASH") else {
+        return; // not in child mode
+    };
+    let data_dir = std::path::PathBuf::from(std::env::var("WABIDB_DATA_DIR").unwrap());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(&data_dir)).await.unwrap();
+        engine.get_or_create_stream_key("ch_crash").await.unwrap();
+        for n in 6..=9 {
+            engine
+                .run_command(crash_message_cmd("message_created", &format!("m{n}"), "body"))
+                .await
+                .unwrap();
+        }
+        engine
+            .run_command(crash_message_cmd("message_edited", "m2", "edited before the crash"))
+            .await
+            .unwrap();
+        if step == "checkpoint" {
+            let _ = engine.projection_state().save_snapshot(&data_dir);
+        } else {
+            let _ = engine
+                .run_command(crash_message_cmd("message_created", "m10", "boundary"))
+                .await;
+        }
+        panic!("child did not crash at its boundary; crash_point may not be wired");
+    });
+}
+
+#[cfg(feature = "test-harness")]
+fn crash_with_messages(boundary: &str, step: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(dir.path())).await.unwrap();
+        engine.get_or_create_stream_key("ch_crash").await.unwrap();
+        for n in 1..=5 {
+            engine
+                .run_command(crash_message_cmd("message_created", &format!("m{n}"), "body"))
+                .await
+                .unwrap();
+        }
+        engine.close_for_tests().await.unwrap();
+    });
+    assert_eq!(
+        crate::engine::locks::ProjectionState::read_snapshot_watermark(dir.path()).unwrap(),
+        Some(5)
+    );
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("tests::power_loss::run_read_model_crash_child")
+        .arg("--nocapture")
+        .env("WABIDB_READ_MODEL_CRASH", step)
+        .env("WABIDB_CRASH_AT", boundary)
+        .env("WABIDB_DATA_DIR", dir.path())
+        .status()
+        .unwrap();
+    assert!(!status.success(), "child should have crashed");
+    assert_eq!(validate_crash_signal(dir.path()), Some(boundary.to_string()));
+    dir
+}
+
+#[cfg(feature = "test-harness")]
+async fn messages_after_crash(data_dir: &std::path::Path) -> (u64, Vec<(String, String)>) {
+    use crate::projections::messages::MessagesProjection;
+    let engine = WabiDbEngine::open(crash_config(data_dir)).await.unwrap();
+    let state = engine.projection_state();
+    let mut found = Vec::new();
+    for n in 1..=10 {
+        let id = format!("m{n}");
+        if let Some(record) = MessagesProjection::get_message(state, "ch_crash", &id).unwrap() {
+            found.push((id, record.encrypted_body_ref));
+        }
+    }
+    // The listing agrees with the point reads.
+    assert_eq!(
+        MessagesProjection::list_messages(state, "ch_crash", true).unwrap().len(),
+        found.len()
+    );
+    let applied = state.applied_commit_seq();
+    engine.close_for_tests().await.unwrap();
+    (applied, found)
+}
+
+#[cfg(feature = "test-harness")]
+fn expected_messages(through: u64) -> Vec<(String, String)> {
+    (1..=through)
+        .map(|n| {
+            let body = if n == 2 { "edited before the crash" } else { "body" };
+            (format!("m{n}"), body.to_string())
+        })
+        .collect()
+}
+
+/// The process dies inside a checkpoint: the read model has been made
+/// durable at commit 10 and the snapshot file still says 5. Nothing was shut
+/// down, so SQLite's write-ahead log is as the crash left it. The next open
+/// replays commits 6 to 10 into the in-memory projections and keeps the
+/// messages the read model already holds.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_between_read_model_sync_and_snapshot() {
+    use crate::engine::locks::ProjectionState;
+    let dir = crash_with_messages("crash_between_read_model_sync_and_snapshot", "checkpoint");
+    assert_eq!(ProjectionState::read_snapshot_watermark(dir.path()).unwrap(), Some(5));
+    let model = ProjectionState::read_model_path(dir.path());
+    let wal = std::path::PathBuf::from(format!("{}-wal", model.display()));
+    println!(
+        "after the crash: snapshot at 5, read model {} bytes, write-ahead log {:?} bytes",
+        std::fs::metadata(&model).unwrap().len(),
+        std::fs::metadata(&wal).map(|m| m.len()).ok()
+    );
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (applied, found) = rt.block_on(messages_after_crash(dir.path()));
+    assert_eq!(applied, 10);
+    assert_eq!(found, expected_messages(9));
+    // Stable across another restart.
+    assert_eq!(rt.block_on(messages_after_crash(dir.path())), (10, expected_messages(9)));
+}
+
+/// The process dies right after a message commit was applied (the child's
+/// first write, m6, at commit 6), with no checkpoint and no shutdown: the
+/// snapshot is at 5 and SQLite never synced that commit. Whether or not the
+/// file kept it, the log has it, and the next open ends with the message.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_after_a_message_commit_keeps_the_message() {
+    let dir = crash_with_messages("crash_after_projection_update", "write");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (applied, found) = rt.block_on(messages_after_crash(dir.path()));
+    assert_eq!(applied, 6);
+    let expected: Vec<_> = (1..=6).map(|n| (format!("m{n}"), "body".to_string())).collect();
+    assert_eq!(found, expected);
+    assert_eq!(rt.block_on(messages_after_crash(dir.path())), (6, expected));
+}
+
+/// The process dies after a message's records and index entry are durable
+/// and before the commit is applied anywhere: the read model has never seen
+/// commit 6. The next open replays it from the log.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_before_a_message_commit_is_applied_replays_it() {
+    let dir = crash_with_messages("crash_after_index_fsync", "write");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (applied, found) = rt.block_on(messages_after_crash(dir.path()));
+    assert_eq!(applied, 6);
+    let expected: Vec<_> = (1..=6).map(|n| (format!("m{n}"), "body".to_string())).collect();
+    assert_eq!(found, expected);
+}
+
+// ---------------------------------------------------------------------------
 // Restart safety regression test (no crash harness needed)
 // ---------------------------------------------------------------------------
 
