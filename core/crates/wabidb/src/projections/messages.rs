@@ -840,10 +840,21 @@ mod tests {
         let mut entries = Vec::new();
         state
             .read_model()
-            .for_each_row(table, |key, value| {
+            .for_each_full_row(table, |columns| {
+                // key, channel_id, message_id, author_user_id, record: the
+                // columns themselves, so a wrong lookup column fails here.
+                let [key, channel_id, message_id, author, value] = columns else {
+                    panic!("unexpected columns");
+                };
+                let record = decode_record(value).unwrap();
+                assert_eq!(*channel_id, record.channel_id.as_bytes(), "channel column");
+                assert_eq!(*message_id, record.message_id.as_bytes(), "message id column");
                 let key = if index == "messages_by_author" {
-                    let record = decode_record(value).unwrap();
-                    author_key(record.author_user_id, &record.message_id)
+                    assert_eq!(*author, (record.author_user_id as i64).to_le_bytes(), "author column");
+                    let mut author_key = author.to_vec();
+                    author_key.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
+                    author_key.extend_from_slice(message_id);
+                    author_key
                 } else {
                     key.to_vec()
                 };

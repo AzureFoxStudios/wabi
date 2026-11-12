@@ -5813,6 +5813,7 @@ dependencies = [
  "rand 0.8.6",
  "regex",
  "reqwest 0.13.4",
+ "rusqlite",
  "rust-embed",
  "serde",
  "serde_json",

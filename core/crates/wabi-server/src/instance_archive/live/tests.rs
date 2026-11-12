@@ -527,6 +527,35 @@ fn exporter_refuses_existing_output_without_replacing_it() {
     assert_eq!(fs::read(output).unwrap(), b"keep existing");
 }
 
+/// The SQLite read model is derived from the log and in use while the paused
+/// engine serves reads, so a live checkpoint leaves it and SQLite's side
+/// files out. The restored copy has none; the engine builds one from the log.
+#[test]
+fn the_derived_read_model_is_not_exported() {
+    let fixture = Fixture::new();
+    let projections = fixture.data.join("wabidb/projections");
+    for name in ["read-model.sqlite3", "read-model.sqlite3-wal", "read-model.sqlite3-shm"] {
+        fs::write(projections.join(name), b"derived rows the engine can rebuild").unwrap();
+    }
+    fixture.export("no-read-model.age", fixture.metadata()).unwrap();
+    let plaintext = fixture.decrypt(&fixture.temp.path().join("no-read-model.age"));
+    assert!(!plaintext.windows(10).any(|window| window == b"read-model"));
+    let target = fixture.temp.path().join("restored-without-read-model");
+    restore(
+        &fixture.temp.path().join("no-read-model.age"),
+        &fixture.identity_path,
+        &target,
+        false,
+        false,
+    )
+    .unwrap();
+    let restored = target.join("data/wabidb/projections");
+    assert!(restored.join("snapshot.json").is_file());
+    for name in ["read-model.sqlite3", "read-model.sqlite3-wal", "read-model.sqlite3-shm"] {
+        assert!(!restored.join(name).exists(), "{name} was exported");
+    }
+}
+
 #[test]
 fn legacy_runtime_exclusions_remain_readable_but_new_exports_require_current_paths() {
     let fixture = Fixture::new();

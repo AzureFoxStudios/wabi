@@ -255,6 +255,46 @@ fn inventory(
     Ok(entries)
 }
 
+/// A digest of what a stopped engine's read model holds: its
+/// `applied_commit_seq` and every row (all columns) of every table, in key
+/// order. Two read models with the same rows have the same digest even when
+/// the files differ byte for byte, which they do after a rebuild.
+///
+/// `Ok(None)` when there is no file, or only one the engine would replace
+/// and rebuild from the log. An error when the file cannot be verified
+/// without changing the directory (its write-ahead log still holds frames)
+/// or fails SQLite's integrity check. Nothing is created or changed.
+pub fn read_model_content_digest(data_dir: &Path) -> Result<Option<String>> {
+    use crate::projections::read_model::{Frozen, ReadModel, Table};
+    let model = match ReadModel::open_frozen(data_dir) {
+        Frozen::Missing | Frozen::Replaced(_) => return Ok(None),
+        Frozen::Unverifiable(reason) => {
+            return Err(WabiError::Validation {
+                command: "read_model_content_digest".into(),
+                reason: format!("the projection read model cannot be verified: {reason}"),
+            })
+        }
+        Frozen::Usable(model) => model,
+    };
+    let mut hash = blake3::Hasher::new();
+    hash.update(b"wabi/read-model-content/v1\0");
+    hash.update(&model.messages_applied_seq().to_le_bytes());
+    for table in Table::ALL {
+        hash.update(table.name().as_bytes());
+        hash.update(&[0]);
+        model.for_each_full_row(table, |columns| {
+            hash.update(&[1]);
+            for column in columns {
+                hash.update(&(column.len() as u64).to_le_bytes());
+                hash.update(column);
+            }
+            Ok(())
+        })?;
+        hash.update(&[2]);
+    }
+    Ok(Some(hash.finalize().to_hex().to_string()))
+}
+
 /// Verify every indexed event against a full replay from an empty view, then
 /// compare with the saved projection at exactly the requested checkpoint.
 /// Histories pruned below a required indexed record refuse this support profile.

@@ -129,12 +129,16 @@ fn describe_messages(state: &ProjectionState) -> Vec<String> {
     use crate::projections::read_model::Table;
     let mut lines = Vec::new();
     let model = state.read_model();
+    let mut found = Vec::new();
+    // The lookup lines come from the lookup columns the engine's SQL indexes
+    // are built on, not from the record, and from the indexed queries.
     model
-        .for_each_row(Table::Messages, |key, value| {
-            let record = messages::decode_record(value)?;
-            let id = record.message_id.as_bytes();
+        .for_each_full_row(Table::Messages, |columns| {
+            let [key, _channel_id, id, author, value] = columns else {
+                panic!("unexpected columns");
+            };
             let id_prefixed = [&(id.len() as u64).to_le_bytes()[..], id].concat();
-            let author_key = [&record.author_user_id.to_le_bytes()[..], &id_prefixed].concat();
+            let author_key = [&author[..], &id_prefixed].concat();
             let lookup_key = [&id_prefixed[..], key].concat();
             let shown = describe_value("messages", value);
             lines.push(format!("messages {} {shown}", hex::encode(key)));
@@ -145,15 +149,21 @@ fn describe_messages(state: &ProjectionState) -> Vec<String> {
                 hex::encode(lookup_key),
                 hex::encode(key)
             ));
+            found.push(messages::decode_record(value)?);
             Ok(())
         })
         .unwrap();
+    // Each row must also be found through the SQL index on the message ID.
+    for record in found {
+        let by_id = crate::projections::message_lookup::get(state, &record.message_id).unwrap();
+        assert_eq!(by_id.as_ref(), Some(&record), "lookup by ID");
+    }
     model
-        .for_each_row(Table::MessageVersions, |key, value| {
+        .for_each_full_row(Table::MessageVersions, |columns| {
             lines.push(format!(
                 "messages_by_channel_time {} {}",
-                hex::encode(key),
-                describe_value("messages", value)
+                hex::encode(columns[0]),
+                describe_value("messages", columns[4])
             ));
             Ok(())
         })

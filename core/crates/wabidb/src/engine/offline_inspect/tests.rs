@@ -383,6 +383,23 @@ async fn read_model_rows_are_compared_and_a_changed_message_is_refused() {
         refused.map(|inspected| inspected.receipt)
     );
 
+    // The columns the engine's lookups use, with key and record untouched:
+    // the engine would answer a lookup by ID or by author wrongly.
+    fs::write(&model, &original).unwrap();
+    {
+        let conn = rusqlite::Connection::open(&model).unwrap();
+        let updated = conn
+            .execute("UPDATE messages SET message_id = 'other', author_user_id = 99", [])
+            .unwrap();
+        assert_eq!(updated, 1);
+    }
+    let refused = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits.clone()).await;
+    assert!(
+        matches!(&refused, Err(error) if error.to_string().contains("differs from persisted projection")),
+        "lookup columns are not compared: {:?}",
+        refused.map(|inspected| inspected.receipt)
+    );
+
     // Without a read model there is no saved state of the messages: the
     // engine would rebuild them from the log, which is what replay just did.
     // Inspection still passes on the snapshot's indexes, and says so.
@@ -393,9 +410,56 @@ async fn read_model_rows_are_compared_and_a_changed_message_is_refused() {
         .receipt
         .read_model_compared);
     fs::remove_file(&model).unwrap();
-    let inspected = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits)
+    let inspected = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits.clone())
         .await
         .unwrap();
     assert!(inspected.receipt.persisted_projection_matches);
+    assert!(!inspected.receipt.read_model_present);
     assert!(!inspected.receipt.read_model_compared);
+    assert_eq!(inspected.receipt.read_model_note.as_deref(), Some("no read model file"));
+
+    // A file of another generation: present, replaced by the engine, not
+    // compared, and the receipt says why.
+    fs::write(&model, &original).unwrap();
+    rusqlite::Connection::open(&model)
+        .unwrap()
+        .execute("UPDATE read_model_meta SET generation = generation + 1", [])
+        .unwrap();
+    let receipt = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits.clone())
+        .await
+        .unwrap()
+        .receipt;
+    assert!(receipt.read_model_present && !receipt.read_model_compared);
+    assert!(receipt.read_model_note.unwrap().contains("would replace"));
+
+    // A file that claims more commits than the checkpoint: the engine would
+    // refuse to start on it, and so does inspection.
+    fs::write(&model, &original).unwrap();
+    rusqlite::Connection::open(&model)
+        .unwrap()
+        .execute("UPDATE applied_commit_seq SET seq = seq + 1", [])
+        .unwrap();
+    assert!(inspect_frozen(temp.path(), &KEY, seq, &prefix, limits.clone()).await.is_err());
+
+    // A changed message whose change is still in the write-ahead log, as a
+    // copy of a running engine's files has it. The engine would recover the
+    // log and serve the invented body, so inspection must refuse the
+    // directory, not pass it as "not compared".
+    fs::write(&model, &original).unwrap();
+    let conn = rusqlite::Connection::open(&model).unwrap();
+    conn.execute(
+        "UPDATE messages SET record = ?1",
+        [crate::projections::messages::encode_record(&changed)],
+    )
+    .unwrap();
+    // Never closed: closing would fold the log into the file.
+    std::mem::forget(conn);
+    let wal = temp.path().join("projections/read-model.sqlite3-wal");
+    assert!(fs::metadata(&wal).unwrap().len() > 0);
+    let refused = inspect_frozen(temp.path(), &KEY, seq, &prefix, limits).await;
+    assert!(
+        matches!(&refused, Err(error) if error.to_string().contains("cannot verify the projection read model")),
+        "{:?}",
+        refused.map(|inspected| inspected.receipt)
+    );
 }

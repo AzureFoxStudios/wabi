@@ -491,6 +491,14 @@ pub async fn verify_inactive_live(
         &stopped.lock,
     )
     .await?;
+    // `persisted_projection_matches` covers the read model (messages) only
+    // when it was compared. A PASS must not stand for rows nobody looked at.
+    if inspected.receipt.read_model_present && !inspected.receipt.read_model_compared {
+        bail!(
+            "the projection read model exists and was not compared with the log: {}",
+            inspected.receipt.read_model_note.as_deref().unwrap_or("no reason recorded")
+        );
+    }
     let uploads = if let Ok(relative) = original_uploads.strip_prefix(original_data) {
         if relative.as_os_str().is_empty() {
             bail!("uploads and data roots overlap ambiguously");

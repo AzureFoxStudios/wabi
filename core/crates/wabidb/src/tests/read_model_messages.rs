@@ -279,6 +279,87 @@ async fn deleting_the_read_model_file_changes_no_read() {
     assert!(!read_model_file(dir.path()).exists());
     let engine = open(dir.path()).await;
     assert_eq!(all_reads(&engine.projection_state()), live);
+
+    // Compaction is not an event. It removes the soft-deleted rows from the
+    // file, a plain restart keeps them removed, and a rebuild from the log
+    // brings them back: the reads are then those from before compaction.
+    let removed = MessagesProjection::compact(engine.projection_state());
+    assert!(removed > 0);
+    let compacted = all_reads(engine.projection_state());
+    assert_ne!(compacted, live);
+    assert!(!compacted.contains("is_deleted: true"));
+    close(engine, dir.path()).await;
+    let engine = open(dir.path()).await;
+    assert_eq!(all_reads(engine.projection_state()), compacted);
+    close(engine, dir.path()).await;
+    std::fs::remove_file(read_model_file(dir.path())).unwrap();
+    let engine = open(dir.path()).await;
+    assert_eq!(all_reads(engine.projection_state()), live);
+}
+
+/// The same message ID in two rooms, which only logs from before the
+/// admission check can hold (the engine refuses to write a second one, so
+/// the events are applied to the store directly here). Both rows survive a
+/// close and reopen of the file; a lookup by ID alone refuses to choose; and
+/// after one of them is deleted and compacted the other is found.
+#[test]
+fn the_same_message_id_in_two_rooms_reads_the_same_after_the_file_is_reopened() {
+    use crate::projections::handler::{DurableEvent, Projection};
+    use crate::projections::read_model::ReadModel;
+    let dir = tempfile::tempdir().unwrap();
+    let apply = |state: &ProjectionState, seq: u64, kind: &str, record: &MessageRecord| {
+        MessagesProjection
+            .apply(
+                &DurableEvent {
+                    commit_seq: seq,
+                    stream_id: record.channel_id.clone(),
+                    event_type: kind.into(),
+                    payload: encode_record(record),
+                },
+                state,
+            )
+            .unwrap();
+        state.read_model().finish_commit(seq).unwrap();
+    };
+    let reads = |state: &ProjectionState| {
+        format!(
+            "{:?}\n{:?}\n{:?}\n{:?}\n{:?}",
+            MessagesProjection::get_message(state, "ch_a", "shared").unwrap(),
+            MessagesProjection::get_message(state, "ch_b", "shared").unwrap(),
+            message_lookup::get(state, "shared").map_err(|error| error.to_string()),
+            MessagesProjection::list_messages_tail(state, "ch_a", 10, true).unwrap(),
+            MessagesProjection
+                .query(state, &MessagesFilter { author_id: Some(7), include_deleted: true, ..Default::default() })
+                .unwrap(),
+        )
+    };
+    let open_state = || {
+        let state = ProjectionState::new();
+        state.attach_read_model(std::sync::Arc::new(ReadModel::open(dir.path()).unwrap()));
+        state
+    };
+
+    let state = open_state();
+    let mut in_a = message("ch_a", "shared", 7, 100);
+    apply(&state, 1, "message_created", &in_a);
+    apply(&state, 2, "message_created", &message("ch_b", "shared", 7, 200));
+    let both = reads(&state);
+    assert!(both.contains("belongs to multiple rooms"), "{both}");
+    drop(state);
+    let state = open_state();
+    assert_eq!(reads(&state), both);
+
+    in_a.is_deleted = true;
+    apply(&state, 3, "message_deleted", &in_a);
+    MessagesProjection::compact(&state);
+    let one = reads(&state);
+    assert!(!one.contains("belongs to multiple rooms"), "{one}");
+    assert_eq!(
+        message_lookup::get(&state, "shared").unwrap().map(|record| record.channel_id),
+        Some("ch_b".to_string())
+    );
+    drop(state);
+    assert_eq!(reads(&open_state()), one);
 }
 
 /// Rebuild on generation mismatch: a file written by generation N is opened
@@ -859,4 +940,88 @@ async fn the_read_model_file_is_owner_only_and_messages_leave_the_snapshot() {
     // The read model is not encrypted: the body is in the file as written.
     let file = std::fs::read(read_model_file(dir.path())).unwrap();
     assert!(file.windows(10).any(|window| window == b"body of a1"));
+}
+
+/// Measurement, not a check: how long a full rebuild of the read model takes
+/// and how large SQLite's write-ahead log grows during it (the rebuild is one
+/// transaction), and what the consistency check at every open costs.
+///
+/// `WABIDB_MEASURE_MESSAGES=1000000 cargo test --release -p wabidb --lib \
+///  measure_read_model_rebuild -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement; prints timings"]
+async fn measure_read_model_rebuild() {
+    let total: usize = std::env::var("WABIDB_MEASURE_MESSAGES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(100_000);
+    const CHANNELS: usize = 50;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    let started = std::time::Instant::now();
+    let body = "b".repeat(200);
+    for round in 0..total / CHANNELS {
+        let events = (0..CHANNELS)
+            .map(|channel| {
+                let mut record = message(
+                    &format!("ch_{channel:02}"),
+                    &format!("{:032x}", round * CHANNELS + channel),
+                    (channel % 7) as u64,
+                    round as i64 * 1_000,
+                );
+                record.encrypted_body_ref = body.clone();
+                message_event("message_created", &record)
+            })
+            .collect();
+        commit(&engine, events).await.unwrap();
+    }
+    println!("{total} messages written in {:.1?}", started.elapsed());
+    close(engine, dir.path()).await;
+    let file = read_model_file(dir.path());
+    let size = |path: &Path| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) as f64 / 1e6;
+    println!("read model file: {:.1} MB", size(&file));
+
+    let started = std::time::Instant::now();
+    let state = crate::projections::read_model::ReadModel::probe(dir.path()).unwrap();
+    println!("probe with quick_check: {:.1?} ({state:?})", started.elapsed());
+
+    let started = std::time::Instant::now();
+    let engine = open(dir.path()).await;
+    println!("restart with the read model kept: {:.1?}", started.elapsed());
+    let started = std::time::Instant::now();
+    let page = MessagesProjection::list_messages_page(
+        engine.projection_state(),
+        "ch_07",
+        MessagePageCursor::Latest,
+        50,
+    )
+    .unwrap();
+    println!("first page of 50 after restart: {:.1?} ({} rows)", started.elapsed(), page.messages.len());
+    close(engine, dir.path()).await;
+
+    std::fs::remove_file(&file).unwrap();
+    let wal = std::path::PathBuf::from(format!("{}-wal", file.display()));
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher = {
+        let (wal, stop) = (wal.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut peak = 0u64;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                peak = peak.max(std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0));
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            peak
+        })
+    };
+    let started = std::time::Instant::now();
+    let engine = open(dir.path()).await;
+    let rebuilt = started.elapsed();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let peak = watcher.join().unwrap() as f64 / 1e6;
+    println!(
+        "rebuild from the log (read model deleted): {rebuilt:.1?}; write-ahead log peak {peak:.1} MB; \
+         file afterwards {:.1} MB",
+        size(&file)
+    );
+    assert_eq!(crate::projections::messages::stored_message_count(engine.projection_state()), total);
 }

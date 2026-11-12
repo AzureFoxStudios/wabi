@@ -131,6 +131,26 @@ pub(super) async fn verify(
             );
             assert!(receipt.published_uploads_checked >= 1);
             assert!(!receipt.external_state_verified && !receipt.full_instance_ready);
+            // A live checkpoint leaves the derived SQLite read model out, so
+            // the restored copy has none and messages are rebuilt from the
+            // verified log at the first start.
+            assert!(!receipt.database.read_model_present);
+            assert!(!receipt.database.read_model_compared);
+            // A read model that is there and was not compared is not a PASS.
+            let read_model = inactive.join("data/wabidb/projections/read-model.sqlite3");
+            fs::write(&read_model, b"a read model this build would replace, not compare").unwrap();
+            let refused =
+                match verify_inactive_live(&inactive, &source, &archive, &private_key, limits.clone())
+                    .await
+                {
+                    Ok(_) => panic!("an uncompared read model was certified"),
+                    Err(error) => error,
+                };
+            assert!(
+                refused.to_string().contains("read model exists and was not compared"),
+                "{refused}"
+            );
+            fs::remove_file(&read_model).unwrap();
             let lock_path = inactive.join("data/wabidb/.lock");
             let lock = fs::metadata(&lock_path).unwrap();
             let mut wrong_source = source.clone();
