@@ -66,16 +66,28 @@ enum Command {
     Push {
         #[arg(default_value = ".")]
         folder: PathBuf,
+        /// Go ahead although this deletes most of the synced files on one
+        /// side (without it such a round stops and says why).
+        #[arg(long)]
+        allow_mass_delete: bool,
     },
     /// One-shot pull of remote changes.
     Pull {
         #[arg(default_value = ".")]
         folder: PathBuf,
+        /// Go ahead although this deletes most of the synced files on one
+        /// side (without it such a round stops and says why).
+        #[arg(long)]
+        allow_mass_delete: bool,
     },
     /// Full one-shot round trip (push + pull).
     Sync {
         #[arg(default_value = ".")]
         folder: PathBuf,
+        /// Go ahead although this deletes most of the synced files on one
+        /// side (without it such a round stops and says why).
+        #[arg(long)]
+        allow_mass_delete: bool,
     },
     /// Show link info, server reachability, and pending local/remote diffs.
     Status {
@@ -147,9 +159,10 @@ fn or_conflicts(engine: &mut SyncEngine<'_>, prefix: &str, result: Result<SyncRe
     result
 }
 
-async fn run_sync_round(client: &WabiClient, folder: &PathBuf, prefix: &str) -> Result<()> {
+async fn run_sync_round(client: &WabiClient, folder: &PathBuf, prefix: &str, allow_mass_delete: bool) -> Result<()> {
     let link = LinkConfig::load(folder)?;
     let mut engine = SyncEngine::new(client, folder, &link)?;
+    engine.allow_mass_delete |= allow_mass_delete;
     let result = engine.sync().await;
     let report = or_conflicts(&mut engine, prefix, result)?;
     if !report.is_empty() {
@@ -226,7 +239,7 @@ async fn main() -> Result<()> {
                 interval
             );
             // Initial full round.
-            if let Err(e) = run_sync_round(&client, &folder, "[boot]").await {
+            if let Err(e) = run_sync_round(&client, &folder, "[boot]", false).await {
                 eprintln!("[boot] sync failed: {e}");
             }
 
@@ -281,7 +294,7 @@ async fn main() -> Result<()> {
                     Ok(remote_moved) => {
                         if local_changed || remote_moved {
                             let prefix = if local_changed { "[local]" } else { "[remote]" };
-                            let round = run_sync_round(&client, &folder, prefix).await;
+                            let round = run_sync_round(&client, &folder, prefix, false).await;
                             if let Err(e) = &round {
                                 eprintln!("{prefix} sync failed: {e}");
                             }
@@ -295,10 +308,11 @@ async fn main() -> Result<()> {
                 tokio::time::sleep(Duration::from_secs(interval.max(1))).await;
             }
         }
-        Command::Push { folder } => {
+        Command::Push { folder, allow_mass_delete } => {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link)?;
+            engine.allow_mass_delete |= allow_mass_delete;
             // The engine saves its state, also when this fails part-way.
             let result = engine.push().await;
             let report = or_conflicts(&mut engine, "[push]", result)?;
@@ -309,10 +323,11 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Pull { folder } => {
+        Command::Pull { folder, allow_mass_delete } => {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
             let mut engine = SyncEngine::new(&client, &folder, &link)?;
+            engine.allow_mass_delete |= allow_mass_delete;
             // The engine saves its state, also when this fails part-way.
             let result = engine.pull().await;
             let report = or_conflicts(&mut engine, "[pull]", result)?;
@@ -323,10 +338,10 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Sync { folder } => {
-            let (global, link) = resolve(&folder)?;
+        Command::Sync { folder, allow_mass_delete } => {
+            let (global, _link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
-            run_sync_round(&client, &folder, "[sync]").await?;
+            run_sync_round(&client, &folder, "[sync]", allow_mass_delete).await?;
             Ok(())
         }
         Command::Status { folder } => {
