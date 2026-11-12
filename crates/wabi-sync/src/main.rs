@@ -15,7 +15,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use wabi_sync::api::WabiClient;
-use wabi_sync::config::{GlobalConfig, LinkConfig, SyncState};
+use wabi_sync::config::{FolderLock, GlobalConfig, LinkConfig, Linked, StateOwner, SyncState};
 use wabi_sync::sync::{self, print_report, SyncEngine, SyncReport};
 
 #[derive(Parser)]
@@ -46,6 +46,12 @@ enum Command {
         /// Override the server from the global config.
         #[arg(long)]
         server: Option<String>,
+        /// The folder's sync state was recorded for another address of this
+        /// same server and repository: keep it and go on with it. Without
+        /// this, state recorded for another server or channel is moved aside
+        /// and the folder starts as newly linked.
+        #[arg(long)]
+        keep_state: bool,
     },
     /// Continuous sync: watch the folder + poll the change feed.
     Watch {
@@ -60,26 +66,40 @@ enum Command {
     Push {
         #[arg(default_value = ".")]
         folder: PathBuf,
+        /// Go ahead although this deletes most of the synced files on one
+        /// side (without it such a round stops and says why).
+        #[arg(long)]
+        allow_mass_delete: bool,
     },
     /// One-shot pull of remote changes.
     Pull {
         #[arg(default_value = ".")]
         folder: PathBuf,
+        /// Go ahead although this deletes most of the synced files on one
+        /// side (without it such a round stops and says why).
+        #[arg(long)]
+        allow_mass_delete: bool,
     },
     /// Full one-shot round trip (push + pull).
     Sync {
         #[arg(default_value = ".")]
         folder: PathBuf,
+        /// Go ahead although this deletes most of the synced files on one
+        /// side (without it such a round stops and says why).
+        #[arg(long)]
+        allow_mass_delete: bool,
     },
     /// Show link info, server reachability, and pending local/remote diffs.
     Status {
         #[arg(default_value = ".")]
         folder: PathBuf,
     },
-    /// Send a file for review again. Use it when a review upload was
-    /// rejected: wabi-sync cannot see a rejection and goes on reporting the
-    /// file as "waiting for review". The next sync uploads the file as it is
-    /// now, as a new review request.
+    /// Send a file again. Use it when a review upload was rejected:
+    /// wabi-sync cannot see a rejection and goes on reporting the file as
+    /// "waiting for review". The next sync uploads the file as it is now,
+    /// as a new review request. Also use it for a file the server refused,
+    /// once the reason is gone: an unchanged refused file is not sent again
+    /// by itself.
     Resubmit {
         /// The file, relative to the folder (as sync prints it).
         path: String,
@@ -129,6 +149,9 @@ fn read_token_from_stdin() -> Result<String> {
 /// the server's version.
 fn or_conflicts(engine: &mut SyncEngine<'_>, prefix: &str, result: Result<SyncReport>) -> Result<SyncReport> {
     if result.is_err() {
+        for line in engine.take_notices() {
+            println!("{prefix} note: {line}");
+        }
         for line in engine.take_unreported_conflicts() {
             println!("{prefix} ⚠ conflict: {line}");
         }
@@ -136,9 +159,10 @@ fn or_conflicts(engine: &mut SyncEngine<'_>, prefix: &str, result: Result<SyncRe
     result
 }
 
-async fn run_sync_round(client: &WabiClient, folder: &PathBuf, prefix: &str) -> Result<()> {
+async fn run_sync_round(client: &WabiClient, folder: &PathBuf, prefix: &str, allow_mass_delete: bool) -> Result<()> {
     let link = LinkConfig::load(folder)?;
-    let mut engine = SyncEngine::new(client, folder, &link);
+    let mut engine = SyncEngine::new(client, folder, &link)?;
+    engine.allow_mass_delete |= allow_mass_delete;
     let result = engine.sync().await;
     let report = or_conflicts(&mut engine, prefix, result)?;
     if !report.is_empty() {
@@ -166,16 +190,38 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Link { channel, folder, server } => {
+        Command::Link { channel, folder, server, keep_state } => {
             let channel_id = LinkConfig::normalize_channel_id(&channel)?;
             let global = GlobalConfig::load().ok();
+            // Rounds talk to the server of the login; that is whose state it is.
+            let client_url = global.as_ref().map(|g| g.server_url.clone());
             let server_url = server
-                .or_else(|| global.map(|g| g.server_url))
+                .or_else(|| client_url.clone())
                 .ok_or_else(|| anyhow::anyhow!("no server configured — run `wabi-sync login` or pass --server"))?;
             std::fs::create_dir_all(&folder)
                 .with_context(|| format!("creating {}", folder.display()))?;
+            let owner = StateOwner::new(client_url.as_deref().unwrap_or(&server_url), channel_id);
             let link = LinkConfig { server_url, channel_id };
-            link.save(&folder)?;
+            match link.link(&folder, &owner, keep_state)? {
+                Linked::Unchanged => {
+                    println!("{} is already linked to channel {channel_id}; nothing changed.", folder.display());
+                    return Ok(());
+                }
+                Linked::New | Linked::Replaced { state_moved_to: None, .. } => {}
+                Linked::KeptState { previous } => println!(
+                    "The sync state recorded for {} channel {} is kept, and is now recorded for {} channel {}.",
+                    previous.server_url, previous.channel_id, owner.server_url, owner.channel_id
+                ),
+                Linked::Replaced { state_moved_to: Some(moved), .. } => println!(
+                    "This folder had sync state for another link. It was moved to {} and is not used: the next \
+                     sync treats the folder as newly linked. It deletes nothing on either side, uploads files \
+                     the repo does not have, and keeps a file that differs from the repo's as a conflict copy. \
+                     If that state was for this same repository under another address, move it back to \
+                     .wabi-sync/state.json and run `wabi-sync link {channel} {} --keep-state` instead.",
+                    moved.display(),
+                    folder.display()
+                ),
+            }
             println!(
                 "Linked {} → channel {channel_id}.\nRun `wabi-sync watch` in that folder to start syncing.",
                 folder.display()
@@ -193,18 +239,21 @@ async fn main() -> Result<()> {
                 interval
             );
             // Initial full round.
-            if let Err(e) = run_sync_round(&client, &folder, "[boot]").await {
+            if let Err(e) = run_sync_round(&client, &folder, "[boot]", false).await {
                 eprintln!("[boot] sync failed: {e}");
             }
 
             // FS watching: set a flag on any event; the loop debounces.
             let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(64);
             let watch_folder = folder.clone();
+            let event_root = folder.clone();
             std::thread::spawn(move || {
                 use notify::Watcher;
                 let mut watcher = match notify::recommended_watcher(
                     move |res: std::result::Result<notify::Event, notify::Error>| {
-                        if res.is_ok() {
+                        // A file being opened or read is not a change, and
+                        // neither is the client writing its own state.
+                        if res.is_ok_and(|event| !event.kind.is_access() && sync::is_user_change(&event_root, &event.paths)) {
                             let _ = tx.blocking_send(());
                         }
                     },
@@ -224,29 +273,34 @@ async fn main() -> Result<()> {
                 }
             });
 
-            let mut last_fs_nudge = std::time::Instant::now();
+            let mut pacer = sync::WatchPacer::new(std::time::Instant::now());
             loop {
                 let fs_event = tokio::time::timeout(Duration::from_millis(750), rx.recv()).await;
-                let fs_nudge = matches!(fs_event, Ok(Some(())));
-                if fs_nudge {
-                    // Debounce: drain further events for a short window.
-                    last_fs_nudge = std::time::Instant::now();
-                    continue;
-                }
-                let since_nudge = last_fs_nudge.elapsed();
-                if since_nudge < Duration::from_millis(500) {
-                    continue;
-                }
+                let local_changed = match pacer.after_wait(matches!(fs_event, Ok(Some(()))), std::time::Instant::now()) {
+                    sync::WatchStep::Wait => continue,
+                    sync::WatchStep::Poll { local_changed } => local_changed,
+                };
 
                 // Push local work when the FS moved; always poll the feed.
-                let cursor = SyncState::load(&folder).unwrap_or_default().cursor;
+                let cursor = match SyncState::load(&folder) {
+                    Ok(state) => state.cursor,
+                    Err(e) => {
+                        eprintln!("[watch] {e}");
+                        tokio::time::sleep(Duration::from_secs(interval.max(1))).await;
+                        continue;
+                    }
+                };
                 match client.remote_moved(link.channel_id, cursor).await {
                     Ok(remote_moved) => {
-                        if fs_nudge || remote_moved {
-                            let prefix = if fs_nudge { "[local]" } else { "[remote]" };
-                            if let Err(e) = run_sync_round(&client, &folder, prefix).await {
+                        if local_changed || remote_moved {
+                            let prefix = if local_changed { "[local]" } else { "[remote]" };
+                            let round = run_sync_round(&client, &folder, prefix, false).await;
+                            if let Err(e) = &round {
                                 eprintln!("{prefix} sync failed: {e}");
                             }
+                            // A local change whose round failed is tried
+                            // again after the next poll.
+                            pacer.round_ran(round.is_ok());
                         }
                     }
                     Err(e) => eprintln!("[poll] change feed failed: {e}"),
@@ -254,10 +308,11 @@ async fn main() -> Result<()> {
                 tokio::time::sleep(Duration::from_secs(interval.max(1))).await;
             }
         }
-        Command::Push { folder } => {
+        Command::Push { folder, allow_mass_delete } => {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
-            let mut engine = SyncEngine::new(&client, &folder, &link);
+            let mut engine = SyncEngine::new(&client, &folder, &link)?;
+            engine.allow_mass_delete |= allow_mass_delete;
             // The engine saves its state, also when this fails part-way.
             let result = engine.push().await;
             let report = or_conflicts(&mut engine, "[push]", result)?;
@@ -268,10 +323,11 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Pull { folder } => {
+        Command::Pull { folder, allow_mass_delete } => {
             let (global, link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
-            let mut engine = SyncEngine::new(&client, &folder, &link);
+            let mut engine = SyncEngine::new(&client, &folder, &link)?;
+            engine.allow_mass_delete |= allow_mass_delete;
             // The engine saves its state, also when this fails part-way.
             let result = engine.pull().await;
             let report = or_conflicts(&mut engine, "[pull]", result)?;
@@ -282,10 +338,10 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Sync { folder } => {
-            let (global, link) = resolve(&folder)?;
+        Command::Sync { folder, allow_mass_delete } => {
+            let (global, _link) = resolve(&folder)?;
             let client = WabiClient::new(&global.server_url, &global.token);
-            run_sync_round(&client, &folder, "[sync]").await?;
+            run_sync_round(&client, &folder, "[sync]", allow_mass_delete).await?;
             Ok(())
         }
         Command::Status { folder } => {
@@ -297,7 +353,13 @@ async fn main() -> Result<()> {
                 Ok(()) => println!("server:    reachable"),
                 Err(e) => println!("server:    UNREACHABLE ({e})"),
             }
-            let state = SyncState::load(&folder)?;
+            let state = match SyncState::for_owner(&folder, StateOwner::new(&global.server_url, link.channel_id)) {
+                Ok(state) => state,
+                Err(e) => {
+                    println!("state:     {e:#}");
+                    return Ok(());
+                }
+            };
             println!("cursor:    {}", state.cursor);
             println!("baselines: {} paths", state.baselines.len());
             match client.manifest(link.channel_id).await {
@@ -320,15 +382,23 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Resubmit { path, folder } => {
-            LinkConfig::load(&folder)?;
+            let (global, link) = resolve(&folder)?;
             let path = path.replace('\\', "/");
             let path = path.trim_start_matches("./");
-            let mut state = SyncState::load(&folder)?;
-            if !state.forget_review(path) {
-                anyhow::bail!("{path} is not waiting for review (see `wabi-sync status`)");
+            // Not while a round is reading and writing the same state.
+            let _lock = FolderLock::acquire(&folder)?;
+            let mut state = SyncState::for_owner(&folder, StateOwner::new(&global.server_url, link.channel_id))?;
+            let was_waiting = state.forget_review(path);
+            let was_refused = state.refused_uploads.remove(path).is_some();
+            if !was_waiting && !was_refused {
+                anyhow::bail!("{path} is neither waiting for review nor refused by the server (see `wabi-sync status`)");
             }
             state.save(&folder)?;
-            println!("{path} is no longer marked as waiting for review; the next sync uploads it again.");
+            if was_waiting {
+                println!("{path} is no longer marked as waiting for review; the next sync uploads it again.");
+            } else {
+                println!("{path} is no longer marked as refused; the next sync uploads it again.");
+            }
             Ok(())
         }
         Command::Lock { folder, path } => {
