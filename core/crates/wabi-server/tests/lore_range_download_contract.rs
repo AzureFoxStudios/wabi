@@ -296,3 +296,87 @@ async fn pinned_revision_range_reads_the_cached_revision_without_a_copy() {
     let head = get(&f, "", Some("bytes=0-9"), None).await;
     assert_eq!(head.headers()["etag"], format!("\"{}\"", sha256(&v2)));
 }
+
+use futures::StreamExt;
+
+/// Mtime bumped well past what the open handle was stamped with, so the test
+/// does not depend on clock granularity.
+fn bump_mtime(path: &Path) {
+    let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+}
+
+/// A writer that edits the file IN PLACE (same inode, same length, new mtime)
+/// while a Range response is being read must not get its new bytes mixed into
+/// that response: the body ends in an error instead. The unverified `lore`
+/// program may behave like this; Wabi's own writers do not.
+#[tokio::test]
+async fn in_place_rewrite_mid_response_ends_the_body_in_an_error() {
+    use std::io::{Seek, Write};
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+    let old = pattern(2 * MIB, 11);
+    std::fs::write(f.tree.join("big.bin"), &old).unwrap();
+
+    let response = get(&f, "", Some(&format!("bytes=0-{}", MIB - 1)), None).await;
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    let mut body = response.into_body().into_data_stream();
+    let first = body.next().await.expect("first chunk").expect("first chunk is intact");
+    assert_eq!(first.as_ref(), &old[..first.len()]);
+    let mut seen = first.len();
+
+    // Overwrite the whole file in place: same inode, same length.
+    let new = pattern(2 * MIB, 99);
+    let mut handle = std::fs::OpenOptions::new().write(true).open(f.tree.join("big.bin")).unwrap();
+    handle.seek(std::io::SeekFrom::Start(0)).unwrap();
+    handle.write_all(&new).unwrap();
+    handle.sync_all().unwrap();
+    drop(handle);
+    bump_mtime(&f.tree.join("big.bin"));
+
+    let mut failed = false;
+    while let Some(chunk) = body.next().await {
+        match chunk {
+            Ok(bytes) => {
+                assert_eq!(
+                    bytes.as_ref(),
+                    &old[seen..seen + bytes.len()],
+                    "bytes from the new content reached the client after the change"
+                );
+                seen += bytes.len();
+            }
+            Err(_) => {
+                failed = true;
+                break;
+            }
+        }
+    }
+    assert!(failed, "the body must end in an error, not complete");
+    assert!(seen < MIB, "the response must not have completed");
+}
+
+/// A file REPLACED by rename mid-response leaves the old inode untouched, so
+/// the response completes with the old bytes.
+#[tokio::test]
+async fn rename_replacement_mid_response_completes_with_the_old_bytes() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+    let old = pattern(2 * MIB, 21);
+    std::fs::write(f.tree.join("big.bin"), &old).unwrap();
+
+    let response = get(&f, "", Some(&format!("bytes=0-{}", MIB - 1)), None).await;
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    let mut body = response.into_body().into_data_stream();
+    let first = body.next().await.unwrap().unwrap();
+
+    std::fs::write(f.tree.join("big.bin.new"), pattern(2 * MIB, 77)).unwrap();
+    std::fs::rename(f.tree.join("big.bin.new"), f.tree.join("big.bin")).unwrap();
+
+    let mut got = first.to_vec();
+    while let Some(chunk) = body.next().await {
+        got.extend_from_slice(&chunk.expect("a rename must not break the response"));
+    }
+    assert_eq!(got, &old[..MIB]);
+}

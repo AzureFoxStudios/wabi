@@ -2354,20 +2354,16 @@ async fn download_file(
     // private snapshot: it is a complete copy the client reads at its own
     // pace, taken under one gate hold, and the hash is computed from it.
     enum Source {
-        Snapshot(tempfile::NamedTempFile),
-        Handle,
+        Snapshot(tempfile::NamedTempFile, tokio::fs::File),
+        Handle(wabi_lore::DownloadContent),
     }
-    let (source, mut file, file_size, etag) = if headers.contains_key(axum::http::header::RANGE) {
+    let (source, file_size, etag) = if headers.contains_key(axum::http::header::RANGE) {
         let content = lore
             .open_content_for_download(channel_id, &path, query.revision.as_deref())
             .await
             .map_err(content_read_error)?;
-        (
-            Source::Handle,
-            tokio::fs::File::from_std(content.file),
-            content.size,
-            content.etag,
-        )
+        let (size, etag) = (content.size, content.etag.clone());
+        (Source::Handle(content), size, etag)
     } else {
         let temporary = tempfile::NamedTempFile::new()?;
         // No pre-hardening cache entry or predictable shared /tmp path is reused.
@@ -2393,8 +2389,7 @@ async fn download_file(
             digest.update(&buffer[..read]);
         }
         (
-            Source::Snapshot(temporary),
-            file,
+            Source::Snapshot(temporary, file),
             file_size,
             hex::encode(digest.finalize()),
         )
@@ -2426,7 +2421,6 @@ async fn download_file(
             )
         })
         .unwrap_or((axum::http::StatusCode::OK, 0, file_size, None));
-    file.seek(std::io::SeekFrom::Start(start)).await?;
     let mut builder = axum::response::Response::builder()
         .status(status)
         .header(
@@ -2463,10 +2457,11 @@ async fn download_file(
         );
     }
     let body = match source {
-        Source::Snapshot(temporary) => snapshot_body(temporary, file, length),
-        Source::Handle => {
-            axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file.take(length)))
+        Source::Snapshot(temporary, mut file) => {
+            file.seek(std::io::SeekFrom::Start(start)).await?;
+            snapshot_body(temporary, file, length)
         }
+        Source::Handle(content) => axum::body::Body::from_stream(content.range_stream(start, length)),
     };
     Ok(builder.body(body).expect("validated download headers"))
 }

@@ -388,12 +388,86 @@ type DownloadEtagCache = std::sync::Mutex<HashMap<(i64, String, String), (Downlo
 /// Entries are tiny, but revisions are unbounded; start over past this size.
 const DOWNLOAD_ETAG_CACHE_MAX: usize = 4096;
 
+impl DownloadEtagStamp {
+    fn of(file: &std::fs::File) -> std::io::Result<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = file.metadata()?;
+        if !meta.is_file() {
+            return Err(std::io::Error::other("download source must be a regular file"));
+        }
+        Ok(Self {
+            size: meta.len(),
+            mtime_nanos: meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            inode: meta.ino(),
+        })
+    }
+}
+
 /// An open, confined content handle plus the facts a download response needs.
 pub struct DownloadContent {
-    pub file: std::fs::File,
+    file: Arc<std::fs::File>,
+    stamp: DownloadEtagStamp,
     pub size: u64,
     /// Full SHA-256 of the whole content, hex (never the sampled `q-` form).
     pub etag: String,
+}
+
+/// Bytes per read in [`DownloadContent::range_stream`]; the unchanged-file
+/// check runs around each one, so keep it modest.
+const DOWNLOAD_CHUNK_BYTES: usize = 64 * 1024;
+
+impl DownloadContent {
+    /// Stream `length` bytes starting at `start`, without holding `io_gate`.
+    /// Before and after every chunk the open handle's size, mtime and inode
+    /// are compared with the stamp taken under the gate; any difference ends
+    /// the stream with an error (see [`LoreService::open_content_for_download`]).
+    pub fn range_stream(
+        &self,
+        start: u64,
+        length: u64,
+    ) -> impl futures_util::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
+        let state = (self.file.clone(), self.stamp.clone(), start, length);
+        futures_util::stream::unfold(Some(state), |state| async move {
+            let (file, stamp, pos, remaining) = state?;
+            if remaining == 0 {
+                return None;
+            }
+            let want = remaining.min(DOWNLOAD_CHUNK_BYTES as u64) as usize;
+            let worker = file.clone();
+            let expected = stamp.clone();
+            let read = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
+                use std::os::unix::fs::FileExt;
+                let changed = || std::io::Error::other("file changed while it was being downloaded");
+                if DownloadEtagStamp::of(&worker)? != expected {
+                    return Err(changed());
+                }
+                let mut buffer = vec![0u8; want];
+                let count = worker.read_at(&mut buffer, pos)?;
+                if DownloadEtagStamp::of(&worker)? != expected {
+                    return Err(changed());
+                }
+                if count == 0 {
+                    return Err(std::io::ErrorKind::UnexpectedEof.into());
+                }
+                buffer.truncate(count);
+                Ok(buffer)
+            })
+            .await
+            .unwrap_or_else(|_| Err(std::io::Error::other("download read worker stopped")));
+            match read {
+                Ok(bytes) => {
+                    let next = (file, stamp, pos + bytes.len() as u64, remaining - bytes.len() as u64);
+                    Some((Ok(bytes), Some(next)))
+                }
+                Err(error) => Some((Err(error), None)),
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1715,38 +1789,35 @@ impl LoreService {
     }
 
     /// Open content for a download without copying it, and return its size and
-    /// full SHA-256 ETag. `io_gate` is held only while the confined handle is
-    /// opened; hashing and the caller's reads happen after it is released.
-    /// That is safe because writers publish a new inode instead of editing in
-    /// place, so the open handle keeps showing the bytes it was opened on.
-    /// The ETag is computed once per (channel, path, revision) and reused
-    /// while the handle's size, mtime and inode match what was hashed.
+    /// full SHA-256 ETag.
+    ///
+    /// What is known: Wabi's own writers (`publish`: temp file + rename) and
+    /// the revision cache never edit a file in place, so a handle opened on
+    /// one keeps showing the bytes it was opened on. What is NOT known: how
+    /// the external `lore` program changes working-tree files on branch
+    /// switch, merge and approve (replace or write in place); no sandbox has
+    /// the real program (`docs/testing/LORE_REAL_BINARY_CHECKS.md`). So:
+    ///
+    /// * On a cache miss the size/mtime/inode stamp is taken and the whole
+    ///   file is hashed while `io_gate` is still held. Every CLI operation
+    ///   holds that gate, so the hash cannot see a half-written file. This
+    ///   costs one gate hold per (channel, path, revision) per process; a
+    ///   cache hit hashes nothing and releases the gate at once.
+    /// * After the gate is released the caller streams through
+    ///   [`DownloadContent::range_stream`], which compares the handle's
+    ///   stamp before and after every chunk and ends the body with an error
+    ///   if the file changed underneath it. A rename-style writer never trips
+    ///   that (the old inode is untouched); an in-place writer does, so the
+    ///   client sees a broken response and never silently mixed bytes.
     pub async fn open_content_for_download(
         &self,
         channel_id: i64,
         repo_path: &str,
         revision: Option<&str>,
     ) -> anyhow::Result<DownloadContent> {
-        use std::os::unix::fs::MetadataExt;
-        let file = {
-            let _io = self.io_gate.lock().await;
-            self.open_content_file_locked(channel_id, repo_path, revision).await?
-        };
-        let meta = file.metadata()?;
-        if !meta.is_file() {
-            anyhow::bail!("download source must be a regular file");
-        }
-        let stamp = DownloadEtagStamp {
-            size: meta.len(),
-            mtime_nanos: meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
-                .map(|d| d.as_nanos())
-                .unwrap_or(0),
-            inode: meta.ino(),
-        };
-        let size = stamp.size;
+        let gate = self.io_gate.clone().lock_owned().await;
+        let file = self.open_content_file_locked(channel_id, repo_path, revision).await?;
+        let stamp = DownloadEtagStamp::of(&file)?;
         let key = (
             channel_id,
             repo_path.to_string(),
@@ -1760,12 +1831,26 @@ impl LoreService {
             .filter(|(seen, _)| *seen == stamp)
             .map(|(_, etag)| etag.clone());
         let etag = match cached {
-            Some(etag) => etag,
+            Some(etag) => {
+                drop(gate);
+                etag
+            }
             None => {
                 let mut hashed = file.try_clone()?;
+                let expected = stamp.clone();
+                #[cfg(test)]
+                let hook = self.copy_test_hook.lock().unwrap().take();
+                // The blocking worker owns the gate until it stops, even if
+                // the awaiting request is cancelled mid-hash.
                 let etag = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
                     use sha2::Digest;
                     use std::io::{Read, Seek};
+                    let _gate = gate;
+                    #[cfg(test)]
+                    if let Some(hook) = hook {
+                        let _ = hook.started.send(());
+                        hook.resume.recv()?;
+                    }
                     hashed.seek(std::io::SeekFrom::Start(0))?;
                     let mut digest = sha2::Sha256::new();
                     let mut buffer = [0u8; 64 * 1024];
@@ -1776,6 +1861,9 @@ impl LoreService {
                         }
                         digest.update(&buffer[..count]);
                     }
+                    if DownloadEtagStamp::of(&hashed)? != expected {
+                        anyhow::bail!("file changed while it was being hashed");
+                    }
                     Ok(hex::encode(digest.finalize()))
                 })
                 .await
@@ -1785,11 +1873,11 @@ impl LoreService {
                 if cache.len() >= DOWNLOAD_ETAG_CACHE_MAX {
                     cache.clear();
                 }
-                cache.insert(key, (stamp, etag.clone()));
+                cache.insert(key, (stamp.clone(), etag.clone()));
                 etag
             }
         };
-        Ok(DownloadContent { size, file, etag })
+        Ok(DownloadContent { size: stamp.size, file: Arc::new(file), etag, stamp })
     }
 
     /// How many full-content hashes downloads have computed (a cache hit does
@@ -4124,6 +4212,36 @@ esac
         assert!(service.open_content_file(42, "normal.txt", None).await.is_err());
         assert!(service.open_content_file(42, ".wabi-repo.json", None).await.is_err());
         assert_eq!(std::fs::read(outside.path().join("victim")).unwrap(), b"private-canary");
+    }
+
+    #[tokio::test]
+    async fn download_hash_on_a_cache_miss_runs_while_io_gate_is_held() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, repo) = fixture_native_service(data.path()).await;
+        std::fs::write(repo.working_tree.join("normal.txt"), b"inside").unwrap();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        *service.copy_test_hook.lock().unwrap() = Some(CopyTestHook { started: started_tx, resume: resume_rx });
+        let service = Arc::new(service);
+        let worker_service = service.clone();
+        let worker = tokio::spawn(async move { worker_service.open_content_for_download(42, "normal.txt", None).await });
+        tokio::time::timeout(std::time::Duration::from_secs(2), started_rx)
+            .await
+            .expect("the hash worker never started")
+            .unwrap();
+        assert!(
+            service.io_gate.try_lock().is_err(),
+            "the hash must be computed while io_gate is held, or an in-place writer could change the bytes mid-hash"
+        );
+        resume_tx.send(()).unwrap();
+        let content = worker.await.unwrap().unwrap();
+        assert_eq!(content.etag, etag_for_bytes(b"inside"));
+        assert_eq!(service.download_etag_hash_count(), 1);
+        // A cache hit needs no hash and takes no hook.
+        let again = service.open_content_for_download(42, "normal.txt", None).await.unwrap();
+        assert_eq!(again.etag, content.etag);
+        assert_eq!(service.download_etag_hash_count(), 1);
+        assert!(service.io_gate.try_lock().is_ok());
     }
 
     #[tokio::test]
