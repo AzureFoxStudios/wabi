@@ -150,8 +150,29 @@ pub fn load_ignore_patterns(folder: &Path) -> Vec<(bool, String)> {
         .collect()
 }
 
+/// What a walk of the folder found.
+pub struct Scan {
+    /// Every syncable file: relative path → local etag.
+    pub files: BTreeMap<String, String>,
+    /// The folder's `.wabiignore` as it is now.
+    patterns: Vec<(bool, String)>,
+}
+
+impl Scan {
+    /// Does the folder's `.wabiignore` exclude `path`? An ignored path is
+    /// not synced in either direction, whatever either side holds.
+    pub fn ignores(&self, path: &str) -> bool {
+        ignored(path, &self.patterns)
+    }
+}
+
 /// Walk the folder and collect (relative_path, local_etag) for syncable files.
 pub fn scan_local(folder: &Path) -> anyhow::Result<BTreeMap<String, String>> {
+    Ok(scan_folder(folder)?.files)
+}
+
+/// Walk the folder: its syncable files, and the ignore patterns in force.
+pub fn scan_folder(folder: &Path) -> anyhow::Result<Scan> {
     let patterns = load_ignore_patterns(folder);
     let mut out = BTreeMap::new();
     fn walk(
@@ -181,7 +202,7 @@ pub fn scan_local(folder: &Path) -> anyhow::Result<BTreeMap<String, String>> {
         Ok(())
     }
     walk(folder, folder, &patterns, &mut out)?;
-    Ok(out)
+    Ok(Scan { files: out, patterns })
 }
 
 /// Where a conflict copy goes: `dir/name.ext` → `dir/name.ext.wabi-conflict-ab12cd34`.
@@ -317,6 +338,16 @@ impl<'a> SyncEngine<'a> {
         Ok(())
     }
 
+    /// Stop tracking every path the folder's `.wabiignore` now excludes. A
+    /// path that becomes ignored was not deleted: its baseline goes, so that
+    /// the push does not take the file's absence from the scan for a local
+    /// deletion, and the server's copy is left alone.
+    fn forget_ignored(&mut self, scan: &Scan) {
+        self.state.baselines.retain(|path, _| !scan.ignores(path));
+        self.state.pending_review.retain(|path, _| !scan.ignores(path));
+        self.state.local_fingerprints.retain(|path, _| !scan.ignores(path));
+    }
+
     /// The user and someone else both changed `path`. The rule, wherever the
     /// conflict is found: the canonical name ends up holding the server's
     /// version (nothing, when the file was deleted there), the user's version
@@ -430,13 +461,17 @@ impl<'a> SyncEngine<'a> {
         if manifest.read_only {
             bail!("this repo is a read-only mirror; wabi-sync cannot sync it");
         }
-        let local = scan_local(self.folder)?;
+        let scan = scan_folder(self.folder)?;
+        self.forget_ignored(&scan);
         let remote: BTreeMap<&str, &Option<String>> = manifest
             .files
             .iter()
-            .filter(|f| !is_internal(&f.path))
+            // Not the client's own names, and not what this folder ignores:
+            // an ignored local file is never replaced by the server's.
+            .filter(|f| !is_internal(&f.path) && !scan.ignores(&f.path))
             .map(|f| (f.path.as_str(), &f.etag))
             .collect();
+        let local = scan.files;
 
         // Remote files: download new/changed when we have no diverging local edit.
         for (path, remote_etag) in &remote {
@@ -539,7 +574,9 @@ impl<'a> SyncEngine<'a> {
 
     async fn push_steps(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
-        let local = scan_local(self.folder)?;
+        let scan = scan_folder(self.folder)?;
+        self.forget_ignored(&scan);
+        let local = scan.files;
 
         // Upload new + modified local files.
         for (path, local_etag) in &local {
