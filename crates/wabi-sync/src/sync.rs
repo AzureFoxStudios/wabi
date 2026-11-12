@@ -514,7 +514,11 @@ impl<'a> SyncEngine<'a> {
                     path,
                     bytes,
                     &message,
-                    baseline.as_deref(),
+                    // Never unconditional. With no baseline the upload is
+                    // create-only (`If-Match: ""`): if the server has a file
+                    // at this path that this folder never saw, it answers
+                    // 409 and both versions are kept.
+                    Some(baseline.as_deref().unwrap_or("")),
                 )
                 .await?;
             match outcome {
