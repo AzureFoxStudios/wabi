@@ -154,6 +154,12 @@ pub fn load_ignore_patterns(folder: &Path) -> Vec<(bool, String)> {
 pub struct Scan {
     /// Every syncable file: relative path → local etag.
     pub files: BTreeMap<String, String>,
+    /// Paths that should have been synced and could not be looked at, each
+    /// with the reason: a symbolic link to nothing, a file or directory
+    /// that cannot be read, a name that is not UTF-8. Nothing is known
+    /// about them this round, so they are neither uploaded, nor taken for
+    /// deleted, nor replaced from the server; each is reported.
+    pub skipped: BTreeMap<String, String>,
     /// The folder's `.wabiignore` as it is now.
     patterns: Vec<(bool, String)>,
 }
@@ -164,6 +170,19 @@ impl Scan {
     pub fn ignores(&self, path: &str) -> bool {
         ignored(path, &self.patterns)
     }
+
+    /// Is `path` one the walk could not look at, or inside a directory it
+    /// could not look into?
+    pub fn could_not_read(&self, path: &str) -> bool {
+        self.skipped
+            .keys()
+            .any(|skipped| path == skipped || path.strip_prefix(skipped.as_str()).is_some_and(|rest| rest.starts_with('/')))
+    }
+
+    /// One report line per skipped path.
+    fn skipped_lines(&self) -> Vec<String> {
+        self.skipped.iter().map(|(path, why)| format!("{path} (not synced: {why})")).collect()
+    }
 }
 
 /// Walk the folder and collect (relative_path, local_etag) for syncable files.
@@ -171,45 +190,71 @@ pub fn scan_local(folder: &Path) -> anyhow::Result<BTreeMap<String, String>> {
     Ok(scan_folder(folder)?.files)
 }
 
-/// Walk the folder: its syncable files, and the ignore patterns in force.
+/// Walk the folder: its syncable files, what could not be looked at, and
+/// the ignore patterns in force. Only a folder that cannot be listed at all
+/// is an error.
 pub fn scan_folder(folder: &Path) -> anyhow::Result<Scan> {
-    let patterns = load_ignore_patterns(folder);
-    let mut out = BTreeMap::new();
-    fn walk(
-        dir: &Path,
-        folder: &Path,
-        patterns: &[(bool, String)],
-        out: &mut BTreeMap<String, String>,
-    ) -> anyhow::Result<()> {
+    fn walk(dir: &Path, folder: &Path, scan: &mut Scan) -> std::io::Result<()> {
         for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
+            let path = entry?.path();
             let Ok(rel) = path.strip_prefix(folder) else { continue };
-            let rel = rel.to_string_lossy().replace('\\', "/");
-            if path.is_dir() {
-                if !is_internal_dir(&rel) && !ignored(&rel, patterns) {
-                    walk(&path, folder, patterns, out)?;
+            let lossy = rel.to_string_lossy().replace('\\', "/");
+            let is_dir = path.is_dir();
+            if (is_dir && is_internal_dir(&lossy)) || (!is_dir && is_internal(&lossy)) || scan.ignores(&lossy) {
+                continue;
+            }
+            if rel.to_str().is_none() {
+                // Its path on the server would be a different name from the
+                // one it has here.
+                scan.skipped.insert(lossy, "its name is not valid UTF-8".into());
+                continue;
+            }
+            let rel = lossy;
+            if is_dir {
+                if let Err(e) = walk(&path, folder, scan) {
+                    scan.skipped.insert(rel, format!("the directory cannot be read: {e}"));
                 }
                 continue;
             }
-            if is_internal(&rel) || ignored(&rel, patterns) {
+            if path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) && !path.exists() {
+                scan.skipped.insert(rel, "it is a symbolic link to something that is not there".into());
                 continue;
             }
-            let etag = etag_for_file(&path)
-                .with_context(|| format!("hashing {}", path.display()))?;
-            out.insert(rel, etag);
+            match etag_for_file(&path) {
+                Ok(etag) => scan.files.insert(rel, etag),
+                Err(e) => scan.skipped.insert(rel, format!("it cannot be read: {e:#}")),
+            };
         }
         Ok(())
     }
-    walk(folder, folder, &patterns, &mut out)?;
-    Ok(Scan { files: out, patterns })
+    let mut scan = Scan { files: BTreeMap::new(), skipped: BTreeMap::new(), patterns: load_ignore_patterns(folder) };
+    walk(folder, folder, &mut scan).with_context(|| format!("reading {}", folder.display()))?;
+    Ok(scan)
 }
 
+/// The longest file name the copy may have, in bytes: the limit of the
+/// common Linux file systems, and within those of macOS and Windows.
+const FILE_NAME_MAX: usize = 255;
+
 /// Where a conflict copy goes: `dir/name.ext` → `dir/name.ext.wabi-conflict-ab12cd34`.
+/// When that is longer than a file name may be, the original's name is cut
+/// (on a character) to make room: the marker and tag are what make the file
+/// a conflict copy, and `save_conflict_copy` keeps it apart from any other
+/// copy that is cut to the same name.
 fn conflict_path(local: &Path, tag: &str) -> PathBuf {
-    let mut s = local.as_os_str().to_os_string();
-    s.push(format!(".wabi-conflict-{tag}"));
-    PathBuf::from(s)
+    let suffix = format!("{CONFLICT_MARKER}{tag}");
+    let name = local.file_name().unwrap_or_default();
+    if name.len() + suffix.len() <= FILE_NAME_MAX {
+        let mut s = local.as_os_str().to_os_string();
+        s.push(suffix);
+        return PathBuf::from(s);
+    }
+    let name = name.to_string_lossy();
+    let mut keep = FILE_NAME_MAX.saturating_sub(suffix.len()).min(name.len());
+    while !name.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    local.with_file_name(format!("{}{suffix}", &name[..keep]))
 }
 
 /// Put `bytes`, the contents of `local`, in a conflict copy next to it and
@@ -257,6 +302,11 @@ pub struct SyncReport {
     /// Local files the server refused, each with the reason. They stay as
     /// they are in the folder and are offered again on the next round.
     pub not_uploaded: Vec<String>,
+    /// Paths this round could do nothing with, each with the reason, where
+    /// none of the lists above fits: a local path that cannot be read, a
+    /// download with something in its way, a deletion the server failed.
+    /// The rest of the round ran; these are tried again next round.
+    pub skipped: Vec<String>,
     /// Things the user should know that are about the folder, not one file.
     pub notices: Vec<String>,
 }
@@ -272,6 +322,7 @@ impl SyncReport {
             waiting_review: Vec::new(),
             not_deleted: Vec::new(),
             not_uploaded: Vec::new(),
+            skipped: Vec::new(),
             notices: Vec::new(),
         }
     }
@@ -285,6 +336,7 @@ impl SyncReport {
             && self.waiting_review.is_empty()
             && self.not_deleted.is_empty()
             && self.not_uploaded.is_empty()
+            && self.skipped.is_empty()
             && self.notices.is_empty()
     }
 }
@@ -336,6 +388,24 @@ impl<'a> SyncEngine<'a> {
         self.state.record_local(path, &local_etag, &server_etag);
         self.state.baselines.insert(path.to_string(), Some(server_etag));
         Ok(())
+    }
+
+    /// What in the folder keeps the server's file `path` from being written
+    /// here, if anything: a directory under that very name, or a file where
+    /// one of its directories would be.
+    fn in_the_way(&self, path: &str) -> Option<String> {
+        if self.folder.join(path).is_dir() {
+            return Some(format!("{path} is a directory in this folder and a file on the server"));
+        }
+        let mut parent = path;
+        while let Some((above, _)) = parent.rsplit_once('/') {
+            let full = self.folder.join(above);
+            if full.symlink_metadata().is_ok() && !full.is_dir() {
+                return Some(format!("{above} is a file in this folder and a directory on the server"));
+            }
+            parent = above;
+        }
+        None
     }
 
     /// Stop tracking every path the folder's `.wabiignore` now excludes. A
@@ -471,10 +541,15 @@ impl<'a> SyncEngine<'a> {
             .filter(|f| !is_internal(&f.path) && !scan.ignores(&f.path))
             .map(|f| (f.path.as_str(), &f.etag))
             .collect();
-        let local = scan.files;
+        report.skipped = scan.skipped_lines();
+        let local = &scan.files;
 
         // Remote files: download new/changed when we have no diverging local edit.
         for (path, remote_etag) in &remote {
+            // Nothing is known about the local side of this path.
+            if scan.could_not_read(path) {
+                continue;
+            }
             // The server sends a null etag when it could not hash the file.
             // That says nothing about whether the file changed, so the path
             // is left as it is this round: not fetched again over the local
@@ -514,6 +589,11 @@ impl<'a> SyncEngine<'a> {
                 // The state is changed only once the path is settled: a step
                 // that fails must leave it describing the folder as it is.
                 if !local_has || local_clean {
+                    if let Some(why) = self.in_the_way(path) {
+                        // This path cannot be written here; the others can.
+                        report.skipped.push(format!("{path} (not downloaded: {why}; rename one of the two)"));
+                        continue;
+                    }
                     let bytes = self
                         .client
                         .download(self.link.channel_id, path, None)
@@ -537,7 +617,7 @@ impl<'a> SyncEngine<'a> {
         // Baseline files that vanished remotely → delete locally when clean.
         let baseline_paths: Vec<String> = self.state.baselines.keys().cloned().collect();
         for path in baseline_paths {
-            if remote.contains_key(path.as_str()) {
+            if remote.contains_key(path.as_str()) || scan.could_not_read(&path) {
                 continue;
             }
             let baseline = self.state.baselines.get(&path).cloned().flatten();
@@ -576,10 +656,11 @@ impl<'a> SyncEngine<'a> {
         let mut report = SyncReport::new();
         let scan = scan_folder(self.folder)?;
         self.forget_ignored(&scan);
-        let local = scan.files;
+        report.skipped = scan.skipped_lines();
+        let local = &scan.files;
 
         // Upload new + modified local files.
-        for (path, local_etag) in &local {
+        for (path, local_etag) in local {
             let baseline = self.state.baselines.get(path).cloned().flatten();
             if self.state.local_matches_baseline(path, local_etag) {
                 // Unchanged since last sync (or put back to the mainline
@@ -660,13 +741,16 @@ impl<'a> SyncEngine<'a> {
         }
 
         // A file removed locally is no longer waiting for review.
-        self.state.pending_review.retain(|path, _| local.contains_key(path));
-        self.state.local_fingerprints.retain(|path, _| local.contains_key(path));
+        // (One that could not be read was not removed.)
+        let still_there = |path: &String| local.contains_key(path) || scan.could_not_read(path);
+        self.state.pending_review.retain(|path, _| still_there(path));
+        self.state.local_fingerprints.retain(|path, _| still_there(path));
 
         // Baseline files deleted locally → delete remotely.
         let baseline_paths: Vec<String> = self.state.baselines.keys().cloned().collect();
         for path in baseline_paths {
-            if local.contains_key(&path) {
+            // Absent from the scan because it could not be read is not deleted.
+            if local.contains_key(&path) || scan.could_not_read(&path) {
                 continue;
             }
             let baseline = self.state.baselines.get(&path).cloned().flatten();
@@ -690,6 +774,15 @@ impl<'a> SyncEngine<'a> {
                 Ok(DeleteOutcome::Forbidden) => {
                     // Baseline stays: the file is still on the server.
                     report.not_deleted.push(path.clone());
+                }
+                Ok(DeleteOutcome::Failed(refusal)) => {
+                    // Baseline stays, so the deletion is asked for again
+                    // next round; the other paths do not wait for it.
+                    let said = if refusal.reason.is_empty() { String::new() } else { format!(": {}", refusal.reason) };
+                    report.skipped.push(format!(
+                        "{path} (not deleted on the server, which answered {}{said}; asked again next round if it is still there)",
+                        refusal.status
+                    ));
                 }
                 Err(e) => return Err(e),
             }
@@ -715,6 +808,13 @@ impl<'a> SyncEngine<'a> {
         pushed.deleted_local.extend(pulled.deleted_local);
         pushed.deleted_remote.extend(pulled.deleted_remote);
         pushed.conflicts.extend(pulled.conflicts);
+        // Both halves scan the folder; a path either could not read is
+        // reported once.
+        for line in pulled.skipped {
+            if !pushed.skipped.contains(&line) {
+                pushed.skipped.push(line);
+            }
+        }
         // Only what is still pending after the pull (not approved or
         // conflicted in this same round).
         pushed.waiting_review.retain(|p| self.state.pending_review.contains_key(p));
@@ -806,6 +906,9 @@ pub fn print_report(prefix: &str, report: &SyncReport) {
         println!("{prefix} ⚠ {p} (not deleted: you do not have permission)");
     }
     for p in &report.not_uploaded {
+        println!("{prefix} ⚠ {p}");
+    }
+    for p in &report.skipped {
         println!("{prefix} ⚠ {p}");
     }
 }
@@ -917,6 +1020,26 @@ mod tests {
         std::os::unix::fs::symlink("nowhere", dir.path().join("broken")).unwrap();
         let scanned = scan_local(dir.path()).expect("the scan stopped at the link");
         assert_eq!(scanned.keys().collect::<Vec<_>>(), vec!["a.txt"]);
+
+        // What was left out is said, with the reason; ignored and internal
+        // paths are not mentioned.
+        std::fs::create_dir_all(dir.path().join("sub/.git")).unwrap();
+        std::os::unix::fs::symlink("nowhere", dir.path().join("sub/.git/broken")).unwrap();
+        std::os::unix::fs::symlink("nowhere", dir.path().join("ignored-link")).unwrap();
+        std::fs::write(dir.path().join(".wabiignore"), "ignored-link\n").unwrap();
+        use std::os::unix::ffi::OsStrExt;
+        std::fs::write(dir.path().join(std::ffi::OsStr::from_bytes(b"caf\xe9.txt")), b"latin-1").unwrap();
+        let scan = scan_folder(dir.path()).unwrap();
+        assert_eq!(scan.files.keys().collect::<Vec<_>>(), vec!["a.txt"]);
+        assert_eq!(
+            scan.skipped_lines(),
+            vec![
+                "broken (not synced: it is a symbolic link to something that is not there)",
+                "caf\u{fffd}.txt (not synced: its name is not valid UTF-8)",
+            ]
+        );
+        assert!(scan.could_not_read("broken") && scan.could_not_read("broken/below"));
+        assert!(!scan.could_not_read("broken.txt") && !scan.could_not_read("a.txt"));
     }
 
     /// B8. A local edit is pushed when the events have settled, whether or
