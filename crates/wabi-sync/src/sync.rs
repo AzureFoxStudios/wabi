@@ -787,7 +787,10 @@ impl<'a> SyncEngine<'a> {
             if let Some(refused) = self.state.refused_uploads.get(path) {
                 // The same file the server already refused: its body is
                 // not sent again to hear the same answer.
-                if refused.etag == *local_etag && (refused.status != 403 || permission_refused_again) {
+                if refused.etag == *local_etag
+                    && remembers_refusal(refused.status)
+                    && (refused.status != 403 || permission_refused_again)
+                {
                     report.not_uploaded.push(still_refused_line(path, refused));
                     continue;
                 }
@@ -843,10 +846,16 @@ impl<'a> SyncEngine<'a> {
                     // does not depend on this file.
                     report.not_uploaded.push(format!("{path} (not uploaded: {refusal})"));
                     permission_refused_again |= refusal.status == 403;
-                    self.state.refused_uploads.insert(
-                        path.clone(),
-                        RefusedUpload { etag: local_etag.clone(), status: refusal.status, said: refusal.to_string() },
-                    );
+                    if remembers_refusal(refusal.status) {
+                        self.state.refused_uploads.insert(
+                            path.clone(),
+                            RefusedUpload { etag: local_etag.clone(), status: refusal.status, said: refusal.to_string() },
+                        );
+                    } else {
+                        // A failure of the server's (5xx) may be gone by the
+                        // next round: the file is offered again then.
+                        self.state.refused_uploads.remove(path);
+                    }
                 }
                 UploadOutcome::Conflict(conflict) => {
                     self.state.refused_uploads.remove(path);
@@ -946,12 +955,24 @@ impl<'a> SyncEngine<'a> {
     }
 }
 
+/// Is a refused upload with this status remembered, so that the unchanged
+/// file is not sent again? Only when the answer is about the file or the
+/// member and will be the same next round: 400 (a name or body the server
+/// does not accept), 403 (no permission; one file asks again each round),
+/// 413 (over the size limit) and 422. A 5xx is the server failing, and the
+/// file is offered again on every round.
+fn remembers_refusal(status: u16) -> bool {
+    matches!(status, 400 | 403 | 413 | 422)
+}
+
 /// The report line for a file the server refused before, unchanged since.
 fn still_refused_line(path: &str, refused: &RefusedUpload) -> String {
-    format!(
-        "{path} (still not uploaded: {}; the file has not changed since. `wabi-sync resubmit {path}` sends it again)",
-        refused.said
-    )
+    let again = if refused.status == 413 {
+        format!("once the server's size limit has been raised, `wabi-sync resubmit {path}` sends it again")
+    } else {
+        format!("`wabi-sync resubmit {path}` sends it again")
+    };
+    format!("{path} (still not uploaded: {}; the file has not changed since. {again})", refused.said)
 }
 
 /// What `wabi-sync status` says about the files in the folder.
