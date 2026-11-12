@@ -738,6 +738,254 @@ fn crash_before_a_message_commit_is_applied_replays_it() {
 }
 
 // ---------------------------------------------------------------------------
+// Task 3.5.2: channels live in the read model too. The room placement
+// projection, which stays in the snapshot, reads them while it applies.
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "test-harness")]
+fn channel_event(kind: &str, stream: &str, value: serde_json::Value) -> EventToWrite {
+    EventToWrite {
+        stream_id: stream.into(),
+        event_type: kind.into(),
+        stream_kind: 6,
+        record_kind: RecordKind::Event,
+        plaintext: serde_json::to_vec(&value).unwrap(),
+    }
+}
+
+/// A command creating a channel on the shared stream (the engine names it
+/// `ch_{seq:x}`), with its first room placement in the same commit when
+/// `placed`.
+#[cfg(feature = "test-harness")]
+fn create_channel_cmd(name: &str, placed: bool) -> CommandCommit {
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let mut events = vec![channel_event(
+        "channel_created",
+        "channels",
+        serde_json::to_value(crate::domain::Channel::new("", name, 7)).unwrap(),
+    )];
+    if placed {
+        events.push(channel_event(
+            crate::projections::room_placement::INIT_EVENT,
+            crate::projections::room_placement::INIT_STREAM,
+            serde_json::json!({"schemaVersion": 1, "ownerNodeId": "node-1", "replicaNodeIds": []}),
+        ));
+    }
+    CommandCommit {
+        room_owner_precondition: None,
+        caller_user_id: 7,
+        caller_device_id: "crash".into(),
+        command_name: "crash_channel".into(),
+        idempotency_key: None,
+        events,
+        essential: true,
+        response_tx: tx,
+    }
+}
+
+#[cfg(feature = "test-harness")]
+fn channel_change_cmd(kind: &str, value: serde_json::Value) -> CommandCommit {
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let id = value["channel_id"].as_str().unwrap().to_string();
+    CommandCommit {
+        room_owner_precondition: None,
+        caller_user_id: 7,
+        caller_device_id: "crash".into(),
+        command_name: "crash_channel".into(),
+        idempotency_key: None,
+        events: vec![channel_event(kind, &format!("channels:{id}"), value)],
+        essential: true,
+        response_tx: tx,
+    }
+}
+
+#[cfg(feature = "test-harness")]
+async fn ensure_channel_streams(engine: &WabiDbEngine) {
+    for stream in ["channels", crate::projections::room_placement::INIT_STREAM, "channels:ch_1", "channels:ch_4"] {
+        engine.get_or_create_stream_key(stream).await.unwrap();
+    }
+}
+
+/// Child of the two channel crash tests. Opens the directory the parent
+/// prepared (channels ch_1..ch_3, cleanly stopped, snapshot at 3).
+/// - `write`: creates a placed channel (commit 4); the configured crash point
+///   ends the process inside that commit.
+/// - `checkpoint`: creates a placed channel (4), deletes it (5), creates
+///   another (6), renames ch_1 (7), then takes a checkpoint, inside which the
+///   crash point ends the process.
+#[cfg(feature = "test-harness")]
+#[test]
+fn run_channel_crash_child() {
+    let Ok(step) = std::env::var("WABIDB_CHANNEL_CRASH") else {
+        return; // not in child mode
+    };
+    let data_dir = std::path::PathBuf::from(std::env::var("WABIDB_DATA_DIR").unwrap());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(&data_dir)).await.unwrap();
+        ensure_channel_streams(&engine).await;
+        let _ = engine.run_command(create_channel_cmd("placed", true)).await;
+        if step == "checkpoint" {
+            engine
+                .run_command(channel_change_cmd("channel_deleted", serde_json::json!({"channel_id": "ch_4"})))
+                .await
+                .unwrap();
+            engine.run_command(create_channel_cmd("six", false)).await.unwrap();
+            engine
+                .run_command(channel_change_cmd(
+                    "channel_updated",
+                    serde_json::json!({"channel_id": "ch_1", "name": "renamed before the crash"}),
+                ))
+                .await
+                .unwrap();
+            let _ = engine.projection_state().save_snapshot(&data_dir);
+        }
+        panic!("child did not crash at its boundary; crash_point may not be wired");
+    });
+}
+
+#[cfg(feature = "test-harness")]
+fn crash_with_channels(boundary: &str, step: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let engine = WabiDbEngine::open(crash_config(dir.path())).await.unwrap();
+        ensure_channel_streams(&engine).await;
+        for name in ["one", "two", "three"] {
+            engine.run_command(create_channel_cmd(name, false)).await.unwrap();
+        }
+        engine.close_for_tests().await.unwrap();
+    });
+    assert_eq!(
+        crate::engine::locks::ProjectionState::read_snapshot_watermark(dir.path()).unwrap(),
+        Some(3)
+    );
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("tests::power_loss::run_channel_crash_child")
+        .arg("--nocapture")
+        .env("WABIDB_CHANNEL_CRASH", step)
+        .env("WABIDB_CRASH_AT", boundary)
+        .env("WABIDB_DATA_DIR", dir.path())
+        .status()
+        .unwrap();
+    assert!(!status.success(), "child should have crashed");
+    assert_eq!(validate_crash_signal(dir.path()), Some(boundary.to_string()));
+    dir
+}
+
+/// The channel ids in the read model file as the crash left it, and its
+/// `applied_commit_seq` for channels, read in one SQLite read transaction.
+/// (Opening the file recovers its write-ahead log, as the engine would.)
+#[cfg(feature = "test-harness")]
+fn channel_file_after_crash(data_dir: &std::path::Path) -> (Vec<String>, u64) {
+    let path = crate::engine::locks::ProjectionState::read_model_path(data_dir);
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch("BEGIN").unwrap();
+    let ids = conn
+        .prepare("SELECT CAST(key AS TEXT) FROM channels ORDER BY key")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(|id| id.unwrap())
+        .collect();
+    let applied: i64 = conn
+        .query_row(
+            "SELECT coalesce((SELECT seq FROM applied_commit_seq WHERE projection = 'channels'), 0)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    (ids, applied as u64)
+}
+
+/// Every channel the engine serves after a restart (id and name), the room
+/// placements, and its watermark.
+#[cfg(feature = "test-harness")]
+async fn channels_after_crash(data_dir: &std::path::Path) -> (u64, Vec<(String, String)>, Vec<String>) {
+    use crate::projections::channels::ChannelProjection;
+    use crate::projections::query::{ChannelsFilter, QueryableProjection};
+    let engine = WabiDbEngine::open(crash_config(data_dir)).await.unwrap();
+    let state = engine.projection_state();
+    let channels = ChannelProjection
+        .query(state, &ChannelsFilter::default())
+        .unwrap()
+        .into_iter()
+        .map(|channel| (channel.channel_id, channel.name))
+        .collect();
+    let mut placed = Vec::new();
+    for id in ["ch_1", "ch_2", "ch_3", "ch_4", "ch_5", "ch_6", "ch_7"] {
+        if state.get(crate::projections::room_placement::INDEX, id.as_bytes()).is_some() {
+            placed.push(id.to_string());
+        }
+    }
+    let applied = state.applied_commit_seq();
+    engine.close_for_tests().await.unwrap();
+    (applied, channels, placed)
+}
+
+#[cfg(feature = "test-harness")]
+fn named(rows: &[(&str, &str)]) -> Vec<(String, String)> {
+    rows.iter().map(|(id, name)| (id.to_string(), name.to_string())).collect()
+}
+
+/// The process dies right after a commit that created a channel and its room
+/// placement was applied, before the caller heard back, with no checkpoint
+/// and no shutdown (snapshot at 3). The file as the crash left it has the
+/// channel's row exactly when its `applied_commit_seq` covers the commit; the
+/// next open ends with the channel and its placement either way.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_after_a_channel_commit_keeps_its_rows_and_watermark_together() {
+    let dir = crash_with_channels("crash_after_projection_update", "write");
+    let (ids, applied) = channel_file_after_crash(dir.path());
+    println!("after the crash: channels {ids:?}, applied_commit_seq {applied}");
+    assert_eq!(ids.contains(&"ch_4".to_string()), applied >= 4, "{ids:?} at {applied}");
+    assert!(applied <= 4);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let after = rt.block_on(channels_after_crash(dir.path()));
+    let expected = (
+        4,
+        named(&[("ch_1", "one"), ("ch_2", "two"), ("ch_3", "three"), ("ch_4", "placed")]),
+        vec!["ch_4".to_string()],
+    );
+    assert_eq!(after, expected);
+    assert_eq!(channel_file_after_crash(dir.path()), (vec!["ch_1".into(), "ch_2".into(), "ch_3".into(), "ch_4".into()], 4));
+    assert_eq!(rt.block_on(channels_after_crash(dir.path())), expected);
+}
+
+/// The process dies inside a checkpoint: the read model is durable at commit
+/// 7 and the snapshot still says 3. Commit 4 created a placed channel that
+/// commit 5 deleted, so the next open replays a placement whose channel the
+/// read model no longer holds; it must open, with every channel change kept.
+#[cfg(feature = "test-harness")]
+#[test]
+#[ignore]
+fn crash_between_read_model_sync_and_snapshot_keeps_channels() {
+    let dir = crash_with_channels("crash_between_read_model_sync_and_snapshot", "checkpoint");
+    assert_eq!(
+        crate::engine::locks::ProjectionState::read_snapshot_watermark(dir.path()).unwrap(),
+        Some(3)
+    );
+    let (ids, applied) = channel_file_after_crash(dir.path());
+    assert_eq!(applied, 7);
+    assert_eq!(ids, ["ch_1", "ch_2", "ch_3", "ch_6"]);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let expected = (
+        7,
+        named(&[
+            ("ch_1", "renamed before the crash"),
+            ("ch_2", "two"),
+            ("ch_3", "three"),
+            ("ch_6", "six"),
+        ]),
+        vec!["ch_4".to_string()],
+    );
+    assert_eq!(rt.block_on(channels_after_crash(dir.path())), expected);
+    assert_eq!(rt.block_on(channels_after_crash(dir.path())), expected);
+}
+
+// ---------------------------------------------------------------------------
 // Restart safety regression test (no crash harness needed)
 // ---------------------------------------------------------------------------
 
