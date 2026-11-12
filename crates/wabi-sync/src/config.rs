@@ -180,6 +180,24 @@ pub struct SyncState {
     /// build without this field drops it, and with it only the notice.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unreported_conflicts: Vec<String>,
+    /// Files the server refused to store, by path. A refused file is not
+    /// sent again until it changes (its whole body would go up each round
+    /// to get the same answer); the report says each round that it is still
+    /// refused and why. `wabi-sync resubmit <path>` forgets the entry.
+    /// Optional on read and left out when empty; a build without this field
+    /// drops it and goes back to sending refused files every round.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub refused_uploads: BTreeMap<String, RefusedUpload>,
+}
+
+/// One refused upload: which version of the file, and the server's answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedUpload {
+    /// The local etag the file had when it was refused.
+    pub etag: String,
+    pub status: u16,
+    /// The refusal as the report words it.
+    pub said: String,
 }
 
 impl SyncState {

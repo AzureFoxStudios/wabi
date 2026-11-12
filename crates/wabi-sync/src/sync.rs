@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 
 use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
-use crate::config::{FolderLock, LinkConfig, StateOwner, SyncState, LINK_FILE, STATE_DIR};
+use crate::config::{FolderLock, LinkConfig, RefusedUpload, StateOwner, SyncState, LINK_FILE, STATE_DIR};
 use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 
 /// What every conflict copy has in its file name.
@@ -300,7 +300,8 @@ pub struct SyncReport {
     /// Local deletions the server refused (403).
     pub not_deleted: Vec<String>,
     /// Local files the server refused, each with the reason. They stay as
-    /// they are in the folder and are offered again on the next round.
+    /// they are in the folder. A refused file is offered again when it has
+    /// changed; until then each round says it is still refused.
     pub not_uploaded: Vec<String>,
     /// Paths this round could do nothing with, each with the reason, where
     /// none of the lists above fits: a local path that cannot be read, a
@@ -367,6 +368,7 @@ impl<'a> SyncEngine<'a> {
         state.baselines.retain(|path, _| !is_internal(path));
         state.pending_review.retain(|path, _| !is_internal(path));
         state.local_fingerprints.retain(|path, _| !is_internal(path));
+        state.refused_uploads.retain(|path, _| !is_internal(path));
         Ok(Self { client, folder, link, state, notices: notice.into_iter().collect(), _lock: lock })
     }
 
@@ -416,6 +418,7 @@ impl<'a> SyncEngine<'a> {
         self.state.baselines.retain(|path, _| !scan.ignores(path));
         self.state.pending_review.retain(|path, _| !scan.ignores(path));
         self.state.local_fingerprints.retain(|path, _| !scan.ignores(path));
+        self.state.refused_uploads.retain(|path, _| !scan.ignores(path));
     }
 
     /// The user and someone else both changed `path`. The rule, wherever the
@@ -659,10 +662,17 @@ impl<'a> SyncEngine<'a> {
         report.skipped = scan.skipped_lines();
         let local = &scan.files;
 
+        // A refusal for lack of permission (403) is about the member, not
+        // the file, and ends when the member is given the right or a new
+        // token. So one such file asks again each round; the others wait
+        // for its answer, and follow it in the same round when it is yes.
+        let mut permission_refused_again = false;
+
         // Upload new + modified local files.
         for (path, local_etag) in local {
             let baseline = self.state.baselines.get(path).cloned().flatten();
             if self.state.local_matches_baseline(path, local_etag) {
+                self.state.refused_uploads.remove(path);
                 // Unchanged since last sync (or put back to the mainline
                 // version while an edit was waiting for review; the
                 // fingerprint then described the edit, so it goes too).
@@ -675,6 +685,18 @@ impl<'a> SyncEngine<'a> {
                 // Already uploaded to a review branch; nothing new to send.
                 report.waiting_review.push(path.clone());
                 continue;
+            }
+            if let Some(refused) = self.state.refused_uploads.get(path) {
+                // The same file the server already refused: its body is
+                // not sent again to hear the same answer.
+                if refused.etag == *local_etag && (refused.status != 403 || permission_refused_again) {
+                    report.not_uploaded.push(format!(
+                        "{path} (still not uploaded: {}; the file has not changed since. \
+                         `wabi-sync resubmit {path}` sends it again)",
+                        refused.said
+                    ));
+                    continue;
+                }
             }
             let bytes = std::fs::read(self.folder.join(path))?;
             // What the file looked like locally when these bytes were sent.
@@ -703,6 +725,7 @@ impl<'a> SyncEngine<'a> {
             match outcome {
                 UploadOutcome::Ok { etag, revision, pending_review } => {
                     report.uploaded.push(path.clone());
+                    self.state.refused_uploads.remove(path);
                     let _ = revision;
                     // Adopt the server's canonical etag: it is what If-Match
                     // and the manifest comparison need. For a file over the
@@ -725,8 +748,14 @@ impl<'a> SyncEngine<'a> {
                     // Nothing changed on either side; the rest of the round
                     // does not depend on this file.
                     report.not_uploaded.push(format!("{path} (not uploaded: {refusal})"));
+                    permission_refused_again |= refusal.status == 403;
+                    self.state.refused_uploads.insert(
+                        path.clone(),
+                        RefusedUpload { etag: local_etag.clone(), status: refusal.status, said: refusal.to_string() },
+                    );
                 }
                 UploadOutcome::Conflict(conflict) => {
+                    self.state.refused_uploads.remove(path);
                     if conflict.current_etag.as_deref() == Some(sent_etag.as_str()) {
                         // The server already holds these very bytes (the
                         // same edit made twice): nothing to keep apart.
@@ -745,6 +774,7 @@ impl<'a> SyncEngine<'a> {
         let still_there = |path: &String| local.contains_key(path) || scan.could_not_read(path);
         self.state.pending_review.retain(|path, _| still_there(path));
         self.state.local_fingerprints.retain(|path, _| still_there(path));
+        self.state.refused_uploads.retain(|path, _| still_there(path));
 
         // Baseline files deleted locally → delete remotely.
         let baseline_paths: Vec<String> = self.state.baselines.keys().cloned().collect();

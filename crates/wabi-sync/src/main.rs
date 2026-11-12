@@ -76,10 +76,12 @@ enum Command {
         #[arg(default_value = ".")]
         folder: PathBuf,
     },
-    /// Send a file for review again. Use it when a review upload was
-    /// rejected: wabi-sync cannot see a rejection and goes on reporting the
-    /// file as "waiting for review". The next sync uploads the file as it is
-    /// now, as a new review request.
+    /// Send a file again. Use it when a review upload was rejected:
+    /// wabi-sync cannot see a rejection and goes on reporting the file as
+    /// "waiting for review". The next sync uploads the file as it is now,
+    /// as a new review request. Also use it for a file the server refused,
+    /// once the reason is gone: an unchanged refused file is not sent again
+    /// by itself.
     Resubmit {
         /// The file, relative to the folder (as sync prints it).
         path: String,
@@ -344,11 +346,17 @@ async fn main() -> Result<()> {
             // Not while a round is reading and writing the same state.
             let _lock = FolderLock::acquire(&folder)?;
             let mut state = SyncState::load(&folder)?;
-            if !state.forget_review(path) {
-                anyhow::bail!("{path} is not waiting for review (see `wabi-sync status`)");
+            let was_waiting = state.forget_review(path);
+            let was_refused = state.refused_uploads.remove(path).is_some();
+            if !was_waiting && !was_refused {
+                anyhow::bail!("{path} is neither waiting for review nor refused by the server (see `wabi-sync status`)");
             }
             state.save(&folder)?;
-            println!("{path} is no longer marked as waiting for review; the next sync uploads it again.");
+            if was_waiting {
+                println!("{path} is no longer marked as waiting for review; the next sync uploads it again.");
+            } else {
+                println!("{path} is no longer marked as refused; the next sync uploads it again.");
+            }
             Ok(())
         }
         Command::Lock { folder, path } => {
