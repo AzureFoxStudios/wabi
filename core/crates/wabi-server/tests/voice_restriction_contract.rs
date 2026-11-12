@@ -225,15 +225,6 @@ async fn old_ignored_events_are_rebuilt_before_admission_without_changing_other_
         .create_group("group-legacy", "membership repair", actor, &[actor, 2])
         .await
         .unwrap();
-    let removed_member =
-        wabidb::projections::channel_members::ChannelMembersProjection::list_members(
-            store.engine().projection_state(),
-            "group-legacy",
-        )
-        .unwrap()
-        .into_iter()
-        .find(|member| member.user_id == 2)
-        .unwrap();
     store
         .remove_channel_member("group-legacy", 2)
         .await
@@ -267,20 +258,9 @@ async fn old_ignored_events_are_rebuilt_before_admission_without_changing_other_
     // untouched; the next engine open must discover every affected pair.
     state.compact_index(MUTES, |_, _| true);
     state.compact_index(DEAFENS, |_, _| true);
-    // Both legacy repairs can be active at one checkpoint. Neither may
-    // interpret the other domain's historical events or restore a removal.
-    state.insert(
-        "channel_members",
-        wabidb::projections::channel_members::encode_key("group-legacy", 2),
-        wabidb::projections::channel_members::encode_record(&removed_member),
-        watermark,
-    );
-    state.insert(
-        "events",
-        b"channel_member_removed".to_vec(),
-        wabidb::projections::channel_members::encode_record(&removed_member),
-        watermark,
-    );
+    // The voice repair must not interpret the membership history between
+    // these events or restore the removal. (Memberships live in the SQLite
+    // read model and are never repaired from a snapshot.)
     for (event_type, payload) in markers {
         state.insert("events", event_type.as_bytes().to_vec(), payload, watermark);
     }

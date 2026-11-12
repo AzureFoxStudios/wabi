@@ -80,6 +80,20 @@ pub trait Projection: Send + Sync {
         false
     }
 
+    /// The part of [`Self::apply`] that writes the read model, for a rebuild
+    /// of the read model over a commit the snapshot already covers (the
+    /// in-memory projections hold that commit already and must not see it
+    /// again). By default the whole `apply` for a handler whose rows live in
+    /// the read model, and nothing otherwise. A handler that keeps its own
+    /// rows in memory but also writes rows of the read model overrides it.
+    fn apply_to_read_model(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        if self.stores_in_read_model() {
+            self.apply(event, state)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Apply the event to the projection state. Called by the dispatcher
     /// after the event is durable.
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()>;

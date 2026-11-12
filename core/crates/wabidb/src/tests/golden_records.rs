@@ -899,12 +899,12 @@ fn golden_user_deleted() {
     use crate::projections::handler::{DurableEvent, Projection};
     let state = ProjectionState::new();
     let member = channel_member();
-    state.insert(
-        "channel_members",
-        channel_members::encode_key(&member.channel_id, member.user_id),
-        channel_members::encode_record(&member),
-        1,
+    channel_members::insert_raw_for_tests(
+        &state,
+        &channel_members::encode_key(&member.channel_id, member.user_id),
+        &channel_members::encode_record(&member),
     );
+    assert_eq!(channel_members::ChannelMembersProjection::list_members(&state, "ch_general").unwrap().len(), 1);
     let event = DurableEvent {
         commit_seq: 2,
         stream_id: "users".into(),
