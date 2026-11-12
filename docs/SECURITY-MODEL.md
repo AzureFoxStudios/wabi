@@ -24,8 +24,9 @@ below do not prove that every entry point is protected.
 
 The current [Lore credential-boundary work](plans/2026-09-07-lore-credential-boundary.md)
 separates external-tool tokens from account authentication, binds them to one
-channel and scope, enforces revocation/current membership, and repairs the
-membership projection's ignored removal events (including affected snapshots).
+channel and scope, and enforces revocation/current membership. (Its repair of
+old membership snapshots was removed in PR 345: memberships now live in the
+SQLite read model and are rebuilt from the log.)
 See [Lore connect tokens](addons/lore.md#84c-connect-tokens-server-minted) for
 the exact allowed operations. This is a bounded improvement, not an overall
 security sign-off.
