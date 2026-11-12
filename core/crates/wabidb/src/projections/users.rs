@@ -640,9 +640,7 @@ mod tests {
             username: "wabi".into(),
             handle: Some("wabi".into()),
             color: "#98D8C8".into(),
-            // A fixture value, not a credential: random so no constant is
-            // stored as a password.
-            password_hash: crate::tests::read_model_users::fixture_secret("$2b$12$legacyhash"),
+            password_hash: "$2b$12$legacyhash".into(),
             is_registered: true,
             is_active: true,
             created_at_micros: 1_000_000,
@@ -652,7 +650,7 @@ mod tests {
         // Must not require the newer trailing Option fields.
         let decoded = decode_record(&buf).expect("v1 fallback decode");
         assert_eq!(decoded.username, "wabi");
-        assert_eq!(decoded.password_hash, legacy.password_hash);
+        assert_eq!(decoded.password_hash, "$2b$12$legacyhash");
         assert_eq!(decoded.profile_picture, None);
         assert_eq!(decoded.bio, None);
 

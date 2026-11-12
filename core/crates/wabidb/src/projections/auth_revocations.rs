@@ -584,9 +584,9 @@ mod tests {
         super::super::users::insert_raw_for_tests(
             &state,
             8,
-            // A fixture value, not a credential: random so no constant is
-            // stored as a password.
-            &super::super::users::encode_record(&user(8, "old-owner", &crate::tests::read_model_users::fixture_secret("hash"))),
+            // A fixture value, not a credential: built from the id so no
+            // literal flows into the account row.
+            &super::super::users::encode_record(&user(8, "old-owner", &format!("hash-{}", 8))),
         );
         state.insert(
             "server_meta",

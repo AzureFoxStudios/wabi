@@ -1229,11 +1229,7 @@ fn user_cmd(kind: &str, user_id: u64, name: &str) -> CommandCommit {
         username: name.into(),
         handle: None,
         color: if kind == "user_registered" { "#98D8C8".into() } else { String::new() },
-        password_hash: if kind == "user_registered" {
-            crate::tests::read_model_users::fixture_secret(&format!("hash-{name}"))
-        } else {
-            String::new()
-        },
+        password_hash: if kind == "user_registered" { format!("hash-{name}") } else { String::new() },
         is_registered: true,
         is_active: true,
         created_at_micros: 100,
