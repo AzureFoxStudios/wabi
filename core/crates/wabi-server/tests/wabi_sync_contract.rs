@@ -998,9 +998,11 @@ async fn names_the_server_refuses_do_not_abort_the_round() {
     assert!(report.not_uploaded[0].contains("400: Invalid repository file path"), "{}", describe(&report));
     assert!(report.not_uploaded[1].starts_with("node_modules/pkg/x.js (not uploaded: "), "{}", describe(&report));
     assert!(report.not_uploaded[1].contains("500"), "{}", describe(&report));
-    // They are offered again, and refused again, on the next round.
+    // Unchanged, they are not sent again; the next round says they are
+    // still refused (a_refused_file_is_not_sent_again_until_it_changes).
     let again = mine.sync().await.unwrap();
-    assert_eq!(again.not_uploaded, report.not_uploaded);
+    assert_eq!(again.not_uploaded.len(), 2, "{}", describe(&again));
+    assert!(again.not_uploaded[0].starts_with("AUX.txt (still not uploaded: "), "{}", describe(&again));
     assert!(again.uploaded.is_empty() && again.downloaded.is_empty(), "{}", describe(&again));
     for kept in ["sub/.git/config", "sub/.wabiignore", "AUX.txt", "node_modules/pkg/x.js"] {
         assert!(mine.read(kept).is_some(), "{kept} was removed from the folder");
@@ -1935,6 +1937,19 @@ async fn a_refused_file_is_not_sent_again_until_it_changes() {
     let third = mine.sync().await.unwrap();
     assert_eq!(server.requests("PUT", "/files/"), (1, 6));
     assert!(third.not_uploaded[0].starts_with("AUX.txt (not uploaded: "), "{}", describe(&third));
+
+    // What `wabi-sync resubmit <path>` does for a refused file.
+    let mut state = mine.state();
+    assert!(state.refused_uploads.remove("node_modules/pkg/x.js").is_some());
+    state.save(mine.path()).unwrap();
+    mine.sync().await.unwrap();
+    assert_eq!(server.requests("PUT", "/files/node_modules").0, 1);
+
+    // A refused file that is removed is forgotten.
+    std::fs::remove_file(mine.path().join("AUX.txt")).unwrap();
+    std::fs::remove_dir_all(mine.path().join("node_modules")).unwrap();
+    assert_quiet(&mine.sync().await.unwrap());
+    assert!(mine.state().refused_uploads.is_empty());
 }
 
 /// B5. A refusal for lack of permission is about the member, not the file:
@@ -1952,6 +1967,8 @@ async fn files_refused_for_lack_of_permission_go_up_once_permission_is_given() {
     let report = reader.sync().await.unwrap();
     assert_eq!(report.not_uploaded.len(), 3, "{}", describe(&report));
     assert_eq!(server.requests("PUT", "/files/").0, 1, "every refused file was sent again");
+    assert!(report.not_uploaded[0].starts_with("one.txt (not uploaded: you do not have permission"), "{}", describe(&report));
+    assert!(report.not_uploaded[1].starts_with("three.txt (still not uploaded: you do not have permission"), "{}", describe(&report));
 
     server
         .state
