@@ -44,8 +44,17 @@
 //!   No test checks that replay skips the commits a snapshot already covers; that is read
 //!   from `engine/mod.rs` (`open`) and `engine/replay.rs` (`replay_projections`). A snapshot
 //!   never claims more than its rows hold (test:
-//!   `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). A persistent
-//!   read model is *planned* (`docs/architecture/ADR-0001-projection-storage.md`).
+//!   `engine::locks::tests::snapshot_never_overclaims_watermark_coverage`). The messages
+//!   projection is the exception: it lives in a SQLite read model,
+//!   `projections/read-model.sqlite3` (`projections::read_model`,
+//!   `docs/architecture/ADR-0001-projection-storage.md`). That file is derived from the log
+//!   (deleting it changes no read; test:
+//!   `tests::read_model_messages::deleting_the_read_model_file_changes_no_read`), is created
+//!   with mode 0600 and is not encrypted (test:
+//!   `tests::read_model_messages::the_read_model_file_is_owner_only_and_messages_leave_the_snapshot`).
+//!   The engine never rebuilds it from a log that ends below a saved projection (test:
+//!   `tests::read_model_messages::a_log_shorter_than_the_checkpoint_is_never_rebuilt_from`).
+//!   The other projections are to follow, one at a time (*planned*).
 //! - **Retention** (`retention`): backup helpers that copy and hash files (tests:
 //!   `retention::data_backup::tests::backup_populated`,
 //!   `retention::verify_backup::tests::hash_mismatch_reported`). No command or server
