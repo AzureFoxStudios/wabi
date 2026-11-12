@@ -860,7 +860,13 @@ async fn names_the_server_refuses_do_not_abort_the_round() {
     assert!(report.not_uploaded[0].starts_with("AUX.txt (not uploaded: "), "{}", describe(&report));
     assert!(report.not_uploaded[0].contains("400: Invalid repository file path"), "{}", describe(&report));
     assert!(report.not_uploaded[1].starts_with("node_modules/pkg/x.js (not uploaded: "), "{}", describe(&report));
-    assert!(report.not_uploaded[1].contains("500"), "{}", describe(&report));
+    // 422 with the server's reason, not a 500 with none.
+    assert!(
+        report.not_uploaded[1]
+            .ends_with("(not uploaded: path is ignored by .wabiignore (422))"),
+        "{}",
+        describe(&report)
+    );
     // They are offered again, and refused again, on the next round.
     let again = mine.sync().await.unwrap();
     assert_eq!(again.not_uploaded, report.not_uploaded);
