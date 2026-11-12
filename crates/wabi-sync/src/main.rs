@@ -76,6 +76,17 @@ enum Command {
         #[arg(default_value = ".")]
         folder: PathBuf,
     },
+    /// Send a file for review again. Use it when a review upload was
+    /// rejected: wabi-sync cannot see a rejection and goes on reporting the
+    /// file as "waiting for review". The next sync uploads the file as it is
+    /// now, as a new review request.
+    Resubmit {
+        /// The file, relative to the folder (as sync prints it).
+        path: String,
+        /// Folder (default: cwd).
+        #[arg(long, default_value = ".")]
+        folder: PathBuf,
+    },
     /// Lock a file on the server (optional explicit checkout).
     Lock {
         #[arg(default_value = ".")]
@@ -291,6 +302,18 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => println!("remote:    manifest failed ({e})"),
             }
+            Ok(())
+        }
+        Command::Resubmit { path, folder } => {
+            LinkConfig::load(&folder)?;
+            let path = path.replace('\\', "/");
+            let path = path.trim_start_matches("./");
+            let mut state = SyncState::load(&folder)?;
+            if !state.forget_review(path) {
+                anyhow::bail!("{path} is not waiting for review (see `wabi-sync status`)");
+            }
+            state.save(&folder)?;
+            println!("{path} is no longer marked as waiting for review; the next sync uploads it again.");
             Ok(())
         }
         Command::Lock { folder, path } => {

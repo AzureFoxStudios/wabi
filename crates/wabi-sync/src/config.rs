@@ -152,6 +152,21 @@ impl SyncState {
         }
     }
 
+    /// Stop treating `path` as waiting for review. The client cannot see a
+    /// rejection, so after one the user says so with `wabi-sync resubmit`.
+    /// The file then differs from its baseline with nothing recorded as
+    /// sent, and the next push uploads it again. Returns false when the path
+    /// was not waiting.
+    pub fn forget_review(&mut self, path: &str) -> bool {
+        if self.pending_review.remove(path).is_none() {
+            return false;
+        }
+        // While a path waits for review its fingerprint describes the bytes
+        // that were sent, not the baseline.
+        self.local_fingerprints.remove(path);
+        true
+    }
+
     /// Record the local etag of the file just synced as `server_etag`.
     pub fn record_local(&mut self, path: &str, local_etag: &str, server_etag: &str) {
         if local_etag == server_etag {

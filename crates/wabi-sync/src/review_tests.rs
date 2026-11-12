@@ -505,3 +505,33 @@ async fn status_says_a_file_is_waiting_for_review() {
     assert!(status.waiting_review.is_empty());
     assert_eq!(status.changed, vec!["a.txt", "new.txt"]);
 }
+
+/// A rejected review upload: nothing tells the client, so the file is
+/// reported as waiting on every round until the user runs `resubmit`. The
+/// next round then uploads the same bytes as a new review request.
+#[tokio::test]
+async fn resubmit_clears_the_waiting_mark_and_uploads_again() {
+    let h = with_pending_edit().await;
+    // The reviewer rejects: the review branch goes, the mainline is as it was.
+    h.server(|f| f.review.clear());
+    for _ in 0..2 {
+        let report = h.sync().await.unwrap();
+        assert_eq!(report.waiting_review, vec!["a.txt"]);
+        assert!(report.uploaded.is_empty());
+    }
+
+    let mut state = h.state();
+    assert!(!state.forget_review("never-sent.txt"));
+    assert!(state.forget_review("a.txt"));
+    assert!(!state.forget_review("a.txt"), "already forgotten");
+    state.save(h.folder()).unwrap();
+
+    let report = h.sync().await.unwrap();
+    assert_eq!(report.uploaded, vec!["a.txt"]);
+    assert_eq!(report.waiting_review, vec!["a.txt"], "it is a new review request");
+    assert!(report.conflicts.is_empty());
+    assert_eq!(h.server(|f| f.puts.clone()), vec!["a.txt", "a.txt"]);
+    assert_eq!(h.server(|f| f.review.get("a.txt").cloned()), Some(b"my edit".to_vec()));
+    assert_eq!(h.read("a.txt").as_deref(), Some("my edit"));
+    assert!(h.conflict_copies().is_empty());
+}
