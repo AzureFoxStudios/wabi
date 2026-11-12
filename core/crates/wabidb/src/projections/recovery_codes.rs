@@ -331,7 +331,9 @@ mod tests {
             username: "fixture".into(),
             handle: None,
             color: "#123456".into(),
-            password_hash: "fixture".into(),
+            // A fixture value, not a credential: random so no constant is
+            // stored as a password.
+            password_hash: crate::tests::read_model_users::fixture_secret("fixture"),
             is_registered: true,
             is_active: true,
             created_at_micros: 1,

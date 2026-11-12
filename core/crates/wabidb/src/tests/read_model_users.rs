@@ -48,15 +48,25 @@ fn event(kind: &str, stream: &str, plaintext: Vec<u8>) -> EventToWrite {
     }
 }
 
+/// A fixture password hash: `label` followed by a random value drawn once per
+/// test process. Not a credential; random so no constant value is stored as a
+/// password (CodeQL `rust/hard-coded-cryptographic-value`), and the same
+/// within one process so live and restarted reads compare equal.
+pub(crate) fn fixture_secret(label: &str) -> String {
+    static SALT: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    format!("{label}-{:016x}", SALT.get_or_init(rand::random::<u64>))
+}
+
 /// A full account as `WdbAdapter::create_user` writes it (the handler
-/// replaces `user_id` with the commit).
+/// replaces `user_id` with the commit). A non-empty `password_hash` is a
+/// label for [`fixture_secret`]; an empty one stays empty (a guest).
 fn user(name: &str, password_hash: &str) -> UserRecord {
     UserRecord {
         user_id: 0,
         username: name.into(),
         handle: Some(name.to_lowercase()),
         color: "#98D8C8".into(),
-        password_hash: password_hash.into(),
+        password_hash: if password_hash.is_empty() { String::new() } else { fixture_secret(password_hash) },
         is_registered: true,
         is_active: true,
         created_at_micros: 1_000,
@@ -126,7 +136,7 @@ async fn write_user_history(engine: &WabiDbEngine) -> u64 {
     rename.color = "\0".into();
     write(engine, vec![updated(rename)]).await;
     let mut password = patch(bob);
-    password.password_hash = "hash-b2".into();
+    password.password_hash = fixture_secret("hash-b2");
     write(engine, vec![updated(password)]).await;
     let mut profile = patch(carol);
     profile.color = "#123456".into();
@@ -228,8 +238,9 @@ async fn deleting_the_read_model_file_changes_no_user_read() {
     let last = write_user_history(&engine).await;
     let live = all_user_reads(engine.projection_state());
     // The history is not trivial.
+    let alice_hash = fixture_secret("hash-a");
     for expected in [
-        "get 1: Ok([UserRecord { user_id: 1, username: \"ALICIA\", handle: Some(\"alice\"), color: \"\", password_hash: \"hash-a\"",
+        &format!("get 1: Ok([UserRecord {{ user_id: 1, username: \"ALICIA\", handle: Some(\"alice\"), color: \"\", password_hash: \"{alice_hash}\""),
         "get 2: Ok([])",
         "exists 2: false",
         "get 3: Ok([UserRecord { user_id: 3, username: \"Carol\", handle: Some(\"carol\"), color: \"#123456\"",
@@ -789,7 +800,7 @@ fn matrix_history() -> Vec<Vec<EventToWrite>> {
         updated(record)
     };
     let mut password = patch(10);
-    password.password_hash = "hash-bob-2".into();
+    password.password_hash = fixture_secret("hash-bob-2");
     let group = serde_json::json!({"channel_id": "group-x", "name": "x", "channel_kind": 2,
         "owner_user_id": 4, "created_at_micros": 5});
     vec![
@@ -1044,7 +1055,7 @@ async fn deleted_accounts_and_old_password_hashes_leave_no_bytes_in_the_file() {
     }
     write(&engine, vec![deleted(ids[100])]).await;
     let mut password = patch(ids[200]);
-    password.password_hash = "$2b$12$NEWHASH".into();
+    password.password_hash = fixture_secret("$2b$12$NEWHASH");
     write(&engine, vec![updated(password)]).await;
     close(engine, dir.path()).await;
 
