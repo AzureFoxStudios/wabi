@@ -848,4 +848,23 @@ mod tests {
         }])
         .is_err());
     }
+
+    /// The community id is SHA-256 of this derived public key and roster
+    /// signatures are stored, so derivation and RFC 6979 signing must be
+    /// byte-stable across RustCrypto upgrades. Captured from p256 0.13.
+    #[test]
+    fn derived_community_key_and_signature_are_golden() {
+        let key = derive_signing_key(&[0x11; 32]).unwrap();
+        assert_eq!(
+            hex::encode(key.verifying_key().to_encoded_point(false).as_bytes()),
+            "04fc42e189a2afcfdbde26b3cd735ca6ff49e5c13fd727b19fb8112549e7f07301\
+             79cc90ce538f2a44f37c244774433fc8aa3adaf9389f7e5d7bfedb55516258d5"
+        );
+        let signature: Signature = key.sign(b"golden roster");
+        assert_eq!(
+            hex::encode(signature.to_bytes()),
+            "5cf2b75290cb833cde24f17cd809ba4b8ac4bb3b92939664dbcd270f9550f7a2\
+             dc253f163d06f7bc5761fefe1448db6dac92e9afe38e05a5bc90ed86a2826e71"
+        );
+    }
 }

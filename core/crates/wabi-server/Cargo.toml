@@ -110,6 +110,8 @@ wabi-payments-us = { path = "../../addons/payments-us/backend", optional = true 
 
 [dev-dependencies]
 libc = "0.2"
+# Independent ECDSA verifier for the VAPID golden test (already in the lockfile via snow).
+ring = "0.17"
 tower = { version = "0.5", features = ["util", "timeout"] }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # The real sync client, driven against the real router in tests/wabi_sync_contract.rs.
