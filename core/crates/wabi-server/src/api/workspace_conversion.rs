@@ -109,7 +109,10 @@ fn validate_archive(raw: &[u8], extension: &str) -> Result<()> {
         let mut entry = archive
             .by_index(index)
             .map_err(|_| bad("Encrypted or damaged Office archives are not supported"))?;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|_| bad("Unsafe or duplicate Office archive entry"))?
+            .into_owned();
         let lower = name.to_ascii_lowercase();
         let directory = entry.is_dir();
         if name.is_empty()

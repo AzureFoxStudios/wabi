@@ -17,7 +17,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 tempfile = "3"
 
 # "Download project" archive for Lore repos
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 # Socket.IO server
 socketioxide = { version = "0.16", features = ["extensions", "state"] }
