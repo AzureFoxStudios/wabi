@@ -36,14 +36,18 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 | 343 | 3.5.2 | Channels move to the read model (table `channels`, schema 2, generation 2). Room placement skips its same-commit check for commits the read model already holds; rows an update creates get creation time 0 so replay is deterministic. Independent review: no blocker; its one should-fix test is in. |
 | 344 | (fix) | Recovery-code crash test registered the same username twice (test bug, not a lockout); CI's `power-loss` job now also runs `cargo test -p wabidb --features test-harness --lib`. |
 | 345 | 3.5.3 | Channel members move to the read model (tables `channel_members` with an indexed `user_id`, `channel_membership_versions`; generation 3). User deletion's membership cascade follows the read-model watermark (`Projection::apply_to_read_model`). Review: 225 snapshot/read-model restart pairs all match live; a full-table scan on every socket join was replaced by an index (8.9 ms to 12 µs at 50k memberships). |
+| 346 | 2.7a | `zip` 2.4.2 to 9.1.3; removes the four zip advisories; tests for hostile uploaded archives added first. |
+| 347 | (docs) | Removed descriptions of the membership repair PR 345 deleted; handoff update. |
+| 349 | (fix) | A user deletion sets the membership revision of each channel it removes the user from (generation 4), so call rejoin and E2EE room checks notice. |
+| 350 | (fix) | A user deletion is announced to the user's groups like a removal (both deletion paths: final disconnect and idle guest sweep), and the user is dropped from calls. |
+| 351 | 2.7b | `rusqlite` 0.41.1 (bundled SQLite 3.54.1) for RUSTSEC-2026-0459; a test asserts the linked SQLite is at least 3.54.0. |
 | 340 | 4.8g | `wabi-sync` state records whose folder it is (server + channel) and refuses a mismatch; `link` moves old state aside; mass-delete guard (`--allow-mass-delete`); refusals (400/403/413/422) remembered per file, 5xx retried; one sync per folder (OS lock). |
 
 ## Open PRs
 
 | PR | Task | State | Next step |
 |---|---|---|---|
-| 346 | 2.7a | `zip` 2.4.2 to 9.1.3; removes the four zip advisories. Tests for hostile uploaded archives added first. | Merge on green. |
-| (soon) | 3.5.4 | Users to the read model, in progress (session `session_012VCxQKhHg672gjV5tiAd1c`). | Independent review; preflight uniqueness under concurrency, credential fields, login-path lookups indexed. |
+| 348 | 3.5.4 | Users to the read model (schema 4, generation 5; case-folded login column with the Unicode version recorded; `secure_delete`; 729-pair restart matrix). Green; independent review done and fixed. **On hold:** CodeQL reports 5 new alerts (1 critical, 4 high) that no available tool can list; the visible one is a test fixture (`rust/hard-coded-cryptographic-value`, `auth_revocations.rs`). | Owner looks at the alert list on GitHub; if all are test fixtures or the intended `password_hash` storage, dismiss and merge. Trying to satisfy the scanner with generated test values made it worse (6 alerts); that attempt was reverted. |
 | 329 | 4.8b | Green. **On hold.** | Needs the owner's result for `q1` from the real-`lore` checks (does a review-branch upload leave the mainline's files alone). If yes: merge `main` in, re-check CI, merge. If no: do Task 4.9 first. |
 
 ## Remaining tasks, in order
@@ -54,9 +58,8 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 4. **4.11** Server-side repository identity: a repository deleted and recreated under the same channel looks the same to `wabi-sync` today (the mass-delete guard in 340 is the only defence). Give each repository an id the client can compare.
 5. **3.5.5 to 3.5.n**: the remaining projections, one per PR, reusing the same schema, generation and startup rules (see 343 and 345 for cross-projection reads during replay and the replay-floor mutation test). Independent review at least for users (3.5.4) and anything an in-memory projection reads during apply.
 6. **3.5 follow-up**: batch the startup rebuild and keep progress (ADR-0001 asked for it); move SQLite I/O off async tasks.
-7. **Dependency upgrades** from Task 2.7: `zip` is PR 346. Still to do: `rusqlite` 0.40 to 0.41 (`libsqlite3-sys` 0.39) for RUSTSEC-2026-0459 (a crafted database + `-wal` pair can return stale memory; Wabi only opens its own 0600 files, so low exposure; do it after 3.5.4 to avoid conflicts); `p256`/`crypto-bigint` (a RustCrypto major bump; `wabi-consensus` pins `p256`). **Owner decisions:** accept the six unmaintained notices with a written expiry or not; the `bans` wildcard rule for four in-workspace path dependencies.
-8. **Membership revision on user deletion.** Deleting a user removes their memberships but does not bump each channel's membership revision (same before 345). E2EE rekeying and call access compare that revision, so clients are not told. Small; touches durable output, so bump the read-model generation.
-9. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
+7. **Dependency upgrades** from Task 2.7: `zip` (346) and `rusqlite` (351) are done. Still to do: `p256`/`crypto-bigint` (RUSTSEC-2026-0387) (a RustCrypto major bump; `wabi-consensus` pins `p256`). **Owner decisions:** accept the six unmaintained notices with a written expiry or not; the `bans` wildcard rule for four in-workspace path dependencies.
+8. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
 
 Phase 5 is new features, not hardening; stop and ask the owner before starting it.
 
