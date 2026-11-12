@@ -266,7 +266,7 @@ async fn a_read_model_of_another_generation_is_rebuilt_and_member_reads_are_unch
         conn.execute("UPDATE read_model_meta SET generation = ?1", [READ_MODEL_GENERATION - 1])
             .unwrap();
         conn.execute(
-            "INSERT INTO channel_members (key, record) VALUES (?1, ?2)",
+            "INSERT INTO channel_members (key, user_id, record) VALUES (?1, 404, ?2)",
             [encode_key("group-absent", 404), encode_record(&member("group-absent", 404, 3, 1))],
         )
         .unwrap();
@@ -455,4 +455,103 @@ async fn a_read_model_behind_the_snapshot_is_rebuilt_with_the_same_member_reads(
     assert_eq!(all_member_reads(engine.projection_state()), live);
     close(engine, dir.path()).await;
     assert_eq!(member_file(dir.path()), kept);
+}
+
+/// `channel_ids_of_user` and the `user_deleted` cascade find a user's rows
+/// through the indexed `user_id` column. They must find exactly what a scan of
+/// every member row (decoding each record) finds: after a history with joins,
+/// leaves, a role change, batch changes, a user deletion and a rejoin, live,
+/// after a restart and after a rebuild from the log.
+#[tokio::test]
+async fn channel_ids_of_user_agrees_with_a_full_scan() {
+    fn full_scan(state: &ProjectionState, user_id: u64) -> Vec<String> {
+        let mut channels = Vec::new();
+        state
+            .read_model()
+            .for_each_row(crate::projections::read_model::Table::ChannelMembers, |_key, record| {
+                let record = crate::projections::channel_members::decode_record(record)?;
+                if record.user_id == user_id {
+                    channels.push(record.channel_id);
+                }
+                Ok(())
+            })
+            .unwrap();
+        channels
+    }
+    fn check(state: &ProjectionState) -> String {
+        let mut seen = String::new();
+        for user in USERS.into_iter().chain([5, 0, u64::MAX]) {
+            let indexed = ChannelMembersProjection::channel_ids_of_user(state, user).unwrap();
+            assert_eq!(indexed, full_scan(state, user), "user {user}");
+            seen += &format!("{user}: {indexed:?}\n");
+        }
+        seen
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    write_member_history(&engine).await;
+    // A user id above i64::MAX, stored in the signed column.
+    write(&engine, vec![added(member("group-a", u64::MAX, 0, 1))]).await;
+    write(&engine, vec![added(member("group-b", u64::MAX, 0, 1))]).await;
+    write(&engine, vec![removed("group-a", u64::MAX)]).await;
+    let live = check(engine.projection_state());
+    for expected in [
+        "1: [\"group-a\", \"group-b\", \"group-g\"]",
+        "2: [\"group-a\"]",
+        "3: [\"group-c\"]",
+        &format!("{}: [\"group-b\"]", u64::MAX),
+    ] {
+        assert!(live.contains(expected), "{expected} missing from\n{live}");
+    }
+    close(engine, dir.path()).await;
+
+    let engine = open(dir.path()).await;
+    assert_eq!(check(engine.projection_state()), live);
+    close(engine, dir.path()).await;
+    std::fs::remove_file(read_model_file(dir.path())).unwrap();
+    let engine = open(dir.path()).await;
+    assert_eq!(check(engine.projection_state()), live);
+    close(engine, dir.path()).await;
+}
+
+/// Measurement, not a check: what `channel_ids_of_user` (every socket join and
+/// every channel list of a member) costs on a file-backed engine holding
+/// 50,000 memberships (5,000 channels of 10 members; 5,000 users in 10
+/// channels each).
+///
+/// `cargo test --release -p wabidb --lib measure_channel_ids_of_user -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement; prints timings"]
+async fn measure_channel_ids_of_user() {
+    const CHANNELS: u64 = 5_000;
+    const PER_CHANNEL: u64 = 10;
+    const USERS: u64 = 5_000;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    for batch in 0..CHANNELS / 50 {
+        let events = (batch * 50..(batch + 1) * 50)
+            .map(|channel| {
+                let id = format!("group-{channel:05}");
+                let upserts = (0..PER_CHANNEL)
+                    .map(|i| member(&id, (channel * PER_CHANNEL + i) % USERS + 1, 0, 1))
+                    .collect();
+                changed(&id, upserts, vec![])
+            })
+            .collect();
+        write(&engine, events).await;
+    }
+    let state = engine.projection_state();
+    let calls = 500u64;
+    let started = std::time::Instant::now();
+    for call in 0..calls {
+        let channels = ChannelMembersProjection::channel_ids_of_user(state, call * 7 % USERS + 1).unwrap();
+        assert_eq!(channels.len() as u64, CHANNELS * PER_CHANNEL / USERS);
+    }
+    let elapsed = started.elapsed();
+    println!(
+        "channel_ids_of_user over {} memberships: {:.3?} per call ({calls} calls)",
+        CHANNELS * PER_CHANNEL,
+        elapsed / calls as u32
+    );
+    close(engine, dir.path()).await;
 }

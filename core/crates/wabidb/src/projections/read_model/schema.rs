@@ -62,7 +62,9 @@ pub(crate) const PROJECTIONS: [&str; 3] = [MESSAGES, CHANNELS, CHANNEL_MEMBERS];
 /// `channel_members`: one row per member of a channel. `key` is the
 /// length-prefixed channel id followed by the user id (8 bytes, little
 /// endian), so a byte-ordered range scan lists one channel exactly as the old
-/// in-memory index did; `record` is the versioned `ChannelMemberRecord`.
+/// in-memory index did; `record` is the versioned `ChannelMemberRecord`;
+/// `user_id` repeats the key's user id (its 64 bits stored as a signed
+/// integer) so that a user's memberships are one indexed lookup.
 /// `channel_membership_versions`: one row per channel with membership
 /// history, `key` being the channel id's bytes and `record` the commit of the
 /// channel's latest membership event (8 bytes, little endian).
@@ -106,8 +108,10 @@ CREATE TABLE channels (
 ) WITHOUT ROWID;
 CREATE TABLE channel_members (
     key BLOB PRIMARY KEY,
+    user_id INTEGER NOT NULL,
     record BLOB NOT NULL
 ) WITHOUT ROWID;
+CREATE INDEX channel_members_by_user ON channel_members (user_id);
 CREATE TABLE channel_membership_versions (
     key BLOB PRIMARY KEY,
     record BLOB NOT NULL
