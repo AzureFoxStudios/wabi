@@ -178,6 +178,21 @@ fn decode_unversioned(buf: &[u8]) -> Result<MessageRecord> {
     }
 }
 
+/// A message key as text, for error messages: `channel <id>, message <id>`.
+pub(crate) fn describe_key(key: &[u8]) -> String {
+    fn take(bytes: &[u8]) -> Option<(&str, &[u8])> {
+        let length = usize::try_from(u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?)).ok()?;
+        let end = 8usize.checked_add(length)?;
+        Some((std::str::from_utf8(bytes.get(8..end)?).ok()?, bytes.get(end..)?))
+    }
+    take(key)
+        .and_then(|(channel, rest)| take(rest).map(|(message, _)| (channel, message)))
+        .map_or_else(
+            || format!("key {}", hex::encode(key)),
+            |(channel, message)| format!("channel {channel}, message {message}"),
+        )
+}
+
 pub fn encode_key(channel_id: &str, message_id: &str) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());

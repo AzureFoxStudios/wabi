@@ -10,14 +10,25 @@
 //! after one more write its highest entry is above both watermarks.
 //!
 //! So the first start that keeps both saved projections over a short log
-//! records the commit below which the log is incomplete. The record stays
-//! until an operator removes it after restoring the missing files. It lives
-//! under `global/` so that a live checkpoint carries it to a restored copy
+//! records the commit below which the log is incomplete. The record is not
+//! lifted by restoring log files (commits written since the loss share their
+//! file names) but by restoring the whole directory from a backup taken before
+//! it. It lives under `global/` so that a live checkpoint carries it to a restored copy
 //! (test: `instance_archive::live::tests::the_incomplete_log_record_is_exported`).
 //!
 //! Format: `{"version":1,"incomplete_below":N}`. A file that is present but
 //! cannot be read or parsed stops startup: treating it as absent would allow
 //! the rebuild it exists to prevent.
+//!
+//! **Three copies.** The evidence is also written into `storage-manifest.json`
+//! (`incomplete_log_below`) and into every snapshot (`incomplete_log_below`),
+//! and the engine takes the largest of the three. Removing the record file
+//! alone therefore changes nothing: the commit index cannot show the hole (a
+//! commit number can legitimately be missing from it, see
+//! `tests::read_model_messages::commit_numbers_can_have_gaps_that_leave_no_trace`),
+//! so the evidence is the only thing that does. It is lifted by restoring the
+//! whole directory from a backup taken before the hole, which replaces all
+//! three.
 
 use std::path::{Path, PathBuf};
 
@@ -51,8 +62,8 @@ fn unreadable(path: &Path, detail: String) -> WabiError {
     }
 }
 
-/// The commit below which the log is incomplete, `None` without a record.
-pub(crate) fn load(data_dir: &Path) -> Result<Option<u64>> {
+/// The record file's value alone.
+pub(crate) fn load_record_file(data_dir: &Path) -> Result<Option<u64>> {
     let path = path(data_dir);
     match std::fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_file() => {}
@@ -72,8 +83,36 @@ pub(crate) fn load(data_dir: &Path) -> Result<Option<u64>> {
     Ok(Some(record.incomplete_below))
 }
 
+/// The commit below which the log is incomplete: the largest of the record
+/// file, the manifest's field and the snapshot's field (`snapshot_below`,
+/// which the caller has already read). `None` when none of them says so.
+pub(crate) fn load_with(data_dir: &Path, snapshot_below: Option<u64>) -> Result<Option<u64>> {
+    let manifest = super::manifest_field(data_dir, MANIFEST_KEY);
+    for value in [manifest, snapshot_below].into_iter().flatten() {
+        if value > crate::projections::read_model::MAX_COMMIT_SEQ {
+            return Err(unreadable(
+                &path(data_dir),
+                format!("another copy of the evidence holds {value}, which is not plausible"),
+            ));
+        }
+    }
+    Ok([load_record_file(data_dir)?, manifest, snapshot_below].into_iter().flatten().max())
+}
+
+/// [`load_with`], reading the snapshot's copy itself.
+pub(crate) fn load(data_dir: &Path) -> Result<Option<u64>> {
+    let snapshot_below = crate::engine::locks::ProjectionState::read_snapshot_header(data_dir)
+        .ok()
+        .flatten()
+        .and_then(|header| header.incomplete_log_below);
+    load_with(data_dir, snapshot_below)
+}
+
+pub(crate) const MANIFEST_KEY: &str = "incomplete_log_below";
+
 /// Record that the log is incomplete below `below`; an existing record keeps
-/// its larger value. Durable when it returns. Returns the value stored.
+/// its larger value. Writes the record file and the manifest's copy, durably;
+/// the snapshot's copy follows with the next snapshot. Returns the value stored.
 pub(crate) fn record(data_dir: &Path, below: u64) -> Result<u64> {
     let below = load(data_dir)?.map_or(below, |existing| existing.max(below));
     let bytes = serde_json::to_vec(&Record { version: VERSION, incomplete_below: below })
@@ -81,6 +120,9 @@ pub(crate) fn record(data_dir: &Path, below: u64) -> Result<u64> {
             invariant: format!("incomplete-log record serialize: {e}"),
         })?;
     write_atomically(&path(data_dir), &bytes)?;
+    super::update_manifest(data_dir, |object| {
+        object.insert(MANIFEST_KEY.to_string(), serde_json::json!(below));
+    })?;
     Ok(below)
 }
 

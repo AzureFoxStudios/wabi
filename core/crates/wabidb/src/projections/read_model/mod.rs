@@ -39,6 +39,14 @@
 //! comment. A read statement is never held more than 50 ms plus one truncate,
 //! and a checkpoint never waits for a reader.
 //!
+//! The gate holds back this store's own readers. **It cannot hold back a
+//! reader in another process.** A process that holds a read transaction on the
+//! live file (an `sqlite3` shell, a backup tool copying the file) pins the
+//! write-ahead log: measured, 344 MiB of log over 8,000 commits and a 118 ms
+//! commit every 16 commits, because the truncate then has to wait. Do not open
+//! the live read model with other tools. Copy it only with the engine stopped
+//! (`docs/deployment/BACKUP_AND_RECOVERY.md`).
+//!
 //! Damage. When SQLite reports the file as damaged while the engine runs,
 //! this store marks itself damaged and leaves a rebuild request. The engine
 //! is then no longer healthy, **and it takes no more commands**: the
@@ -158,10 +166,10 @@ impl Gate {
         GateGuard(self)
     }
 
-    /// Close the gate and wait up to `cap` for the running reads. `true`: it
-    /// drained and the gate stays closed until [`Self::open`]. `false`: it
-    /// did not, and the gate is open again.
-    fn close_and_drain(&self, cap: Duration) -> bool {
+    /// Close the gate and wait up to `cap` for the running reads. `Some`: it
+    /// drained and the gate stays closed until the returned guard is dropped,
+    /// also by a panic. `None`: it did not, and the gate is open again.
+    fn close_and_drain(&self, cap: Duration) -> Option<ClosedGate<'_>> {
         let deadline = Instant::now() + cap;
         let mut state = lock(&self.state);
         state.closed = true;
@@ -170,7 +178,7 @@ impl Gate {
             if now >= deadline {
                 state.closed = false;
                 self.changed.notify_all();
-                return false;
+                return None;
             }
             state = self
                 .changed
@@ -178,12 +186,24 @@ impl Gate {
                 .unwrap_or_else(|p| p.into_inner())
                 .0;
         }
-        true
+        Some(ClosedGate(self))
     }
 
     fn open(&self) {
         lock(&self.state).closed = false;
         self.changed.notify_all();
+    }
+}
+
+/// Keeps the gate closed. Dropping it, also while unwinding from a panic,
+/// opens the gate again: a gate left closed would make every read wait
+/// forever, including the sequencer's admission lookups, so the engine would
+/// hang instead of halting.
+struct ClosedGate<'a>(&'a Gate);
+
+impl Drop for ClosedGate<'_> {
+    fn drop(&mut self) {
+        self.0.open();
     }
 }
 
@@ -219,6 +239,9 @@ pub(crate) struct ReadModel {
     wal_threshold: AtomicU64,
     /// Commits since the write-ahead log was last measured.
     commits_since_wal_check: AtomicU64,
+    /// Test hook: panic inside the trim while the gate is closed.
+    #[cfg(test)]
+    panic_in_trim: AtomicBool,
 }
 
 /// What is on disk where an engine keeps its read model.
@@ -446,6 +469,8 @@ impl ReadModel {
             gate: Gate::default(),
             wal_threshold: AtomicU64::new(WAL_TRIM_THRESHOLD),
             commits_since_wal_check: AtomicU64::new(0),
+            #[cfg(test)]
+            panic_in_trim: AtomicBool::new(false),
         }
     }
 
@@ -991,18 +1016,28 @@ impl ReadModel {
             return;
         }
         let _ = writer.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()));
-        if !self.gate.close_and_drain(GATE_CAP) {
+        let Some(_closed) = self.gate.close_and_drain(GATE_CAP) else {
             tracing::debug!("write-ahead log is {size} bytes; reads did not finish in time");
             return;
+        };
+        #[cfg(test)]
+        if self.panic_in_trim.load(Ordering::Relaxed) {
+            panic!("injected panic with the read gate closed");
         }
         // No read statement is running and none can start: nothing to wait for.
         let _ = writer.conn.busy_timeout(Duration::from_millis(100));
         let result = writer.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
         let _ = writer.conn.busy_timeout(BUSY_TIMEOUT);
-        self.gate.open();
+        drop(_closed);
         if let Err(error) = result {
             tracing::debug!("write-ahead log truncate failed: {error}");
         }
+    }
+
+    /// Test hook: make the next trim panic with the gate closed.
+    #[cfg(test)]
+    pub(crate) fn panic_in_next_trim_for_tests(&self) {
+        self.panic_in_trim.store(true, Ordering::Relaxed);
     }
 
     /// Test hook: the size above which the log is trimmed.
@@ -1019,6 +1054,23 @@ impl ReadModel {
                 .conn
                 .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
         }
+    }
+
+    /// How many of `keys` have no latest-message row, and the first of them.
+    /// Reads inside the open transaction, so rows replay has just written
+    /// count.
+    pub(crate) fn missing_messages(&self, keys: &[Vec<u8>]) -> Result<(usize, Option<Vec<u8>>)> {
+        self.write(|conn| {
+            let mut missing = 0;
+            let mut first = None;
+            for key in keys {
+                if get(conn, Table::Messages, key)?.is_none() {
+                    missing += 1;
+                    first.get_or_insert_with(|| key.clone());
+                }
+            }
+            Ok((missing, first))
+        })
     }
 
     /// Every row of `table` in key order, with every column the engine

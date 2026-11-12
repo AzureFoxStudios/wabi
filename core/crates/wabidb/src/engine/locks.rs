@@ -202,6 +202,8 @@ pub struct ProjectionState {
     applied_commit_seq: tokio::sync::watch::Sender<u64>,
     /// Count of fully applied commands, used for periodic checkpointing.
     dispatch_count: AtomicU64,
+    /// See `SnapshotData::incomplete_log_below`; zero when there is none.
+    incomplete_log_below: AtomicU64,
     /// Projections that live in SQLite (ADR-0001). The engine attaches its
     /// file-backed store before replay; a bare state gets an in-memory one
     /// on first use.
@@ -243,8 +245,14 @@ impl ProjectionState {
             indexes: RwLock::new(HashMap::new()),
             applied_commit_seq: tokio::sync::watch::channel(0).0,
             dispatch_count: AtomicU64::new(0),
+            incomplete_log_below: AtomicU64::new(0),
             read_model: OnceLock::new(),
         }
+    }
+
+    /// Carry the incomplete-log evidence into every snapshot this state writes.
+    pub(crate) fn set_incomplete_log_below(&self, below: u64) {
+        self.incomplete_log_below.fetch_max(below, Ordering::AcqRel);
     }
 
     /// The SQLite read model of this state. A state the engine did not open
@@ -655,7 +663,32 @@ struct SnapshotEntry {
 #[derive(Serialize, Deserialize)]
 struct SnapshotData {
     watermark: u64,
+    /// The commit below which the log of this directory is incomplete, copied
+    /// from `global/incomplete-log.json` so that removing that file by hand is
+    /// not enough to allow a rebuild (`engine::incomplete_log`). Older builds
+    /// ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    incomplete_log_below: Option<u64>,
     indexes: Vec<(String, Vec<SnapshotEntry>)>,
+}
+
+/// What `check` and `verify` read from `snapshot.json` without building state.
+pub(crate) struct SnapshotHeader {
+    pub watermark: u64,
+    pub incomplete_log_below: Option<u64>,
+    /// Entries of the old in-memory `messages` index the file still holds.
+    pub legacy_messages: u64,
+}
+
+/// A loaded snapshot, with what the engine needs besides its state.
+pub(crate) struct LoadedSnapshot {
+    pub state: ProjectionState,
+    pub watermark: u64,
+    pub incomplete_log_below: Option<u64>,
+    /// Keys of the old in-memory `messages` index. Messages are not loaded
+    /// from it (the read model holds them), but when the read model is
+    /// rebuilt from the log these are the messages the log must reproduce.
+    pub legacy_message_keys: Vec<Vec<u8>>,
 }
 
 impl ProjectionState {
@@ -743,8 +776,10 @@ impl ProjectionState {
         }
         drop(indexes);
 
+        let incomplete = self.incomplete_log_below.load(Ordering::Acquire);
         let data = SnapshotData {
             watermark,
+            incomplete_log_below: (incomplete > 0).then_some(incomplete),
             indexes: snapshot_indexes,
         };
 
@@ -775,13 +810,21 @@ impl ProjectionState {
     ///
     /// Returns `None` if the snapshot file does not exist (fresh data dir).
     pub fn load_snapshot(data_dir: &Path) -> Result<Option<(Self, u64)>> {
+        Ok(Self::load_snapshot_full(data_dir)?.map(|loaded| (loaded.state, loaded.watermark)))
+    }
+
+    pub(crate) fn load_snapshot_full(data_dir: &Path) -> Result<Option<LoadedSnapshot>> {
         let Some(data) = Self::read_snapshot_data(data_dir)? else {
             return Ok(None);
         };
 
         let state = ProjectionState::new();
+        let mut legacy_message_keys = Vec::new();
         for (name, entries) in &data.indexes {
             if LEGACY_MESSAGE_INDEXES.contains(&name.as_str()) {
+                if name == "messages" {
+                    legacy_message_keys.extend(entries.iter().map(|entry| entry.key.0.clone()));
+                }
                 continue;
             }
             for entry in entries {
@@ -794,8 +837,28 @@ impl ProjectionState {
             }
         }
         state.set_applied_commit_seq(data.watermark);
+        if let Some(below) = data.incomplete_log_below {
+            state.set_incomplete_log_below(below);
+        }
 
-        Ok(Some((state, data.watermark)))
+        Ok(Some(LoadedSnapshot {
+            state,
+            watermark: data.watermark,
+            incomplete_log_below: data.incomplete_log_below,
+            legacy_message_keys,
+        }))
+    }
+
+    pub(crate) fn read_snapshot_header(data_dir: &Path) -> Result<Option<SnapshotHeader>> {
+        Ok(Self::read_snapshot_data(data_dir)?.map(|data| SnapshotHeader {
+            watermark: data.watermark,
+            incomplete_log_below: data.incomplete_log_below,
+            legacy_messages: data
+                .indexes
+                .iter()
+                .find(|(name, _)| name == "messages")
+                .map_or(0, |(_, entries)| entries.len() as u64),
+        }))
     }
 
     /// The watermark of the snapshot file, without building its state.
