@@ -1,6 +1,6 @@
 # WabiDB Projections — Materialized Views
 
-Projections are in-memory SkipMap indexes updated by events, except messages, channels and channel members, which live in the SQLite read model (`docs/ai/wabidb-engine.md`). They are the read model — all queries hit projections, never raw segments.
+Projections are in-memory SkipMap indexes updated by events, except messages, channels, channel members and users, which live in the SQLite read model (`docs/ai/wabidb-engine.md`). They are the read model — all queries hit projections, never raw segments.
 
 ## Flow
 
@@ -74,7 +74,7 @@ Composite keys use length-prefixed components (u64 length + bytes), enabling pre
 | reactions | ReactionsProjection | reaction_added |
 | channel_members, channel_membership_versions (SQLite read model) | ChannelMembersProjection | channel_member_added, channel_member_removed, channel_members_changed |
 | mutes, deafens | VoiceRestrictionsProjection | user_muted, user_unmuted, user_deafened, user_undeafened |
-| users | UsersProjection | user_registered |
+| users (SQLite read model) | UsersProjection | user_registered, user_updated |
 | emotes | EmotesProjection | emote_upserted |
 | webhooks | WebhooksProjection | webhook_upserted |
 | user_layouts | LayoutsProjection | user_layout_upserted |
