@@ -120,8 +120,6 @@ async fn open_ignores_legacy_snapshot_message_indexes_and_rebuilds_from_the_log(
     assert_eq!(message_lookup::get(&state, "msg_a").unwrap(), Some(row));
     assert_eq!(crate::projections::messages::stored_message_count(&state), 1);
     assert!(ProjectionState::read_model_path(dir.path()).is_file());
-    // The same snapshot with a message the log cannot give back is refused:
-    // see `tests::read_model_messages::a_hole_an_older_build_made_is_not_rebuilt_from`.
 }
 
 #[tokio::test]
