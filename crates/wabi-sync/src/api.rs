@@ -75,6 +75,10 @@ impl std::fmt::Display for Refusal {
             403 => "you do not have permission",
             400 => "the server does not accept this file",
             413 => "the file is too large for this server",
+            // The reason is the whole explanation (e.g. "path is ignored by
+            // .wabiignore"), so it stands in for the generic line.
+            422 if !self.reason.is_empty() => self.reason.as_str(),
+            422 => "the server will not store this path",
             _ => "the server could not store this file",
         };
         write!(f, "{what} ({}", self.status)?;
@@ -295,13 +299,13 @@ impl WabiClient {
         }
         // Answers that leave the rest of the round possible: 403 is a member
         // or a token that may read and not write, 400 a name the server does
-        // not accept, 413 a file over its size limit, and 500 is what it
-        // answers for a path its own `.wabiignore` excludes (it gives no
-        // reason in the body). Everything else (401, 404, 501, a gateway
+        // not accept, 413 a file over its size limit, and 422 a path its own
+        // `.wabiignore` excludes (the body says so). 500 is kept for servers
+        // that predate the 422 and gave no reason. Everything else (401, 404, 501, a gateway
         // error) means the round cannot work and is an error. Someone with
         // no access at all gets their 403 from the manifest, and that one
         // still ends the round.
-        if matches!(resp.status().as_u16(), 400 | 403 | 413 | 500) {
+        if matches!(resp.status().as_u16(), 400 | 403 | 413 | 422 | 500) {
             let status = resp.status().as_u16();
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let reason = body["error"].as_str().unwrap_or_default().to_string();

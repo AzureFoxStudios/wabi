@@ -1015,7 +1015,13 @@ async fn names_the_server_refuses_do_not_abort_the_round() {
     assert!(report.not_uploaded[0].starts_with("AUX.txt (not uploaded: "), "{}", describe(&report));
     assert!(report.not_uploaded[0].contains("400: Invalid repository file path"), "{}", describe(&report));
     assert!(report.not_uploaded[1].starts_with("node_modules/pkg/x.js (not uploaded: "), "{}", describe(&report));
-    assert!(report.not_uploaded[1].contains("500"), "{}", describe(&report));
+    // 422 with the server's reason, not a 500 with none.
+    assert!(
+        report.not_uploaded[1]
+            .ends_with("(not uploaded: path is ignored by .wabiignore (422))"),
+        "{}",
+        describe(&report)
+    );
     // Unchanged, they are not sent again; the next round says they are
     // still refused (a_refused_file_is_not_sent_again_until_it_changes).
     let again = mine.sync().await.unwrap();
@@ -2083,16 +2089,17 @@ async fn a_refused_file_is_not_sent_again_until_it_changes() {
 
     server.forget_requests();
     let second = mine.sync().await.unwrap();
-    // A 400 is about the file and is remembered. A 500 may be gone next
-    // round (H4), so that file is sent again.
+    // A 400 and a 422 (the repo's .wabiignore, Task 4.7) are about the file
+    // and are remembered: neither is sent again unchanged. A 5xx is tried
+    // again (an_upload_answered_500_is_tried_again).
     assert_eq!(server.requests("PUT", "/files/AUX.txt").0, 0, "a file refused with 400 was sent again unchanged");
-    assert_eq!(server.requests("PUT", "/files/node_modules").0, 1, "a file refused with 500 was not tried again");
+    assert_eq!(server.requests("PUT", "/files/node_modules").0, 0, "a file refused with 422 was sent again unchanged");
     assert_eq!(second.not_uploaded.len(), 2, "{}", describe(&second));
     assert!(second.not_uploaded[0].starts_with("AUX.txt (still not uploaded"), "{}", describe(&second));
     assert!(second.not_uploaded[0].contains("400: Invalid repository file path"), "{}", describe(&second));
-    assert!(second.not_uploaded[1].starts_with("node_modules/pkg/x.js (not uploaded: "), "{}", describe(&second));
-    assert!(second.not_uploaded[1].contains("500"), "{}", describe(&second));
-    assert!(!mine.state().refused_uploads.contains_key("node_modules/pkg/x.js"));
+    assert!(second.not_uploaded[1].starts_with("node_modules/pkg/x.js (still not uploaded"), "{}", describe(&second));
+    assert!(second.not_uploaded[1].contains("422"), "{}", describe(&second));
+    assert!(mine.state().refused_uploads.contains_key("node_modules/pkg/x.js"));
 
     // Changed: offered again.
     mine.write("AUX.txt", "edited");
