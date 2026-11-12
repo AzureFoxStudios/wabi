@@ -499,7 +499,13 @@ pub async fn reap_disconnected_guests(state: &SioState) -> usize {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_micros() as i64)
         .unwrap_or(0);
+    reap_disconnected_guests_at(state, now_micros).await
+}
 
+/// [`reap_disconnected_guests`] with an explicit clock, so tests can move past
+/// the creation grace window without waiting it out.
+#[doc(hidden)]
+pub async fn reap_disconnected_guests_at(state: &SioState, now_micros: i64) -> usize {
     let Ok(users) = state.app.wdb.list_users().await else {
         tracing::warn!("[guest-reap] list_users failed; skipping pass");
         return 0;
@@ -519,6 +525,7 @@ pub async fn reap_disconnected_guests(state: &SioState) -> usize {
             socket.extensions.get::<SioIdentity>().map(|identity| identity.user_id)));
     }
 
+    let io = state.app.socket_io();
     let mut reaped = 0;
     for user in users {
         if !user.password_hash.is_empty() {
@@ -530,7 +537,12 @@ pub async fn reap_disconnected_guests(state: &SioState) -> usize {
         if now_micros - user.created_at_micros < GUEST_REAP_GRACE_MICROS {
             continue; // fresh account, socket may still be on its way
         }
-        match state.app.wdb.delete_user(user.user_id).await {
+        // No socket layer means no connected client to tell.
+        let deleted = match &io {
+            Some(io) => delete_user_announcing_groups(state, io, user.user_id).await,
+            None => state.app.wdb.delete_user(user.user_id).await,
+        };
+        match deleted {
             Ok(()) => reaped += 1,
             Err(e) => {
                 tracing::warn!("[guest-reap] delete_user {} failed: {}", user.user_id, e)
