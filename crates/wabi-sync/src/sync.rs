@@ -30,18 +30,21 @@ fn server_refuses(component: &str) -> bool {
     ) || name.starts_with(".wabi-publish-")
 }
 
-/// Is `name` a file name `save_conflict_copy` produces? That is
-/// `<file>.wabi-conflict-<tag>` or `<file>.wabi-conflict-<tag>-<n>`, where
-/// the tag is `deleted`, `changed`, or the first eight characters of an etag
-/// (hex digits, after `q-` for a file over the full-hash limit). Nothing
-/// else that happens to contain the marker is one.
+/// Is `name` a file name `save_conflict_copy` produces, or one an earlier
+/// build produced? That is `<file>.wabi-conflict-<tag>` or
+/// `<file>.wabi-conflict-<tag>-<n>`, where the tag is `deleted`, `changed`,
+/// or the first eight characters of an etag (hex digits, after `q-` for a
+/// file over the full-hash limit). Builds before 4.8f also wrote the tag
+/// `server` (a 409 that named no etag) and an empty tag (a file deleted on
+/// the server that had no baseline). Nothing else that happens to contain
+/// the marker is one.
 fn is_conflict_copy(name: &str) -> bool {
     let Some((original, tag)) = name.rsplit_once(CONFLICT_MARKER) else {
         return false;
     };
     let is_tag = |tag: &str| {
         let digits = tag.strip_prefix("q-").unwrap_or(tag);
-        matches!(tag, "deleted" | "changed")
+        matches!(tag, "deleted" | "changed" | "server" | "")
             || (tag.len() <= 8 && !digits.is_empty() && digits.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
     };
     let numbered = |tag: &str| {
@@ -51,20 +54,36 @@ fn is_conflict_copy(name: &str) -> bool {
     !original.is_empty() && (is_tag(tag) || numbered(tag))
 }
 
-/// The directories never walked: this folder's own state directory, and the
-/// ones the server refuses.
+/// The directories never walked: a sync state directory (this folder's, or
+/// that of a folder linked inside it), and the ones the server refuses.
 fn is_internal_dir(rel: &str) -> bool {
-    rel.split('/').next() == Some(STATE_DIR) || rel.split('/').any(server_refuses)
+    rel.split('/').any(|component| component.eq_ignore_ascii_case(STATE_DIR) || server_refuses(component))
 }
 
-/// Files never synced regardless of ignore files, in either direction, and
-/// without a word in the report:
-/// - this folder's own link file and state directory, which exist at its
-///   root only (the same names deeper down are ordinary files);
+/// Files never synced regardless of ignore files, in either direction:
+/// - a link file and a sync state directory, at any depth and in any case:
+///   this folder's own, or those of a folder linked inside it (another
+///   member with the same nested folder would get this one's state over
+///   theirs);
 /// - conflict copies, which belong to the folder they were made in;
 /// - the names the server refuses.
 fn is_internal(rel: &str) -> bool {
-    rel == LINK_FILE || is_internal_dir(rel) || rel.rsplit('/').next().is_some_and(is_conflict_copy)
+    is_internal_dir(rel)
+        || rel.rsplit('/').next().is_some_and(|name| name.eq_ignore_ascii_case(LINK_FILE) || is_conflict_copy(name))
+}
+
+/// The scan says so when it leaves out the link file or state directory of
+/// a folder linked inside this one; this folder's own, at its root, are
+/// left out without a word.
+fn nested_link(rel: &str, is_dir: bool) -> Option<&'static str> {
+    let (_, name) = rel.rsplit_once('/')?;
+    if is_dir && name.eq_ignore_ascii_case(STATE_DIR) {
+        Some("it is the sync state of a folder linked inside this one")
+    } else if !is_dir && name.eq_ignore_ascii_case(LINK_FILE) {
+        Some("it is the link file of a folder linked inside this one")
+    } else {
+        None
+    }
 }
 
 /// Glob-style `.wabiignore` matching: `**` spans `/`, `*` within a segment.
@@ -200,7 +219,14 @@ pub fn scan_folder(folder: &Path) -> anyhow::Result<Scan> {
             let Ok(rel) = path.strip_prefix(folder) else { continue };
             let lossy = rel.to_string_lossy().replace('\\', "/");
             let is_dir = path.is_dir();
-            if (is_dir && is_internal_dir(&lossy)) || (!is_dir && is_internal(&lossy)) || scan.ignores(&lossy) {
+            if scan.ignores(&lossy) {
+                continue;
+            }
+            if let Some(why) = nested_link(&lossy, is_dir) {
+                scan.skipped.insert(lossy, why.into());
+                continue;
+            }
+            if (is_dir && is_internal_dir(&lossy)) || (!is_dir && is_internal(&lossy)) {
                 continue;
             }
             if rel.to_str().is_none() {
