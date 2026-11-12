@@ -109,7 +109,10 @@ fn validate_archive(raw: &[u8], extension: &str) -> Result<()> {
         let mut entry = archive
             .by_index(index)
             .map_err(|_| bad("Encrypted or damaged Office archives are not supported"))?;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|_| bad("Unsafe or duplicate Office archive entry"))?
+            .into_owned();
         let lower = name.to_ascii_lowercase();
         let directory = entry.is_dir();
         if name.is_empty()
@@ -368,6 +371,64 @@ mod tests {
         }
         let large = vec![0; 25 * 1024 * 1024];
         assert!(validate_archive(&archive(&[("large", &large)]), "pptx").is_err());
+    }
+    #[test]
+    fn workspace_conversion_reads_small_archive_and_rejects_hostile_entries() {
+        let raw = archive(&[
+            ("[Content_Types].xml", b"types"),
+            ("ppt/presentation.xml", b"slides"),
+        ]);
+        assert!(validate_archive(&raw, "pptx").is_ok());
+        // The zip reader must still report the raw entry names and bytes we validate.
+        let mut reader = zip::ZipArchive::new(Cursor::new(&raw[..])).unwrap();
+        assert_eq!(reader.len(), 2);
+        let mut bytes = Vec::new();
+        reader
+            .by_name("ppt/presentation.xml")
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"slides");
+        for name in ["/etc/passwd", "ppt/../../escape", "ppt\\..\\escape"] {
+            let hostile = archive(&[
+                ("[Content_Types].xml", b"types"),
+                ("ppt/presentation.xml", b"slides"),
+                (name, b"payload"),
+            ]);
+            assert!(validate_archive(&hostile, "pptx").is_err(), "{name}");
+        }
+    }
+    #[test]
+    fn workspace_conversion_rejects_declared_size_larger_than_data() {
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, content) in [
+            ("[Content_Types].xml", &b"types"[..]),
+            ("ppt/presentation.xml", &b"slides"[..]),
+        ] {
+            writer.start_file(name, stored).unwrap();
+            writer.write_all(content).unwrap();
+        }
+        let mut raw = writer.finish().unwrap().into_inner();
+        assert!(validate_archive(&raw, "pptx").is_ok());
+        // Rewrite the uncompressed size of the 6-byte "slides" entry to 600
+        // in both the local header (offset 22) and central directory (offset 24).
+        let mut patched = 0;
+        for (signature, size_offset) in [(b"PK\x03\x04", 22usize), (b"PK\x01\x02", 24usize)] {
+            let mut at = 0;
+            while let Some(found) = raw[at..].windows(4).position(|w| w == signature) {
+                let header = at + found;
+                let field = header + size_offset;
+                if raw[field..field + 4] == 6u32.to_le_bytes() {
+                    raw[field..field + 4].copy_from_slice(&600u32.to_le_bytes());
+                    patched += 1;
+                }
+                at = header + 4;
+            }
+        }
+        assert_eq!(patched, 2);
+        assert!(validate_archive(&raw, "pptx").is_err());
     }
     #[test]
     fn workspace_conversion_multipart_never_enables_private_or_external_features() {
