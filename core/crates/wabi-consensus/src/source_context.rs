@@ -164,7 +164,8 @@ impl SignedSourceContext {
         let signature =
             Signature::from_slice(&hex::decode(&self.signature).map_err(|_| SourceError::Format)?)
                 .map_err(|_| SourceError::Signature)?;
-        if signature.normalize_s().is_some() {
+        // p256 verification accepts high-S; the stored format admits only low-S.
+        if signature.normalize_s() != signature {
             return Err(SourceError::Signature);
         }
         key.verify(&signing_input(&self.claims)?, &signature)

@@ -9,7 +9,7 @@ use std::{
 fn fixture() -> (SignedSourceContext, LiveArchiveReceipt) {
     // Synthetic storage-only signature fixture, not a real Wabi capture.
     let key = SigningKey::from_bytes((&[7u8; 32]).into()).unwrap();
-    let public_key = hex::encode(key.verifying_key().to_encoded_point(false).as_bytes());
+    let public_key = hex::encode(key.verifying_key().to_sec1_point(false).as_bytes());
     let community = hex::encode(Sha256::digest(hex::decode(&public_key).unwrap()));
     let receipt = LiveArchiveReceipt {
         schema_version: 1,
@@ -32,7 +32,7 @@ fn fixture() -> (SignedSourceContext, LiveArchiveReceipt) {
     };
     let claims = identity.claims(&community, &receipt).unwrap();
     let sig: Signature = key.sign(&wabi_consensus::source_context::signing_input(&claims).unwrap());
-    let sig = sig.normalize_s().unwrap_or(sig);
+    let sig = sig.normalize_s();
     (
         SignedSourceContext {
             claims,

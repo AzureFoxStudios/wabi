@@ -3,7 +3,7 @@ use p256::ecdsa::{signature::Signer, SigningKey};
 
 pub(crate) fn fixture(archive: &[u8]) -> SignedSourceContext {
     let key = SigningKey::from_slice(&[7u8; 32]).unwrap();
-    let public_key = hex::encode(key.verifying_key().to_encoded_point(false).as_bytes());
+    let public_key = hex::encode(key.verifying_key().to_sec1_point(false).as_bytes());
     let community_id = hex::encode(Sha256::digest(hex::decode(&public_key).unwrap()));
     let claims = SourceClaims {
         schema_version: 1,
@@ -19,7 +19,7 @@ pub(crate) fn fixture(archive: &[u8]) -> SignedSourceContext {
         allocation: AllocationKnowledge::Unknown,
     };
     let signature: Signature = key.sign(&signing_input(&claims).unwrap());
-    let signature = signature.normalize_s().unwrap_or(signature);
+    let signature = signature.normalize_s();
     SignedSourceContext {
         claims,
         public_key,
@@ -107,7 +107,7 @@ fn signature_domain_cannot_be_replaced_by_roster_or_bare_claim_signature() {
     let mut context = fixture(b"opaque");
     let key = SigningKey::from_slice(&[7u8; 32]).unwrap();
     let signature: Signature = key.sign(&serde_json::to_vec(&context.claims).unwrap());
-    context.signature = hex::encode(signature.normalize_s().unwrap_or(signature).to_bytes());
+    context.signature = hex::encode(signature.normalize_s().to_bytes());
     assert_eq!(
         context
             .verify(&context.claims.community_id, "node-1")

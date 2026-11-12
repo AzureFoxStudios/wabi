@@ -104,7 +104,7 @@ impl CommunityRosterStore {
     fn open_legacy(data_dir: &str, root_key: &[u8; 32], read_legacy: bool) -> anyhow::Result<Self> {
         let path = PathBuf::from(data_dir).join("community_roster.json");
         let key = derive_signing_key(root_key)?;
-        let public_key = key.verifying_key().to_encoded_point(false);
+        let public_key = key.verifying_key().to_sec1_point(false);
         let community_id = hex::encode(Sha256::digest(public_key.as_bytes()));
         let saved: Option<SavedRoster> = if read_legacy {
             let bytes = match fs::symlink_metadata(&path) {
@@ -158,10 +158,10 @@ impl CommunityRosterStore {
         let claims = source.claims(self.community_id(), receipt)?;
         let input = wabi_consensus::source_context::signing_input(&claims)?;
         let signature: Signature = self.key.sign(&input);
-        let signature = signature.normalize_s().unwrap_or(signature);
+        let signature = signature.normalize_s();
         let signed = wabi_consensus::source_context::SignedSourceContext {
             claims,
-            public_key: hex::encode(self.key.verifying_key().to_encoded_point(false).as_bytes()),
+            public_key: hex::encode(self.key.verifying_key().to_sec1_point(false).as_bytes()),
             signature: hex::encode(signature.to_bytes()),
         };
         signed.verify(self.community_id(), &signed.claims.source_node_id)?;
@@ -281,7 +281,7 @@ impl CommunityRosterStore {
         SignedRoster {
             body,
             public_key: URL_SAFE_NO_PAD
-                .encode(self.key.verifying_key().to_encoded_point(false).as_bytes()),
+                .encode(self.key.verifying_key().to_sec1_point(false).as_bytes()),
             signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
         }
     }
@@ -856,7 +856,7 @@ mod tests {
     fn derived_community_key_and_signature_are_golden() {
         let key = derive_signing_key(&[0x11; 32]).unwrap();
         assert_eq!(
-            hex::encode(key.verifying_key().to_encoded_point(false).as_bytes()),
+            hex::encode(key.verifying_key().to_sec1_point(false).as_bytes()),
             "04fc42e189a2afcfdbde26b3cd735ca6ff49e5c13fd727b19fb8112549e7f07301\
              79cc90ce538f2a44f37c244774433fc8aa3adaf9389f7e5d7bfedb55516258d5"
         );

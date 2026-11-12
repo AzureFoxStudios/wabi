@@ -118,12 +118,12 @@ async fn wait_finished_local_job(runtime: &RecoveryRuntime) {
 }
 fn resign_fixture(context: &mut SignedSourceContext, key_byte: u8) {
     let key = SigningKey::from_slice(&[key_byte; 32]).unwrap();
-    context.public_key = hex::encode(key.verifying_key().to_encoded_point(false).as_bytes());
+    context.public_key = hex::encode(key.verifying_key().to_sec1_point(false).as_bytes());
     context.claims.community_id =
         hex::encode(Sha256::digest(hex::decode(&context.public_key).unwrap()));
     let signature: Signature =
         key.sign(&crate::source_context::signing_input(&context.claims).unwrap());
-    context.signature = hex::encode(signature.normalize_s().unwrap_or(signature).to_bytes());
+    context.signature = hex::encode(signature.normalize_s().to_bytes());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

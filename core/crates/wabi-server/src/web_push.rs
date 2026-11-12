@@ -23,6 +23,7 @@ use p256::{
     ecdsa::{signature::Signer, Signature, SigningKey},
     PublicKey, SecretKey,
 };
+use p256::elliptic_curve::Generate;
 use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 
@@ -76,7 +77,7 @@ pub fn encrypt(payload: &[u8], p256dh_b64: &str, auth_b64: &str) -> Result<Vec<u
     let auth_secret = decode_b64(auth_b64)
         .filter(|bytes| bytes.len() == 16)
         .ok_or(PushError::BadKey("auth secret must be 16 bytes"))?;
-    let as_secret = SecretKey::random(&mut OsRng);
+    let as_secret = SecretKey::generate();
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
     encrypt_with(payload, &ua_public, &auth_secret, &as_secret, salt)
@@ -291,7 +292,7 @@ mod tests {
     /// test cannot pass by merely reproducing a wrong-but-stable ciphertext.
     #[test]
     fn the_receiver_can_decrypt_what_the_sender_produced() {
-        let ua_secret = SecretKey::random(&mut OsRng);
+        let ua_secret = SecretKey::generate();
         let ua_public_b64 = URL_SAFE_NO_PAD.encode(ua_secret.public_key().to_sec1_bytes());
         let auth = URL_SAFE_NO_PAD.encode([7u8; 16]);
         let body = encrypt(b"hello wabi", &ua_public_b64, &auth).unwrap();
@@ -316,7 +317,7 @@ mod tests {
 
     #[test]
     fn each_message_uses_a_fresh_salt_and_key() {
-        let secret = SecretKey::random(&mut OsRng);
+        let secret = SecretKey::generate();
         let public = URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_bytes());
         let auth = URL_SAFE_NO_PAD.encode([1u8; 16]);
         let a = encrypt(b"same", &public, &auth).unwrap();
@@ -327,7 +328,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_keys_and_oversized_payloads() {
-        let secret = SecretKey::random(&mut OsRng);
+        let secret = SecretKey::generate();
         let public = URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_bytes());
         let auth = URL_SAFE_NO_PAD.encode([1u8; 16]);
         assert!(matches!(encrypt(b"x", "not-a-key", &auth), Err(PushError::BadKey(_))));
@@ -344,7 +345,7 @@ mod tests {
 
     #[test]
     fn accepts_padded_and_standard_base64_from_other_clients() {
-        let secret = SecretKey::random(&mut OsRng);
+        let secret = SecretKey::generate();
         let raw = secret.public_key().to_sec1_bytes();
         let standard = base64::engine::general_purpose::STANDARD.encode(&raw);
         let auth = base64::engine::general_purpose::STANDARD.encode([9u8; 16]);
@@ -353,8 +354,8 @@ mod tests {
 
     #[test]
     fn vapid_header_is_a_valid_es256_jwt_for_the_origin() {
-        let key = SigningKey::random(&mut OsRng);
-        let public_b64 = URL_SAFE_NO_PAD.encode(key.verifying_key().to_encoded_point(false).as_bytes());
+        let key = SigningKey::generate();
+        let public_b64 = URL_SAFE_NO_PAD.encode(key.verifying_key().to_sec1_point(false).as_bytes());
         let header = vapid_authorization(&key, &public_b64, "https://push.example", "mailto:ops@example.org", 1_000);
         let (token, k) = header.strip_prefix("vapid t=").unwrap().split_once(", k=").unwrap();
         assert_eq!(k, public_b64);
@@ -427,7 +428,7 @@ k=BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6
         let key = SigningKey::from_pkcs8_pem(RFC6979_PEM).unwrap();
         assert_eq!(key, rfc6979_key());
         assert_eq!(
-            URL_SAFE_NO_PAD.encode(key.verifying_key().to_encoded_point(false).as_bytes()),
+            URL_SAFE_NO_PAD.encode(key.verifying_key().to_sec1_point(false).as_bytes()),
             RFC6979_PUBLIC_B64
         );
         assert_eq!(key.to_pkcs8_pem(LineEnding::LF).unwrap().as_str(), RFC6979_PEM);

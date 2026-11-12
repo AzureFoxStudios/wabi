@@ -551,12 +551,12 @@ async fn signed_source_capture(export: Option<&checkpoint_field_export::Output>)
         })
         .unwrap();
     assert_eq!(
-        hex::encode(derived.verifying_key().to_encoded_point(false).as_bytes()),
+        hex::encode(derived.verifying_key().to_sec1_point(false).as_bytes()),
         signed.public_key
     );
     assert_eq!(
         hex::encode(Sha256::digest(
-            derived.verifying_key().to_encoded_point(false).as_bytes()
+            derived.verifying_key().to_sec1_point(false).as_bytes()
         )),
         verified.claims().community_id
     );

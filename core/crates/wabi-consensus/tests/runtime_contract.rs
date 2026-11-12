@@ -28,7 +28,7 @@ fn private(path: &Path) {
 }
 fn source(bytes: &[u8]) -> SignedSourceContext {
     let key = SigningKey::from_slice(&[9; 32]).unwrap();
-    let public_key = hex::encode(key.verifying_key().to_encoded_point(false).as_bytes());
+    let public_key = hex::encode(key.verifying_key().to_sec1_point(false).as_bytes());
     let claims = SourceClaims {
         schema_version: 1,
         support_profile: SOURCE_PROFILE.into(),
@@ -46,7 +46,7 @@ fn source(bytes: &[u8]) -> SignedSourceContext {
     SignedSourceContext {
         claims,
         public_key,
-        signature: hex::encode(signature.normalize_s().unwrap_or(signature).to_bytes()),
+        signature: hex::encode(signature.normalize_s().to_bytes()),
     }
 }
 /// One listener per roster node, bound for the whole test. Each start gets a

@@ -66,7 +66,7 @@ reqwest = { version = "0.13", features = ["json", "query", "stream"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
 regex = "1"
 sha2 = "0.11"
-p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
+p256 = { version = "0.14", features = ["ecdsa", "ecdh", "pkcs8", "getrandom"] }
 # Web Push payload encryption (RFC 8291). Already in the lockfile via p256/age.
 aes-gcm = "0.10"
 hex = "0.4"
