@@ -275,7 +275,7 @@ async fn deleting_the_read_model_file_changes_no_read() {
     assert_eq!(file_contents(dir.path()), kept, "the rebuilt file holds the same rows");
 
     // And with every saved projection deleted.
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     assert!(!read_model_file(dir.path()).exists());
     let engine = open(dir.path()).await;
     assert_eq!(all_reads(&engine.projection_state()), live);
@@ -491,32 +491,282 @@ async fn a_read_model_behind_the_snapshot_is_rebuilt_with_every_projection() {
     assert_eq!(file_contents(dir.path()), kept);
 }
 
-/// A derived store cannot be ahead of its source: a read model that claims a
-/// commit the log does not have is rebuilt.
-#[tokio::test]
-async fn a_read_model_ahead_of_the_log_is_rebuilt() {
-    let dir = tempfile::tempdir().unwrap();
-    let engine = open(dir.path()).await;
-    let last = write_history(&engine).await;
-    let live = all_reads(&engine.projection_state());
-    close(engine, dir.path()).await;
-    let kept = file_contents(dir.path());
+fn remove_the_log(path: &Path) {
+    std::fs::remove_dir_all(path.join("streams")).unwrap();
+    for entry in std::fs::read_dir(path.join("global/commit-index")).unwrap() {
+        std::fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+}
 
+/// Every file under the engine directory with its bytes, except the lock.
+fn tree(path: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    let mut files = std::collections::BTreeMap::new();
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap().path();
+            if entry.is_dir() {
+                pending.push(entry);
+            } else if entry.file_name().unwrap() != ".lock" {
+                files.insert(entry.strip_prefix(path).unwrap().to_path_buf(), std::fs::read(&entry).unwrap());
+            }
+        }
+    }
+    files
+}
+
+async fn refused(path: &Path) -> String {
+    let error = super::reopen_after_drop(config(path), None).await.unwrap_err();
+    drop(super::wait_for_stopped_engine(path).await);
+    assert!(matches!(error, crate::error::WabiError::Corrupt { .. }), "{error:?}");
+    error.to_string()
+}
+
+/// Five message commits, cleanly stopped: snapshot and read model both at 5.
+async fn five_commits(path: &Path) {
+    let engine = open(path).await;
+    for n in 1..=5 {
+        assert_eq!(send(&engine, "message_created", &message("ch_a", &format!("m{n}"), 7, n)).await, n as u64);
+    }
+    close(engine, path).await;
+    assert_eq!(ProjectionState::read_snapshot_watermark(path).unwrap(), Some(5));
+    assert_eq!(file_contents(path).2, 5);
+}
+
+/// A checkpoint that outlived its log (the log files are gone, the snapshot
+/// and the read model are both at commit 5). The engine has always opened
+/// such a directory; it still does, keeps every row, and continues above 5.
+#[tokio::test]
+async fn a_checkpoint_that_outlived_its_log_opens_when_both_stores_agree() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    remove_the_log(dir.path());
+
+    let engine = open(dir.path()).await;
+    let state = engine.projection_state();
+    assert_eq!(state.applied_commit_seq(), 5);
+    assert_eq!(crate::projections::messages::stored_message_count(state), 5);
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
+    close(engine, dir.path()).await;
+}
+
+/// The same directory without a read model: every first start after the
+/// upgrade, and every start after the file was removed. Rebuilding from the
+/// log would end with no messages and none of the snapshot's rows, and the
+/// next write would reuse commit 1. The engine refuses and changes nothing;
+/// `wabidb-cli check` says the same.
+#[tokio::test]
+async fn a_log_shorter_than_the_checkpoint_is_never_rebuilt_from() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    let read_model = std::fs::read(read_model_file(dir.path())).unwrap();
+    remove_the_log(dir.path());
+
+    // 1. No read model.
+    std::fs::remove_file(read_model_file(dir.path())).unwrap();
+    let before = tree(dir.path());
+    let text = refused(dir.path()).await;
+    println!("refused: {text}");
+    for part in ["ends at commit 0", "covers commit 5", "no read model", "Repair required"] {
+        assert!(text.contains(part), "{part}: {text}");
+    }
+    assert!(tree(dir.path()) == before, "a refused start changed the directory");
+    assert!(!read_model_file(dir.path()).exists());
+    let report = crate::cli::check::check(dir.path()).await.unwrap();
+    assert!(!report.ok);
+    assert!(
+        report.errors.iter().any(|e| e.contains("refuses to start") && e.contains("covers commit 5")),
+        "{:?}",
+        report.errors
+    );
+
+    // 2. A read model of another generation that claims commit 5.
+    std::fs::write(read_model_file(dir.path()), &read_model).unwrap();
+    rusqlite::Connection::open(read_model_file(dir.path()))
+        .unwrap()
+        .execute("UPDATE read_model_meta SET generation = generation + 1", [])
+        .unwrap();
+    let before = tree(dir.path());
+    let text = refused(dir.path()).await;
+    assert!(text.contains("claims commit 5") && text.contains("cannot be used"), "{text}");
+    assert!(tree(dir.path()) == before, "the unusable file was replaced");
+
+    // 3. A usable read model ahead of the snapshot (and so of the log).
+    std::fs::write(read_model_file(dir.path()), &read_model).unwrap();
+    rusqlite::Connection::open(read_model_file(dir.path()))
+        .unwrap()
+        .execute("UPDATE applied_commit_seq SET seq = 9", [])
+        .unwrap();
+    let text = refused(dir.path()).await;
+    assert!(text.contains("read model covers commit 9"), "{text}");
+    assert_eq!(file_contents(dir.path()).0, 5, "its rows were deleted");
+
+    // With the read model as the engine left it, the directory opens.
+    std::fs::write(read_model_file(dir.path()), &read_model).unwrap();
+    assert!(crate::cli::check::check(dir.path()).await.unwrap().errors.is_empty());
+    let engine = open(dir.path()).await;
+    assert_eq!(engine.projection_state().applied_commit_seq(), 5);
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 6);
+}
+
+/// A rebuild never lets the sequencer fall below a commit a saved projection
+/// named. Here the log is whole and the read model is another build's file
+/// that claims a commit above the snapshot: more than the index holds, so
+/// this too is refused rather than rebuilt.
+#[tokio::test]
+async fn an_unusable_read_model_claiming_more_than_the_log_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
     {
         let conn = rusqlite::Connection::open(read_model_file(dir.path())).unwrap();
-        conn.execute("UPDATE applied_commit_seq SET seq = ?1", [last as i64 + 100]).unwrap();
-        conn.execute(
-            "INSERT INTO messages (key, channel_id, message_id, author_user_id, record) \
-             VALUES (x'00', 'ch_a', 'from-a-commit-the-log-lacks', 7, x'00')",
-            [],
-        )
-        .unwrap();
+        conn.execute("UPDATE read_model_meta SET generation = generation + 1", []).unwrap();
+        conn.execute("UPDATE applied_commit_seq SET seq = 40", []).unwrap();
     }
+    let text = refused(dir.path()).await;
+    assert!(text.contains("ends at commit 5") && text.contains("claims commit 40"), "{text}");
+}
+
+/// The sequencer continues above the manifest's recorded height too, even
+/// when nothing else on disk reaches it.
+#[tokio::test]
+async fn the_next_commit_is_above_the_manifests_recorded_height() {
+    let dir = tempfile::tempdir().unwrap();
+    five_commits(dir.path()).await;
+    let manifest = dir.path().join("storage-manifest.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    value["highest_commit_seq"] = serde_json::json!(30);
+    std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
     let engine = open(dir.path()).await;
-    assert_eq!(engine.projection_state().applied_commit_seq(), last);
-    assert_eq!(all_reads(&engine.projection_state()), live);
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m6", 7, 6)).await, 31);
+}
+
+/// A read model whose pages are damaged (the version row still reads). With
+/// a whole log it is replaced and rebuilt, and every read is right. This is
+/// the successor of `corrupt_message_snapshot_refuses_open_without_replacing_it_or_leaking_lock`:
+/// damage in the saved messages can no longer be loaded, and when the log
+/// cannot replace them the open is refused, the file is kept and the lock is
+/// released.
+#[tokio::test]
+async fn a_damaged_read_model_is_rebuilt_from_a_whole_log_and_kept_when_the_log_is_short() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    let mut last = 0;
+    for n in 0..200 {
+        let mut record = message("ch_a", &format!("m{n:03}"), 7, n);
+        record.encrypted_body_ref = "x".repeat(300);
+        last = send(&engine, "message_created", &record).await;
+    }
+    let live = all_reads(engine.projection_state());
     close(engine, dir.path()).await;
-    assert_eq!(file_contents(dir.path()), kept);
+
+    let path = read_model_file(dir.path());
+    let mut bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.len() > 8 * 4096);
+    for byte in &mut bytes[3 * 4096..] {
+        *byte = 0x5A;
+    }
+    std::fs::write(&path, &bytes).unwrap();
+
+    let engine = open(dir.path()).await;
+    assert!(engine.is_healthy());
+    let state = engine.projection_state();
+    assert_eq!(state.applied_commit_seq(), last);
+    assert_eq!(all_reads(state), live);
+    // Writes work again: the admission check reads the lookup by ID.
+    send(&engine, "message_created", &message("ch_a", "after", 7, 999)).await;
+    close(engine, dir.path()).await;
+
+    // The same damage with the log gone: refused, file untouched, lock free.
+    let engine = open(dir.path()).await;
+    close(engine, dir.path()).await;
+    let mut bytes = std::fs::read(&path).unwrap();
+    for byte in &mut bytes[3 * 4096..] {
+        *byte = 0x5A;
+    }
+    std::fs::write(&path, &bytes).unwrap();
+    remove_the_log(dir.path());
+    let before = tree(dir.path());
+    let text = refused(dir.path()).await;
+    println!("refused: {text}");
+    assert!(text.contains("cannot be used") && text.contains("consistency check"), "{text}");
+    assert!(tree(dir.path()) == before);
+    assert!(crate::engine::locks::try_acquire_process_lock(&dir.path().join(".lock"))
+        .unwrap()
+        .is_some());
+}
+
+/// Damage that shows up while the engine runs: reads fail, the engine stops
+/// reporting healthy, and the next start rebuilds the read model.
+#[tokio::test]
+async fn damage_at_run_time_makes_the_engine_unhealthy_and_the_next_start_rebuilds() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    for n in 0..200 {
+        let mut record = message("ch_a", &format!("m{n:03}"), 7, n);
+        record.encrypted_body_ref = "x".repeat(300);
+        send(&engine, "message_created", &record).await;
+    }
+    // No read yet: a read connection would keep these few pages cached and
+    // never notice what happens to the file.
+    assert!(engine.is_healthy());
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let path = read_model_file(dir.path());
+        let len = std::fs::metadata(&path).unwrap().len() as usize;
+        let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.seek(SeekFrom::Start(3 * 4096)).unwrap();
+        file.write_all(&vec![0x5Au8; len - 3 * 4096]).unwrap();
+    }
+    // Reads that have to touch the damaged pages fail; one of them is enough.
+    let mut failed = false;
+    for _ in 0..40 {
+        let filter = MessagesFilter { include_deleted: true, ..Default::default() };
+        failed |= MessagesProjection.query(engine.projection_state(), &filter).is_err();
+    }
+    assert!(failed, "no read touched the damaged pages");
+    assert!(!engine.is_healthy());
+    close(engine, dir.path()).await;
+
+    assert!(ProjectionState::read_model_path(dir.path()).with_extension("rebuild").is_file());
+
+    let engine = open(dir.path()).await;
+    assert!(engine.is_healthy());
+    let state = engine.projection_state();
+    let listed = MessagesProjection::list_messages(state, "ch_a", true).unwrap();
+    assert_eq!(listed.len(), 200);
+    assert!(listed.iter().all(|record| record.encrypted_body_ref == "x".repeat(300)));
+    assert!(message_lookup::get(state, "m199").unwrap().is_some());
+    assert!(!ProjectionState::read_model_path(dir.path()).with_extension("rebuild").exists());
+}
+
+/// A commit quarantined after the read model applied it. The snapshot is at
+/// commit 1 and the read model at 2 when commit 2 is quarantined; the
+/// command asks for a rebuild, and after the next start no read sees m2.
+#[tokio::test]
+async fn quarantining_a_commit_the_read_model_holds_removes_it_from_the_read_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = open(dir.path()).await;
+    send(&engine, "message_created", &message("ch_a", "m1", 7, 100)).await;
+    close(engine, dir.path()).await;
+    let snapshot_at_one = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
+    let engine = open(dir.path()).await;
+    assert_eq!(send(&engine, "message_created", &message("ch_a", "m2", 7, 200)).await, 2);
+    close(engine, dir.path()).await;
+    std::fs::write(ProjectionState::snapshot_path(dir.path()), snapshot_at_one).unwrap();
+    assert_eq!(file_contents(dir.path()).4, ["m1", "m2"]);
+
+    crate::cli::quarantine::quarantine(dir.path(), 2).unwrap();
+    assert_eq!(file_contents(dir.path()).4, ["m1", "m2"], "the command deletes nothing itself");
+
+    let engine = open(dir.path()).await;
+    let state = engine.projection_state();
+    assert_eq!(state.applied_commit_seq(), 2);
+    assert!(MessagesProjection::get_message(state, "ch_a", "m1").unwrap().is_some());
+    assert_eq!(MessagesProjection::get_message(state, "ch_a", "m2").unwrap(), None);
+    assert_eq!(message_lookup::get(state, "m2").unwrap(), None);
+    close(engine, dir.path()).await;
+    assert_eq!(file_contents(dir.path()).4, ["m1"]);
 }
 
 /// One transaction per commit: a reader never sees part of a command. Each

@@ -276,7 +276,9 @@ impl ProjectionState {
     }
 
     pub fn is_healthy(&self) -> bool {
-        !self.apply_failed.load(Ordering::Acquire) && !self.application.is_poisoned()
+        !self.apply_failed.load(Ordering::Acquire)
+            && !self.application.is_poisoned()
+            && !self.read_model_if_any().is_some_and(ReadModel::is_damaged)
     }
 
     /// Insert a key-value pair into a named index. Used by the dispatcher.
@@ -383,11 +385,14 @@ impl ProjectionState {
                 // with no rows, like an empty index, adds nothing.
                 let mut rows = 0u64;
                 let mut table_hash = blake3::Hasher::new();
-                model.for_each_row(table, |key, record| {
+                // Every column the engine reads, not only the key and the
+                // record: its lookups by ID and by author use the others.
+                model.for_each_full_row(table, |columns| {
                     rows += 1;
                     entries = entries.checked_add(1).ok_or_else(invalid)?;
+                    let (record, others) = columns.split_last().ok_or_else(invalid)?;
                     let record = crate::format::versioned::fingerprint_bytes(record);
-                    for bytes in [key, record] {
+                    for bytes in others.iter().copied().chain([record]) {
                         let length = u64::try_from(bytes.len()).map_err(|_| invalid())?;
                         record_bytes = record_bytes.checked_add(length).ok_or_else(invalid)?;
                         if entries > max_entries || record_bytes > max_record_bytes {
@@ -816,11 +821,21 @@ impl ProjectionState {
         })
     }
 
-    /// Remove every saved projection of a stopped engine: the snapshot file
-    /// and the SQLite read model. The next open replays the whole log.
+    /// Remove the snapshot file (e.g. when the engine is shutting down and
+    /// the snapshot is no longer needed).
     pub fn remove_snapshot(data_dir: &Path) {
         let path = Self::snapshot_path(data_dir);
         let _ = std::fs::remove_file(path);
+    }
+
+    /// Test support: remove every saved projection (the snapshot file and the
+    /// SQLite read model) so the next open replays the whole log. The engine
+    /// must be stopped; nothing here checks the lock. Not for operators: with
+    /// a log shorter than the saved projections this deletes the only copy
+    /// of their state.
+    #[doc(hidden)]
+    pub fn remove_saved_projections_for_tests(data_dir: &Path) {
+        Self::remove_snapshot(data_dir);
         let _ = ReadModel::remove_files(data_dir);
     }
 
@@ -1141,7 +1156,7 @@ mod tests {
                     }
                 }
             }
-            ProjectionState::remove_snapshot(dir.path());
+            ProjectionState::remove_saved_projections_for_tests(dir.path());
         }
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         applier.await.unwrap();

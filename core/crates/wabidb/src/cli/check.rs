@@ -71,7 +71,7 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
         });
     }
     let quarantine = super::quarantine_for_report(data_dir, &mut errors);
-    let snapshot_watermark = super::snapshot_watermark_for_report(data_dir, &mut errors);
+    let snapshot_watermark = super::snapshot_watermark_for_report(data_dir, &mut errors, &mut warnings);
 
     let index_dir = data_dir.join("global").join("commit-index");
     // Without a readable index there is nothing to match records against;

@@ -32,14 +32,38 @@ pub use schema::READ_MODEL_GENERATION;
 use crate::error::{Result, WabiError};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 /// Idle read connections kept for reuse.
 const MAX_IDLE_READERS: usize = 16;
 
+/// How long a statement waits for another connection's lock. Within one
+/// engine only the writer connection writes and readers never block it (WAL),
+/// so this is reached only when another process has the file open.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The write-ahead log is cut back to this size after a checkpoint.
+const WAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
+
+thread_local! {
+    /// Set when SQLite reports the database file itself as damaged, so the
+    /// store that ran the statement can stop calling itself healthy.
+    static SAW_DAMAGE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn is_damage(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)
+    )
+}
+
 fn sql_error(error: rusqlite::Error) -> WabiError {
+    if is_damage(&error) {
+        SAW_DAMAGE.with(|flag| flag.set(true));
+    }
     WabiError::InternalInvariantViolated {
         invariant: format!("projection read model: {error}"),
     }
@@ -72,6 +96,8 @@ struct Writer {
 pub(crate) struct ReadModel {
     /// The database file; `None` for an in-memory store.
     file: Option<PathBuf>,
+    /// The engine directory of a file store.
+    data_dir: Option<PathBuf>,
     /// Opened for offline inspection: never written.
     frozen: bool,
     writer: Mutex<Writer>,
@@ -81,9 +107,35 @@ pub(crate) struct ReadModel {
     /// During startup replay: message events at or below this commit are
     /// already stored and must not be applied again. Zero otherwise.
     replay_floor: AtomicU64,
-    /// Why `open` discarded an existing file, if it did.
-    #[cfg_attr(not(test), allow(dead_code))]
-    discarded: Option<String>,
+    /// SQLite reported the file as damaged while the engine was running.
+    damaged: AtomicBool,
+}
+
+/// What is on disk where an engine keeps its read model.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum FileState {
+    /// No file. The engine creates one and fills it from the log.
+    Missing,
+    /// A file this build can use as it is.
+    Usable { applied: u64 },
+    /// A file this build must not read from: another schema version or
+    /// generation, a failed consistency check, or a rebuild request. The
+    /// engine replaces it and fills the new one from the log. `applied` is
+    /// the `applied_commit_seq` the file claims, zero when it cannot be read.
+    Unusable { reason: String, applied: u64 },
+}
+
+/// What offline inspection found where the read model would be.
+pub(crate) enum Frozen {
+    /// No file.
+    Missing,
+    /// A file the engine would use as it is, opened without changing it.
+    Usable(ReadModel),
+    /// A file the engine would replace and rebuild from the log.
+    Replaced(String),
+    /// A file the engine would use, but whose content cannot be read without
+    /// changing the directory, or does not pass a full integrity check.
+    Unverifiable(String),
 }
 
 impl std::fmt::Debug for ReadModel {
@@ -208,7 +260,12 @@ impl ReadModel {
     /// not be running. The next open rebuilds everything from the log.
     pub(crate) fn remove_files(data_dir: &Path) -> Result<()> {
         let path = Self::path(data_dir);
-        for file in [sidecar(&path, "-wal"), sidecar(&path, "-shm"), path] {
+        for file in [
+            sidecar(&path, "-wal"),
+            sidecar(&path, "-shm"),
+            path,
+            Self::rebuild_marker(data_dir),
+        ] {
             match std::fs::remove_file(&file) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -229,17 +286,125 @@ impl ReadModel {
             readers: Mutex::new(Vec::new()),
             messages_applied: AtomicU64::new(0),
             replay_floor: AtomicU64::new(0),
-            discarded: None,
+            damaged: AtomicBool::new(false),
+            data_dir: None,
         }
     }
 
-    /// Open the engine's read model, creating it when missing.
+    /// A file whose presence asks the next start to rebuild the read model.
+    /// Written when SQLite reports damage at run time and by
+    /// `wabidb-cli quarantine`. Its text is the reason.
+    pub(crate) fn rebuild_marker(data_dir: &Path) -> PathBuf {
+        data_dir.join("projections").join("read-model.rebuild")
+    }
+
+    /// Ask the next start to replace the read model and fill it from the
+    /// log. Nothing is deleted here: the engine decides at startup, when it
+    /// knows whether the log still covers what the file holds.
+    pub(crate) fn request_rebuild(data_dir: &Path, reason: &str) -> Result<()> {
+        let marker = Self::rebuild_marker(data_dir);
+        if let Some(parent) = marker.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&marker, reason)?;
+        std::fs::File::open(&marker)?.sync_all()?;
+        Ok(())
+    }
+
+    /// Look at the read model of a stopped engine without replacing it.
+    pub(crate) fn probe(data_dir: &Path) -> Result<FileState> {
+        Self::probe_as_generation(data_dir, READ_MODEL_GENERATION)
+    }
+
+    /// [`Self::probe`] for a build whose generation is `generation`.
     ///
-    /// A file that cannot be read, or whose schema version or generation is
-    /// not this build's, is deleted and created empty, with
-    /// `applied_commit_seq` zero. The engine then replays the whole log.
+    /// Runs `PRAGMA quick_check`, which reads the whole file: opening only
+    /// the version row would accept a file whose pages are damaged, and every
+    /// later read and every message write would then fail.
+    pub(crate) fn probe_as_generation(data_dir: &Path, generation: i64) -> Result<FileState> {
+        let path = Self::path(data_dir);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if !metadata.is_file() => {
+                return Err(WabiError::Corrupt {
+                    location: path.display().to_string(),
+                    detail: "projection read model is not a regular file".into(),
+                });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(FileState::Missing)
+            }
+            Err(error) => return Err(error.into()),
+        }
+        let opened = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .and_then(|conn| {
+                conn.busy_timeout(BUSY_TIMEOUT)?;
+                let meta = read_meta(&conn)?;
+                let applied = read_applied(&conn)?;
+                Ok((conn, meta, applied))
+            });
+        let (conn, meta, applied) = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                return Ok(FileState::Unusable {
+                    reason: format!("it cannot be read: {error}"),
+                    applied: 0,
+                })
+            }
+        };
+        let unusable = |reason: String| Ok(FileState::Unusable { reason, applied });
+        if let Ok(reason) = std::fs::read_to_string(Self::rebuild_marker(data_dir)) {
+            return unusable(format!("a rebuild was requested: {}", reason.trim()));
+        }
+        match meta {
+            Some((schema_version, stored))
+                if schema_version == schema::SCHEMA_VERSION && stored == generation => {}
+            Some((schema_version, stored)) => {
+                return unusable(format!(
+                    "schema version {schema_version} generation {stored}, this build has \
+                     schema version {} generation {generation}",
+                    schema::SCHEMA_VERSION
+                ))
+            }
+            None => return unusable("it has no version row".into()),
+        }
+        let check: rusqlite::Result<String> =
+            conn.query_row("PRAGMA quick_check(1)", [], |row| row.get(0));
+        match check {
+            Ok(result) if result == "ok" => Ok(FileState::Usable { applied }),
+            Ok(result) => unusable(format!("consistency check failed: {result}")),
+            Err(error) => unusable(format!("consistency check failed: {error}")),
+        }
+    }
+
+    /// [`Self::probe`] for the lock-free, read-only `check` and `verify`
+    /// commands: nothing is created or changed. `Err` with the reason when
+    /// the file cannot be judged that way (its write-ahead log still holds
+    /// frames, or it fails the integrity check).
+    pub(crate) fn peek(data_dir: &Path) -> std::result::Result<FileState, String> {
+        match Self::open_frozen(data_dir) {
+            Frozen::Missing => Ok(FileState::Missing),
+            Frozen::Usable(model) => Ok(FileState::Usable { applied: model.messages_applied_seq() }),
+            Frozen::Replaced(reason) => Ok(FileState::Unusable { reason, applied: 0 }),
+            Frozen::Unverifiable(reason) => Err(reason),
+        }
+    }
+
+    /// Open the engine's read model: the file [`Self::probe`] called usable,
+    /// or a new empty one when there is none.
     pub(crate) fn open(data_dir: &Path) -> Result<Self> {
         Self::open_as_generation(data_dir, READ_MODEL_GENERATION)
+    }
+
+    /// Delete the read model and create an empty one at commit zero. Only
+    /// for a file the engine decided to rebuild from the log.
+    pub(crate) fn recreate(data_dir: &Path) -> Result<Self> {
+        Self::recreate_as_generation(data_dir, READ_MODEL_GENERATION)
+    }
+
+    pub(crate) fn recreate_as_generation(data_dir: &Path, generation: i64) -> Result<Self> {
+        Self::remove_files(data_dir)?;
+        Self::open_as_generation(data_dir, generation)
     }
 
     /// [`Self::open`] for a build whose generation is `generation`.
@@ -248,110 +413,139 @@ impl ReadModel {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut discarded = None;
-        loop {
-            match std::fs::symlink_metadata(&path) {
-                Ok(metadata) if !metadata.is_file() => {
-                    return Err(WabiError::Corrupt {
-                        location: path.display().to_string(),
-                        detail: "projection read model is not a regular file".into(),
-                    });
-                }
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
-            }
-            let existed = std::fs::metadata(&path).is_ok_and(|metadata| metadata.len() > 0);
-            make_private(&path)?;
-            let opened = Connection::open(&path).and_then(|conn| {
-                conn.busy_timeout(Duration::from_secs(5))?;
-                conn.pragma_update(None, "journal_mode", "WAL")?;
-                conn.pragma_update(None, "synchronous", "NORMAL")?;
-                if !existed {
-                    create_tables(&conn, generation)?;
-                }
-                let meta = read_meta(&conn)?;
-                let applied = read_applied(&conn)?;
-                Ok((conn, meta, applied))
-            });
-            let problem = match opened {
-                Ok((conn, Some((schema_version, stored)), applied))
-                    if schema_version == schema::SCHEMA_VERSION && stored == generation =>
-                {
-                    return Ok(Self {
-                        file: Some(path),
-                        frozen: false,
-                        writer: Mutex::new(Writer { conn, in_transaction: false }),
-                        readers: Mutex::new(Vec::new()),
-                        messages_applied: AtomicU64::new(applied),
-                        replay_floor: AtomicU64::new(0),
-                        discarded,
-                    });
-                }
-                Ok((_, Some((schema_version, stored)), _)) => format!(
-                    "schema version {schema_version} generation {stored}, this build has \
-                     schema version {} generation {generation}",
-                    schema::SCHEMA_VERSION
-                ),
-                Ok((_, None, _)) => "it has no version row".to_string(),
-                Err(error) => format!("it cannot be read: {error}"),
-            };
-            if discarded.is_some() || !existed {
-                // A file this call just created is still unusable.
+        let existed = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if !metadata.is_file() => {
                 return Err(WabiError::Corrupt {
                     location: path.display().to_string(),
-                    detail: format!("projection read model cannot be created: {problem}"),
+                    detail: "projection read model is not a regular file".into(),
                 });
             }
-            tracing::warn!(
-                "projection read model {} is discarded and will be rebuilt from the log: {problem}",
-                path.display()
-            );
-            Self::remove_files(data_dir)?;
-            discarded = Some(problem);
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        make_private(&path)?;
+        let opened = Connection::open(&path).and_then(|conn| {
+            conn.busy_timeout(BUSY_TIMEOUT)?;
+            conn.pragma_update(None, "journal_mode", "WAL")?;
+            conn.pragma_update(None, "synchronous", "NORMAL")?;
+            conn.pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT)?;
+            if !existed {
+                create_tables(&conn, generation)?;
+            }
+            let meta = read_meta(&conn)?;
+            let applied = read_applied(&conn)?;
+            Ok((conn, meta, applied))
+        });
+        match opened {
+            Ok((conn, Some(meta), applied)) if meta == (schema::SCHEMA_VERSION, generation) => {
+                Ok(Self {
+                    file: Some(path),
+                    data_dir: Some(data_dir.to_path_buf()),
+                    frozen: false,
+                    writer: Mutex::new(Writer { conn, in_transaction: false }),
+                    readers: Mutex::new(Vec::new()),
+                    messages_applied: AtomicU64::new(applied),
+                    replay_floor: AtomicU64::new(0),
+                    damaged: AtomicBool::new(false),
+                })
+            }
+            Ok(_) => Err(WabiError::Corrupt {
+                location: path.display().to_string(),
+                detail: "projection read model is not this build's; it must be rebuilt".into(),
+            }),
+            Err(error) => Err(WabiError::Corrupt {
+                location: path.display().to_string(),
+                detail: format!("projection read model cannot be opened: {error}"),
+            }),
         }
     }
 
-    /// Open a stopped engine's read model without creating or changing any
-    /// file. `None` when there is nothing this build could use as it is: no
-    /// file, a write-ahead log that still holds frames, or another schema
-    /// version or generation. In each of those cases the engine would rebuild
-    /// or recover the file when it opens.
-    pub(crate) fn open_frozen(data_dir: &Path) -> Option<Self> {
+    /// Open a stopped engine's read model for offline inspection, without
+    /// creating or changing any file.
+    pub(crate) fn open_frozen(data_dir: &Path) -> Frozen {
         let path = Self::path(data_dir);
-        let metadata = std::fs::symlink_metadata(&path).ok()?;
-        if !metadata.is_file() || metadata.len() == 0 {
-            return None;
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            return Frozen::Missing;
+        };
+        if !metadata.is_file() {
+            return Frozen::Unverifiable("it is not a regular file".into());
         }
+        // The engine recovers a write-ahead log that still holds frames and
+        // then serves what it holds. An immutable open cannot see those
+        // frames, and an ordinary open would change the directory.
         if std::fs::metadata(sidecar(&path, "-wal")).is_ok_and(|wal| wal.len() > 0) {
-            return None;
+            return Frozen::Unverifiable(
+                "its write-ahead log still holds frames (the engine did not stop cleanly, \
+                 or the files were copied while it ran)"
+                    .into(),
+            );
         }
-        let uri = format!("{}?immutable=1", file_uri(&path)?);
-        let conn = Connection::open_with_flags(
-            uri,
+        if let Ok(reason) = std::fs::read_to_string(Self::rebuild_marker(data_dir)) {
+            return Frozen::Replaced(format!("a rebuild was requested: {}", reason.trim()));
+        }
+        let Some(uri) = file_uri(&path) else {
+            return Frozen::Unverifiable("its path is not valid UTF-8".into());
+        };
+        let conn = match Connection::open_with_flags(
+            format!("{uri}?immutable=1"),
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-        )
-        .ok()?;
-        let meta = read_meta(&conn).ok()??;
-        if meta != (schema::SCHEMA_VERSION, READ_MODEL_GENERATION) {
-            return None;
+        ) {
+            Ok(conn) => conn,
+            Err(error) => return Frozen::Replaced(format!("it cannot be read: {error}")),
+        };
+        match read_meta(&conn) {
+            Ok(Some(meta)) if meta == (schema::SCHEMA_VERSION, READ_MODEL_GENERATION) => {}
+            Ok(_) => return Frozen::Replaced("another schema version or generation".into()),
+            Err(error) => return Frozen::Replaced(format!("it cannot be read: {error}")),
         }
-        let applied = read_applied(&conn).ok()?;
-        Some(Self {
+        // Stricter than the engine's check at open: this one also compares
+        // every index with its table, which the engine's lookups depend on.
+        let check: rusqlite::Result<String> =
+            conn.query_row("PRAGMA integrity_check(1)", [], |row| row.get(0));
+        match check {
+            Ok(result) if result == "ok" => {}
+            Ok(result) => return Frozen::Unverifiable(format!("integrity check failed: {result}")),
+            Err(error) => return Frozen::Unverifiable(format!("integrity check failed: {error}")),
+        }
+        let applied = match read_applied(&conn) {
+            Ok(applied) => applied,
+            Err(error) => return Frozen::Unverifiable(format!("it cannot be read: {error}")),
+        };
+        Frozen::Usable(Self {
             file: None,
+            data_dir: None,
             frozen: true,
             writer: Mutex::new(Writer { conn, in_transaction: false }),
             readers: Mutex::new(Vec::new()),
             messages_applied: AtomicU64::new(applied),
             replay_floor: AtomicU64::new(0),
-            discarded: None,
+            damaged: AtomicBool::new(false),
         })
     }
 
-    /// Why `open` threw an existing file away, if it did.
-    #[cfg(test)]
-    pub(crate) fn discarded(&self) -> Option<&str> {
-        self.discarded.as_deref()
+    /// SQLite reported the file as damaged since this store was opened.
+    pub(crate) fn is_damaged(&self) -> bool {
+        self.damaged.load(Ordering::Acquire)
+    }
+
+    /// Run `f`; if SQLite called the file damaged while it ran, remember it
+    /// and ask the next start to rebuild.
+    fn watching_for_damage<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        SAW_DAMAGE.with(|flag| flag.set(false));
+        let result = f();
+        if SAW_DAMAGE.with(|flag| flag.replace(false)) && !self.damaged.swap(true, Ordering::AcqRel) {
+            tracing::error!(
+                "projection read model is damaged; the engine is no longer healthy and the \
+                 next start rebuilds it from the log"
+            );
+            if let Some(data_dir) = &self.data_dir {
+                if let Err(error) = Self::request_rebuild(data_dir, "SQLite reported damage at run time") {
+                    tracing::error!("could not record the rebuild request: {error}");
+                }
+            }
+        }
+        result
     }
 
     /// The committed `applied_commit_seq` of the messages projection: every
@@ -375,11 +569,13 @@ impl ReadModel {
             });
         }
         let mut writer = lock(&self.writer);
-        if !writer.in_transaction {
-            writer.conn.execute_batch("BEGIN IMMEDIATE").map_err(sql_error)?;
-            writer.in_transaction = true;
-        }
-        f(&writer.conn)
+        self.watching_for_damage(|| {
+            if !writer.in_transaction {
+                writer.conn.execute_batch("BEGIN IMMEDIATE").map_err(sql_error)?;
+                writer.in_transaction = true;
+            }
+            f(&writer.conn)
+        })
     }
 
     /// Run `f` on a connection that sees committed rows. An in-memory or
@@ -394,11 +590,11 @@ impl ReadModel {
             None => {
                 let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
                     .map_err(sql_error)?;
-                conn.busy_timeout(Duration::from_secs(5)).map_err(sql_error)?;
+                conn.busy_timeout(BUSY_TIMEOUT).map_err(sql_error)?;
                 conn
             }
         };
-        let result = f(&conn);
+        let result = self.watching_for_damage(|| f(&conn));
         let mut readers = lock(&self.readers);
         if readers.len() < MAX_IDLE_READERS {
             readers.push(conn);
@@ -407,8 +603,10 @@ impl ReadModel {
     }
 
     fn commit_locked(&self, writer: &mut Writer, seq: u64) -> Result<()> {
-        raise_applied(&writer.conn, seq).map_err(sql_error)?;
-        writer.conn.execute_batch("COMMIT").map_err(sql_error)?;
+        self.watching_for_damage(|| {
+            raise_applied(&writer.conn, seq).map_err(sql_error)?;
+            writer.conn.execute_batch("COMMIT").map_err(sql_error)
+        })?;
         writer.in_transaction = false;
         self.messages_applied.fetch_max(seq, Ordering::AcqRel);
         Ok(())
@@ -478,9 +676,15 @@ impl ReadModel {
     ///
     /// Ordinary commits do not wait for the disk (`synchronous = NORMAL`): a
     /// power loss may lose the newest ones, never corrupt the file. The
-    /// checkpoint must not claim more than the store kept, so this one
-    /// transaction is written with `synchronous = FULL`, which syncs the
-    /// write-ahead log and with it every commit before it.
+    /// checkpoint must not claim more than the store kept, so one transaction
+    /// is written here with `synchronous = FULL`. SQLite then syncs the
+    /// write-ahead log when it commits, and with it every earlier commit.
+    /// The transaction also bumps a counter, because SQLite writes nothing,
+    /// and so syncs nothing, for an update that changes no byte.
+    ///
+    /// If the sync is lost all the same (a disk that lies about it), a power
+    /// cut leaves the read model behind the snapshot, and the next start
+    /// rebuilds every projection from the log.
     pub(crate) fn sync(&self, watermark: u64) -> Result<()> {
         if self.frozen {
             return Ok(());
@@ -503,31 +707,72 @@ impl ReadModel {
         if self.file.is_some() {
             writer.conn.pragma_update(None, "synchronous", "FULL").map_err(sql_error)?;
         }
-        let stored = writer
-            .conn
-            .execute_batch("BEGIN IMMEDIATE")
-            .and_then(|()| raise_applied(&writer.conn, watermark))
-            .and_then(|()| writer.conn.execute_batch("COMMIT"));
+        let stored = self.watching_for_damage(|| {
+            writer
+                .conn
+                .execute_batch(
+                    "BEGIN IMMEDIATE; UPDATE read_model_meta SET sync_count = sync_count + 1;",
+                )
+                .and_then(|()| raise_applied(&writer.conn, watermark))
+                .and_then(|()| writer.conn.execute_batch("COMMIT"))
+                .map_err(sql_error)
+        });
         if self.file.is_some() {
             writer.conn.pragma_update(None, "synchronous", "NORMAL").map_err(sql_error)?;
         }
         if let Err(error) = stored {
             let _ = writer.conn.execute_batch("ROLLBACK");
-            return Err(sql_error(error));
+            return Err(error);
         }
         self.messages_applied.fetch_max(watermark, Ordering::AcqRel);
-        self.shrink_log(&writer);
+        // Fold the log into the file as far as readers allow. PASSIVE never
+        // waits for a reader, so a long read cannot stall the checkpoint,
+        // which runs under the application lock. Durability does not depend
+        // on it.
+        if self.file.is_some() {
+            let _ = writer.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()));
+        }
         Ok(())
     }
 
-    /// Move the write-ahead log into the database file and empty it. Best
-    /// effort: a reader in the middle of a query makes it do less.
+    /// Move the write-ahead log into the database file and empty it. Only
+    /// used at startup, when this store has no reader yet.
     fn shrink_log(&self, writer: &Writer) {
         if self.file.is_some() {
             let _ = writer
                 .conn
                 .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
         }
+    }
+
+    /// Every row of `table` in key order, with every column the engine
+    /// reads: the key, the columns its lookups use, and the record.
+    pub(crate) fn for_each_full_row(
+        &self,
+        table: Table,
+        mut f: impl FnMut(&[&[u8]]) -> Result<()>,
+    ) -> Result<()> {
+        let writer = lock(&self.writer);
+        let sql = match table {
+            Table::Messages => {
+                "SELECT key, CAST(channel_id AS BLOB), CAST(message_id AS BLOB), \
+                 author_user_id, record FROM messages ORDER BY key"
+            }
+            Table::MessageVersions => {
+                "SELECT key, CAST(channel_id AS BLOB), CAST(message_id AS BLOB), \
+                 0, record FROM message_versions ORDER BY key"
+            }
+        };
+        self.watching_for_damage(|| {
+            let mut statement = writer.conn.prepare_cached(sql).map_err(sql_error)?;
+            let mut rows = statement.query([]).map_err(sql_error)?;
+            while let Some(row) = rows.next().map_err(sql_error)? {
+                let blob = |index| row.get_ref(index).and_then(|v| Ok(v.as_blob()?)).map_err(sql_error);
+                let author: i64 = row.get(3).map_err(sql_error)?;
+                f(&[blob(0)?, blob(1)?, blob(2)?, &author.to_le_bytes(), blob(4)?])?;
+            }
+            Ok(())
+        })
     }
 
     /// Every row of `table` in key order.

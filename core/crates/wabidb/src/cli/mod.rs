@@ -374,11 +374,22 @@ pub(crate) fn quarantine_for_report(
     })
 }
 
-/// The snapshot watermark for `check` and `verify`, 0 without a snapshot.
+/// The height the saved projections add to what the engine continues
+/// above, for `check` and `verify`: the highest of the snapshot's watermark,
+/// the read model's `applied_commit_seq` and the manifest's recorded height.
+/// Computed with the engine's own functions.
+///
 /// An unreadable snapshot is an error in their report (the engine will not
-/// start on it) and counts as 0. Read with the engine's own parser.
-pub(crate) fn snapshot_watermark_for_report(data_dir: &Path, errors: &mut Vec<String>) -> u64 {
-    match crate::engine::locks::ProjectionState::read_snapshot_watermark(data_dir) {
+/// start on it) and counts as 0. So is a log that ends below a saved
+/// projection in a way the engine refuses (`engine::plan_startup`). A read
+/// model these read-only commands cannot judge is a warning.
+pub(crate) fn snapshot_watermark_for_report(
+    data_dir: &Path,
+    errors: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) -> u64 {
+    use crate::projections::read_model::{FileState, ReadModel};
+    let snapshot = match crate::engine::locks::ProjectionState::read_snapshot_watermark(data_dir) {
         Ok(watermark) => watermark.unwrap_or(0),
         Err(e) => {
             errors.push(format!(
@@ -386,7 +397,27 @@ pub(crate) fn snapshot_watermark_for_report(data_dir: &Path, errors: &mut Vec<St
             ));
             0
         }
+    };
+    let mut height = snapshot.max(crate::engine::manifest_high_seq(data_dir));
+    match ReadModel::peek(data_dir) {
+        Ok(model) => {
+            if let FileState::Usable { applied } = &model {
+                height = height.max(*applied);
+            }
+            let index_dir = data_dir.join("global").join("commit-index");
+            if let Ok(entries) = crate::commit_index::batcher::read_all_entries(&index_dir) {
+                let index_high = entries.iter().map(|e| e.commit_seq).max().unwrap_or(0);
+                if let Err(detail) = crate::engine::plan_startup(index_high, snapshot, &model) {
+                    errors.push(format!("the engine refuses to start: {detail}"));
+                }
+            }
+        }
+        Err(reason) => warnings.push(format!(
+            "projections/read-model.sqlite3 was not examined: {reason}; the engine examines it \
+             when it starts"
+        )),
     }
+    height
 }
 
 /// Real-engine data directories for the CLI tests. Every CLI test runs the

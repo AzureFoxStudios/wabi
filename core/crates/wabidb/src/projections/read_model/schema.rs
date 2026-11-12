@@ -39,6 +39,9 @@ pub(crate) const MESSAGES: &str = "messages";
 /// in time order, with later events of the same message sorting after earlier
 /// ones.
 ///
+/// `read_model_meta.sync_count` is bumped by every checkpoint sync, so that
+/// transaction always writes something for SQLite to sync.
+///
 /// `applied_commit_seq`: one row per projection stored here. Every commit
 /// whose events that projection handles, up to and including `seq`, is in the
 /// tables. The row is written in the same transaction as the rows it covers.
@@ -46,7 +49,8 @@ pub(crate) const DDL: &str = "
 CREATE TABLE read_model_meta (
     id INTEGER PRIMARY KEY CHECK (id = 0),
     schema_version INTEGER NOT NULL,
-    generation INTEGER NOT NULL
+    generation INTEGER NOT NULL,
+    sync_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE applied_commit_seq (
     projection TEXT PRIMARY KEY,

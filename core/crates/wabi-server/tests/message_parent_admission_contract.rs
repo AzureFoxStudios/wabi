@@ -79,7 +79,7 @@ async fn adapter_id_lookup_tracks_edits_clear_and_event_replay() {
     let before = store.engine().barrier().current();
     drop(store);
     let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
-    ProjectionState::remove_snapshot(dir.path());
+    ProjectionState::remove_saved_projections_for_tests(dir.path());
     drop(stopped);
     let reopened = writer_drain::retry(
         || WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into()),
