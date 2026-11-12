@@ -126,6 +126,14 @@ pub struct SyncState {
     /// drops the whole map when it saves, so it never leaves a stale entry.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub local_fingerprints: BTreeMap<String, String>,
+    /// Report lines for conflicts that are settled in the folder (the file
+    /// holds the server's version, the user's is in a conflict copy) and
+    /// that no report has carried to the user yet, because the round failed
+    /// or was killed after settling them. Emptied when a report takes them.
+    /// Optional on read and left out when empty, like the two maps above; a
+    /// build without this field drops it, and with it only the notice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreported_conflicts: Vec<String>,
 }
 
 impl SyncState {
@@ -152,6 +160,21 @@ impl SyncState {
         }
     }
 
+    /// Stop treating `path` as waiting for review. The client cannot see a
+    /// rejection, so after one the user says so with `wabi-sync resubmit`.
+    /// The file then differs from its baseline with nothing recorded as
+    /// sent, and the next push uploads it again. Returns false when the path
+    /// was not waiting.
+    pub fn forget_review(&mut self, path: &str) -> bool {
+        if self.pending_review.remove(path).is_none() {
+            return false;
+        }
+        // While a path waits for review its fingerprint describes the bytes
+        // that were sent, not the baseline.
+        self.local_fingerprints.remove(path);
+        true
+    }
+
     /// Record the local etag of the file just synced as `server_etag`.
     pub fn record_local(&mut self, path: &str, local_etag: &str, server_etag: &str) {
         if local_etag == server_etag {
@@ -175,7 +198,12 @@ impl SyncState {
     pub fn save(&self, folder: &Path) -> anyhow::Result<()> {
         let path = Self::path_for(folder);
         std::fs::create_dir_all(path.parent().unwrap_or(folder))?;
-        std::fs::write(&path, serde_json::to_string_pretty(self)?)?;
+        // Written beside the state file and renamed over it: a crash leaves
+        // the old state or the new one, never half a file (which would load
+        // as "nothing was ever synced").
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(&temporary, serde_json::to_string_pretty(self)?)?;
+        std::fs::rename(&temporary, &path)?;
         Ok(())
     }
 }
