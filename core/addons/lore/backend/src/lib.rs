@@ -390,11 +390,16 @@ const DOWNLOAD_ETAG_CACHE_MAX: usize = 4096;
 
 impl DownloadEtagStamp {
     fn of(file: &std::fs::File) -> std::io::Result<Self> {
-        use std::os::unix::fs::MetadataExt;
         let meta = file.metadata()?;
         if !meta.is_file() {
             return Err(std::io::Error::other("download source must be a regular file"));
         }
+        // The inode is part of the stamp where the platform has one. Elsewhere
+        // size and mtime are the whole check.
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(&meta);
+        #[cfg(not(unix))]
+        let inode = 0;
         Ok(Self {
             size: meta.len(),
             mtime_nanos: meta
@@ -403,7 +408,7 @@ impl DownloadEtagStamp {
                 .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
                 .map(|d| d.as_nanos())
                 .unwrap_or(0),
-            inode: meta.ino(),
+            inode,
         })
     }
 }
@@ -415,6 +420,17 @@ pub struct DownloadContent {
     pub size: u64,
     /// Full SHA-256 of the whole content, hex (never the sampled `q-` form).
     pub etag: String,
+}
+
+/// Read at an explicit offset. On Windows `seek_read` moves the file cursor,
+/// which does not matter here: every read supplies its own position.
+#[cfg(unix)]
+fn read_at(file: &std::fs::File, buffer: &mut [u8], pos: u64) -> std::io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buffer, pos)
+}
+#[cfg(windows)]
+fn read_at(file: &std::fs::File, buffer: &mut [u8], pos: u64) -> std::io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, buffer, pos)
 }
 
 /// Bytes per read in [`DownloadContent::range_stream`]; the unchanged-file
@@ -441,13 +457,12 @@ impl DownloadContent {
             let worker = file.clone();
             let expected = stamp.clone();
             let read = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
-                use std::os::unix::fs::FileExt;
                 let changed = || std::io::Error::other("file changed while it was being downloaded");
                 if DownloadEtagStamp::of(&worker)? != expected {
                     return Err(changed());
                 }
                 let mut buffer = vec![0u8; want];
-                let count = worker.read_at(&mut buffer, pos)?;
+                let count = read_at(&worker, &mut buffer, pos)?;
                 if DownloadEtagStamp::of(&worker)? != expected {
                     return Err(changed());
                 }
