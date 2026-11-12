@@ -1067,7 +1067,10 @@ mod tests {
                 .run_command(raw_command(
                     "users",
                     "user_registered",
-                    users::encode_record(&user_record()),
+                    users::encode_record(&users::UserRecord {
+                        username: "fixture-other".into(),
+                        ..user_record()
+                    }),
                 ))
                 .await
                 .unwrap()
