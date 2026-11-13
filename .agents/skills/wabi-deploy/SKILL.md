@@ -169,7 +169,7 @@ If <host> were still STDB-era (**no** healthy wabi-server): backup → sync tree
 | Host | SSH | Notes |
 |------|-----|--------|
 | <host> | `root@<host>` | production WabiDB; public via CF tunnel profiles. **Hostname `<host>` does NOT resolve** — use the raw IP. |
-| Ironin | `<user>@<dev-host>` | `<wabi-root>` preferred clean tree |
+| <dev-host> | `<user>@<dev-host>` | `<wabi-root>` preferred clean tree |
 | <staging-host> | often unplugged / `<staging-host>` | staging; skip if user says unplugged |
 | Ronin | local | `<wabi-root>` |
 
