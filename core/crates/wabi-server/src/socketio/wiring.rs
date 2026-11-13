@@ -385,8 +385,9 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     scoped_socket_event(s.app.instance_operations.clone(), async move {
                         let _membership = s.app.membership_gate.read().await;
                         if let (Some(target), Some(ans)) = (target_id, answer) {
-                            // SEC-3: answers only flow within a call relationship.
-                            if !scoped_signaling_consent(&s, &socket, Some(&target), &data).await {
+                            // SEC-3: answers only flow within a call relationship,
+                            // and never for community voice (relay/SFU only).
+                            if !scoped_call_p2p_consent(&s, &socket, Some(&target), &data).await {
                                 warn!("[sio] call-answer-sdp consent denied: socket {} ({}) -> {}", socket.id, my_stable, target);
                                 return;
                             }
@@ -408,8 +409,9 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     scoped_socket_event(s.app.instance_operations.clone(), async move {
                         let _membership = s.app.membership_gate.read().await;
                         if let (Some(target), Some(cand)) = (target_id, candidate) {
-                            // SEC-3: ICE candidates only flow within a call relationship.
-                            if !scoped_signaling_consent(&s, &socket, Some(&target), &data).await {
+                            // SEC-3: ICE candidates only flow within a call relationship,
+                            // and never for community voice (relay/SFU only).
+                            if !scoped_call_p2p_consent(&s, &socket, Some(&target), &data).await {
                                 warn!("[sio] call-ice-candidate consent denied: socket {} ({}) -> {}", socket.id, my_stable, target);
                                 return;
                             }

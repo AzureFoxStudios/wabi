@@ -104,7 +104,13 @@ describe('Calls workspace (VoiceView)', () => {
 
 	test('the route hint describes the connection, never confidentiality', () => {
 		expect(voiceView).not.toContain('the audio goes between devices');
-		expect(voiceView).toContain('a relay may still carry the audio');
+		expect(voiceView).not.toMatch(/calls-conn__hint">[^<]*(private|encrypt|confidential)/i);
+		expect(voiceView).toContain("Voice channels always go through this server, so a moderator's mute, deafen and listen-only apply.");
+	});
+
+	test('community voice offers no manual switch to direct P2P', () => {
+		expect(voiceView).not.toContain('switchCallTransport');
+		expect(voiceView).not.toContain("{ value: 'p2p'");
 	});
 
 	test('rooms carry data-voice-room for the jump palette', () => {

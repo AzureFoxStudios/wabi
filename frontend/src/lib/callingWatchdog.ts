@@ -10,7 +10,7 @@
  * enforced once browsers exchange RTP directly, so a watchdog MUST NOT silently
  * demote into P2P unless the owning call explicitly opts into that behaviour.
  */
-import { callTransportState } from './callingStateStores';
+import { callTransportState, callOfflineNotice } from './callingStateStores';
 import { chainForMode } from './callingFallback';
 import type { EffectiveCallTransport } from './mediaRuntime';
 
@@ -39,6 +39,9 @@ export interface WatchdogOptions {
 export type WatchdogState = 'monitoring' | 'demoting' | 'demoted' | 'promoting' | 'stopped';
 
 const GRACE_DEFAULT_MS = 8000;
+const RELAY_LOST_NOTICE = 'Lost the connection to the call relay and could not reconnect. Leave and rejoin the call.';
+// A cancelled recovery (socket gone, call left) belongs to its owner.
+const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const PROBE_DEFAULT_MS = 30000;
 
 class TransportWatchdog {
@@ -130,13 +133,28 @@ class TransportWatchdog {
 		}
 
 		// Still dead: demote to the next permitted link after the current one.
+		// With none permitted (community voice: no P2P), rebuild the current
+		// transport once instead of going silent.
 		const chain = this.chain(opts);
 		const idx = chain.indexOf(this.current);
 		const next = idx >= 0 ? chain[idx + 1] : undefined;
 		try {
 			await opts.disconnectCurrent?.();
 			if (this.opts !== opts) return;
-			if (!next) throw new Error('no permitted fallback transport');
+			if (!next) {
+				try {
+					await opts.connect(this.current);
+				} catch (error) {
+					// The failed attempt's own cleanup may already have stopped
+					// this watchdog, so report here, not after the opts check.
+					if (!isAbort(error)) callOfflineNotice.set(RELAY_LOST_NOTICE);
+					throw error;
+				}
+				if (this.opts !== opts) return;
+				this.emit('monitoring');
+				callTransportState.update((st) => ({ ...st, reason: 'reconnected', checkedAt: Date.now() }));
+				return;
+			}
 			await opts.connect(next);
 			if (this.opts !== opts) return;
 			this.current = next;
@@ -162,6 +180,8 @@ class TransportWatchdog {
 				reason: 'all_transports_lost',
 				checkedAt: Date.now()
 			}));
+			// A cancelled recovery (socket gone, call left) belongs to its owner.
+			if (!isAbort(error)) callOfflineNotice.set(RELAY_LOST_NOTICE);
 			this.emit('stopped');
 		}
 	}
