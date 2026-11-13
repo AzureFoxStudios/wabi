@@ -1,6 +1,7 @@
 [package]
 name = "wabi-tailcat"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Wabi Tailcat addon - private-access transport via tailscale/tailcat WireGuard pipes"
 license = "MIT"

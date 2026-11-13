@@ -1,6 +1,7 @@
 [package]
 name = "wabidb"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "WabiDB - per-stream log-structured object/event store with global commit index"
 license = "MIT"
