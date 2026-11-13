@@ -66,6 +66,23 @@ export function effectiveChain(
 	return chain;
 }
 
+/** Shown wherever direct P2P is refused for a community voice channel. */
+export const COMMUNITY_VOICE_P2P_REFUSAL =
+	'Direct P2P is unavailable for community voice because it cannot enforce server mute/deafen.';
+
+/**
+ * Refuse before any capture or transport work when the chain is empty
+ * (e.g. P2P-only on community voice). Sets the visible notice and throws.
+ */
+export function refuseEmptyChain(mode: string, surface: CallSurface, expectedParticipants = 1): void {
+	if (effectiveChain(mode, surface, expectedParticipants).length > 0) return;
+	const message = surface === 'channel'
+		? `${COMMUNITY_VOICE_P2P_REFUSAL} Choose Auto, WabiDB, or SFU.`
+		: 'No permitted call transport is available.';
+	callOfflineNotice.set(message);
+	throw new Error(message);
+}
+
 export interface TransportAttempt {
 	transport: EffectiveCallTransport;
 	ok: boolean;
@@ -101,13 +118,7 @@ export async function connectWithFallback(opts: {
 	};
 	check();
 
-	if (chain.length === 0) {
-		const message = opts.surface === 'channel'
-			? 'Direct P2P is unavailable for community voice because it cannot enforce server mute/deafen. Choose Auto, WabiDB, or SFU.'
-			: 'No permitted call transport is available.';
-		callOfflineNotice.set(message);
-		throw new Error(message);
-	}
+	refuseEmptyChain(opts.mode, opts.surface, opts.expectedParticipants ?? 1);
 
 	for (let i = 0; i < chain.length; i++) {
 		const transport = chain[i];
