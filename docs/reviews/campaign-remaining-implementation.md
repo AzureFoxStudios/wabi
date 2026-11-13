@@ -31,6 +31,6 @@ Source baseline: c6b69517, production-finish isolated worktree. This is not a co
 
 ## Evidence and current blockers
 
-Server log: /var/home/Ronin/wabi-campaign-server-tests.log (private local path; no credentials/content copied here).
+Server log: /var/home/operator/wabi-campaign-server-tests.log (private local path; no credentials/content copied here).
 PRs: https://github.com/AzureFoxStudios/wabi/pull/234 and https://github.com/AzureFoxStudios/wabi/pull/235.
 Both Hermes review subagents failed with provider HTTP 429. Their unfinished reviews are not evidence. Browser tool refused the private localhost URL; no new rendered acceptance was obtained through that tool.

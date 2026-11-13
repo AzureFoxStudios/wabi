@@ -66,10 +66,10 @@ release build used the shared host. Run after that build slot is available:
 ```sh
 CARGO_HTTP_MULTIPLEXING=false cargo +1.93 check --locked \
   --manifest-path src-tauri/Cargo.toml \
-  --target-dir /home/ironin/wabi/src-tauri/target --lib
+  --target-dir /home/operator/wabi/src-tauri/target --lib
 CARGO_HTTP_MULTIPLEXING=false cargo +1.93 test --locked \
   --manifest-path src-tauri/Cargo.toml \
-  --target-dir /home/ironin/wabi/src-tauri/target --lib secure_auth
+  --target-dir /home/operator/wabi/src-tauri/target --lib secure_auth
 ```
 
 Android/iOS compilation, physical-device notification/permission behavior,

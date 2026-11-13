@@ -93,7 +93,7 @@ state. A write only on the replacement survives its next restart. The original
 source is never restarted after restore. Owned processes and scratch state
 are removed in the finalizer.
 
-Execution: dotRonin, `/home/ironin/wabi`, branch
+Execution: dotRonin, `/home/operator/wabi`, branch
 `codex/security-boundary-hardening-20260930`, base HEAD `138abe39` with shared
 uncommitted changes. Exact server/snapshot digests are in the receipt. The
 sandbox refused local port binding with EPERM before fixture launch; the

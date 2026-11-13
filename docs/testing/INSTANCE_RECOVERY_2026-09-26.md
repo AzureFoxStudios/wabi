@@ -6,12 +6,12 @@
 
 ```sh
 cargo build --locked -p wabi-server --bin wabi-server
-node scripts/authority-backup-restore-smoke.mjs --binary /home/ironin/wabi/target/debug/wabi-server
+node scripts/authority-backup-restore-smoke.mjs --binary /home/operator/wabi/target/debug/wabi-server
 
 cargo build --locked -p wabi-server --bin wabi-instance-snapshot
 node scripts/authority-backup-restore-smoke.mjs \
-  --binary /home/ironin/wabi/target/debug/wabi-server \
-  --snapshot-binary /home/ironin/wabi/target/debug/wabi-instance-snapshot
+  --binary /home/operator/wabi/target/debug/wabi-server \
+  --snapshot-binary /home/operator/wabi/target/debug/wabi-instance-snapshot
 ```
 
 The run passed on 2026-09-26 at 15:19 UTC. The tested binary SHA-256 was `e45adc133000d5cfbae05c8233683bab4eef43faf074ca736e5277d0c0cbb2d4`. The fixture snapshot contained 19 files and 13,379 bytes across `data/` and `uploads/`. The script compared every file's relative path, size, and SHA-256 from stopped source to snapshot to clean restore. The canonicalized file-list hash was `f3e97f5e72923bedeac58782e70a6c92580ff97d0e60466aebdcca27a6cdcd74`.

@@ -65,7 +65,7 @@ WABI_HOST=0.0.0.0
 
 **Stack:**
 - Tailscale or ZeroTier on all devices
-- Magic DNS gives you stable hostnames like `iyoku-laptop.tailnet-name.ts.net`
+- Magic DNS gives you stable hostnames like `staging.tailnet-name.ts.net`
 
 **Command:**
 
@@ -154,7 +154,7 @@ docker-compose up -d
 
 ```bash
 # SSH to Iyoku (your staging)
-ssh user@100.104.166.42
+ssh user@192.0.2.20
 git pull origin main
 docker-compose up -d --build
 ```

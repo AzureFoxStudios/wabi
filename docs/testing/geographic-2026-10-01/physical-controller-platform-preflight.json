@@ -30,7 +30,7 @@
     },
     {
       "site": "Iyoku",
-      "host": "192.168.1.11",
+      "host": "198.51.100.20",
       "expectedHostMatches": true,
       "architecture": "x86_64",
       "python": "3.14.7",

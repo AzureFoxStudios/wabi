@@ -24,22 +24,22 @@ Nothing else in the server binary, frontend, WabiDB, or Tailcat addon references
 
 | Location | Hardcoded value | Action |
 |---|---|---|
-| `scripts/deploy-iyoku.sh` | `SERVER="100.104.166.42"` | Replace with hostname/Iyoku public address or Tailcat-reachable address |
-| `scripts/deploy-iyoku-wabi.sh` | `SERVER="100.104.166.42"` | Same |
-| `frontend/wabi-failover.spec.playwright.js` | `http://100.96.11.45:3000`, `ssh tim@100.96.11.45` (stop/start backend) | Parameterize host; test assumes Tailscale SSH |
-| `.agents/skills/wabi-deploy/references/tim-update-runbook.md` | `ssh … tim@100.96.11.45` throughout | Rewrite reachability step (§5) |
+| `scripts/deploy-iyoku.sh` | ~~`SERVER=` tailnet IP~~ — now required `WABI_DEPLOY_HOST` / `WABI_DEPLOY_USER` | Done: set them to the post-teardown address |
+| `scripts/deploy-iyoku-wabi.sh` | ~~`SERVER=` tailnet IP~~ — now required `WABI_DEPLOY_HOST` / `WABI_DEPLOY_USER` | Same |
+| `frontend/wabi-failover.spec.playwright.js` | ~~primary URL and ssh target~~ — now required `WABI_FAILOVER_*` variables | Done: parameterized; still assumes SSH to the primary |
+| `.agents/skills/wabi-deploy/references/tim-update-runbook.md` | `ssh … operator@192.0.2.10` throughout | Rewrite reachability step (§5) |
 | `.agents/skills/wabi-deploy/references/tailscale-ssh-auth.md` | Tailscale SSH checkpoint flow | Archive or rewrite post-teardown |
-| `.agents/skills/wabi-deploy/references/pre-deploy-live-stack-audit.md` | greps `tim\|100.96` | Update host matching |
-| `docs/TIM_IYOKU_UPDATE_RUNBOOK.md` | `scp … tim@100.96.11.45` | Same as tim runbook |
+| `.agents/skills/wabi-deploy/references/pre-deploy-live-stack-audit.md` | greps the prod host name and tailnet prefix | Update host matching |
+| `docs/TIM_IYOKU_UPDATE_RUNBOOK.md` | `scp … operator@192.0.2.10` | Same as tim runbook |
 
 **Known addresses (for reference only — do not re-hardcode):**
 
 | Host | Tailnet IP | Other reachability |
 |---|---|---|
-| tim (prod) | 100.96.11.45 | public socket observed `27.130.21.128` (plan doc §, punch-tested) |
-| Iyoku (staging) | 100.104.166.42 | often unplugged; verify before relying |
-| Ronin/bazzite | 100.87.255.66 | also RustDesk peer target (§6) |
-| ironin (this machine) | 100.80.172.12 | — |
+| tim (prod) | 192.0.2.10 | public socket observed `203.0.113.10` (plan doc §, punch-tested) |
+| Iyoku (staging) | 192.0.2.20 | often unplugged; verify before relying |
+| Ronin/bazzite | 192.0.2.30 | also RustDesk peer target (§6) |
+| ironin (this machine) | 192.0.2.40 | — |
 
 Hostname `tim` does **not** resolve — always use a literal address.
 
@@ -103,7 +103,7 @@ Do these in order. Do not tear down Tailscale until step 4 passes.
 
 ## 6. Out of band — RustDesk / RDP
 
-RustDesk on ironin has peer config pinned to the tailnet address `100.87.255.66` (`~/.config/rustdesk/peers/100.87.255.66.toml`). Teardown breaks that peer entry. Either repoint it at the post-teardown address or switch the peer to an ID-based rendezvous. This is outside `wabi` but is part of the same connectivity test the workers will run.
+RustDesk on ironin has peer config pinned to the tailnet address `192.0.2.30` (`~/.config/rustdesk/peers/192.0.2.30.toml`). Teardown breaks that peer entry. Either repoint it at the post-teardown address or switch the peer to an ID-based rendezvous. This is outside `wabi` but is part of the same connectivity test the workers will run.
 
 ## 7. Explicit non-goals
 

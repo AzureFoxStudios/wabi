@@ -41,7 +41,7 @@ try{
  await page.getByRole('button',{name:/Connect Codex/}).click();
  await page.getByLabel('Connection name').fill('Ronin design chat');
  await page.getByText('Computer and workspace (optional)',{exact:true}).click();
- await page.getByLabel('Computer',{exact:true}).fill('dotRonin');await page.getByLabel('Local workspace',{exact:true}).fill('/home/ironin/wabi');
+ await page.getByLabel('Computer',{exact:true}).fill('dotRonin');await page.getByLabel('Local workspace',{exact:true}).fill('/home/operator/wabi');
  const create=page.getByRole('button',{name:'Create Project connection'});assert.equal(await create.isDisabled(),true);
  await page.getByRole('checkbox').check();await create.click();
  await page.getByRole('status').filter({hasText:'Project access granted'}).waitFor();

@@ -43,9 +43,9 @@ The fixed enrolled Noise roster used:
 
 | Computer | SSH account / destination | Role in this disposable trial |
 |---|---|---|
-| dotRonin | local / 100.80.172.12 | Actual producer ciphertext source and transfer client |
-| Ronin (bazzite) | Ronin@100.87.255.66 | Recovery copy 2 |
-| Iyoku (192.168.1.11) | Iyoku@100.104.166.42 | Recovery copy 3 and reseed source |
+| dotRonin | local / 192.0.2.40 | Actual producer ciphertext source and transfer client |
+| Ronin (bazzite) | operator@192.0.2.30 | Recovery copy 2 |
+| Iyoku (198.51.100.20) | operator@192.0.2.20 | Recovery copy 3 and reseed source |
 
 Existing private port 3000 was checked for availability before staging. The
 trial created temporary authenticated listeners; it did not alter firewall
@@ -57,7 +57,7 @@ IP address query was repeated.
 
 At 13:19 UTC on October 2, fresh read-only SSH probes reached both enrolled
 accounts successfully: Ronin identified `bazzite`, and Iyoku identified
-`192.168.1.11`. Their temporary storage reported about 13.5 GiB and 7.2 GiB
+`198.51.100.20`. Their temporary storage reported about 13.5 GiB and 7.2 GiB
 free, respectively. Bounded Tailscale pings returned one direct-path sample
 each: 124 ms to Ronin and 60 ms to Iyoku. See
 [the exact readiness receipt](geographic-2026-10-02/checkpoint-ssh-readiness1.json).
@@ -81,7 +81,7 @@ and the local encrypted-checkpoint compile continued separately.
 ### October 3 readiness refresh
 
 Fresh [bounded SSH hostname checks](geographic-2026-10-02/checkpoint-ssh-readiness2.json)
-returned actual exit 0 on Ronin (`bazzite`) and Iyoku (`192.168.1.11`), without
+returned actual exit 0 on Ronin (`bazzite`) and Iyoku (`198.51.100.20`), without
 another authentication requirement or host-key refusal. The local Tailscale
 daemon reports all four known computers online. No remote fixture, listener,
 file or firewall change was made. The earlier expired-auth observation remains

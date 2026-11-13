@@ -1,7 +1,7 @@
 # WabiDB Public API Audit Report
 
 **Date:** 2026-06-21
-**Target:** `/var/home/Ronin/wabi/core/crates/wabidb/src/`
+**Target:** `/var/home/operator/wabi/core/crates/wabidb/src/`
 **Method:** Source-code traversal (all `.rs` files read, all `pub` items catalogued, all 28 kanban-claimed command functions grepped)
 
 ---
@@ -353,7 +353,7 @@ No domain-specific read API exists. Callers must use generic `ProjectionState::g
 
 ## Appendix: Files Read
 
-Every `.rs` file under `/var/home/Ronin/wabi/core/crates/wabidb/src/` was read in full during this audit. Key files:
+Every `.rs` file under `/var/home/operator/wabi/core/crates/wabidb/src/` was read in full during this audit. Key files:
 
 | File | Lines | Key Content |
 |------|-------|-------------|
