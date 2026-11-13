@@ -4,9 +4,11 @@ name: Core Browser Smokes
 # labels, DM calls, shared conversation notes, channel access and local storage boundaries.
 # They used to have no workflow at all, so a UI change broke most of them unseen.
 #
-# Only smokes that pass on main are listed. dm-friends-end-to-end, login-entry and
-# public-route-boot are left out while the product regressions they found are open
-# (see the PR that added this file); add them back when they pass.
+# Only smokes that pass on main are listed. Left out:
+# - dm-friends-end-to-end: passes through the phone People sheet, then its installed-PWA
+#   section loads the Authority's embedded static frontend on a non-local host. This job
+#   builds the Authority with an empty frontend/build, so that section has no app to load;
+#   add it once the job builds the static frontend first (STATIC_BUILD=1 bun run build).
 on:
   pull_request:
     branches: [main]
@@ -66,6 +68,16 @@ jobs:
       - name: Local storage boundary (browser and Tauri signals)
         working-directory: frontend
         run: xvfb-run -a node scripts/storage-boundary-browser-smoke.mjs
+
+      # Every entry variant: desktop, light, tablet, custom, launch, and the narrow ones
+      # (mobile and short-mobile with a touch pointer; neutral, wizard and closed with a fine one).
+      - name: Login entry (all variants, pointer-based target sizes)
+        working-directory: frontend
+        run: xvfb-run -a node scripts/login-entry-browser-smoke.mjs
+
+      - name: Public routes boot (privacy, terms, 404 in every theme)
+        working-directory: frontend
+        run: xvfb-run -a node scripts/public-route-boot-smoke.mjs
 
   authority:
     name: Disposable Authority + real app smokes
