@@ -1,5 +1,5 @@
 error[vulnerability]: Multiple timing variability issues in operations intended to be constant-time
-   ┌─ /home/user/wabi/prototypes/mls-trial/openmls-proto/Cargo.lock:29:1
+   ┌─ prototypes/mls-trial/openmls-proto/Cargo.lock:29:1
    │
 29 │ crypto-bigint 0.5.5 registry+https://github.com/rust-lang/crates.io-index
    │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ security vulnerability detected
@@ -31,7 +31,7 @@ error[vulnerability]: Multiple timing variability issues in operations intended 
      include its constant-time fixes, and adds BINSEC-based regression checks using
 --
 error[unmaintained]: proc-macro-error2 is unmaintained
-    ┌─ /home/user/wabi/prototypes/mls-trial/openmls-proto/Cargo.lock:111:1
+    ┌─ prototypes/mls-trial/openmls-proto/Cargo.lock:111:1
     │
 111 │ proc-macro-error2 2.0.1 registry+https://github.com/rust-lang/crates.io-index
     │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ unmaintained advisory detected

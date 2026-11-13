@@ -1,3 +1,0 @@
-# Throwaway trial: never commit build output.
-target/
-**/target/
