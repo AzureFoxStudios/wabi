@@ -592,6 +592,40 @@ fn parse_message(content: &str) -> Option<MessageEnvelope> {
     serde_json::from_str(raw).ok()
 }
 
+/// The new-room policy for readable text from `user_id` in a room that is not
+/// (yet) encrypted: refused while pending, and after a server-readable choice
+/// refused for every sender who has not made that choice themselves.
+fn new_room_plaintext_refusal(data: &E2eeData, channel_id: &str, user_id: i64) -> Option<&'static str> {
+    match data.new_room_policies.get(channel_id) {
+        Some(policy) if policy.mode == NewRoomMode::PendingEncryption => Some(
+            "Encryption is pending for this new conversation. Wait for participants to prepare encryption, or explicitly choose server-readable messages.",
+        ),
+        Some(policy) if !policy.consenting_user_ids.contains(&user_id) => Some(
+            "A participant chose server-readable chat. Confirm server-readable messages on your own device before sending.",
+        ),
+        _ => None,
+    }
+}
+
+/// Features with no encrypted form (forum threads, forum posts, thread titles)
+/// store server-readable text. They follow the same boundary as a plaintext
+/// chat message: refused in a room with experimental encryption enabled or
+/// pending, and after a server-readable choice only accepted from a sender
+/// who made that choice. Call under `retention_policy_lock`, like a send.
+pub fn require_server_readable_text(state: &AppState, channel_id: &str, user_id: i64) -> Result<()> {
+    let data = read_data(&state.config.data_dir)
+        .map_err(|_| AppError::Forbidden(REGISTRY_UNAVAILABLE.into()))?;
+    if data.rooms.get(channel_id).is_some_and(|room| room.enabled) {
+        return Err(AppError::Forbidden(
+            "This conversation uses experimental encryption. Forum threads and posts store server-readable text, so they are not available here.".into(),
+        ));
+    }
+    match new_room_plaintext_refusal(&data, channel_id, user_id) {
+        Some(refusal) => Err(AppError::Forbidden(refusal.into())),
+        None => Ok(()),
+    }
+}
+
 /// Enforce the private-room content boundary before any server-side content
 /// processing. Returns true when this room is E2EE and the opaque envelope is
 /// valid for the current epoch. Signature verification is intentionally an
@@ -604,12 +638,8 @@ pub async fn validate_outbound_message(
     let room = data.rooms.get(channel_id).filter(|r| r.enabled).cloned();
     let Some(room) = room else {
         if is_ciphertext(content) { return Err("E2EE envelopes are only accepted in an E2EE conversation".into()); }
-        if data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption) {
-            return Err("Encryption is pending for this new conversation. Wait for participants to prepare encryption, or explicitly choose server-readable messages.".into());
-        }
-        if data.new_room_policies.get(channel_id).is_some_and(|policy|
-            policy.mode == NewRoomMode::ServerReadable && !policy.consenting_user_ids.contains(&user_id)) {
-            return Err("A participant chose server-readable chat. Confirm server-readable messages on your own device before sending.".into());
+        if let Some(refusal) = new_room_plaintext_refusal(&data, channel_id, user_id) {
+            return Err(refusal.into());
         }
         return Ok(false);
     };
