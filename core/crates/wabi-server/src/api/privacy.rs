@@ -80,7 +80,7 @@ async fn channel_summary(
     crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     let kind = state.wdb.get_channel_kind(&channel_id).await;
     let private_conversation = matches!(kind.as_deref(), Some("dm" | "group"));
-    let e2ee = private_conversation && super::e2ee::room_is_enabled(&state.config.data_dir, &channel_id)?;
+    let e2ee = private_conversation && super::e2ee::room_is_enabled(&state, &channel_id).await?;
     let privacy = privacy_value(&state.config.data_dir);
     let private_automation = bool_field(&privacy, "privateContentAutomation", false);
 

@@ -196,7 +196,8 @@ async fn create_group_admitted(
             if group_revision(state, &id)? != 0 {
                 return Err(("CONFLICT", "This group was already retired"));
             }
-            crate::api::e2ee::mark_new_room_pending(&state.app.config.data_dir, &id)
+            crate::api::e2ee::mark_new_room_pending(&state.app, &id)
+                .await
                 .map_err(|_| ("UNAVAILABLE", "Could not prepare private group encryption"))?;
             state
                 .app

@@ -20,6 +20,9 @@ use std::{
 
 use crate::{auth_extractor::AuthUser, error::{AppError, Result}, state::AppState};
 use wabidb::engine::wabi_store::WabiStore;
+use wabidb::projections::room_encryption::{
+    self as marker, RoomEncryptionMode as MarkerMode, RoomEncryptionRecord,
+};
 
 pub const MESSAGE_PREFIX: &str = "wabi-e2ee-v1:";
 const MAX_DEVICES_PER_USER: usize = 8;
@@ -152,20 +155,47 @@ fn read_data(data_dir: &str) -> Result<E2eeData> {
     read_unlocked(data_dir)
 }
 
-pub(super) fn room_is_enabled(data_dir: &str, channel_id: &str) -> Result<bool> {
-    Ok(read_data(data_dir)?.rooms.get(channel_id).is_some_and(|room| room.enabled))
+/// Whether `channel_id` has experimental encryption enabled, according to the
+/// registry or the database marker (either is enough: this is a label, and a
+/// registry behind the marker must not make an encrypted room look readable).
+pub(super) async fn room_is_enabled(state: &AppState, channel_id: &str) -> Result<bool> {
+    let data = read_data(&state.config.data_dir)?;
+    let marker = read_marker(state, channel_id)
+        .map_err(|_| AppError::Internal(MARKER_UNAVAILABLE.into()))?;
+    Ok(data.rooms.get(channel_id).is_some_and(|room| room.enabled)
+        || marker.is_some_and(|m| m.mode == MarkerMode::Enabled))
 }
 
-pub(super) fn room_blocks_server_content(data_dir: &str, channel_id: &str) -> Result<bool> {
-    let data = read_data(data_dir)?;
+/// Whether the server must not write its own readable content (for example
+/// an integration announcement) into `channel_id`. A registry that does not
+/// cover the database marker blocks it.
+pub(super) async fn room_blocks_server_content(state: &AppState, channel_id: &str) -> Result<bool> {
+    let data = match read_checked(state, channel_id).await {
+        Ok(data) => data,
+        Err(Refusal::Unavailable(reason)) => return Err(AppError::Internal(reason.into())),
+        Err(Refusal::Behind(_)) => return Ok(true),
+    };
     Ok(data.rooms.get(channel_id).is_some_and(|room| room.enabled)
         || data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption))
 }
 
-/// Called before a newly-created DM/group is made visible in WabiDB. An
-/// orphaned policy after a failed create is harmless; the opposite ordering
-/// could briefly accept a plaintext message in a new private room.
-pub(crate) fn mark_new_room_pending(data_dir: &str, channel_id: &str) -> Result<()> {
+/// Called before a newly-created DM/group is made visible in WabiDB. The
+/// database marker is written first, then the registry entry (see
+/// "Write order" below). An orphaned marker or policy after a failed create
+/// is harmless: it only refuses readable content in a room that does not
+/// exist, and a later create of the same id marks it again. The opposite
+/// ordering could briefly accept a plaintext message in a new private room.
+pub async fn mark_new_room_pending(state: &AppState, channel_id: &str) -> Result<()> {
+    let _policy_guard = state.retention_policy_lock.lock().await;
+    let data_dir = &state.config.data_dir;
+    let registry_room = read_data(data_dir)?.rooms.get(channel_id).filter(|r| r.enabled).map(|r| r.epoch);
+    // A room id that was encrypted before (stable DM ids are reused after
+    // deletion) stays encrypted in both stores; never mark it pending.
+    let target = match registry_room {
+        Some(epoch) => enabled_record(channel_id, epoch),
+        None => mode_record(channel_id, MarkerMode::Pending),
+    };
+    commit_marker_if_changed(state, &target).await?;
     mutate_data(data_dir, |data| {
         if !data.rooms.contains_key(channel_id) {
             data.new_room_policies.insert(channel_id.to_string(), NewRoomPolicy {
@@ -177,6 +207,247 @@ pub(crate) fn mark_new_room_pending(data_dir: &str, channel_id: &str) -> Result<
         }
         Ok(())
     })
+}
+
+// ---------------------------------------------------------------------------
+// Durable room marker (WabiDB) versus the registry sidecar
+// ---------------------------------------------------------------------------
+//
+// The registry (`e2ee_state.json`) is the only home of device public keys and
+// wrapped room keys, so it cannot move into WabiDB. But on its own it cannot
+// tell "this room was never encrypted" from "the file is missing or an older
+// copy was restored". WabiDB therefore keeps a small marker per conversation
+// (`room_encryption` projection): pending, server-readable chosen, or enabled
+// at a key epoch.
+//
+// Write order: every transition commits the marker to WabiDB first and then
+// writes the registry, under `retention_policy_lock`.
+// - Crash after the marker, before the registry: the marker is ahead. The
+//   registry does not cover it, so every readable write in that room is
+//   refused, and room status reports the marker's state. The room stays
+//   closed until a participant's client completes setup (enable, rekey, or an
+//   explicit server-readable choice), which writes both again. Safe.
+// - The registry ahead of the marker cannot come from this order. It can come
+//   from a data directory restored older than its registry, or from rooms
+//   that existed before markers did. The registry is then the stricter
+//   source, it is used, and the marker is brought up to it (at startup, and
+//   whenever a decision sees it).
+//
+// Every decision that reads the registry for a conversation goes through
+// `read_checked`, which refuses (fails closed) when the registry has no entry,
+// an older epoch, or a weaker mode than the marker. Nothing ever "repairs"
+// that by trusting the weaker source; there is no reset-to-readable switch.
+
+const MARKER_UNAVAILABLE: &str = "Encryption state in the database could not be read. Sending and key changes are paused; the operator should check the server log.";
+
+/// What the registry says about one conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RegistryRoom {
+    /// No entry: the earlier server-readable policy.
+    Earlier,
+    ServerReadable,
+    Pending,
+    Enabled(u64),
+}
+
+fn registry_room(data: &E2eeData, channel_id: &str) -> RegistryRoom {
+    if let Some(room) = data.rooms.get(channel_id).filter(|room| room.enabled) {
+        return RegistryRoom::Enabled(room.epoch);
+    }
+    match data.new_room_policies.get(channel_id).map(|policy| policy.mode) {
+        Some(NewRoomMode::PendingEncryption) => RegistryRoom::Pending,
+        Some(NewRoomMode::ServerReadable) => RegistryRoom::ServerReadable,
+        None => RegistryRoom::Earlier,
+    }
+}
+
+fn mode_record(channel_id: &str, mode: MarkerMode) -> RoomEncryptionRecord {
+    RoomEncryptionRecord { channel_id: channel_id.to_string(), mode, epoch: 0 }
+}
+
+fn enabled_record(channel_id: &str, epoch: u64) -> RoomEncryptionRecord {
+    RoomEncryptionRecord { channel_id: channel_id.to_string(), mode: MarkerMode::Enabled, epoch }
+}
+
+fn read_marker(state: &AppState, channel_id: &str) -> wabidb::error::Result<Option<RoomEncryptionRecord>> {
+    marker::get(state.wdb.engine().projection_state(), channel_id)
+}
+
+enum Coverage {
+    /// The registry is at least as strict as the marker.
+    Covered,
+    /// The registry is ahead; the marker should be brought up to this.
+    RegistryAhead(RoomEncryptionRecord),
+    /// The registry is missing or behind the marker: refuse, with this reason.
+    Behind(String),
+}
+
+const RESTORE_HINT: &str = "Readable content is refused in this conversation. Operator: stop the Authority and restore the e2ee_state.json saved with this data directory.";
+
+/// Compare the marker with the registry. Pure; see the module notes above.
+fn coverage(channel_id: &str, marker: Option<&RoomEncryptionRecord>, registry: RegistryRoom) -> Coverage {
+    use RegistryRoom as R;
+    let Some(marker) = marker else {
+        return match registry {
+            R::Earlier => Coverage::Covered,
+            R::Pending => Coverage::RegistryAhead(mode_record(channel_id, MarkerMode::Pending)),
+            R::ServerReadable => Coverage::RegistryAhead(mode_record(channel_id, MarkerMode::ServerReadable)),
+            R::Enabled(epoch) => Coverage::RegistryAhead(enabled_record(channel_id, epoch)),
+        };
+    };
+    match (marker.mode, registry) {
+        (MarkerMode::Enabled, R::Enabled(epoch)) if epoch > marker.epoch => {
+            Coverage::RegistryAhead(enabled_record(channel_id, epoch))
+        }
+        (MarkerMode::Enabled, R::Enabled(epoch)) if epoch == marker.epoch => Coverage::Covered,
+        (MarkerMode::Enabled, R::Enabled(epoch)) => Coverage::Behind(format!(
+            "The encryption registry (e2ee_state.json) is older than the database: it has key epoch {epoch} for this conversation, the database records epoch {}. {RESTORE_HINT} Without that copy, members' updated clients set up new keys (rekey) and continue at a higher epoch; older encrypted messages stay readable only on devices that kept their keys.",
+            marker.epoch
+        )),
+        (MarkerMode::Enabled, _) => Coverage::Behind(format!(
+            "The database records experimental encryption for this conversation (key epoch {}), but the encryption registry (e2ee_state.json) has no encrypted entry for it: the file is missing or an older copy was restored. {RESTORE_HINT} The server never held the room keys, so they cannot be recreated; without that copy, members' updated clients set up new keys (rekey) and continue at a higher epoch, and older encrypted messages stay readable only on devices that kept their keys.",
+            marker.epoch
+        )),
+        (_, R::Enabled(epoch)) => Coverage::RegistryAhead(enabled_record(channel_id, epoch)),
+        (MarkerMode::Pending, R::Pending) => Coverage::Covered,
+        (MarkerMode::Pending, R::Earlier | R::ServerReadable) => Coverage::Behind(format!(
+            "The database records this new conversation as waiting for experimental encryption, but the encryption registry (e2ee_state.json) does not: the file is missing or an older copy was restored. {RESTORE_HINT} Without that copy, participants can finish encryption setup from an updated client, or each sender can choose server-readable messages again on their own device."
+        )),
+        (MarkerMode::ServerReadable, R::ServerReadable | R::Pending) => Coverage::Covered,
+        (MarkerMode::ServerReadable, R::Earlier) => Coverage::Behind(format!(
+            "The database records that each sender in this new conversation must choose server-readable messages on their own device, but the encryption registry (e2ee_state.json) has no entry for it: the file is missing or an older copy was restored. {RESTORE_HINT} Without that copy, each sender can choose server-readable messages again, or participants can set up encryption."
+        )),
+    }
+}
+
+/// Why a conversation's encryption state refuses readable content.
+enum Refusal {
+    /// The registry or marker could not be read at all.
+    Unavailable(&'static str),
+    /// The registry is missing or behind the marker.
+    Behind(String),
+}
+
+impl Refusal {
+    fn reason(self) -> String {
+        match self {
+            Refusal::Unavailable(reason) => reason.to_string(),
+            Refusal::Behind(reason) => reason,
+        }
+    }
+}
+
+/// The registry, checked against the database marker for `channel_id`. Every
+/// decision about readable content in a conversation reads through this.
+async fn read_checked(state: &AppState, channel_id: &str) -> std::result::Result<E2eeData, Refusal> {
+    let data = read_data(&state.config.data_dir).map_err(|_| Refusal::Unavailable(REGISTRY_UNAVAILABLE))?;
+    let marker = read_marker(state, channel_id).map_err(|error| {
+        tracing::error!("[e2ee] room encryption marker unreadable: {error}");
+        Refusal::Unavailable(MARKER_UNAVAILABLE)
+    })?;
+    match coverage(channel_id, marker.as_ref(), registry_room(&data, channel_id)) {
+        Coverage::Covered => Ok(data),
+        Coverage::RegistryAhead(record) => {
+            // The registry is the stricter source here and decides. Bringing
+            // the marker up is best effort: a failure leaves it behind, which
+            // the next decision or startup retries.
+            if let Err(error) = commit_marker(state.wdb.engine(), &record, 0).await {
+                tracing::warn!("[e2ee] could not bring a room encryption marker up to the registry: {error}");
+            }
+            Ok(data)
+        }
+        Coverage::Behind(reason) => {
+            tracing::warn!("[e2ee] encryption registry is behind the database for a conversation; readable content refused");
+            Err(Refusal::Behind(reason))
+        }
+    }
+}
+
+async fn commit_marker(
+    engine: &wabidb::engine::WabiDbEngine,
+    record: &RoomEncryptionRecord,
+    actor_user_id: i64,
+) -> wabidb::error::Result<()> {
+    use wabidb::{format::record::RecordKind, sequencer::types::{CommandCommit, EventToWrite}};
+    let payload = marker::encode_record(record);
+    marker::decode_record(&payload)?;
+    engine.get_or_create_stream_key(marker::STREAM).await?;
+    engine
+        .run_command(CommandCommit {
+            room_owner_precondition: None,
+            caller_user_id: u64::try_from(actor_user_id).unwrap_or(0),
+            caller_device_id: "primary".into(),
+            command_name: marker::EVENT.into(),
+            idempotency_key: None,
+            essential: true,
+            response_tx: tokio::sync::oneshot::channel().0,
+            events: vec![EventToWrite {
+                stream_id: marker::STREAM.into(),
+                stream_kind: 6,
+                event_type: marker::EVENT.into(),
+                record_kind: RecordKind::Event,
+                plaintext: payload,
+            }],
+        })
+        .await?;
+    Ok(())
+}
+
+/// Commit `target` unless the marker already says exactly that. The
+/// projection never moves a room out of `Enabled`, whatever is committed.
+async fn commit_marker_if_changed(state: &AppState, target: &RoomEncryptionRecord) -> Result<()> {
+    let current = read_marker(state, &target.channel_id)
+        .map_err(|_| AppError::Internal(MARKER_UNAVAILABLE.into()))?;
+    let next = current.as_ref().map(|c| c.merged(target)).unwrap_or_else(|| target.clone());
+    if current.as_ref() == Some(&next) {
+        return Ok(());
+    }
+    commit_marker(state.wdb.engine(), target, 0)
+        .await
+        .map_err(|e| AppError::Internal(format!("persist room encryption marker: {e}")))
+}
+
+/// Authority startup, while a readable registry exists: give every room the
+/// registry lists a marker at least as strong as its entry (one-time and
+/// idempotent; later starts write nothing). A registry behind an existing
+/// marker is left alone and logged; it never weakens the marker. A damaged
+/// registry is skipped: it already refuses every conversation decision.
+pub async fn reconcile_room_markers(engine: &wabidb::engine::WabiDbEngine, data_dir: &str) -> anyhow::Result<()> {
+    let data = match read_data(data_dir) {
+        Ok(data) => data,
+        Err(_) => {
+            tracing::warn!("[e2ee] encryption registry unreadable at startup; room markers not reconciled");
+            return Ok(());
+        }
+    };
+    let mut ids: BTreeSet<String> = data.rooms.keys().cloned().collect();
+    ids.extend(data.new_room_policies.keys().cloned());
+    engine.projection_state().for_each(marker::INDEX, |key, _| {
+        if let Ok(id) = std::str::from_utf8(key) {
+            ids.insert(id.to_string());
+        }
+    });
+    let (mut written, mut behind) = (0usize, 0usize);
+    for channel_id in &ids {
+        let current = marker::get(engine.projection_state(), channel_id)?;
+        match coverage(channel_id, current.as_ref(), registry_room(&data, channel_id)) {
+            Coverage::Covered => {}
+            Coverage::RegistryAhead(record) => {
+                commit_marker(engine, &record, 0).await?;
+                written += 1;
+            }
+            Coverage::Behind(_) => behind += 1,
+        }
+    }
+    if written > 0 {
+        tracing::info!("[e2ee] wrote {written} room encryption marker(s) from the registry");
+    }
+    if behind > 0 {
+        tracing::warn!(
+            "[e2ee] the encryption registry is missing or behind the database for {behind} conversation(s); they refuse readable content until e2ee_state.json is restored or members set up encryption again"
+        );
+    }
+    Ok(())
 }
 
 fn write_unlocked(data_dir: &str, data: &E2eeData) -> anyhow::Result<()> {
@@ -382,7 +653,17 @@ async fn room_status(
     }
     let (members, current_revision) =
         private_room_members(&state, auth.user_id, &channel_id).await?;
-    let data = read_data(&state.config.data_dir)?;
+    // A registry behind the database marker still answers: the status shows
+    // the marker's state (encrypted at its epoch, or pending), so updated
+    // clients run setup again instead of treating the room as readable.
+    let (data, behind) = match read_checked(&state, &channel_id).await {
+        Ok(data) => (data, None),
+        Err(Refusal::Unavailable(reason)) => return Err(AppError::Internal(reason.into())),
+        Err(Refusal::Behind(reason)) => (read_data(&state.config.data_dir)?, Some(reason)),
+    };
+    let marker = read_marker(&state, &channel_id)
+        .map_err(|_| AppError::Internal(MARKER_UNAVAILABLE.into()))?;
+    let marker_epoch = marker.as_ref().filter(|m| m.mode == MarkerMode::Enabled).map(|m| m.epoch);
     let devices: Vec<DeviceBundle> = active_devices(&data, &members)
         .into_iter()
         .cloned()
@@ -392,26 +673,33 @@ async fn room_status(
         .copied()
         .filter(|uid| !devices.iter().any(|d| d.user_id == *uid))
         .collect();
-    let room = data.rooms.get(&channel_id).filter(|r| r.enabled).cloned();
-    let mode = data
-        .new_room_policies
-        .get(&channel_id)
-        .map(|policy| policy.mode);
-    let server_readable_allowed_by_me =
-        data.new_room_policies
-            .get(&channel_id)
-            .is_some_and(|policy| {
-                policy.mode == NewRoomMode::ServerReadable
-                    && policy.consenting_user_ids.contains(&auth.user_id)
-            });
+    // Keys from a registry entry behind the marker belong to an old epoch.
+    let room = data.rooms.get(&channel_id).filter(|r| r.enabled && behind.is_none()).cloned();
+    let enabled = room.is_some() || marker_epoch.is_some();
+    let epoch = room.as_ref().map(|r| r.epoch).or(marker_epoch).unwrap_or(0);
+    let mode = if behind.is_some() {
+        marker.as_ref().and_then(|m| match m.mode {
+            MarkerMode::Pending => Some(NewRoomMode::PendingEncryption),
+            MarkerMode::ServerReadable => Some(NewRoomMode::ServerReadable),
+            MarkerMode::Enabled => None,
+        })
+    } else {
+        data.new_room_policies.get(&channel_id).map(|policy| policy.mode)
+    };
+    let server_readable_allowed_by_me = behind.is_none()
+        && data.new_room_policies.get(&channel_id).is_some_and(|policy| {
+            policy.mode == NewRoomMode::ServerReadable
+                && policy.consenting_user_ids.contains(&auth.user_id)
+        });
     let expected = device_pairs(devices.iter());
     let actual = room
         .as_ref()
         .map(|r| envelope_pairs(&r.envelopes))
         .unwrap_or_default();
-    let needs_rekey = room
-        .as_ref()
-        .is_some_and(|r| r.membership_revision != current_revision || expected != actual);
+    let needs_rekey = (enabled && room.is_none())
+        || room
+            .as_ref()
+            .is_some_and(|r| r.membership_revision != current_revision || expected != actual);
     let my_envelopes: Vec<WrappedRoomKey> = room
         .as_ref()
         .map(|r| {
@@ -423,11 +711,11 @@ async fn room_status(
         })
         .unwrap_or_default();
     Ok(Json(json!({
-        "enabled": room.is_some(),
-        "pendingDefault": room.is_none() && mode == Some(NewRoomMode::PendingEncryption),
-        "serverReadableSelected": room.is_none() && mode == Some(NewRoomMode::ServerReadable),
+        "enabled": enabled,
+        "pendingDefault": !enabled && mode == Some(NewRoomMode::PendingEncryption),
+        "serverReadableSelected": !enabled && mode == Some(NewRoomMode::ServerReadable),
         "serverReadableAllowedByMe": server_readable_allowed_by_me,
-        "epoch": room.as_ref().map(|r| r.epoch).unwrap_or(0),
+        "epoch": epoch,
         "membershipRevision": room.as_ref().map(|r| r.membership_revision.to_string()).unwrap_or_else(|| current_revision.to_string()),
         "currentMembershipRevision": current_revision.to_string(),
         "needsRekey": needs_rekey,
@@ -435,6 +723,7 @@ async fn room_status(
         "missingUserIds": missing_user_ids,
         "keyEnvelopes": my_envelopes,
         "downgradeAllowed": false,
+        "registryBehind": behind,
     })))
 }
 
@@ -456,20 +745,47 @@ async fn allow_server_readable(
             // Serialize the explicit choice with messages and room enable/rekey. Once
             // encryption is enabled, this endpoint can never downgrade it.
             let _policy_guard = state.retention_policy_lock.lock().await;
+            let marker = read_marker(&state, &channel_id)
+                .map_err(|_| AppError::Internal(MARKER_UNAVAILABLE.into()))?;
+            let registry = registry_room(&read_data(&state.config.data_dir)?, &channel_id);
+            if matches!(registry, RegistryRoom::Enabled(_))
+                || marker.as_ref().is_some_and(|m| m.mode == MarkerMode::Enabled)
+            {
+                return Err(AppError::Conflict(
+                    "This conversation is already encrypted and cannot be downgraded".into(),
+                ));
+            }
+            // The database marker counts as a new-room policy too: with the
+            // registry entry lost, each sender can make the choice again.
+            let marker_mode = marker.as_ref().map(|m| m.mode);
+            if registry == RegistryRoom::Earlier && marker_mode.is_none() {
+                return Err(AppError::BadRequest(
+                    "This conversation uses the earlier server-readable policy".into(),
+                ));
+            }
+            // Consent recorded before the room was pending (an older registry
+            // copy, a recreated conversation) is not carried over: the first
+            // choice after pending starts a fresh consent set.
+            let starts_fresh = marker_mode == Some(MarkerMode::Pending)
+                || registry == RegistryRoom::Pending
+                || (registry == RegistryRoom::Earlier && marker_mode == Some(MarkerMode::ServerReadable));
+            commit_marker_if_changed(&state, &mode_record(&channel_id, MarkerMode::ServerReadable)).await?;
             mutate_data(&state.config.data_dir, |data| {
                 if data.rooms.get(&channel_id).is_some_and(|room| room.enabled) {
                     return Err(AppError::Conflict(
                         "This conversation is already encrypted and cannot be downgraded".into(),
                     ));
                 }
-                let policy = data.new_room_policies.get_mut(&channel_id).ok_or_else(|| {
-                    AppError::BadRequest(
-                        "This conversation uses the earlier server-readable policy".into(),
-                    )
-                })?;
-                if policy.mode == NewRoomMode::PendingEncryption {
+                let policy = data.new_room_policies.entry(channel_id.clone()).or_insert_with(|| NewRoomPolicy {
+                    mode: NewRoomMode::PendingEncryption,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    chosen_by_user_id: None,
+                    consenting_user_ids: BTreeSet::new(),
+                });
+                if starts_fresh || policy.mode == NewRoomMode::PendingEncryption {
                     policy.mode = NewRoomMode::ServerReadable;
                     policy.chosen_by_user_id = Some(auth.user_id);
+                    policy.consenting_user_ids.clear();
                 }
                 policy.consenting_user_ids.insert(auth.user_id);
                 Ok(())
@@ -511,15 +827,20 @@ async fn set_room(
         return Err(AppError::Conflict("Conversation membership changed. Refresh participants and rekey before sending encrypted messages.".into()));
     }
     let now = chrono::Utc::now().to_rfc3339();
-    let room = mutate_data(&state.config.data_dir, |data| {
+    // The marker's epoch counts as the room's even when the registry lost it,
+    // so a rekey after registry loss continues above every epoch ever used.
+    let marker_epoch = read_marker(&state, &channel_id)
+        .map_err(|_| AppError::Internal(MARKER_UNAVAILABLE.into()))?
+        .filter(|m| m.mode == MarkerMode::Enabled)
+        .map(|m| m.epoch);
+    let apply = |data: &mut E2eeData| -> Result<RoomState> {
         let devices: Vec<&DeviceBundle> = active_devices(data, &members);
         let missing: Vec<_> = members.iter().filter(|uid| !devices.iter().any(|d| d.user_id == **uid)).copied().collect();
         if !missing.is_empty() {
             return Err(AppError::Conflict(format!("Every participant needs an E2EE device before this room can be encrypted. Missing user IDs: {}", missing.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "))));
         }
-        let sender = data.devices.iter().find(|d| d.user_id == auth.user_id && d.device_id == input.sender_device_id && d.revoked_at.is_none())
+        data.devices.iter().find(|d| d.user_id == auth.user_id && d.device_id == input.sender_device_id && d.revoked_at.is_none())
             .ok_or_else(|| AppError::Forbidden("The sender E2EE device is not registered to this account".into()))?;
-        let _ = sender;
         if input.envelopes.len() != devices.len() || input.envelopes.iter().any(|e| !validate_wrapped_key(e, &input.sender_device_id)) {
             return Err(AppError::BadRequest("Invalid or incomplete wrapped room-key set".into()));
         }
@@ -532,13 +853,15 @@ async fn set_room(
             let valid_recipient = devices.iter().any(|d| d.user_id == envelope.recipient_user_id && d.device_id == envelope.recipient_device_id);
             if !valid_recipient { return Err(AppError::BadRequest("Wrapped room key names a device outside this conversation".into())); }
         }
-        match data.rooms.get(&channel_id) {
-            Some(existing) if !rekey => return Err(AppError::Conflict("This conversation is already E2EE. Downgrades are not supported; rotate the key instead.".into())),
+        let registry_epoch = data.rooms.get(&channel_id).map(|r| r.epoch);
+        let known_epoch = registry_epoch.max(marker_epoch);
+        match known_epoch {
+            Some(_) if !rekey => return Err(AppError::Conflict("This conversation is already E2EE. Downgrades are not supported; rotate the key instead.".into())),
             None if rekey => return Err(AppError::Conflict("E2EE is not enabled for this conversation yet".into())),
-            Some(existing) if rekey && input.epoch != existing.epoch.saturating_add(1) => {
-                return Err(AppError::Conflict(format!("Next E2EE epoch must be {}", existing.epoch.saturating_add(1))))
+            Some(epoch) if input.epoch != epoch.saturating_add(1) => {
+                return Err(AppError::Conflict(format!("Next E2EE epoch must be {}", epoch.saturating_add(1))))
             }
-            None if !rekey && input.epoch != 1 => return Err(AppError::BadRequest("The first E2EE epoch must be 1".into())),
+            None if input.epoch != 1 => return Err(AppError::BadRequest("The first E2EE epoch must be 1".into())),
             _ => {}
         }
         let enabled_at = data.rooms.get(&channel_id).map(|r| r.enabled_at.clone()).unwrap_or_else(|| now.clone());
@@ -554,7 +877,17 @@ async fn set_room(
         };
         data.rooms.insert(channel_id.to_string(), next.clone());
         Ok(next)
-    })?;
+    };
+    // Validate against the current registry without writing, so a refused
+    // request never moves the marker. Then marker first, registry second.
+    // Between the two, only the registry can change under us (device
+    // registration does not take the policy lock); if the second pass then
+    // refuses, the marker is ahead and the room stays closed to readable
+    // content until another setup succeeds: the safe direction.
+    let mut preview = read_data(&state.config.data_dir)?;
+    let planned = apply(&mut preview)?;
+    commit_marker_if_changed(&state, &enabled_record(&channel_id, planned.epoch)).await?;
+    let room = mutate_data(&state.config.data_dir, apply)?;
     if let Some(io) = state.socket_io() {
         let _ = io.to(channel_id.to_string()).emit("e2ee-room-updated", &json!({
             "channelId": channel_id,
@@ -616,9 +949,10 @@ fn new_room_plaintext_refusal(data: &E2eeData, channel_id: &str, user_id: i64) -
 /// enabled or pending, and after a server-readable choice only accepted from
 /// a sender who made that choice. Call under `retention_policy_lock`, like a
 /// send; `feature` names what is unavailable, e.g. "Wiki pages".
-fn require_server_readable_text(state: &AppState, channel_id: &str, user_id: i64, feature: &str) -> Result<()> {
-    let data = read_data(&state.config.data_dir)
-        .map_err(|_| AppError::Forbidden(REGISTRY_UNAVAILABLE.into()))?;
+async fn require_server_readable_text(state: &AppState, channel_id: &str, user_id: i64, feature: &str) -> Result<()> {
+    let data = read_checked(state, channel_id)
+        .await
+        .map_err(|refusal| AppError::Forbidden(refusal.reason()))?;
     if data.rooms.get(channel_id).is_some_and(|room| room.enabled) {
         return Err(AppError::Forbidden(format!(
             "This conversation uses experimental encryption. {feature} store server-readable text, so they are not available here."
@@ -645,7 +979,7 @@ pub async fn admit_readable_text<'a>(
         return Ok(None);
     }
     let guard = state.retention_policy_lock.lock().await;
-    require_server_readable_text(state, &channel.channel_id, user_id, feature)?;
+    require_server_readable_text(state, &channel.channel_id, user_id, feature).await?;
     Ok(Some(guard))
 }
 
@@ -655,7 +989,10 @@ pub async fn admit_readable_text<'a>(
 /// every current human member has made that choice themselves; while the room
 /// is pending or encrypted, never. Call under `retention_policy_lock`.
 pub async fn require_bot_post_allowed(state: &AppState, channel_id: &str) -> Result<()> {
-    let data = read_data(&state.config.data_dir)?;
+    let data = read_checked(state, channel_id).await.map_err(|refusal| match refusal {
+        Refusal::Unavailable(reason) => AppError::Internal(reason.into()),
+        Refusal::Behind(reason) => AppError::BadRequest(reason),
+    })?;
     if data.rooms.get(channel_id).is_some_and(|room| room.enabled)
         || data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption)
     {
@@ -700,13 +1037,21 @@ pub async fn admit_channel_upload<'a>(
         return Ok(None);
     }
     let guard = state.retention_policy_lock.lock().await;
-    match require_server_readable_text(state, &channel.channel_id, user_id, "Plaintext file uploads") {
-        Ok(()) => Ok(Some(guard)),
-        Err(AppError::Forbidden(reason)) if reason == REGISTRY_UNAVAILABLE => Err(AppError::Forbidden(reason)),
-        Err(_) if is_opaque_encrypted_upload(file_name, mime_type) => Ok(Some(guard)),
-        Err(_) => Err(AppError::Forbidden(
-            "Plaintext files cannot be attached to this conversation: it uses experimental encryption or is waiting for it. Send the file from an updated Wabi client, which encrypts it first.".into(),
-        )),
+    let opaque = is_opaque_encrypted_upload(file_name, mime_type);
+    match read_checked(state, &channel.channel_id).await {
+        // Unreadable state refuses every upload.
+        Err(Refusal::Unavailable(reason)) => Err(AppError::Forbidden(reason.into())),
+        // A registry behind the database marker: the room is encrypted or
+        // pending there, so only the opaque encrypted shape is admitted.
+        Err(Refusal::Behind(_)) if opaque => Ok(Some(guard)),
+        Err(Refusal::Behind(reason)) => Err(AppError::Forbidden(reason)),
+        Ok(_) => match require_server_readable_text(state, &channel.channel_id, user_id, "Plaintext file uploads").await {
+            Ok(()) => Ok(Some(guard)),
+            Err(_) if opaque => Ok(Some(guard)),
+            Err(_) => Err(AppError::Forbidden(
+                "Plaintext files cannot be attached to this conversation: it uses experimental encryption or is waiting for it. Send the file from an updated Wabi client, which encrypts it first.".into(),
+            )),
+        },
     }
 }
 
@@ -718,7 +1063,7 @@ pub async fn admit_channel_upload<'a>(
 pub async fn validate_outbound_message(
     state: &AppState, channel_id: &str, user_id: i64, content: &str,
 ) -> std::result::Result<bool, String> {
-    let data = read_data(&state.config.data_dir).map_err(|_| REGISTRY_UNAVAILABLE.to_string())?;
+    let data = read_checked(state, channel_id).await.map_err(Refusal::reason)?;
     let room = data.rooms.get(channel_id).filter(|r| r.enabled).cloned();
     let Some(room) = room else {
         if is_ciphertext(content) { return Err("E2EE envelopes are only accepted in an E2EE conversation".into()); }
@@ -779,7 +1124,7 @@ mod registry_tests {
             std::fs::write(store_path(dir), invalid).unwrap();
             let error = read_data(dir).unwrap_err().to_string();
             assert!(!error.contains("private-canary"));
-            assert!(room_is_enabled(dir, "dm-test").is_err());
+            assert!(read_data(dir).is_err());
             let mut invoked = false;
             assert!(mutate_data(dir, |_| { invoked = true; Ok(()) }).is_err());
             assert!(!invoked);
@@ -808,7 +1153,7 @@ mod registry_tests {
             envelopes: vec![],
         };
         mutate_data(dir, |data| { data.rooms.insert(room.channel_id.clone(), room.clone()); Ok(()) }).unwrap();
-        assert!(room_is_enabled(dir, "dm-test").unwrap());
+        assert!(read_data(dir).unwrap().rooms["dm-test"].enabled);
         mutate_data(dir, |_| Ok(())).unwrap();
         let after = read_data(dir).unwrap();
         assert_eq!(serde_json::to_value(&after.rooms["dm-test"]).unwrap(), serde_json::to_value(&room).unwrap());
@@ -857,7 +1202,7 @@ mod registry_tests {
     async fn new_room_requires_each_sender_to_choose_plaintext_and_recreation_resets_it() {
         let (directory, state) = make_test_state().await;
         let dir = directory.path().to_str().unwrap();
-        mark_new_room_pending(dir, "dm-test").unwrap();
+        mark_new_room_pending(&state, "dm-test").await.unwrap();
         assert!(validate_outbound_message(&state, "dm-test", 1, "private-canary").await.is_err());
         assert!(validate_outbound_message(&state, "dm-test", 2, "private-canary").await.is_err());
 
@@ -868,13 +1213,18 @@ mod registry_tests {
             policy.consenting_user_ids.insert(1);
             Ok(())
         }).unwrap();
+        // A registry weakened on its own, behind the database marker, is refused.
+        assert!(validate_outbound_message(&state, "dm-test", 1, "private-canary").await
+            .unwrap_err().contains("e2ee_state.json"));
+        // The real transition writes the marker first.
+        commit_marker(state.wdb.engine(), &mode_record("dm-test", MarkerMode::ServerReadable), 1).await.unwrap();
         assert!(!validate_outbound_message(&state, "dm-test", 1, "private-canary").await.unwrap());
         assert!(validate_outbound_message(&state, "dm-test", 2, "private-canary").await
             .unwrap_err().contains("your own device"));
 
         // Stable DM IDs can be reused after deletion. The new conversation
         // must not inherit the previous conversation's plaintext choice.
-        mark_new_room_pending(dir, "dm-test").unwrap();
+        mark_new_room_pending(&state, "dm-test").await.unwrap();
         assert!(validate_outbound_message(&state, "dm-test", 1, "private-canary").await.is_err());
         assert_eq!(read_data(dir).unwrap().new_room_policies["dm-test"].mode, NewRoomMode::PendingEncryption);
     }

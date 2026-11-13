@@ -1761,6 +1761,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::room_placement::RoomPlacementRecord",
         },
         ProjectionRegistration {
+            event_types: &[crate::projections::room_encryption::EVENT],
+            handler: Arc::new(crate::projections::room_encryption::RoomEncryptionProjection),
+            index_name: crate::projections::room_encryption::INDEX,
+            record_type_name: "wabidb::projections::room_encryption::RoomEncryptionRecord",
+        },
+        ProjectionRegistration {
             event_types: &[crate::projections::upload_revocations::EVENT],
             handler: Arc::new(crate::projections::upload_revocations::UploadRevocationsProjection),
             index_name: crate::projections::upload_revocations::INDEX,

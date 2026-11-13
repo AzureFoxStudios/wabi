@@ -1125,10 +1125,7 @@ async fn promote_from_message(
         .await
         .get(&message.channel_id)
         .is_some_and(|label| label == "live")
-        && !crate::api::e2ee::room_blocks_server_content(
-            &state.config.data_dir,
-            &message.channel_id,
-        )?;
+        && !crate::api::e2ee::room_blocks_server_content(&state, &message.channel_id).await?;
     if announcement_posted {
         state
             .wdb

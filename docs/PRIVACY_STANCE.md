@@ -1,7 +1,7 @@
 # Wabi Privacy and Operator Responsibility
 
 **Status:** current product/privacy boundary  
-**Updated:** 2026-09-26
+**Updated:** 2026-11-13
 **Not legal advice.** Laws and operator obligations vary by jurisdiction.
 
 Wabi's privacy model starts with **self-hosting and explicit trust boundaries**, not with the claim that the server cannot see anything.
@@ -98,17 +98,26 @@ verified operator-blind confidentiality guarantee**. It needs a protocol,
 client-integrity, key-verification, recovery, attachment and multi-device
 review before that claim changes.
 
-The new-room policy is a JSON sidecar addition, so its state must be backed up
-with `e2ee_state.json`. Rolling back to an older Authority binary that ignores
-this policy can accept plaintext in a room that was pending encryption. Use a
-matching stopped-instance backup for rollback. Do not delete the registry to
-clear a problem; damaged registry state blocks sends and key changes.
+The new-room policy lives in the JSON sidecar `e2ee_state.json`, so back it up
+with the rest of the data directory. In the current tree WabiDB also keeps a
+per-conversation marker (see the next section), so a missing or older registry
+no longer reopens a pending room. Rolling back to an older Authority binary
+still can: that binary ignores the marker and decides from the registry alone,
+and the binary from before new-room policies ignores those too. Use a matching
+stopped-instance backup for rollback. Do not delete the registry to clear a
+problem; damaged registry state blocks sends and key changes.
 
 ### Experimental registry and recovery boundary
 
 The current release path retains the existing encrypted-envelope and attachment mechanisms; it does not convert existing ciphertext to plaintext. A room's registry flag reports `experimental_e2ee`, not verified operator-blind confidentiality. The separate DM “Sealed / Private / Open” menu was a device-local label with no connection to message encryption and is no longer presented as a security control. Existing stored preferences are left untouched.
 
-Unreadable, malformed or incomplete `e2ee_state.json` now blocks registry changes, enabled-room privacy lookup and outbound message validation rather than treating damaged state as an empty registry. The file remains intact for recovery. Restore it with the matching stopped Authority backup; do not delete it to clear the error. An absent registry still represents a fresh installation, so deleting the file cannot be distinguished from never having enabled encryption. This check does not prove resilience to a malicious operator, rollback to an older valid registry, or the full E2EE acceptance checklist above.
+Unreadable, malformed or incomplete `e2ee_state.json` now blocks registry changes, enabled-room privacy lookup and outbound message validation rather than treating damaged state as an empty registry. The file remains intact for recovery. Restore it with the matching stopped Authority backup; do not delete it to clear the error.
+
+**Durable room marker.** The registry is the only home of device public keys and wrapped room keys, and on its own it cannot tell "never encrypted" from "file missing" or "older copy restored". In the current tree (not yet on Tim) WabiDB therefore also records, per conversation, the state it has reached: pending encryption, server-readable chosen by a participant, or experimental encryption enabled at a key epoch (`room_encryption` projection, event `room_encryption_marked`). Every transition writes the marker first, then the registry. Every decision about readable content in a conversation compares the two: message sends over Socket.IO and REST, edits, shared notes, forum threads and posts, wiki pages, albums, gallery works and feedback, incidents, whiteboards, uploads, bot posts, integration announcements and the room status. If the marker says pending, server-readable or enabled and the registry has no entry, an older epoch or a weaker mode, readable content is refused, with a reason that names `e2ee_state.json` and what to restore. The weaker source is never trusted to "repair" the room, and an enabled room never moves back. Room status reports the marker's state (encrypted at its epoch and needing a rekey, or pending), so updated clients run setup again rather than treating the room as readable. A registry ahead of the marker (a data directory restored older than its registry, or rooms from before markers existed) is the stricter source and decides; the Authority brings the marker up to it at startup and when a decision sees it. Conversations that never had a new-room policy or encryption have no marker and keep the earlier server-readable behavior.
+
+The marker holds no keys, so it cannot restore them. With the registry genuinely lost, marked rooms stay closed to readable content. Members' updated clients register their devices again and rekey: an encrypted room continues above the highest epoch the database recorded, a pending room is set up from the start, and in a room where server-readable had been chosen each sender chooses again (earlier choices are not carried over). Ciphertext from before the loss stays readable only on devices that still hold the old room keys. There is no switch that resets a room to readable.
+
+These checks do not prove resilience to a malicious operator, who controls both the database and the registry, or the full E2EE acceptance checklist above.
 
 ## Independent servers, not federation
 

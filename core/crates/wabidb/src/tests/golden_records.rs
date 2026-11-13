@@ -772,6 +772,16 @@ fn every_durable_record_is_versioned() {
             }),
         ),
         ("dm_onetime_prekey_consumed", dm_identities::encode_consumed(&dm_prekey_consumed())),
+        (
+            "RoomEncryptionRecord",
+            crate::projections::room_encryption::encode_record(
+                &crate::projections::room_encryption::RoomEncryptionRecord {
+                    channel_id: "dm_1_2".into(),
+                    mode: crate::projections::room_encryption::RoomEncryptionMode::Pending,
+                    epoch: 0,
+                },
+            ),
+        ),
     ];
     let unversioned: Vec<&str> = encoded
         .iter()
