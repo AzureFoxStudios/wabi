@@ -309,14 +309,24 @@ async fn set_room(
     .await
 }
 
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// Opaque bytes in the sizes the client's AES-GCM / ECDSA output has.
+fn random_bytes(len: usize) -> Vec<u8> {
+    (0..len.div_ceil(16)).flat_map(|_| *uuid::Uuid::new_v4().as_bytes()).take(len).collect()
+}
+
 fn envelope(ch: &str, epoch: u64, revision: &str, sender_device: &str) -> String {
     format!(
         "{PREFIX}{}",
         json!({
             "v": 1, "room": ch, "epoch": epoch, "membershipRevision": revision,
-            "senderDeviceId": sender_device, "iv": "aXYtb3BhcXVl",
-            "ciphertext": format!("ct-{}", uuid::Uuid::new_v4().simple()),
-            "signature": "c2lnLW9wYXF1ZQ",
+            "senderDeviceId": sender_device, "iv": b64(&random_bytes(12)),
+            "ciphertext": b64(&random_bytes(48)),
+            "signature": b64(&random_bytes(64)),
         })
     )
 }
@@ -1836,4 +1846,183 @@ async fn feature_surfaces_refuse_readable_text_in_encrypted_and_pending_conversa
     assert!(hits.is_empty(), "{m} written to {hits:?}");
     let logs = String::from_utf8_lossy(&logs.lock().unwrap()).into_owned();
     assert!(!logs.contains(&m), "{m} in tracing output");
+}
+
+// ---------------------------------------------------------------------------
+// Round 2: what may ride beside or inside an envelope; reactions; bots
+// ---------------------------------------------------------------------------
+
+/// Upload an opaque, client-encrypted file to `ch` and return its served URL.
+async fn opaque_upload(app: &Router, auth: &str, ch: &str) -> String {
+    let name = format!("e2ee-{}.wabi", uuid::Uuid::new_v4());
+    let (status, body) = resumable_upload(app, auth, ch, &name, "application/octet-stream", &random_bytes(64)).await;
+    assert!(status.is_success(), "opaque upload: {status} {body}");
+    body["fileUrl"].as_str().unwrap_or_else(|| panic!("no fileUrl: {body}")).to_string()
+}
+
+#[tokio::test]
+async fn encrypted_messages_carry_only_server_issued_upload_references() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let room = encrypted_group(&app, &state, "attach", &["a", "b"]).await;
+    let other = encrypted_group(&app, &state, "attach-other", &["c", "d"]).await;
+    let a = room.users[0];
+    let auth = bearer(&state, a);
+    let m = format!("ATTACH-{}", uuid::Uuid::new_v4().simple());
+    let issued = opaque_upload(&app, &auth, &room.ch).await;
+    let foreign = opaque_upload(&app, &bearer(&state, other.users[0]), &other.ch).await;
+    let mut sio = Client::connect(&app, &token(&state, a)).await;
+
+    for (name, extra) in [
+        ("free-text fileUrl", json!({"fileUrl":format!("https://example.invalid/{m}"),"fileName":"x"})),
+        // `files[]` entries are decoded as snake_case records (see the PR notes:
+        // camelCase entries are dropped before this check ever sees them).
+        ("free-text files[]", json!({"files":[{"file_url":format!("/uploads/{m} meet at noon"),"file_name":"x","file_size":1}]})),
+        ("another room's upload", json!({"files":[{"file_url":foreign,"file_name":"x","file_size":1}]})),
+        ("path escape", json!({"files":[{"file_url":format!("/uploads/../{m}"),"file_name":"x","file_size":1}]})),
+    ] {
+        let mut payload = json!({"channelId":room.ch,"clientMessageId":name,"text":room.envelope(&app, &state, 0, 1).await});
+        for (key, value) in extra.as_object().unwrap() {
+            payload[key] = value.clone();
+        }
+        let (event, body) = sio.send(payload).await;
+        assert_eq!(event, "message-error", "{name}: {body}");
+        assert_eq!(body["code"], "e2ee_attachment_invalid", "{name}: {body}");
+    }
+    let (event, body) = sio
+        .send(json!({"channelId":room.ch,"clientMessageId":"issued","text":room.envelope(&app, &state, 0, 1).await,
+                     "files":[{"file_url":issued,"file_name":format!("{m}-original.pdf"),"file_size":12345}]}))
+        .await;
+    assert_eq!(event, "message-accepted", "{body}");
+    let messages = state.wdb.list_messages_typed(&room.ch, 10).await.unwrap();
+    assert_eq!(messages.len(), 1);
+    let stored = serde_json::to_string(&messages).unwrap();
+    assert!(!stored.contains(&m), "beside-envelope text stored: {stored}");
+    assert_eq!(messages[0].files.len(), 1);
+    assert_eq!(messages[0].files[0].file_url, issued);
+    assert_eq!(messages[0].files[0].file_name, "encrypted.bin");
+    let seen = sio.drain().await;
+    assert!(!seen.contains(&m), "beside-envelope text relayed: {seen}");
+}
+
+#[tokio::test]
+async fn envelopes_must_have_the_client_shape_and_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let room = encrypted_group(&app, &state, "shape", &["a", "b"]).await;
+    let a = room.users[0];
+    let revision = current_revision(&app, &state, a, &room.ch).await;
+    let valid: Value = serde_json::from_str(room.envelope(&app, &state, 0, 1).await.strip_prefix(PREFIX).unwrap()).unwrap();
+    let send = |content: String| {
+        let (app, auth, ch) = (app.clone(), bearer(&state, a), room.ch.clone());
+        async move { request(&app, Method::POST, "/messages", &auth, json!({"channel_id":ch,"content":content})).await }
+    };
+    let variant = |edit: &dyn Fn(&mut Value)| {
+        let mut envelope = valid.clone();
+        edit(&mut envelope);
+        format!("{PREFIX}{envelope}")
+    };
+    let cases: Vec<(&str, String)> = vec![
+        ("extra plaintext field", variant(&|e| e["plaintext"] = json!("meet at noon"))),
+        ("extra preview field", variant(&|e| e["preview"] = json!("meet at noon"))),
+        ("readable ciphertext", variant(&|e| e["ciphertext"] = json!("meet at noon, bring the documents"))),
+        ("base64 of a short readable value", variant(&|e| e["ciphertext"] = json!(b64(b"hi there")))),
+        ("empty iv", variant(&|e| e["iv"] = json!(""))),
+        ("empty signature", variant(&|e| e["signature"] = json!(""))),
+        ("wrong iv length", variant(&|e| e["iv"] = json!(b64(&random_bytes(16))))),
+        ("wrong signature length", variant(&|e| e["signature"] = json!(b64(&random_bytes(32))))),
+        ("signature not base64", variant(&|e| e["signature"] = json!("not base64 at all!"))),
+        ("version 2", variant(&|e| e["v"] = json!(2))),
+        ("membership revision as a number", variant(&|e| e["membershipRevision"] = json!(revision.parse::<u64>().unwrap()))),
+    ];
+    for (name, content) in cases {
+        let (status, body) = send(content).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{name}: {body}");
+    }
+    let (status, body) = send(format!("{PREFIX}{valid}")).await;
+    assert_eq!(status, StatusCode::OK, "the client's exact shape: {body}");
+    let stored = stored(&state, &room.ch).await;
+    assert_eq!(stored.len(), 1);
+    assert!(!stored[0].contains("meet at noon"));
+
+    // An envelope is refused outright in a room that is not encrypted.
+    let plain = "group-shape-readable";
+    state.wdb.create_group(plain, "readable", a, &[a, room.users[1]]).await.unwrap();
+    let (status, _) = request(
+        &app,
+        Method::POST,
+        "/messages",
+        &bearer(&state, a),
+        json!({"channel_id":plain,"content":envelope(plain, 1, "1", &room.devices[0])}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn reactions_are_emoji_identifiers_not_free_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let a = user(&state, "react-a").await;
+    let b = user(&state, "react-b").await;
+    let ch = "group-react";
+    state.wdb.create_group(ch, "react", a, &[a, b]).await.unwrap();
+    let message = state.wdb.send_message(ch, a, "hello", false, &[]).await.unwrap();
+    let mut sio = Client::connect(&app, &token(&state, a)).await;
+    for emoji in ["meet me at the station at noon", "x", "emo_", "emo_has space", "1F44D-hello", &"1F44D-".repeat(12)] {
+        sio.emit("add-emoji-reaction", json!({"channelId":ch,"messageId":message,"emojiId":emoji})).await;
+        let error = sio.event("reaction-error").await;
+        assert_eq!(error["error"], "Unknown emoji", "{emoji}: {error}");
+    }
+    assert!(state.wdb.list_reactions(&message).await.unwrap().is_empty());
+    sio.emit("join-channel", json!(ch)).await;
+    sio.event("channel-messages").await;
+    for emoji in ["1F44D", "1F468-200D-1F469-200D-1F467", "emo_party_parrot", "👍", "👍🏽"] {
+        sio.emit("add-emoji-reaction", json!({"channelId":ch,"messageId":message,"emojiId":emoji})).await;
+        assert_eq!(sio.event("emoji-reaction-added").await["emojiId"], emoji);
+    }
+    let stored = serde_json::to_string(&state.wdb.list_reactions(&message).await.unwrap()).unwrap();
+    for emoji in ["1F44D", "1F468-200D-1F469-200D-1F467", "emo_party_parrot", "👍🏽"] {
+        assert!(stored.contains(emoji), "{emoji} missing from {stored}");
+    }
+}
+
+#[tokio::test]
+async fn bots_post_in_a_new_room_only_after_every_human_member_chose_server_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let a = user(&state, "botrule-a").await;
+    let b = user(&state, "botrule-b").await;
+    let bot = user(&state, "botrule-bot").await;
+    let (bot_token, _) = state.bot_registry.create(bot).await.unwrap();
+    let mut sio_a = Client::connect(&app, &token(&state, a)).await;
+    sio_a
+        .emit("create-group", json!({"requestId":uuid::Uuid::new_v4().to_string(),"groupName":"botrule","userIds":[format!("user-{b}")]}))
+        .await;
+    let group = sio_a.event("group-created").await["channelId"].as_str().unwrap().to_string();
+    state.wdb.add_channel_member(&group, bot, MemberRole::Member).await.unwrap();
+    let post = |text: &str| {
+        let (app, credential, ch, text) = (app.clone(), format!("Bot {bot_token}"), group.clone(), text.to_string());
+        async move { request(&app, Method::POST, "/bot/send-message", &credential, json!({"channel_id":ch,"content":text})).await }
+    };
+    let consent = |uid: u64| {
+        let (app, auth, ch) = (app.clone(), bearer(&state, uid), group.clone());
+        async move { request(&app, Method::POST, &format!("/e2ee/channels/{ch}/allow-server-readable"), &auth, Value::Null).await.0 }
+    };
+
+    let (status, body) = post("bot while pending").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "pending: {body}");
+    assert_eq!(consent(a).await, StatusCode::OK);
+    let (status, body) = post("bot after one member chose").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "b has not chosen server-readable: {body}");
+    assert_policy_reason("bot before every member chose", &body);
+    assert_eq!(consent(b).await, StatusCode::OK);
+    let (status, body) = post("bot after everyone chose").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let contents = stored(&state, &group).await;
+    assert_eq!(contents, vec!["bot after everyone chose".to_string()]);
 }
