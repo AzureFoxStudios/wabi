@@ -12,12 +12,12 @@ Add a built-in network diagnostic to Wabi that tells the user exactly how reacha
 Your Wabi server is reachable via:
 
 ✅ LAN:          http://192.168.1.42:3000      (Same WiFi only)
-✅ Tailscale:    http://100.104.166.42:3000    (Anywhere, encrypted)
+✅ Tailscale:    http://192.0.2.20:3000    (Anywhere, encrypted)
 ⚠️  IPv6:         http://[2001:fb1:...]:3000    (May work — test me)
 ❌ IPv4 public:  Not available — CGNAT blocked
 
 Recommendation: Share your Tailscale IP. Your friends install Tailscale,
-enter 100.104.166.42:3000, and they're in. Zero config.
+enter 192.0.2.20:3000, and they're in. Zero config.
 ```
 
 ## How It Works (Backend)
@@ -66,7 +66,7 @@ We CANNOT truly test IPv6 reachability from the server itself. The server knows 
 ```
 Server sends its IPv6 to a known test endpoint:
 POST https://ipv6-test.wabi.chat/check
-{ "address": "2001:fb1:169:e0be:d148:33d8:f184:719f", "port": 3000 }
+{ "address": "2001:db8::42", "port": 3000 }
 
 The service tries to HTTP GET [that IPv6]:3000/health.
 Response: { "reachable": true/false, "source": "external-probe" }
@@ -80,7 +80,7 @@ Response: { "reachable": true/false, "source": "external-probe" }
 User clicks [Test My IPv6].
 Wabi generates a small JavaScript snippet:
 
-  fetch("http://[2001:fb1:169:e0be:d148:33d8:f184:719f]:3000/health")
+  fetch("http://[2001:db8::42]:3000/health")
     .then(r => alert("IPv6 works! Your friends can reach you directly."))
     .catch(e => alert("IPv6 blocked. Use Tailscale."))
 
@@ -95,7 +95,7 @@ Friend runs it. Result comes back.
 ```
 [Network Status]
 LAN:       192.168.1.42:3000            ✅ Local only
-Tailscale: 100.104.166.42:3000          ✅ Recommended
+Tailscale: 192.0.2.20:3000          ✅ Recommended
 IPv6:      [2001:fb1:...]:3000           ⚠️ Available but not tested
            → Ask a friend to visit this URL, or open it on cell data
 

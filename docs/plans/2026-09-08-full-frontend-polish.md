@@ -155,7 +155,7 @@ and the running `/proc/1/exe` match the candidate SHA-256 above.
   candidate. Only the bind-mounted binary changed; the container, keys, Lore
   mounts, tunnel and coturn configuration were retained.
 - Consistent stopped-server backup and a separate immediate-cutover backup are
-  retained in private `/home/tim/Desktop/Wabi/release-polish-20260908.v9OfSx`.
+  retained in private `/home/operator/Desktop/Wabi/release-polish-20260908.v9OfSx`.
   Old binaries and stale locks are recoverable there. Both lock paths were
   checked only after the owning process stopped. No user data was deleted.
 - Candidate replay on a separate copy, same image/UID, `--network none` and no

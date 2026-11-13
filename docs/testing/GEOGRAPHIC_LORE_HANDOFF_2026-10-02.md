@@ -5,13 +5,13 @@
 This is a progress record for the ongoing main Wabi geographic community
 implementation. It is not a source synchronization, production release or HA
 claim. The canonical native Lore repository is attached to Wabi channel
-`ch_460`, at `/home/tim/Desktop/Wabi/data/wabi-server/lore/1120`, repository
+`ch_460`, at `/home/operator/Desktop/Wabi/data/wabi-server/lore/1120`, repository
 UUID `01a041f5628a7640bb6f1a78ff3555a2`. Before this note it was main revision
 8, signature `cb0badaa3907599f39136e0756238627400843872f614b60ca45554c857cc271`.
 Its history records a September 8 source import from Git
 `4fed90d728caf4d3e05645541f569d505ac883ed`.
 
-The tested candidate instead lives on dotRonin in `/home/ironin/wabi`, branch
+The tested candidate instead lives on dotRonin in `/home/operator/wabi`, branch
 `codex/security-boundary-hardening-20260930`, base Git commit
 `138abe39e08e400188d1812ed3bfd378df435315`, with shared uncommitted changes.
 No genuine automatic checkout-to-Lore synchronization has been verified.

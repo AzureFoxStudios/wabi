@@ -7,7 +7,7 @@ against the real Authority router, existing signed checkpoint files and the
 fixed-roster recovery runtime. It does not activate a replacement Authority.
 Complete-instance readiness and canonical writer permission remain false.
 
-Execution computer: `dotRonin`. Shared checkout: `/home/ironin/wabi`, branch
+Execution computer: `dotRonin`. Shared checkout: `/home/operator/wabi`, branch
 `codex/security-boundary-hardening-20260930`. The observed shared Git revision
 was `c1dd4b8924c12d5be3249957131ba171c705c6f2`; the recovery changes also include
 uncommitted files. A Git revision alone does not identify the tested candidate.
@@ -192,7 +192,7 @@ Evidence: [source6](geographic-2026-10-02/publication-authority-source6.json),
 ## Lore comparison before publication
 
 Read-only Tim inspection found the native source repository at
-`/home/tim/Desktop/Wabi/data/wabi-server/lore/1120`, repository
+`/home/operator/Desktop/Wabi/data/wabi-server/lore/1120`, repository
 `01a041f5628a7640bb6f1a78ff3555a2`, branch `main`, revision **10**, signature
 `3ab30db899044de34363aa8278f28343cfe7321bb588cea2a145cc6b7208302c`.
 Earlier records map it to channel `ch_460`; fresh disk inspection verifies the

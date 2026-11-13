@@ -4,13 +4,13 @@ Status: reconnaissance complete for the agreed first pass. No frontend implement
 
 ## Evidence and provenance
 
-- Local source inspected: `/var/home/Ronin/wabi`, `main`, `a362c75e`.
+- Local source inspected: `/var/home/operator/wabi`, `main`, `a362c75e`.
 - Real website: `https://wabi.chat/`, owner account approved by user. This is a development site, not production. No accounts created, messages sent, uploads made, calls joined, preferences deliberately changed, or data reset.
 - Live owner theme: Joker. Owner/navigation state persisted normally during browsing. Isolated browser contexts were closed after probes.
 - Live entry asset: `start.CQh3G83y.js`; main stylesheet: `0.NxCkIeQX.css`. Existing local build entry: `start.BZqpxkZ1.js`. They differ; do not claim local source and the live binary are the same build. Source trace points were checked independently against the observed behavior.
 - `bun run check`: exit 0, 0 errors, 185 warnings in 50 files. No build or test-suite run during recon.
 - Read-only OpenCode scout: `opencode/nemotron-3-ultra-free`, session `ses_f859ffa2ffferwVn27oi6PevG7`; smoke and scout completed; OpenCode reported cost 0. Actual log: 23 distinct source reads, only its report written. Parent rejected multiple unsupported claims; see the corrections at the top of `2026-09-07-ui-recon-source-scout.md`.
-- Durable local evidence: `/var/home/Ronin/wabi-backups/ui-recon-20260907-123737/evidence/`. Contains `walk.jsonl`, `focused.jsonl`, `final-probes.jsonl`, inventories, coverage summary, typecheck log, scout log and credential-free probe scripts. DOM text may contain existing test conversations; do not publish raw evidence. Screenshots are captured artifacts, not a claimed pixel-by-pixel design review.
+- Durable local evidence: `/var/home/operator/wabi-backups/ui-recon-20260907-123737/evidence/`. Contains `walk.jsonl`, `focused.jsonl`, `final-probes.jsonl`, inventories, coverage summary, typecheck log, scout log and credential-free probe scripts. DOM text may contain existing test conversations; do not publish raw evidence. Screenshots are captured artifacts, not a claimed pixel-by-pixel design review.
 - Browser-harness tabs disappeared during the first survey. Switched to installed Playwright with isolated full Chromium; no browser packages installed. Main walkthrough completed with 27 records and no observed pageerror events. A later focused script timed out after selecting a DM and trying to locate a channel toolbar; this is recorded as a harness/navigation limitation, not an app crash. A fresh targeted probe completed successfully.
 
 ## Verified issue ledger

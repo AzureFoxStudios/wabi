@@ -6,7 +6,7 @@ Prepared 28 September 2026. Audience: the next AI working with Ronin on Wabi.
 
 Continue implementation from this working tree, preserving all existing work. Ronin explicitly authorized building the features; do not turn a green light into another documentation-only pass. Work autonomously on safe, reversible implementation and verification. Ask only for genuinely missing information or a consequential action requiring approval.
 
-Repository: `/home/ironin/wabi`.
+Repository: `/home/operator/wabi`.
 
 Observed branch: `codex/friends-dm-rebuild-20260925`.
 Observed HEAD: `cf00e3cbe37920d6b1da76dff3e9171ab4aac7a5`.

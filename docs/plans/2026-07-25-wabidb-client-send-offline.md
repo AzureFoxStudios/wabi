@@ -109,7 +109,7 @@ DO NOT commit. Leave in working tree for review.
 DO NOT implement encryption-at-rest, blobs, FTS, Media/Maps/Knowledge (v2/v3).
 
 ## VERIFICATION (Hermes runs after)
-1. `cd /home/Ronin/wabi/frontend && npm run check` — no NEW errors vs baseline (2 pre-existing:
+1. `cd /home/operator/wabi/frontend && npm run check` — no NEW errors vs baseline (2 pre-existing:
    VoiceChannelList 'announcement', LoreChannel string|number; 90 warnings).
 2. grep: sendMessage references `getWabiDB`/`enqueue`; socketConnectionCore references
    `drainOutboundQueue` and `markSyncedByClientId`; +layout references `drainOutboundQueue`.

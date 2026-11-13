@@ -23,7 +23,7 @@ Make Wabi visually coherent and predictable to use: visible, recognizable contro
 
 ## Verified starting point
 
-- Repository: `/var/home/Ronin/wabi`, branch `main`; clean at initial inspection, HEAD `a362c75e`.
+- Repository: `/var/home/operator/wabi`, branch `main`; clean at initial inspection, HEAD `a362c75e`.
 - Frontend: Svelte/SvelteKit with existing plain-CSS tokens and shared components. Keep that stack; do not import React/Tailwind conventions from generic UI skills.
 - Stylesheet entry: `frontend/src/routes/+layout.svelte` imports `frontend/src/styles/styles.css`. Old notes referring to `frontend/src/styles.css` are stale.
 - Navigation dock and contextual-panel side are separate state paths: `layoutStoreNav.ts`, `layoutStoreStates.ts`, `layoutStoreRightPanel.ts`, with workspace restoration in `layoutStoreUtils.ts`. Right-docked navigation deliberately has some reversed CSS. This is a trace target, NOT proof that every reversal is a bug.
@@ -33,7 +33,7 @@ Make Wabi visually coherent and predictable to use: visible, recognizable contro
 - No listeners on local ports 5173 or 3001 at initial inspection. No local app was started.
 - `bun run check` completed: 0 errors, 185 warnings in 50 files. Tests and static build were not run for recon.
 - Read-only OpenCode Nemotron scout completed; reported cost 0. Parent verified only its report was written and corrected unsupported findings.
-- Evidence and credential-free probe scripts: `/var/home/Ronin/wabi-backups/ui-recon-20260907-123737/evidence/`.
+- Evidence and credential-free probe scripts: `/var/home/operator/wabi-backups/ui-recon-20260907-123737/evidence/`.
 
 ## Scope and coordination
 

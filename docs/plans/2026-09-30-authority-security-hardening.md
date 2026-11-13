@@ -394,7 +394,7 @@ the external Live-room release smoke retain their own unfinished cards.
 
 ## Shared organizer and Lore handoff
 
-Verified execution computer: `dotRonin`; checkout `/home/ironin/wabi`; branch
+Verified execution computer: `dotRonin`; checkout `/home/operator/wabi`; branch
 `codex/security-boundary-hardening-20260930`, starting at `138abe39e0`. Other
 chats are changing this checkout. The checkpoint/geographic chat explicitly owns
 checkpoint controls, bounded restore, inbox and geographic harness work. Shared
@@ -460,7 +460,7 @@ separate deployment gate, and referring channel bindings need explicit handling.
 ## October 1 recovery handoff
 
 The computer and checkout were reverified after the interruption: `dotRonin`,
-`/home/ironin/wabi`, the same security branch and `138abe39e0` HEAD. The earlier
+`/home/operator/wabi`, the same security branch and `138abe39e0` HEAD. The earlier
 temporary logs were no longer available; source and this plan persisted. Other
 chats had added changes, so the full workspace was tested again rather than
 claiming the old result covered them. The fresh runtime-file guard, its three
@@ -571,7 +571,7 @@ Source inventory fingerprint:
 `071591a3054ed220d3c67ada9d933979222fedb46ed82eddbcc1e906703f7236`.
 
 Private Tim backup directory:
-`/home/tim/wabi-backups/lore-retirement-ch_460-20261001T031440Z/`.
+`/home/operator/wabi-backups/lore-retirement-ch_460-20261001T031440Z/`.
 The directory is 0700; `1120-complete-tree.tar.gz`, inventories and
 `restore-manifest.json` are 0600. Independent extraction matched file types,
 modes, sizes and content digests. Source inventories before/after copy and

@@ -23,10 +23,10 @@ const checks = [
 ];
 
 // Use vite-node / dynamic import via relative paths
-const root = new URL('file:///var/home/Ronin/wabi/frontend/src/lib/');
+const root = new URL('file:///var/home/operator/wabi/frontend/src/lib/');
 
 async function load(rel) {
-	const p = rel.replace('$lib/', '/var/home/Ronin/wabi/frontend/src/lib/') + (rel.endsWith('.ts') ? '' : '.ts');
+	const p = rel.replace('$lib/', '/var/home/operator/wabi/frontend/src/lib/') + (rel.endsWith('.ts') ? '' : '.ts');
 	// bun can import ts
 	return import(pathToFileURL(p).href);
 }

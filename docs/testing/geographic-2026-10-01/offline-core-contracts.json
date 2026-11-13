@@ -3,7 +3,7 @@
   "result": "PASS",
   "scope": "Selected offline engine and live V2 inactive contracts only",
   "executionComputer": "dotRonin",
-  "checkout": "/home/ironin/wabi",
+  "checkout": "/home/operator/wabi",
   "branch": "codex/security-boundary-hardening-20260930",
   "baseRevision": "138abe39e08e400188d1812ed3bfd378df435315",
   "sharedWorkingTree": true,

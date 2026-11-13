@@ -10,7 +10,7 @@ This is not a production migration. It is a fake-data sandbox test.
 
 ## Sandbox
 
-- Runtime: `/var/home/Ronin/odoo-thailand-sandbox`
+- Runtime: `/var/home/operator/odoo-thailand-sandbox`
 - URL: `http://127.0.0.1:8069`
 - Database under test: `TestDatabase`
 - Odoo version: `18.0-20260609`
@@ -238,9 +238,9 @@ Execution:
 
 Rendered PDFs copied to:
 
-- `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test1-invoice-58/standard_invoice_58.pdf`
-- `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test1-invoice-58/standard_invoice_no_payment_58.pdf`
-- `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test1-invoice-58/th_commercial_invoice_58.pdf`
+- `/var/home/operator/odoo-thailand-sandbox/validation-output/test1-invoice-58/standard_invoice_58.pdf`
+- `/var/home/operator/odoo-thailand-sandbox/validation-output/test1-invoice-58/standard_invoice_no_payment_58.pdf`
+- `/var/home/operator/odoo-thailand-sandbox/validation-output/test1-invoice-58/th_commercial_invoice_58.pdf`
 
 PDF text sanity check:
 
@@ -279,8 +279,8 @@ Tax lines:
 
 Rendered PDFs copied to:
 
-- `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test2-withholding-invoice-59/test2_standard_invoice_59.pdf`
-- `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test2-withholding-invoice-59/test2_th_commercial_invoice_59.pdf`
+- `/var/home/operator/odoo-thailand-sandbox/validation-output/test2-withholding-invoice-59/test2_standard_invoice_59.pdf`
+- `/var/home/operator/odoo-thailand-sandbox/validation-output/test2-withholding-invoice-59/test2_th_commercial_invoice_59.pdf`
 
 PDF text sanity check:
 
@@ -331,8 +331,8 @@ Execution:
 
 Rendered PDFs copied to:
 
-- `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test3-oca-promptpay-invoice-62/test3_standard_invoice_62.pdf`
-- `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test3-oca-promptpay-invoice-62/test3_th_commercial_invoice_62.pdf`
+- `/var/home/operator/odoo-thailand-sandbox/validation-output/test3-oca-promptpay-invoice-62/test3_standard_invoice_62.pdf`
+- `/var/home/operator/odoo-thailand-sandbox/validation-output/test3-oca-promptpay-invoice-62/test3_th_commercial_invoice_62.pdf`
 
 PDF text sanity check:
 
@@ -460,7 +460,7 @@ Practical conclusion:
 - For a Thai construction company, the WHT reportable amounts still exist as tax-repartition lines in the GL, just not in the OCA `account.withholding.move` table.
 - An accountant doing the actual month-end filing would need to either (a) train the team to use the OCA WHT line-style invoice structure, or (b) export the GL and reconcile into Express/Thai accounting software for filing.
 
-Files generated (in `/var/home/Ronin/odoo-thailand-sandbox/validation-output/test4-oca-tax-reports/`):
+Files generated (in `/var/home/operator/odoo-thailand-sandbox/validation-output/test4-oca-tax-reports/`):
 
 - `thai_tax_report_4.xlsx` — VAT Tax Report (working, picks up INV/2026/00007)
 - `wht_pnd1_4.xlsx` — WHT PND1 report (working schema, no data due to flow gap)
@@ -476,7 +476,7 @@ Status: PARTIAL. OCA's vendor-bill path expects `tax_invoice_number`/`tax_invoic
 ## Day-2 (2026-06-15) OCA + PromptPay summary
 
 - Base image: `localhost/odoo-thailand-custom:18.0` was already prebuilt with a small `odoo.conf` patch.
-- OCA repos cloned under `/var/home/Ronin/odoo-thailand-sandbox/oca/`:
+- OCA repos cloned under `/var/home/operator/odoo-thailand-sandbox/oca/`:
   - l10n-thailand 18.0
   - partner-contact 18.0
   - server-ux 18.0

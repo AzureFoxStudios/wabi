@@ -11,5 +11,5 @@
     "peerPayloadBytes": 262144,
     "originFileRequestsAvoided": 1
   },
-  "failure": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n524288 !== 786432\n\n    at file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:77:83\n    at async check (file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:24:31)\n    at async file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:73:5"
+  "failure": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n524288 !== 786432\n\n    at file:///var/home/operator/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:77:83\n    at async check (file:///var/home/operator/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:24:31)\n    at async file:///var/home/operator/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:73:5"
 }
