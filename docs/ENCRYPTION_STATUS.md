@@ -55,7 +55,7 @@ All of the server tests run in CI on every pull request (`test` job). They use t
 
 | Gap | State |
 |---|---|
-| If the registry file `e2ee_state.json` is lost or rolled back, readable sends reopen | Recorded on `main` by the test `known_gap_missing_registry_currently_readmits_plaintext`. Fix in review: PR 357 (a durable marker in WabiDB). Update this row when it merges. |
+| If the registry file `e2ee_state.json` is lost or rolled back, readable sends reopen | Closed by PR 357 (merged with this row): a durable per-room marker in WabiDB refuses readable content when the registry is missing, older or weaker; the known-gap test is replaced by the contract tests in `dm_encryption_contract.rs`. Keys cannot be restored; members rekey. |
 | Attachments in encrypted messages: the server drops the file list (a naming mismatch between client and server), so what a recipient receives is unverified | Open. Next task after PR 357. |
 | No key verification; new devices are accepted without telling the user | Decided: ADR-0002 stage 1. Not built. |
 | A new device cannot read old messages; losing every device loses history | By design for now. Decided: ADR-0002 §9, answers 3 and 5. |
@@ -71,7 +71,7 @@ Honest description: these were done by the project, using separate AI reviewer s
 |---|---|
 | PR 354, server boundary | Two rounds. The first round found that wiki, albums, gallery, incidents, whiteboard and uploads still accepted readable text; fixed and re-checked with a mutation run (remove the check, confirm a test fails). |
 | PR 355, client keeps decrypted content on the device | Four rounds. Found five ways around the media gate, then a URL mismatch and a same-origin playlist case; all fixed. A 273-payload probe and the browser run were repeated on the final version. |
-| PR 357, durable marker | Two rounds so far. A 63-case matrix of marker state against registry state found no readable send admitted where it should be refused; 33 mutations, 27 caught by tests; the rest are being given tests before merge. |
+| PR 357, durable marker | Three rounds. A 63-case matrix of marker state against registry state found no readable send admitted where it should be refused. Mutations that survived were given tests in round 3 (completion re-check and lock hold, sequencer preflight wiring, history shape); see the PR for the per-mutant table. |
 
 A mutation run means: delete or flip one security check, run the tests, and confirm at least one fails. A check that can be deleted with every test still green is treated as untested.
 

@@ -1785,9 +1785,10 @@ async fn a_server_readable_registry_restored_over_an_encrypted_room_is_refused()
     assert_eq!(room_marker(&state, &ch), Some((Mode::Enabled, 1)));
 }
 
-/// (M2) Valid JSON that holds invalid entries (an encrypted room at epoch 0,
-/// a 300-byte or empty key) does not stop startup and never becomes a
-/// marker; the entries keep refusing plaintext from the registry side.
+/// (M2, R4) Valid JSON that holds invalid entries (an encrypted room at
+/// epoch 0, a 300-byte or empty key) does not stop startup and never becomes
+/// an encrypted marker; the existing conversations are pinned pending and
+/// keep refusing plaintext.
 #[tokio::test]
 async fn invalid_registry_entries_neither_stop_startup_nor_become_markers() {
     let dir = tempfile::tempdir().unwrap();
@@ -1814,7 +1815,9 @@ async fn invalid_registry_entries_neither_stop_startup_nor_become_markers() {
     let state = open_server(config).await;
     let app = http(&state);
     for ch in &rooms {
-        assert_eq!(room_marker(&state, ch), None, "{ch}: invalid entry became a marker");
+        // Pinned pending (the conversations exist), never encrypted at the
+        // entry's epoch.
+        assert_eq!(room_marker(&state, ch), Some((Mode::Pending, 0)), "{ch}: invalid entry became a marker");
         let (status, body) = send_rest(&app, &state, a, ch, "plaintext").await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{ch}: {body}");
     }

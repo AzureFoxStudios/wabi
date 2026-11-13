@@ -188,7 +188,14 @@ pub(super) async fn room_blocks_server_content(state: &AppState, channel_id: &st
 pub async fn mark_new_room_pending(state: &AppState, channel_id: &str) -> Result<()> {
     let _policy_guard = state.retention_policy_lock.lock().await;
     let data_dir = &state.config.data_dir;
-    let registry_room = read_data(data_dir)?.rooms.get(channel_id).filter(|r| r.enabled).map(|r| r.epoch);
+    let data = read_data(data_dir)?;
+    // An encrypted entry that does not validate (no usable key set) is not
+    // trusted for the marker: it is logged and treated as absent.
+    let invalid_entry = data.rooms.contains_key(channel_id) && registry_entry_problem(&data, channel_id).is_some();
+    if invalid_entry {
+        tracing::warn!("[e2ee] e2ee_state.json entry for {channel_id} does not validate; the new conversation starts pending");
+    }
+    let registry_room = data.rooms.get(channel_id).filter(|r| r.enabled && !invalid_entry).map(|r| r.epoch);
     // A room id that was encrypted before (stable DM ids are reused after
     // deletion) stays encrypted in both stores; never mark it pending.
     let target = match registry_room {
@@ -197,6 +204,9 @@ pub async fn mark_new_room_pending(state: &AppState, channel_id: &str) -> Result
     };
     commit_marker_if_changed(state, &target).await?;
     mutate_data(data_dir, |data| {
+        if invalid_entry {
+            data.rooms.remove(channel_id);
+        }
         if !data.rooms.contains_key(channel_id) {
             data.new_room_policies.insert(channel_id.to_string(), NewRoomPolicy {
                 mode: NewRoomMode::PendingEncryption,
@@ -411,6 +421,13 @@ async fn read_checked(state: &AppState, channel_id: &str) -> std::result::Result
     Ok(data)
 }
 
+async fn is_existing_conversation(wdb: &crate::adapter::WdbAdapter, channel_id: &str) -> bool {
+    matches!(
+        wdb.get_channel(channel_id).await,
+        Ok(Some(channel)) if crate::channel_access::is_conversation(channel.channel_kind)
+    )
+}
+
 /// The marker to write when the registry is ahead of it, or `None` when the
 /// registry entry must not move a marker: the id is not an existing DM or
 /// group (a registry may name any id), or the entry does not validate.
@@ -420,11 +437,7 @@ async fn catch_up_target(
     channel_id: &str,
     mut record: RoomEncryptionRecord,
 ) -> Option<RoomEncryptionRecord> {
-    let conversation = matches!(
-        wdb.get_channel(channel_id).await,
-        Ok(Some(channel)) if crate::channel_access::is_conversation(channel.channel_kind)
-    );
-    if !conversation {
+    if !is_existing_conversation(wdb, channel_id).await {
         tracing::warn!("[e2ee] e2ee_state.json names {channel_id}, which is not an existing DM or group; no marker written for it");
         return None;
     }
@@ -523,6 +536,16 @@ pub async fn reconcile_room_markers(wdb: &crate::adapter::WdbAdapter, data_dir: 
             Coverage::RegistryAhead(record) => {
                 if let Some(record) = catch_up_target(wdb, &data, channel_id, record).await {
                     commit_marker(engine, &record, 0).await?;
+                    written += 1;
+                } else if current.is_none() && is_existing_conversation(wdb, channel_id).await
+                    && registry_entry_problem(&data, channel_id).is_some()
+                {
+                    // An existing conversation whose registry entry cannot be
+                    // trusted is not left registry-only: it is pinned pending,
+                    // so readable content waits for setup or each sender's
+                    // own choice again.
+                    tracing::warn!("[e2ee] {channel_id}: invalid e2ee_state.json entry; the conversation is marked pending");
+                    commit_marker(engine, &mode_record(channel_id, MarkerMode::Pending), 0).await?;
                     written += 1;
                 }
             }
@@ -1450,11 +1473,14 @@ mod registry_tests {
             let _ = validate_outbound_message(&state, id, 1, "plain").await;
             assert!(marker_of(&state, id).is_none(), "{id}");
         }
-        // Startup reconcile skips them too, and does not stop.
+        // Startup reconcile does not stop on them, writes nothing for ids
+        // that are not conversations, and pins the existing group with an
+        // invalid entry pending (it does not take the entry's epoch).
         reconcile_room_markers(&state.wdb, dir).await.unwrap();
-        for id in [&public, &ghost, &broken] {
+        for id in [&public, &ghost] {
             assert!(marker_of(&state, id).is_none(), "{id}");
         }
+        assert_eq!(marker_of(&state, &broken), Some(mode_record(&broken, MarkerMode::Pending)));
     }
 
     /// A conversation id that was encrypted before (stable DM ids come back
@@ -1489,6 +1515,42 @@ mod registry_tests {
         commit_marker_if_changed(&state, &readable_record(&ch, [7])).await.unwrap();
         commit_marker_if_changed(&state, &enabled_record(&ch, 1)).await.unwrap();
         assert_eq!(marker_of(&state, &ch), Some(enabled_record(&ch, 1)));
+    }
+
+    /// R3: a registry entry without a usable key set does not make a new
+    /// conversation's marker encrypted; it starts pending.
+    #[tokio::test]
+    async fn an_invalid_registry_entry_does_not_mark_a_new_conversation_encrypted() {
+        let (directory, state) = make_test_state().await;
+        let dir = directory.path().to_str().unwrap();
+        let ch = "dm-user-1-user-3";
+        mutate_data(dir, |data| { valid_enabled_entry(data, ch, 7); data.rooms.get_mut(ch).unwrap().envelopes.clear(); Ok(()) }).unwrap();
+        mark_new_room_pending(&state, ch).await.unwrap();
+        assert_eq!(marker_of(&state, ch), Some(mode_record(ch, MarkerMode::Pending)));
+        let data = read_data(dir).unwrap();
+        assert!(!data.rooms.contains_key(ch));
+        assert_eq!(data.new_room_policies[ch].mode, NewRoomMode::PendingEncryption);
+    }
+
+    /// R4: an existing conversation with no marker and a registry entry that
+    /// does not validate is pinned pending at startup, not left registry-only.
+    #[tokio::test]
+    async fn reconcile_pins_an_existing_conversation_with_an_invalid_entry_pending() {
+        let (directory, state) = make_test_state().await;
+        let dir = directory.path().to_str().unwrap();
+        let ch = test_group(&state, "invalid-consent").await;
+        mutate_data(dir, |data| {
+            data.new_room_policies.insert(ch.clone(), NewRoomPolicy {
+                mode: NewRoomMode::ServerReadable, created_at: String::new(), chosen_by_user_id: Some(1),
+                consenting_user_ids: [1, 2, -5].into_iter().collect(),
+            });
+            Ok(())
+        }).unwrap();
+        reconcile_room_markers(&state.wdb, dir).await.unwrap();
+        assert_eq!(marker_of(&state, &ch), Some(mode_record(&ch, MarkerMode::Pending)));
+        assert!(validate_outbound_message(&state, &ch, 2, "readable").await.is_err());
+        // A non-conversation id with an invalid entry gets nothing.
+        assert!(marker_of(&state, "group-not-there").is_none());
     }
 
     /// Writing the marker it already holds commits nothing.
