@@ -25,9 +25,9 @@ const server = await createServer({
 		},
 		load(id) {
 			if (id === '\0channel-environment') return 'export const browser=true; export const dev=true; export const building=false;';
-			if (id === '\0channel-boundaries') return 'export const getServerUrl=()=>location.origin; export const normalizeServerUrl=value=>value; export const getAuthToken=()=>"fixture-access-token"; export const tryRefresh=async()=>false; export const setRefreshToken=()=>{};';
+			if (id === '\0channel-boundaries') return 'export const getServerUrl=()=>location.origin; export const normalizeServerUrl=value=>value; export const getAuthToken=()=>"fixture-access-token"; export const tryRefresh=async()=>false; export const setRefreshToken=()=>{}; export const authSessionGeneration=()=>0; export const onAuthSessionCleared=()=>()=>{}; export const getStoredDbUserId=()=>null; export const getStoredUsername=()=>null; export const getGuestSessionId=()=>null;';
 			if (id === '\0channel-users') return 'import { writable } from "svelte/store"; export const users=writable([]);';
-			if (id === '\0channel-socket') return 'import { writable } from "svelte/store"; window.__fixtureSocket={id:"first",connected:true,emits:[],emit(...args){this.emits.push(args);}}; export const getSocket=()=>window.__fixtureSocket; export const socket=writable(window.__fixtureSocket); export const connected=writable(true);';
+			if (id === '\0channel-socket') return 'import { writable } from "svelte/store"; window.__fixtureSocket={id:"first",connected:true,emits:[],emit(...args){this.emits.push(args);},on(){return this;},off(){return this;}}; export const getSocket=()=>window.__fixtureSocket; export const socket=writable(window.__fixtureSocket); export const connected=writable(true);';
 			if (id === '\0channel-offline') return 'export const getWabiDB=()=>null;';
 			if (id === '\0channel-admin-api') return 'export const createChannelApi=()=>{throw Error("unused");}; export const deleteChannelApi=createChannelApi;';
 		},

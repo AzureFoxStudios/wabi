@@ -8,6 +8,7 @@ import net from 'node:net';
 import { io } from 'socket.io-client';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { openDmConversation, waitForAppShell } from './smoke-shell.mjs';
 
 const frontendRoot = fileURLToPath(new URL('../', import.meta.url));
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -87,7 +88,7 @@ try {
 	const app = `http://127.0.0.1:${vite.httpServer.address().port}`;
 	browser = await chromium.launch({ headless: false, ...(process.env.WABI_SMOKE_CHROMIUM_PATH ? { executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH } : {}) });
 
-	async function openApp(account, channelId, group) {
+	async function openApp(account, channelId) {
 		const context = await browser.newContext({ viewport: { width: 1360, height: 860 } });
 		await context.addInitScript(({ serverUrl, login }) => {
 			const scope = encodeURIComponent(serverUrl);
@@ -99,7 +100,7 @@ try {
 		const page = await context.newPage();
 		page.setDefaultTimeout(30000);
 		await page.goto(app, { waitUntil: 'domcontentloaded' });
-		await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+		await waitForAppShell(page);
 		if (!channelId) return page;
 		await page.waitForFunction(async (id) => {
 			const { channels } = await import('/src/lib/channelStore.ts');
@@ -107,16 +108,16 @@ try {
 			channels.subscribe((value) => { state = value; })();
 			return state?.some((channel) => channel.id === id);
 		}, channelId);
-		await page.evaluate(async ({ id, isGroup }) => {
-			const { layoutStore } = await import('/src/lib/layoutStore.ts');
-			const { channels } = await import('/src/lib/channelStore.ts');
-			let state;
-			channels.subscribe((value) => { state = value; })();
-			if (isGroup) layoutStore.openCenterGroupDm(id, state.find((channel) => channel.id === id));
-			else layoutStore.openCenterDm(id, null);
-		}, { id: channelId, isGroup: group });
-		await page.locator('.dm-conversation').waitFor({ state: 'visible' });
+		await openDmConversation(page, channelId);
 		return page;
+	}
+
+	async function assertHubPreviewHidesContent(page, channelId, plaintexts) {
+		const preview = page.locator(`.dm-hub-conversation[data-dm-channel-id="${channelId}"] .dm-hub-preview`);
+		await preview.getByText('Open to read the latest message', { exact: true }).waitFor();
+		const text = await preview.innerText();
+		assert.ok(!text.includes('wabi-e2ee-v1:'), 'hub preview does not show the envelope');
+		for (const plaintext of plaintexts) assert.ok(!text.includes(plaintext), 'hub preview does not show decrypted text');
 	}
 
 	async function assertCiphertext(channelId, account, plaintexts) {
@@ -134,20 +135,22 @@ try {
 	const group = await groupAck;
 	assert.equal(group.ok, true, `group creation: ${JSON.stringify(group)}`);
 	assert.equal((await api(`/api/e2ee/channels/${group.channelId}`, 'GET', null, alice.accessToken)).pendingDefault, true);
-	const alicePage = await openApp(alice, group.channelId, true);
-	await alicePage.locator('.dm-conversation .dm-encryption-gate').waitFor({ state: 'visible' });
-	const bobPage = await openApp(bob, group.channelId, true);
-	for (const page of [alicePage, bobPage]) await page.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
-	await alicePage.locator('.dm-conversation .input-container textarea').fill('group secret from Alice');
-	await alicePage.locator('.dm-conversation .send-button').click();
+	const alicePage = await openApp(alice, group.channelId);
+	await alicePage.locator('.dm-conversation .dm-gate[data-gate="pending"]').waitFor({ state: 'visible' });
+	const bobPage = await openApp(bob, group.channelId);
+	for (const page of [alicePage, bobPage]) await page.locator('.dm-conversation .dm-header-seal[data-state="experimental-encryption"]').waitFor({ state: 'visible', timeout: 30000 });
+	await alicePage.locator('.dm-conversation .composer__input').fill('group secret from Alice');
+	await alicePage.locator('.dm-conversation .composer__send').click();
 	await bobPage.locator('.dm-conversation').getByText('group secret from Alice').waitFor();
 	assert.ok(!(await bobPage.locator('.dm-conversation').innerText()).includes('wabi-e2ee-v1:'), 'group recipient sees one decryption layer');
-	await bobPage.locator('.dm-conversation .input-container textarea').fill('group reply from Bob');
-	await bobPage.locator('.dm-conversation .send-button').click();
+	await bobPage.locator('.dm-conversation .composer__input').fill('group reply from Bob');
+	await bobPage.locator('.dm-conversation .composer__send').click();
 	await alicePage.locator('.dm-conversation').getByText('group reply from Bob').waitFor();
 	await assertCiphertext(group.channelId, alice, ['group secret from Alice', 'group reply from Bob']);
 	for (const page of [alicePage, bobPage]) {
-		await page.locator(`.dm-hub-conversation[data-dm-channel-id="${group.channelId}"] .dm-hub-preview`).getByText('Encrypted message', { exact: true }).waitFor();
+		// 7bbba4ed (wave 1b) reworded the unopened-envelope preview from "Encrypted message" to an
+		// instruction ("never a privacy claim"). The preview must still show neither plaintext nor the envelope.
+		await assertHubPreviewHidesContent(page, group.channelId, ['group secret from Alice', 'group reply from Bob']);
 	}
 	await alicePage.screenshot({ path: `${scratch}/group-alice.png` });
 	await bobPage.screenshot({ path: `${scratch}/group-bob.png` });
@@ -155,7 +158,7 @@ try {
 	// A signed-in participant should register their encryption device on app
 	// startup, even if they never open the conversation. This is required for
 	// default encryption to be usable when the other person starts a DM.
-	const charliePage = await openApp(charlie, null, false);
+	const charliePage = await openApp(charlie, null);
 	let charlieRegistered = false;
 	for (let attempt = 0; attempt < 50; attempt++) {
 		charlieRegistered = (await api('/api/e2ee/devices', 'GET', null, charlie.accessToken)).devices.length > 0;
@@ -167,26 +170,22 @@ try {
 	aliceSocket.emit('create-dm', { targetUserId: `user-${charlie.user.id}` });
 	const dm = await created;
 	assert.equal((await api(`/api/e2ee/channels/${dm.channelId}`, 'GET', null, alice.accessToken)).pendingDefault, true);
-	await alicePage.evaluate(async (id) => {
-		const { layoutStore } = await import('/src/lib/layoutStore.ts');
-		layoutStore.openCenterDm(id, null);
-	}, dm.channelId);
-	await alicePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
-	await charliePage.evaluate(async (id) => {
-		const { layoutStore } = await import('/src/lib/layoutStore.ts');
-		layoutStore.openCenterDm(id, null);
-	}, dm.channelId);
-	await charliePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
-	await charliePage.locator('.dm-conversation .input-container textarea').fill('DM secret from Charlie');
-	await charliePage.locator('.dm-conversation .send-button').click();
+	await openDmConversation(alicePage, dm.channelId);
+	await alicePage.locator('.dm-conversation .dm-header-seal[data-state="experimental-encryption"]').waitFor({ state: 'visible', timeout: 30000 });
+	await openDmConversation(charliePage, dm.channelId);
+	await charliePage.locator('.dm-conversation .dm-header-seal[data-state="experimental-encryption"]').waitFor({ state: 'visible', timeout: 30000 });
+	await charliePage.locator('.dm-conversation .composer__input').fill('DM secret from Charlie');
+	await charliePage.locator('.dm-conversation .composer__send').click();
 	await alicePage.locator('.dm-conversation').getByText('DM secret from Charlie').waitFor();
 	assert.ok(!(await alicePage.locator('.dm-conversation').innerText()).includes('wabi-e2ee-v1:'), 'DM recipient sees one decryption layer');
-	await alicePage.locator('.dm-conversation .input-container textarea').fill('DM reply from Alice');
-	await alicePage.locator('.dm-conversation .send-button').click();
+	await alicePage.locator('.dm-conversation .composer__input').fill('DM reply from Alice');
+	await alicePage.locator('.dm-conversation .composer__send').click();
 	await charliePage.locator('.dm-conversation').getByText('DM reply from Alice').waitFor();
 	await assertCiphertext(dm.channelId, charlie, ['DM secret from Charlie', 'DM reply from Alice']);
 	for (const page of [alicePage, charliePage]) {
-		await page.locator(`.dm-hub-conversation[data-dm-channel-id="${dm.channelId}"] .dm-hub-preview`).getByText('Encrypted message', { exact: true }).waitFor();
+		// 7bbba4ed (wave 1b) reworded the unopened-envelope preview from "Encrypted message" to an
+		// instruction ("never a privacy claim"). The preview must still show neither plaintext nor the envelope.
+		await assertHubPreviewHidesContent(page, dm.channelId, ['DM secret from Charlie', 'DM reply from Alice']);
 	}
 	await charliePage.screenshot({ path: `${scratch}/dm-charlie.png` });
 
@@ -202,24 +201,18 @@ try {
 	await writeFile(registryPath, JSON.stringify(registry));
 	const oldStatus = await api(`/api/e2ee/channels/${oldDm.channelId}`, 'GET', null, alice.accessToken);
 	assert.equal(oldStatus.pendingDefault, false, 'fixture is an existing server-readable room');
-	await alicePage.evaluate(async (id) => {
-		const { layoutStore } = await import('/src/lib/layoutStore.ts');
-		layoutStore.openCenterDm(id, null);
-	}, oldDm.channelId);
-	await alicePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	await openDmConversation(alicePage, oldDm.channelId);
+	await alicePage.locator('.dm-conversation .dm-header-seal[data-state="experimental-encryption"]').waitFor({ state: 'visible', timeout: 30000 });
 	assert.equal((await api(`/api/e2ee/channels/${oldDm.channelId}`, 'GET', null, bob.accessToken)).enabled, true);
 
 	const lateCreated = event(aliceSocket, 'dm-created', (row) => row.otherUser?.id === `user-${david.user.id}`);
 	aliceSocket.emit('create-dm', { targetUserId: `user-${david.user.id}` });
 	const lateDm = await lateCreated;
-	await alicePage.evaluate(async (id) => {
-		const { layoutStore } = await import('/src/lib/layoutStore.ts');
-		layoutStore.openCenterDm(id, null);
-	}, lateDm.channelId);
-	await alicePage.locator('.dm-conversation .dm-encryption-gate').waitFor({ state: 'visible' });
+	await openDmConversation(alicePage, lateDm.channelId);
+	await alicePage.locator('.dm-conversation .dm-gate[data-gate="pending"]').waitFor({ state: 'visible' });
 	assert.equal((await api(`/api/e2ee/channels/${lateDm.channelId}`, 'GET', null, alice.accessToken)).enabled, false);
-	await openApp(david, null, false);
-	await alicePage.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 30000 });
+	await openApp(david, null);
+	await alicePage.locator('.dm-conversation .dm-header-seal[data-state="experimental-encryption"]').waitFor({ state: 'visible', timeout: 30000 });
 	console.log('PASS: startup registers idle participants; new and existing conversations encrypt future messages; late participant setup enables a pending DM; two-account ciphertext exchange succeeds');
 } finally {
 	for (const socket of sockets) socket.disconnect();
