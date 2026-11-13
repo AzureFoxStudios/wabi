@@ -1,0 +1,42 @@
+OpenMLS 0.9.2, provider openmls_rust_crypto 0.6.0, suite MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: commit refused: ValidationError(WrongEpoch)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: ValidationError(WrongEpoch)
+PASS removed member who processes the log ends inactive (catch-up result: error GroupStateError(UseAfterEviction))
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (13 storage entries, 12912 bytes), reloaded, and used to send
+
+OpenMLS 0.9.2, provider openmls_rust_crypto 0.6.0, suite MLS_128_DHKEMP256_AES128GCM_SHA256_P256
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: commit refused: ValidationError(WrongEpoch)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: ValidationError(WrongEpoch)
+PASS removed member who processes the log ends inactive (catch-up result: error GroupStateError(UseAfterEviction))
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (13 storage entries, 14943 bytes), reloaded, and used to send
+
+BENCH openmls native cs=1 {"n":2,"kp_gen_ms":0.159,"create_ms":0.749,"join_ms":0.368,"add_commit_ms":0.984,"add_process_ms":0.524,"remove_commit_ms":0.398,"remove_process_ms":0.304,"encrypt_ms":0.0541,"decrypt_ms":0.0674,"welcome_bytes":783,"add_commit_bytes":788,"state_bytes":8024}
+BENCH openmls native cs=1 {"n":2,"kp_gen_ms":0.125,"create_ms":0.696,"join_ms":0.342,"add_commit_ms":0.997,"add_process_ms":0.556,"remove_commit_ms":0.411,"remove_process_ms":0.293,"encrypt_ms":0.0494,"decrypt_ms":0.0677,"welcome_bytes":783,"add_commit_bytes":788,"state_bytes":8063}
+BENCH openmls native cs=1 {"n":2,"kp_gen_ms":0.134,"create_ms":0.645,"join_ms":0.358,"add_commit_ms":0.880,"add_process_ms":0.689,"remove_commit_ms":0.443,"remove_process_ms":0.289,"encrypt_ms":0.0502,"decrypt_ms":0.0722,"welcome_bytes":783,"add_commit_bytes":788,"state_bytes":8058}
+BENCH openmls native cs=1 {"n":10,"kp_gen_ms":0.130,"create_ms":2.860,"join_ms":0.991,"add_commit_ms":1.300,"add_process_ms":0.665,"remove_commit_ms":0.976,"remove_process_ms":0.505,"encrypt_ms":0.0514,"decrypt_ms":0.0678,"welcome_bytes":3587,"add_commit_bytes":1516,"state_bytes":18028}
+BENCH openmls native cs=1 {"n":10,"kp_gen_ms":0.132,"create_ms":2.782,"join_ms":0.988,"add_commit_ms":1.349,"add_process_ms":0.623,"remove_commit_ms":0.969,"remove_process_ms":0.549,"encrypt_ms":0.0517,"decrypt_ms":0.0707,"welcome_bytes":3587,"add_commit_bytes":1516,"state_bytes":18053}
+BENCH openmls native cs=1 {"n":10,"kp_gen_ms":0.150,"create_ms":3.092,"join_ms":0.964,"add_commit_ms":1.229,"add_process_ms":0.701,"remove_commit_ms":1.104,"remove_process_ms":0.527,"encrypt_ms":0.0516,"decrypt_ms":0.0695,"welcome_bytes":3587,"add_commit_bytes":1516,"state_bytes":17919}
+BENCH openmls native cs=1 {"n":100,"kp_gen_ms":0.127,"create_ms":24.896,"join_ms":6.702,"add_commit_ms":6.032,"add_process_ms":1.473,"remove_commit_ms":4.113,"remove_process_ms":1.239,"encrypt_ms":0.0567,"decrypt_ms":0.0743,"welcome_bytes":33139,"add_commit_bytes":9002,"state_bytes":105266}
+BENCH openmls native cs=1 {"n":100,"kp_gen_ms":0.129,"create_ms":25.882,"join_ms":8.199,"add_commit_ms":4.773,"add_process_ms":1.623,"remove_commit_ms":4.606,"remove_process_ms":1.215,"encrypt_ms":0.0587,"decrypt_ms":0.0776,"welcome_bytes":33139,"add_commit_bytes":9002,"state_bytes":105348}
+BENCH openmls native cs=1 {"n":100,"kp_gen_ms":0.130,"create_ms":28.456,"join_ms":8.137,"add_commit_ms":4.546,"add_process_ms":1.335,"remove_commit_ms":4.672,"remove_process_ms":1.248,"encrypt_ms":0.0709,"decrypt_ms":0.0798,"welcome_bytes":33139,"add_commit_bytes":9002,"state_bytes":105413}
+BENCH openmls native cs=2 {"n":2,"kp_gen_ms":1.161,"create_ms":3.837,"join_ms":1.665,"add_commit_ms":3.867,"add_process_ms":2.275,"remove_commit_ms":2.100,"remove_process_ms":1.264,"encrypt_ms":0.3916,"decrypt_ms":0.3608,"welcome_bytes":1008,"add_commit_bytes":1088,"state_bytes":9162}
+BENCH openmls native cs=2 {"n":2,"kp_gen_ms":1.069,"create_ms":3.756,"join_ms":1.636,"add_commit_ms":3.873,"add_process_ms":2.267,"remove_commit_ms":2.126,"remove_process_ms":1.312,"encrypt_ms":0.5718,"decrypt_ms":0.6023,"welcome_bytes":1009,"add_commit_bytes":1087,"state_bytes":9131}
+BENCH openmls native cs=2 {"n":2,"kp_gen_ms":1.647,"create_ms":3.848,"join_ms":1.665,"add_commit_ms":5.095,"add_process_ms":2.574,"remove_commit_ms":2.356,"remove_process_ms":1.449,"encrypt_ms":0.4128,"decrypt_ms":0.3696,"welcome_bytes":1007,"add_commit_bytes":1088,"state_bytes":9134}
+BENCH openmls native cs=2 {"n":10,"kp_gen_ms":1.091,"create_ms":13.075,"join_ms":8.918,"add_commit_ms":7.252,"add_process_ms":2.881,"remove_commit_ms":3.516,"remove_process_ms":1.653,"encrypt_ms":0.4381,"decrypt_ms":0.4036,"welcome_bytes":4784,"add_commit_bytes":2157,"state_bytes":21888}
+BENCH openmls native cs=2 {"n":10,"kp_gen_ms":1.142,"create_ms":15.123,"join_ms":5.400,"add_commit_ms":5.903,"add_process_ms":2.461,"remove_commit_ms":3.498,"remove_process_ms":1.840,"encrypt_ms":0.3998,"decrypt_ms":0.4743,"welcome_bytes":4784,"add_commit_bytes":2155,"state_bytes":21943}
+BENCH openmls native cs=2 {"n":10,"kp_gen_ms":1.400,"create_ms":20.725,"join_ms":6.580,"add_commit_ms":5.693,"add_process_ms":2.916,"remove_commit_ms":3.656,"remove_process_ms":1.892,"encrypt_ms":0.5158,"decrypt_ms":0.5035,"welcome_bytes":4787,"add_commit_bytes":2155,"state_bytes":21835}
+BENCH openmls native cs=2 {"n":100,"kp_gen_ms":1.138,"create_ms":127.726,"join_ms":46.168,"add_commit_ms":14.853,"add_process_ms":3.547,"remove_commit_ms":13.883,"remove_process_ms":3.474,"encrypt_ms":0.5566,"decrypt_ms":0.5001,"welcome_bytes":44250,"add_commit_bytes":12806,"state_bytes":132600}
+BENCH openmls native cs=2 {"n":100,"kp_gen_ms":1.373,"create_ms":138.468,"join_ms":39.081,"add_commit_ms":14.342,"add_process_ms":3.237,"remove_commit_ms":13.537,"remove_process_ms":2.730,"encrypt_ms":0.4608,"decrypt_ms":0.3637,"welcome_bytes":44249,"add_commit_bytes":12805,"state_bytes":132487}
+BENCH openmls native cs=2 {"n":100,"kp_gen_ms":1.113,"create_ms":129.016,"join_ms":38.543,"add_commit_ms":14.452,"add_process_ms":3.520,"remove_commit_ms":15.288,"remove_process_ms":3.292,"encrypt_ms":0.4744,"decrypt_ms":0.3658,"welcome_bytes":44250,"add_commit_bytes":12803,"state_bytes":132669}

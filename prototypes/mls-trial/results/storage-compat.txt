@@ -1,0 +1,22 @@
+--- old-openmls-074 -> target-compat/openmls
+old-openmls-074: wrote alice's state (26568 bytes as JSON) and a message from bob
+current release loaded old state and read: "written by old-openmls-074"; wrote a reply
+old-openmls-074: bob read the reply from the upgraded alice: "reply from OpenMLS 0.9.2"
+--- old-openmls-081 -> target-compat/openmls
+old-openmls-081: wrote alice's state (26421 bytes as JSON) and a message from bob
+current release loaded old state and read: "written by old-openmls-081"; wrote a reply
+old-openmls-081: bob read the reply from the upgraded alice: "reply from OpenMLS 0.9.2"
+(current built with feature 0-8-1-storage-format:)
+--- old-openmls-074 -> target-compat-081fmt/openmls
+old-openmls-074: wrote alice's state (26331 bytes as JSON) and a message from bob
+current release loaded old state and read: "written by old-openmls-074"; wrote a reply
+old-openmls-074: bob read the reply from the upgraded alice: "reply from OpenMLS 0.9.2"
+--- old-openmls-081 -> target-compat-081fmt/openmls
+old-openmls-081: wrote alice's state (26355 bytes as JSON) and a message from bob
+current release loaded old state and read: "written by old-openmls-081"; wrote a reply
+old-openmls-081: bob read the reply from the upgraded alice: "reply from OpenMLS 0.9.2"
+--- old-mlsrs-050 -> target-compat/mlsrs
+old-mlsrs-050: wrote alice's state (1526 bytes) and a message from bob
+current release loaded old state and read: "written by old-mlsrs-050"; wrote a reply
+old-mlsrs-050: bob read the reply from the upgraded alice: "reply from mls-rs 0.57.1"
+See results/storage-compat.txt header for versions.

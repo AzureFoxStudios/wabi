@@ -1,0 +1,17 @@
+[package]
+name = "old-mlsrs-050"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[[bin]]
+name = "old-mlsrs-050"
+path = "../old_mlsrs.rs"
+
+[dependencies]
+mls-rs = { version = "=0.50.1", default-features = false, features = ["std", "rfc_compliant", "tree_index", "fast_serialize"] }
+mls-rs-crypto-rustcrypto = "=0.18.0"
+mls-rs-core = "0.24"

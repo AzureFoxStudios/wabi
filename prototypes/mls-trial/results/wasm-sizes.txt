@@ -1,0 +1,6 @@
+openmls                raw 2138061 gzip9 633430 brotli11 477316
+openmls_opt            raw 1427868 gzip9 553127 brotli11 418101
+mlsrs_rustcrypto       raw 1180944 gzip9 371085 brotli11 284397
+mlsrs_rustcrypto_opt   raw 782997 gzip9 315283 brotli11 240803
+mlsrs_webcrypto        raw 1185639 gzip9 361897 brotli11 281553
+mlsrs_webcrypto_opt    raw 773488 gzip9 308460 brotli11 239807
