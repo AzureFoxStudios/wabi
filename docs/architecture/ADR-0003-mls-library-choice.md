@@ -1,6 +1,6 @@
 # ADR-0003: Which Rust MLS library Wabi builds on
 
-- **Status:** Proposed, 2026-11-13. This follows ADR-0002 §5 (ii) and §8 question 4, where the owner asked for "a doc giving verbose info about both, but deeply think about the longer term of both and choose that one, outlining why in said document." The owner accepts the document; nothing here is built yet.
+- **Status:** Accepted, 2026-11-13 (owner). Nothing is built yet; the work starts at ADR-0002 stage 2, after stage 1. This follows ADR-0002 §5 (ii) and §8 question 4, where the owner asked for "a doc giving verbose info about both, but deeply think about the longer term of both and choose that one, outlining why in said document." The owner answered "yes" to mls-rs as recommended.
 - **Scope:** a decision about which library implements the MLS protocol Wabi chose in ADR-0002. It changes no product code and adds no dependency to the Wabi workspace. It is stage 2 preparation only (ADR-0002 §7).
 - **Decision in one line:** build on **mls-rs** (AWS), not OpenMLS, and keep the whole library behind one small Wabi-owned interface so the choice can be reversed cheaply if the facts change.
 
