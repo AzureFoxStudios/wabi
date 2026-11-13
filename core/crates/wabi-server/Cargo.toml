@@ -67,7 +67,7 @@ reqwest = { version = "0.13", features = ["json", "query", "stream"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
 regex = "1"
 sha2 = "0.11"
-p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
+p256 = { version = "0.14", features = ["ecdsa", "ecdh", "pkcs8", "getrandom"] }
 # Web Push payload encryption (RFC 8291). Already in the lockfile via p256/age.
 aes-gcm = "0.10"
 hex = "0.4"
@@ -111,6 +111,8 @@ wabi-payments-us = { path = "../../addons/payments-us/backend", optional = true 
 
 [dev-dependencies]
 libc = "0.2"
+# Independent ECDSA verifier for the VAPID golden test (already in the lockfile via snow).
+ring = "0.17"
 tower = { version = "0.5", features = ["util", "timeout"] }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # The real sync client, driven against the real router in tests/wabi_sync_contract.rs.

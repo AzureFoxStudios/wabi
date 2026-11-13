@@ -7,7 +7,7 @@ use base64::{engine::general_purpose::{URL_SAFE_NO_PAD, STANDARD}, Engine as _};
 use p256::ecdsa::SigningKey;
 use p256::pkcs8::{EncodePrivateKey, LineEnding};
 use p256::PublicKey;
-use rand::rngs::OsRng;
+use p256::elliptic_curve::Generate;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -324,7 +324,7 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 
 
 fn generate_vapid_keypair() -> anyhow::Result<(String, String)> {
-    let signing_key = SigningKey::random(&mut OsRng);
+    let signing_key = SigningKey::generate();
     let pem = signing_key
         .to_pkcs8_pem(LineEnding::LF)
         .map_err(|e| anyhow::anyhow!("pkcs8 encode: {e}"))?

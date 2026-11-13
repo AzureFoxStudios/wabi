@@ -3,7 +3,7 @@ use p256::ecdsa::{signature::Signer, SigningKey};
 
 pub(crate) fn fixture(archive: &[u8]) -> SignedSourceContext {
     let key = SigningKey::from_slice(&[7u8; 32]).unwrap();
-    let public_key = hex::encode(key.verifying_key().to_encoded_point(false).as_bytes());
+    let public_key = hex::encode(key.verifying_key().to_sec1_point(false).as_bytes());
     let community_id = hex::encode(Sha256::digest(hex::decode(&public_key).unwrap()));
     let claims = SourceClaims {
         schema_version: 1,
@@ -19,7 +19,7 @@ pub(crate) fn fixture(archive: &[u8]) -> SignedSourceContext {
         allocation: AllocationKnowledge::Unknown,
     };
     let signature: Signature = key.sign(&signing_input(&claims).unwrap());
-    let signature = signature.normalize_s().unwrap_or(signature);
+    let signature = signature.normalize_s();
     SignedSourceContext {
         claims,
         public_key,
@@ -107,7 +107,7 @@ fn signature_domain_cannot_be_replaced_by_roster_or_bare_claim_signature() {
     let mut context = fixture(b"opaque");
     let key = SigningKey::from_slice(&[7u8; 32]).unwrap();
     let signature: Signature = key.sign(&serde_json::to_vec(&context.claims).unwrap());
-    context.signature = hex::encode(signature.normalize_s().unwrap_or(signature).to_bytes());
+    context.signature = hex::encode(signature.normalize_s().to_bytes());
     assert_eq!(
         context
             .verify(&context.claims.community_id, "node-1")
@@ -159,4 +159,46 @@ fn malleable_signature_invalid_points_scalars_and_duplicate_fields_refuse() {
     let mut extra = serde_json::to_value(original).unwrap();
     extra["claims"]["allocation"] = serde_json::json!({"kind":"unknown","assignedHighWater":16});
     assert!(SignedSourceContext::parse_bounded(&serde_json::to_vec(&extra).unwrap()).is_err());
+}
+
+/// A signed source context as `community_roster` signs it and recovery stores
+/// and replicates it, captured from the p256 0.13 encoder. The SEC1 point and
+/// fixed-width low-S signature encodings must not change with a crate upgrade.
+const GOLDEN_CONTEXT: &str = r#"{"claims":{"schemaVersion":1,"supportProfile":"encrypted-live-core-v2","communityId":"c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac","sourceNodeId":"node-1","archiveSha256":"e0e6385dcfd2a1e8154e479342c80b3827429407b69abdcf208440178f8a2ee1","inventorySha256":"abababababababababababababababababababababababababababababababab","ciphertextBytes":21,"appliedCommitSeq":16,"commitPrefixFingerprint":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd","bootstrapFingerprint":"efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef","allocation":{"kind":"unknown"}},"publicKey":"041e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896ea46c311c4e2ff40dd96a3653e6e45445d32dfe486eced75c7a90c6a18881c0a3","signature":"aa98536b593d59fa0154e3f20430cde88d53717d026573e30281e6ff150d1eee746558b6576b8b60f58d93dce173a252e41ffc05ac34bc0741b4450c9df550bf"}"#;
+
+#[test]
+fn stored_golden_context_still_verifies_and_signing_is_byte_stable() {
+    let stored = SignedSourceContext::parse_bounded(GOLDEN_CONTEXT.as_bytes()).unwrap();
+    let verified = stored
+        .verify(&stored.claims.community_id, "node-1")
+        .unwrap();
+    assert_eq!(
+        verified.sha256(),
+        hex::encode(Sha256::digest(GOLDEN_CONTEXT.as_bytes()))
+    );
+    assert_eq!(
+        serde_json::to_string(&fixture(b"golden source context")).unwrap(),
+        GOLDEN_CONTEXT
+    );
+}
+
+#[test]
+fn high_s_twin_of_the_golden_signature_is_refused() {
+    // n - s for the stored low-S signature: mathematically valid ECDSA, but
+    // the stored format admits only the canonical low-S form.
+    let mut stored = SignedSourceContext::parse_bounded(GOLDEN_CONTEXT.as_bytes()).unwrap();
+    let bytes = hex::decode(&stored.signature).unwrap();
+    let n = hex::decode("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551").unwrap();
+    let mut high_s = [0u8; 32];
+    let mut borrow = 0i16;
+    for i in (0..32).rev() {
+        let v = n[i] as i16 - bytes[32 + i] as i16 - borrow;
+        borrow = (v < 0) as i16;
+        high_s[i] = v.rem_euclid(256) as u8;
+    }
+    stored.signature = hex::encode([&bytes[..32], &high_s[..]].concat());
+    assert_eq!(
+        stored.verify(&stored.claims.community_id, "node-1").unwrap_err(),
+        SourceError::Signature
+    );
 }

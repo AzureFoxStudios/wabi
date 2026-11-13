@@ -23,6 +23,7 @@ use p256::{
     ecdsa::{signature::Signer, Signature, SigningKey},
     PublicKey, SecretKey,
 };
+use p256::elliptic_curve::Generate;
 use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 
@@ -76,7 +77,7 @@ pub fn encrypt(payload: &[u8], p256dh_b64: &str, auth_b64: &str) -> Result<Vec<u
     let auth_secret = decode_b64(auth_b64)
         .filter(|bytes| bytes.len() == 16)
         .ok_or(PushError::BadKey("auth secret must be 16 bytes"))?;
-    let as_secret = SecretKey::random(&mut OsRng);
+    let as_secret = SecretKey::generate();
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
     encrypt_with(payload, &ua_public, &auth_secret, &as_secret, salt)
@@ -291,7 +292,7 @@ mod tests {
     /// test cannot pass by merely reproducing a wrong-but-stable ciphertext.
     #[test]
     fn the_receiver_can_decrypt_what_the_sender_produced() {
-        let ua_secret = SecretKey::random(&mut OsRng);
+        let ua_secret = SecretKey::generate();
         let ua_public_b64 = URL_SAFE_NO_PAD.encode(ua_secret.public_key().to_sec1_bytes());
         let auth = URL_SAFE_NO_PAD.encode([7u8; 16]);
         let body = encrypt(b"hello wabi", &ua_public_b64, &auth).unwrap();
@@ -316,7 +317,7 @@ mod tests {
 
     #[test]
     fn each_message_uses_a_fresh_salt_and_key() {
-        let secret = SecretKey::random(&mut OsRng);
+        let secret = SecretKey::generate();
         let public = URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_bytes());
         let auth = URL_SAFE_NO_PAD.encode([1u8; 16]);
         let a = encrypt(b"same", &public, &auth).unwrap();
@@ -327,7 +328,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_keys_and_oversized_payloads() {
-        let secret = SecretKey::random(&mut OsRng);
+        let secret = SecretKey::generate();
         let public = URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_bytes());
         let auth = URL_SAFE_NO_PAD.encode([1u8; 16]);
         assert!(matches!(encrypt(b"x", "not-a-key", &auth), Err(PushError::BadKey(_))));
@@ -344,7 +345,7 @@ mod tests {
 
     #[test]
     fn accepts_padded_and_standard_base64_from_other_clients() {
-        let secret = SecretKey::random(&mut OsRng);
+        let secret = SecretKey::generate();
         let raw = secret.public_key().to_sec1_bytes();
         let standard = base64::engine::general_purpose::STANDARD.encode(&raw);
         let auth = base64::engine::general_purpose::STANDARD.encode([9u8; 16]);
@@ -353,8 +354,8 @@ mod tests {
 
     #[test]
     fn vapid_header_is_a_valid_es256_jwt_for_the_origin() {
-        let key = SigningKey::random(&mut OsRng);
-        let public_b64 = URL_SAFE_NO_PAD.encode(key.verifying_key().to_encoded_point(false).as_bytes());
+        let key = SigningKey::generate();
+        let public_b64 = URL_SAFE_NO_PAD.encode(key.verifying_key().to_sec1_point(false).as_bytes());
         let header = vapid_authorization(&key, &public_b64, "https://push.example", "mailto:ops@example.org", 1_000);
         let (token, k) = header.strip_prefix("vapid t=").unwrap().split_once(", k=").unwrap();
         assert_eq!(k, public_b64);
@@ -381,5 +382,80 @@ mod tests {
         assert_ne!(topic, topic_for("dm:channel-2"));
         assert!(topic.len() <= 32);
         assert!(topic.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    }
+}
+
+/// Fixed vectors that pin the signing and key formats across RustCrypto
+/// upgrades. The values were captured from the p256 0.13 encoder and checked
+/// against independent sources: RFC 6979 A.2.5, `ring`, and `openssl pkey`.
+#[cfg(test)]
+mod golden_tests {
+    use super::*;
+    use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, LineEnding};
+
+    /// RFC 6979 A.2.5 P-256 private key `x`.
+    const RFC6979_KEY: &str = "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721";
+    /// RFC 6979 A.2.5 public key `(Ux, Uy)` as an uncompressed SEC1 point.
+    const RFC6979_PUBLIC_B64: &str =
+        "BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk";
+    /// The same key as `push_store` writes it to `web_push.json` (PKCS#8 PEM).
+    const RFC6979_PEM: &str = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgya+p2EW6dRZrXCFX\n\
+Z7HWk05Qw9s26JsSe4piKxIPZyGhRANCAARg/tS6JVqdMclh63TGNW1owEm4kjth\n\
++mzmaWIuYPKftnkD/hAIuLyZpBrp6VYovGTy8bIMLX6fUXejwpTURiKZ\n\
+-----END PRIVATE KEY-----\n";
+    const GOLDEN_VAPID_HEADER: &str = "vapid t=eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.\
+eyJhdWQiOiJodHRwczovL3B1c2guZXhhbXBsZSIsImV4cCI6MTcwMDA0MzIwMCwic3ViIjoibWFpbHRvOm9wc0BleGFtcGxlLm9yZyJ9.\
+BPaK3KH6T7Pb0Mmv-5iacfTFJ9fQZCLmKKCc59qDdVQc8r6Td_b0qtWz2Xl4n4BuMPbpAUaJuZKyAPtWJOrytQ, \
+k=BGD-1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p-2eQP-EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk";
+
+    fn rfc6979_key() -> SigningKey {
+        SigningKey::from_slice(&hex::decode(RFC6979_KEY).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn ecdsa_signing_matches_rfc_6979_a_2_5_sha256_sample() {
+        let signature: Signature = rfc6979_key().sign(b"sample");
+        assert_eq!(
+            hex::encode(signature.to_bytes()),
+            "efd48b2aacb6a8fd1140dd9cd45e81d69d2c877b56aaf991c34d0ea84eaf3716\
+             f7cb1c942d657c41d436c7a1b6e29f65f3e900dbb9aff4064dc4ab2f843acda8"
+        );
+    }
+
+    #[test]
+    fn stored_vapid_pem_still_decodes_and_reencodes_identically() {
+        let key = SigningKey::from_pkcs8_pem(RFC6979_PEM).unwrap();
+        assert_eq!(key, rfc6979_key());
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(key.verifying_key().to_sec1_point(false).as_bytes()),
+            RFC6979_PUBLIC_B64
+        );
+        assert_eq!(key.to_pkcs8_pem(LineEnding::LF).unwrap().as_str(), RFC6979_PEM);
+    }
+
+    #[test]
+    fn vapid_header_is_byte_stable_and_verifies_with_ring() {
+        let header = vapid_authorization(
+            &rfc6979_key(),
+            RFC6979_PUBLIC_B64,
+            "https://push.example",
+            "mailto:ops@example.org",
+            1_700_000_000,
+        );
+        assert_eq!(header, GOLDEN_VAPID_HEADER);
+
+        // Independent verifier: ring, not RustCrypto.
+        let token = header
+            .strip_prefix("vapid t=")
+            .unwrap()
+            .split_once(", k=")
+            .unwrap()
+            .0;
+        let (signing_input, signature) = token.rsplit_once('.').unwrap();
+        let public = URL_SAFE_NO_PAD.decode(RFC6979_PUBLIC_B64).unwrap();
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, public)
+            .verify(signing_input.as_bytes(), &URL_SAFE_NO_PAD.decode(signature).unwrap())
+            .expect("ring must accept the VAPID signature");
     }
 }
