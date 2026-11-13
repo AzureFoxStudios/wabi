@@ -57,6 +57,8 @@ export interface ReaderDocumentSelection {
 	documentId?: string;
 	/** Stable identity of the source entity (message/note/etc.) for local working copies. */
 	sourceDocKey?: string;
+	/** false: opened from content kept on the device; media from other hosts render as links. */
+	remoteMedia?: boolean;
 }
 
 export interface ReaderStableDocumentInput {
@@ -230,7 +232,8 @@ export function openReaderDocument(
 	format: ReaderDocumentFormat = 'markdown',
 	source: ReaderDocumentSource = 'generated',
 	language?: string,
-	sourceId?: string
+	sourceId?: string,
+	options: { remoteMedia?: boolean } = {}
 ): void {
 	const normalizedTitle = title.trim() || 'Untitled Document';
 	const normalizedContent = content.replace(/\r\n/g, '\n');
@@ -246,7 +249,8 @@ export function openReaderDocument(
 		updatedAt: Date.now(),
 		source,
 		contentType: 'text',
-		...(resolvedLanguage ? { language: resolvedLanguage } : {})
+		...(resolvedLanguage ? { language: resolvedLanguage } : {}),
+		...(options.remoteMedia === false ? { remoteMedia: false } : {})
 	};
 	openReaderSelection(entry);
 }

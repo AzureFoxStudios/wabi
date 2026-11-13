@@ -41,11 +41,26 @@
 		import AlbumUploadForm from './AlbumUploadForm.svelte';
 		import AlbumItemRow from './AlbumItemRow.svelte';
 		import AlbumItemsHeader from './AlbumItemsHeader.svelte';
+		import { e2eeStatusRevision, ensureE2eeStatus, roomContentKeepReason } from '$lib/dm/dmE2eeState';
+		import { albumsUnavailable } from '$lib/privacy/contentEgress';
 
 	$: activeChannel = $channels.find((channel) => channel.id === $currentChannel) || null;
 	$: scopeType = (activeChannel?.type === 'dm' || activeChannel?.type === 'group' ? 'dm' : 'channel') as MediaAlbumScopeType;
 	$: scopeId = activeChannel?.id || '';
 	$: scopeKey = scopeId ? `${scopeType}:${scopeId}` : '';
+	// Albums are server-readable (file names, captions, the files themselves). A DM or group with
+	// experimental encryption enabled or pending, or whose status is still unknown, gets an
+	// explanation instead of the create/upload controls (privacy/contentEgress.ts).
+	$: albumsKeepReason = scopeId ? roomContentKeepReason(scopeId, activeChannel?.type ?? null, $e2eeStatusRevision) : null;
+	$: albumsOffHere = albumsKeepReason !== null;
+	$: albumsOff = albumsKeepReason ? albumsUnavailable(albumsKeepReason) : null;
+	$: if (scopeType === 'dm' && scopeId) ensureE2eeStatus(scopeId);
+	let albumsWereOff = false;
+	$: if (albumsWereOff !== albumsOffHere) {
+		albumsWereOff = albumsOffHere;
+		// The status arrived and the room is server-readable: load what the gate held back.
+		if (!albumsOffHere && scopeId) void refreshAlbums(true);
+	}
 	$: scopeLabel = (() => {
 		if (!scopeId) return 'Select a channel to browse albums.';
 		if (scopeType === 'dm') {
@@ -356,7 +371,7 @@
 
 	async function addUploadedFileItem(): Promise<void> {
 		const token = getAuthToken();
-		if (!token || !selectedAlbumId || isUploadingAlbumFile || !draftUploadFile) return;
+		if (!token || !selectedAlbumId || isUploadingAlbumFile || !draftUploadFile || albumsOffHere) return;
 
 		clearSuccess();
 		isUploadingAlbumFile = true;
@@ -392,7 +407,7 @@
 
 	async function refreshAlbums(selectFirst = false): Promise<void> {
 		const token = getAuthToken();
-		if (!token || !scopeId) {
+		if (!token || !scopeId || albumsOffHere) {
 			albums = [];
 			selectedAlbumId = null;
 			albumItems = [];
@@ -460,7 +475,7 @@
 	async function createAlbumFromInput(): Promise<void> {
 		const token = getAuthToken();
 		const name = newAlbumName.trim();
-		if (!token || !scopeId || !name || isCreatingAlbum) return;
+		if (!token || !scopeId || !name || isCreatingAlbum || albumsOffHere) return;
 
 		isCreatingAlbum = true;
 		clearSuccess();
@@ -754,7 +769,8 @@
 			clearSuccess();
 			applyScopeViewPreferences(scopeKey);
 			activePrefsScopeKey = scopeKey;
-			void refreshAlbums(true);
+			// Reading albumsOffHere here also orders this block after the gate is computed.
+			if (!albumsOffHere) void refreshAlbums(true);
 		}
 		if (!scopeId) {
 			lastScopeKey = '';
@@ -783,6 +799,17 @@
 	{#if !getAuthToken()}
 		<div class="empty-state">
 			Sign in to create and browse persistent albums.
+		</div>
+	{:else if albumsOff}
+		<div class="album-list is-empty">
+			<div class="empty-state" role={albumsKeepReason === 'checking' ? 'status' : undefined}>
+				{#if variant === 'full'}
+					<h3>{albumsOff.title}</h3>
+					<p>{albumsOff.text}</p>
+				{:else}
+					<strong>{albumsOff.title}.</strong> {albumsOff.text}
+				{/if}
+			</div>
 		</div>
 	{:else}
 		<div class="create-row">

@@ -12,6 +12,7 @@
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { fetchPromotesForMessage } from '$lib/lorePromoteCache';
 	import {
+		addMessageAttachmentsToAlbum,
 		countMessageAttachments,
 		getMessageAttachmentActionItems,
 		selectAttachmentActionItems,
@@ -48,7 +49,7 @@
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
 	import { activeServerUrl, getServerUrl } from '$lib/serverUrl';
-	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { resolveAttachmentUrl } from '$lib/privacy/remoteMedia';
 	import { downloadWithBoosters } from '$lib/volunteerBoosters';
 		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
@@ -80,6 +81,14 @@
 	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
 	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
 	import { decryptAttachmentBlob } from '$lib/e2ee';
+	import { e2eeStatusRevision, ensureE2eeStatus, roomContentKeepReason } from '$lib/dm/dmE2eeState';
+	import { keepReasonFor, mayTranslate } from '$lib/privacy/contentEgress';
+	import {
+		serverReadableActionBlock,
+		shouldFetchPromotes,
+		translationRoomKey,
+		type ServerReadableAction
+	} from './message/messageListGuards';
 	import {
 		displayEnhancementSettingsStore,
 		formatTimestampForDisplay,
@@ -132,6 +141,18 @@
 		activeChannelId.startsWith('dm-') ||
 		activeChannelId.startsWith('dm_') ||
 		activeChannelId.startsWith('group-');
+	// Kept content (privacy/contentEgress.ts): the room's reason comes from the one shared
+	// derivation (dmE2eeState.roomContentKeepReason); each message's own flag is added per action.
+	$: roomKeep = roomContentKeepReason(activeChannelId, activeMessageChannel?.type ?? null, $e2eeStatusRevision);
+	$: if (browser && activeChannelIsPrivateConversation && activeChannelId) ensureE2eeStatus(activeChannelId);
+	$: contextMenuKeepReason = contextMenuMessage ? keepReasonFor(contextMenuMessage, roomKeep) : null;
+
+	/** Show why an action is off for this message and return true, or return false to go ahead. */
+	function blockedForServerReadable(action: ServerReadableAction, message: Message | null | undefined): boolean {
+		const hint = serverReadableActionBlock(action, message, roomKeep);
+		if (hint) showToast(hint, 'info');
+		return hint !== null;
+	}
 	let messageRenderLimit = MESSAGE_RENDER_BATCH;
 	let lastChannelForRenderWindow: string | null = null;
 	let lastObservedMessageCount = 0;
@@ -162,6 +183,7 @@
 	type AlbumAnnouncementMeta = { name: string; kind: 'opened' | 'shared' };
 	let albumAnnouncementUploadInput: HTMLInputElement | null = null;
 	let pendingAlbumUploadMeta: AlbumAnnouncementMeta | null = null;
+	let pendingAlbumUploadMessage: Message | null = null;
 	let albumAnnouncementUploadName: string | null = null;
 	let recentAlbumAnnouncementUploadCounts = new Map<string, number>();
 	let translatedMessages: Record<string, string> = {};
@@ -684,7 +706,7 @@
 		contextMenuX = x;
 		contextMenuY = y;
 		// Keep promote badges fresh for the message being inspected.
-		if (loreAvailable) void fetchPromotesForMessage(message.id);
+		if (shouldFetchPromotes(loreAvailable, message, roomKeep)) void fetchPromotesForMessage(message.id);
 		// Defer open so the same right-click event cannot instantly close the menu
 		// via overlay/window handlers mid-dispatch.
 		requestAnimationFrame(() => {
@@ -709,6 +731,10 @@
 
 	function handlePromoteToLore(): void {
 		if (!contextMenuMessage) return;
+		if (blockedForServerReadable('lore', contextMenuMessage)) {
+			contextMenuVisible = false;
+			return;
+		}
 		promoteModalMessage = contextMenuMessage;
 		showPromoteModal = true;
 		contextMenuVisible = false;
@@ -872,6 +898,12 @@
 
 	async function handleAddToAlbum(): Promise<void> {
 		if (!contextMenuMessage) return;
+		const targetMessage = contextMenuMessage;
+		// Albums are server-readable: the index keeps the file name and message id.
+		if (blockedForServerReadable('album', targetMessage)) {
+			contextMenuVisible = false;
+			return;
+		}
 
 		const token = getAuthToken();
 		if (!token) {
@@ -880,7 +912,7 @@
 			return;
 		}
 
-		const attachmentItems = getMessageAttachmentActionItems(contextMenuMessage);
+		const attachmentItems = getMessageAttachmentActionItems(targetMessage);
 		if (attachmentItems.length === 0) {
 			contextMenuVisible = false;
 			return;
@@ -899,22 +931,17 @@
 		}
 
 		try {
-			const targetAlbum = await resolveTargetAlbum(token, scope.scopeType, scope.scopeId);
-			if (!targetAlbum) return;
-
-			let addedCount = 0;
-			for (const item of selectedItems) {
-				await addMediaAlbumItem(token, targetAlbum.id, {
-					attachmentUrl: item.fileUrl,
-					attachmentName: item.fileName,
-					attachmentSize: item.fileSize,
-					messageId: contextMenuMessage.id
-				});
-				addedCount += 1;
-			}
-
-			if (addedCount > 0) {
-				showToast(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`, 'info');
+			const outcome = await addMessageAttachmentsToAlbum({
+				keepOnDevice: serverReadableActionBlock('album', targetMessage, roomKeep) !== null,
+				messageId: targetMessage.id,
+				items: selectedItems,
+				resolveAlbum: () => resolveTargetAlbum(token, scope.scopeType, scope.scopeId),
+				addItem: (albumId, payload) => addMediaAlbumItem(token, albumId, payload)
+			});
+			if (outcome.status === 'blocked') {
+				blockedForServerReadable('album', targetMessage);
+			} else if (outcome.status === 'added' && outcome.count > 0) {
+				showToast(`Added ${outcome.count} file${outcome.count === 1 ? '' : 's'} to "${outcome.albumName}".`, 'info');
 			}
 		} catch (error) {
 			console.error('Adding files to the album failed:', error);
@@ -1004,7 +1031,8 @@
 		return 'Click anywhere on this row to add the first image, or open Albums to manage it.';
 	}
 
-	function handleAlbumAnnouncementActivate(meta: AlbumAnnouncementMeta, hasFiles: boolean): void {
+	function handleAlbumAnnouncementActivate(meta: AlbumAnnouncementMeta, hasFiles: boolean, message?: Message): void {
+		if (blockedForServerReadable('album', message)) return;
 		if (!hasFiles && albumAnnouncementUploadName === meta.name) return;
 		if (hasFiles) {
 			openAlbumPanel();
@@ -1013,15 +1041,17 @@
 		triggerAlbumAnnouncementUpload(meta);
 	}
 
-	function handleAlbumAnnouncementKeydown(event: KeyboardEvent, meta: AlbumAnnouncementMeta, hasFiles: boolean): void {
+	function handleAlbumAnnouncementKeydown(event: KeyboardEvent, meta: AlbumAnnouncementMeta, hasFiles: boolean, message?: Message): void {
 		if (event.key !== 'Enter' && event.key !== ' ') return;
 		event.preventDefault();
-		handleAlbumAnnouncementActivate(meta, hasFiles);
+		handleAlbumAnnouncementActivate(meta, hasFiles, message);
 	}
 
-	function triggerAlbumAnnouncementUpload(meta: AlbumAnnouncementMeta): void {
+	function triggerAlbumAnnouncementUpload(meta: AlbumAnnouncementMeta, message?: Message): void {
+		if (blockedForServerReadable('album', message)) return;
 		if (albumAnnouncementUploadName) return;
 		pendingAlbumUploadMeta = meta;
+		pendingAlbumUploadMessage = message ?? null;
 		albumAnnouncementUploadInput?.click();
 	}
 
@@ -1068,7 +1098,12 @@
 		};
 	}
 
-	async function uploadFilesToAlbumAnnouncement(meta: AlbumAnnouncementMeta, fileList: FileList | File[]): Promise<void> {
+	async function uploadFilesToAlbumAnnouncement(
+		meta: AlbumAnnouncementMeta,
+		fileList: FileList | File[],
+		message: Message | null = null
+	): Promise<void> {
+		if (blockedForServerReadable('album', message)) return;
 		const token = getAuthToken();
 		if (!token) {
 			showToast('Login is required to upload into shared albums.', 'warning');
@@ -1135,10 +1170,12 @@
 			return;
 		}
 		const targetMeta = pendingAlbumUploadMeta;
+		const targetMessage = pendingAlbumUploadMessage;
 		pendingAlbumUploadMeta = null;
+		pendingAlbumUploadMessage = null;
 		const files = input.files;
 		input.value = '';
-		void uploadFilesToAlbumAnnouncement(targetMeta, files);
+		void uploadFilesToAlbumAnnouncement(targetMeta, files, targetMessage);
 	}
 
 	function openAlbumAnnouncementPreview(message: Message, fileAttachment: FileAttachment): void {
@@ -1200,6 +1237,10 @@
 	let forwardMessage: Message | null = null;
 	function handleForward() {
 		if (!contextMenuMessage) return;
+		if (blockedForServerReadable('forward', contextMenuMessage)) {
+			contextMenuVisible = false;
+			return;
+		}
 		forwardMessage = contextMenuMessage;
 		showForwardDialog = true;
 		contextMenuVisible = false;
@@ -1207,6 +1248,7 @@
 	/** Hover-bar forward (2026-08-27: forward existed only in the context
 	 * menu — the report asked why it was missing from the react bar). */
 	function handleForwardFromBar(message: Message): void {
+		if (blockedForServerReadable('forward', message)) return;
 		forwardMessage = message;
 		showForwardDialog = true;
 	}
@@ -1241,9 +1283,19 @@
 			return;
 		}
 
+		contextMenuVisible = false;
+		// Under experimental encryption the decrypted text goes to the member's translation
+		// service only after they agree, once per room per session.
+		const allowed = await mayTranslate({
+			roomKey: translationRoomKey(getServerUrl(), $currentUser?.dbUserId ?? $currentUser?.id, activeChannelId),
+			reason: keepReasonFor(targetMessage, roomKeep),
+			providerUrl: settings.providerUrl,
+			ask: (request) => confirmAction(request)
+		});
+		if (!allowed) return;
+
 		translatedMessages = { ...translatedMessages, [targetMessage.id]: '...' };
 		translatingMessageIds = new Set([...translatingMessageIds, targetMessage.id]);
-		contextMenuVisible = false;
 		try {
 			const translated = await requestTranslation(targetMessage.text, settings);
 			translatedMessages = { ...translatedMessages, [targetMessage.id]: translated };
@@ -1519,38 +1571,9 @@
 		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
 		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 	}
+	/** The one attachment URL builder (privacy/remoteMedia.ts): what is rendered is what is gated. */
 	function getFileUrl(fileUrl?: string): string {
-		if (!fileUrl) return '';
-		if (fileUrl.startsWith('data:')) {
-			return fileUrl;
-		}
-
-		if (fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
-			try {
-				const absoluteUrl = new URL(fileUrl);
-				const isLocalUpload =
-					(absoluteUrl.hostname === 'localhost' || absoluteUrl.hostname === '127.0.0.1') &&
-					absoluteUrl.pathname.startsWith('/uploads/');
-
-				if (isLocalUpload) {
-					const normalizedPath = `${absoluteUrl.pathname}${absoluteUrl.search}${absoluteUrl.hash}`;
-					if ($relayEnabled) {
-						return getRelayFileUrl(normalizedPath);
-					}
-					return `${getServerUrl()}${normalizedPath}`;
-				}
-			} catch {
-				// Fall through and return original URL if parsing fails.
-			}
-			return fileUrl;
-		}
-
-		// Use relay if enabled and available
-		if ($relayEnabled) {
-			return getRelayFileUrl(fileUrl);
-		}
-		// Otherwise, prepend the resolved backend server URL
-		return `${getServerUrl()}${fileUrl}`;
+		return resolveAttachmentUrl(fileUrl).url;
 	}
 
 	function isEncryptedAttachment(attachment: { attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string } }): boolean {
@@ -1681,7 +1704,8 @@
 		window.open(url, '_blank', 'noopener,noreferrer');
 	}
 
-	function openBlendImportSettings(sourcePath: string, fileName: string): void {
+	function openBlendImportSettings(sourcePath: string, fileName: string, message?: Message): void {
+		if (blockedForServerReadable('blend', message)) return;
 		blendImportSourcePath = sourcePath;
 		blendImportFileName = fileName;
 		ensureBlendImportSettingsModalLoaded();
@@ -2280,6 +2304,8 @@
 	{EmojiPickerComponent}
 	{BlendImportSettingsModalComponent}
 	{contextMenuMessage}
+	{contextMenuKeepReason}
+	reportChannelId={activeChannelId}
 	{contextMenuX}
 	{contextMenuY}
 	{messageToDelete}

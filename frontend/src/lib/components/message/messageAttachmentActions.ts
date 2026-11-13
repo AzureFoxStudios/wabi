@@ -54,3 +54,42 @@ export function selectAttachmentActionItems(items: MessageAttachmentActionItem[]
 	}
 	return [items[index - 1]];
 }
+
+export type AlbumAddOutcome =
+	/** Under experimental encryption: albums are server-readable. Nothing was sent. */
+	| { status: 'blocked' }
+	| { status: 'cancelled' }
+	| { status: 'added'; count: number; albumName: string };
+
+/**
+ * "Add to album" for a message's attachments. The album index is server-readable: it stores the
+ * attachment's file name and the message id. For a message or room under experimental
+ * encryption (`keepOnDevice`, from privacy/contentEgress.ts) nothing is resolved or sent, and the
+ * caller explains why (ALBUMS_SERVER_READABLE_HINT).
+ */
+export async function addMessageAttachmentsToAlbum(options: {
+	keepOnDevice: boolean;
+	messageId: string;
+	items: MessageAttachmentActionItem[];
+	resolveAlbum: () => Promise<{ id: number; name: string } | null>;
+	addItem: (
+		albumId: number,
+		payload: { attachmentUrl: string; attachmentName: string; attachmentSize: number; messageId: string }
+	) => Promise<unknown>;
+}): Promise<AlbumAddOutcome> {
+	if (options.keepOnDevice) return { status: 'blocked' };
+	if (options.items.length === 0) return { status: 'cancelled' };
+	const album = await options.resolveAlbum();
+	if (!album) return { status: 'cancelled' };
+	let count = 0;
+	for (const item of options.items) {
+		await options.addItem(album.id, {
+			attachmentUrl: item.fileUrl,
+			attachmentName: item.fileName,
+			attachmentSize: item.fileSize,
+			messageId: options.messageId
+		});
+		count += 1;
+	}
+	return { status: 'added', count, albumName: album.name };
+}

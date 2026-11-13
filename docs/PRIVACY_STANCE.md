@@ -104,6 +104,46 @@ this policy can accept plaintext in a room that was pending encryption. Use a
 matching stopped-instance backup for rollback. Do not delete the registry to
 clear a problem; damaged registry state blocks sends and key changes.
 
+### Client-side handling of decrypted content
+
+The browser decrypts an experimental-encryption message into an ordinary message object. The web
+client (`frontend/src/lib/privacy/contentEgress.ts`) treats content as kept on the device when the
+message is one this client itself decrypted, failed to decrypt or sent with experimental
+encryption (a marker set locally; message fields from the server are not trusted for this), or
+when it is in a DM or group whose encryption is enabled, pending, or not yet known. For kept
+content the web client enforces, and tests in a real browser (`scripts/kept-content-browser-smoke.mjs`):
+
+- no server link previews (`/api/url-preview`, `/api/image-proxy`);
+- images and Spotify or watch-queue players hosted elsewhere load only after the member clicks
+  "Load from <host>", which names every host the click contacts. Images written into the message
+  text become links. Whether a URL is "elsewhere" comes from parsing it; attachment URLs are built
+  by one function, and the gate decides on exactly the URL that is rendered. A URL on this server
+  under `/api/` counts as elsewhere, because those endpoints fetch on the caller's behalf;
+- audio, video and 3D models are not played or loaded inline from any URL, this server's
+  included: a file on the server can be a playlist or model that pulls from other hosts. They are
+  shown as links. The Reader does the same for kept long messages;
+- no auto-translation; manual translation asks once per conversation per session before sending
+  text to the configured service;
+- album, Lore, Blender-import and forward actions are off, because those features are
+  server-readable;
+- reporting discloses the message's decrypted text to the server's moderators only after the
+  reporter ticks an explicit disclosure box.
+
+Explanations name the actual reason (experimental encryption, which is not independently
+verified; pending; still checking; or the server did not answer). A DM this device has seen before
+uses its last stored status while the server is asked again.
+
+Still not covered: custom emoji and emotes served by this Wabi server render as before; a long
+message opened in the Reader stays in this device's local storage; the YouTube watch-queue embed,
+which only exists in shared channels, loads YouTube's player script as before. In the embedded
+build the app page is served with `Referrer-Policy: no-referrer`, so media requests carry no
+referrer; a development server or another host of the frontend may use the browser default.
+Defence in depth that needs the server (a `media-src` Content Security Policy, refusing HLS
+playlist bodies at `/uploads`) is future work.
+
+These are client behaviors in this web client; they do not change the experimental status above,
+and a modified client is not bound by them.
+
 ### Experimental registry and recovery boundary
 
 The current release path retains the existing encrypted-envelope and attachment mechanisms; it does not convert existing ciphertext to plaintext. A room's registry flag reports `experimental_e2ee`, not verified operator-blind confidentiality. The separate DM “Sealed / Private / Open” menu was a device-local label with no connection to message encryption and is no longer presented as a security control. Existing stored preferences are left untouched.

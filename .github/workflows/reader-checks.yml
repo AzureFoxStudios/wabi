@@ -9,6 +9,7 @@ on:
       - 'frontend/src/lib/components/reader*.ts'
       - 'frontend/src/lib/components/reader*.css'
       - 'frontend/src/lib/reader*.ts'
+      - 'frontend/src/lib/privacy/**'
       - 'frontend/src/styles/components/reader-tab.css'
       - 'frontend/scripts/reader-browser-smoke.mjs'
       - 'frontend/scripts/reader-documents-browser-smoke.mjs'
