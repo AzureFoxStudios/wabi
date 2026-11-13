@@ -1,6 +1,6 @@
 ---
 name: wabidb-client-frontend
-description: Compatibility entry point for Wabi's browser/Tauri IndexedDB outbound queue and Offline & Storage UI. Routes to the maintained client-offline contract.
+description: Use when touching the browser/Tauri IndexedDB outbound queue or Offline & Storage UI; routes to wabidb-client-offline and its verification scripts.
 metadata:
   hermes:
     tags: [WabiDB, frontend, sveltekit, indexeddb, offline, queue]
