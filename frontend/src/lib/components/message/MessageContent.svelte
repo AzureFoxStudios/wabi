@@ -94,6 +94,8 @@
 	);
 	$: keepReason = keepReasonFor(message, roomKeep);
 	$: contentOnDevice = keepReason !== null;
+	// The same URLs MessageFileContent renders (resolveAttachmentUrl), so the gate decides on
+	// exactly what would load.
 	$: remoteAttachments = contentOnDevice ? remoteAttachmentUrls(message) : [];
 
 	$: albumAnnouncement = parseAlbumAnnouncement(message.text);
@@ -346,7 +348,7 @@
 	{:else if message.type === 'file'}
 		{#if remoteAttachments.length > 0}
 			<!-- Kept content: an attachment on another host loads only after the member's click. -->
-			<RemoteMediaGate url={remoteAttachments[0]}>
+			<RemoteMediaGate url={remoteAttachments}>
 				<MessageFileContent
 					{message}
 					currentChannel={currentChannel}

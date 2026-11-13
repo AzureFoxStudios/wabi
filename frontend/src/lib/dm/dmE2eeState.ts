@@ -80,7 +80,11 @@ export function roomContentKeepReason(
 	if (!id) return null;
 	const type = channelType || (looksLikePrivateConversationId(id) ? 'dm' : 'text');
 	const conversation = type === 'dm' || type === 'group';
-	return roomKeepReason({ channelType: type, policy: conversation ? cachedE2eeStatus(id) : null });
+	const reason = roomKeepReason({ channelType: type, policy: conversation ? cachedE2eeStatus(id) : null });
+	// The server never answered after the retries (for example no E2EE endpoint): still kept, but
+	// say so instead of "still checking" for good.
+	if (reason === 'checking' && conversation && statusUnanswered(id)) return 'status-unavailable';
+	return reason;
 }
 
 let STATUS_RETRY_DELAYS_MS = [2000, 4000, 8000];
@@ -104,6 +108,11 @@ function bindFocusRetry(): void {
 			ensureE2eeStatus(state.channelId);
 		}
 	});
+}
+
+function statusUnanswered(channelId: string): boolean {
+	const key = cacheKey(channelId);
+	return Boolean(key && statusRequests.get(key)?.exhausted);
 }
 
 /**
@@ -135,6 +144,7 @@ export function ensureE2eeStatus(channelId: string): void {
 				if (delay === undefined) {
 					state.exhausted = true;
 					bindFocusRetry();
+					e2eeStatusRevision.update((value) => value + 1);
 					return;
 				}
 				state.timer = setTimeout(run, delay);

@@ -15,6 +15,7 @@ import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { messageDeliveries, UNCONFIRMED_MESSAGE } from './messageDelivery';
 import { MESSAGE_QUEUE_OWNERSHIP_ERROR } from './wabidb/queue/groupPolicy';
 import { E2EE_MESSAGE_PREFIX, encryptMessageForChannel, prepareIncomingE2eeMessage } from './e2ee';
+import { E2EE_OBSERVED } from './e2eeEnvelope';
 import { shouldAttemptE2eeForChannelType } from './e2eeChannelPolicy';
 import { showToast } from './toast';
 
@@ -243,7 +244,7 @@ export async function sendMessage(
 		...(attachmentStorage !== undefined ? { attachmentStorage } : {}),
 		...(encrypted !== undefined ? { encrypted } : {}),
 		...(iv !== undefined ? { iv } : {}),
-		...(e2eeEpoch !== null ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch } : {})
+		...(e2eeEpoch !== null ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch, [E2EE_OBSERVED]: true } : {})
 	};
 	appendOptimisticMessage(channelId, optimisticMessage);
 
@@ -332,7 +333,7 @@ export async function editMessage(channelId: string, messageId: string, newText:
 			updateOptimisticMessage(channelId, matches, {
 				text: newText,
 				isEdited: true,
-				...(encrypted ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch: encrypted.epoch } : {})
+				...(encrypted ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch: encrypted.epoch, [E2EE_OBSERVED]: true } : {})
 			});
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Could not encrypt this edit.', 'error');

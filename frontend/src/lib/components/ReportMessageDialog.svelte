@@ -121,7 +121,7 @@
 						{:else if nothingToDisclose}
 							<p>This message has no text to disclose. Attachments are not sent with a report. Tell a moderator directly if the files are the problem.</p>
 						{:else}
-							<p>This message arrived with experimental encryption, so the server holds it only in encrypted form. Sending this report gives the server’s moderators its decrypted text, shown above, stored in the moderation case.</p>
+							<p>Wabi sent or received this message with experimental encryption (not independently verified). Reporting sends its decrypted text, shown above, to this server’s moderators, and it is kept in the moderation case.</p>
 							{#if disclosure.truncated}
 								<p>Only the first 12,000 characters are sent; the server keeps no more than that.</p>
 							{/if}

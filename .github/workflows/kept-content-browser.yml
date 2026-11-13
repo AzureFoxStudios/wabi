@@ -1,7 +1,8 @@
 name: Kept content browser check
 
 # Experimental-encryption content must not fetch from other hosts: runs the real chat and Reader
-# renderers in Chromium and records every request (frontend/scripts/kept-content-browser-smoke.mjs).
+# renderers and the real message component in Chromium (attachments, HLS uploads, gates) and
+# records every request (frontend/scripts/kept-content-browser-smoke.mjs).
 on:
   pull_request:
     paths:
@@ -10,6 +11,14 @@ on:
       - 'frontend/src/lib/markdown.ts'
       - 'frontend/src/lib/privacy/**'
       - 'frontend/src/lib/components/readerTabHelpers.ts'
+      - 'frontend/src/lib/components/message/**'
+      - 'frontend/src/lib/components/UnfurlCard.svelte'
+      - 'frontend/src/lib/components/plugins/SpotifyControlsEmbed.svelte'
+      - 'frontend/src/lib/dm/dmE2eeState.ts'
+      - 'frontend/src/lib/serverUrl.ts'
+      - 'frontend/src/lib/e2ee.ts'
+      - 'frontend/src/lib/e2eeEnvelope.ts'
+      - 'frontend/src/lib/readerWorkspace.ts'
       - 'frontend/scripts/kept-content-browser-smoke.mjs'
       - '.github/workflows/kept-content-browser.yml'
 

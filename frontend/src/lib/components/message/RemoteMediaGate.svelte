@@ -15,7 +15,8 @@
 		showHint = true,
 		children
 	}: {
-		url: string;
+		/** Every URL the click would load; each host is named on the button. */
+		url: string | string[];
 		/** false when the link is already visible in the message text. */
 		showLink?: boolean;
 		/** false when the message shows one note for all its gates; the hint stays as the button's description. */
@@ -25,8 +26,9 @@
 
 	let loaded = $state(false);
 	let loadedRegion = $state<HTMLDivElement | null>(null);
-	let label = $derived(remoteLoadLabel(url));
-	let hint = $derived(remoteLoadHint(url));
+	let urls = $derived(Array.isArray(url) ? url : [url]);
+	let label = $derived(remoteLoadLabel(urls));
+	let hint = $derived(remoteLoadHint(urls));
 	const uid = $props.id();
 	const hintId = `remote-media-hint-${uid}`;
 
@@ -46,7 +48,9 @@
 {:else}
 	<div class="remote-media-gate">
 		{#if showLink}
-			<a href={url} target="_blank" rel="noopener noreferrer nofollow" class="plain-link-fallback remote-media-gate__link">{url}</a>
+			{#each urls as link (link)}
+				<a href={link} target="_blank" rel="noopener noreferrer nofollow" class="plain-link-fallback remote-media-gate__link">{link}</a>
+			{/each}
 		{/if}
 		<button type="button" class="w-btn w-btn--quiet w-btn--sm remote-media-gate__load" title={hint} aria-describedby={hintId} onclick={load}>
 			<Icon name="download" size={14} />

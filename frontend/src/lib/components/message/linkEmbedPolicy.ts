@@ -6,8 +6,9 @@
  *   `/api/image-proxy` with the viewer's token, so the server learns the URL. Never for content
  *   that stays on the device; such a link is drawn as a plain link instead.
  * - `direct`: media loaded straight from the link's host (image, video, audio, 3D model, Spotify
- *   player, YouTube watch queue). For content that stays on the device it waits for an explicit
- *   click (`directNeedsClick`), because loading it tells that host the link was opened.
+ *   player, YouTube watch queue). For content that stays on the device an image, Spotify player or
+ *   watch-queue embed waits for an explicit click (`directNeedsClick`), because loading it tells
+ *   that host the link was opened; audio, video and models are not embedded at all.
  */
 import { isSpotifyUrl } from '$lib/spotifyControls';
 import { extractUrls, getMediaType, isYouTubeUrl } from './messageItemUtils';
@@ -46,6 +47,10 @@ export function planLinkEmbed(url: string, index: number, context: LinkEmbedCont
 		if (media) direct = media;
 		else wantsPreview = true;
 	}
+	// Kept content plays no audio/video and loads no 3D model from a URL, not even after a click:
+	// a player can follow a playlist (or a model its external files) to other hosts
+	// (privacy/remoteMedia.ts rule 3). The link in the message text is what remains.
+	if (keep && (direct === 'video' || direct === 'audio' || direct === 'model')) direct = null;
 	const preview = wantsPreview && !keep;
 	return {
 		url,

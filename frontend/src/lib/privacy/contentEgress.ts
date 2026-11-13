@@ -23,8 +23,9 @@
  * Nothing here changes how messages are sent or encrypted.
  */
 import type { Message } from '$lib/socket-types';
-import { E2EE_MESSAGE_PREFIX } from '$lib/e2eeEnvelope';
+import { E2EE_MESSAGE_PREFIX, isE2eeObserved } from '$lib/e2eeEnvelope';
 import { privacyStateFor, type PrivacyPolicy } from './privacyState';
+import { proxiedTarget } from './remoteMedia';
 
 type MessageFacts = Pick<Message, 'e2ee' | 'encrypted' | 'text' | 'attachmentEncryption' | 'files'>;
 
@@ -36,16 +37,21 @@ export type KeepReason =
 	| 'encryption-pending'
 	/** A DM or group whose status this client does not know yet. */
 	| 'checking'
+	/** A DM or group whose status the server did not give after the retries (still kept). */
+	| 'status-unavailable'
 	/** The message itself arrived with experimental encryption. */
 	| 'encrypted-message';
 
-/** True when this message arrived (or was sent from here) under experimental encryption. */
+/**
+ * True when THIS client saw this message under experimental encryption: it decrypted or failed
+ * to decrypt an envelope, sent or edited one itself, or the text is still a raw envelope. Fields
+ * from the wire (`encrypted`, `e2ee`, `attachmentEncryption`) are not trusted: the server echoes
+ * a sender's `encrypted` field on plaintext sends.
+ */
 export function messageUnderExperimentalEncryption(message: Partial<MessageFacts> | null | undefined): boolean {
 	if (!message) return false;
-	if (message.e2ee === true || message.encrypted === true) return true;
-	if (typeof message.text === 'string' && message.text.startsWith(E2EE_MESSAGE_PREFIX)) return true;
-	if (message.attachmentEncryption) return true;
-	return Array.isArray(message.files) && message.files.some((file) => Boolean(file?.attachmentEncryption));
+	if (isE2eeObserved(message)) return true;
+	return typeof message.text === 'string' && message.text.startsWith(E2EE_MESSAGE_PREFIX);
 }
 
 export type RoomEgressInput = {
@@ -90,13 +96,15 @@ export function contentStaysOnDevice(
 export function keepReasonClause(reason: KeepReason): string {
 	switch (reason) {
 		case 'experimental-encryption':
-			return 'this conversation uses experimental encryption';
+			return 'this conversation uses experimental encryption (not independently verified)';
 		case 'encryption-pending':
 			return 'this conversation is waiting for encryption to be set up';
 		case 'checking':
 			return 'Wabi is still checking this conversation’s encryption setting';
+		case 'status-unavailable':
+			return 'this server did not tell Wabi this conversation’s encryption setting';
 		case 'encrypted-message':
-			return 'this message arrived with experimental encryption';
+			return 'Wabi sent or received this message with experimental encryption (not independently verified)';
 	}
 }
 
@@ -130,6 +138,11 @@ export function albumsUnavailable(reason: KeepReason): { title: string; text: st
 				title: 'Checking this conversation',
 				text: 'Wabi is still checking this conversation’s encryption setting. Albums are stored server-readable, so they appear here once the conversation is known to be server-readable.'
 			};
+		case 'status-unavailable':
+			return {
+				title: 'Albums are off in this conversation',
+				text: 'This server did not tell Wabi this conversation’s encryption setting, so Wabi treats it as possibly encrypted. Albums are stored server-readable, so they stay off. Reload or try again later.'
+			};
 		case 'encryption-pending':
 			return {
 				title: 'Albums are off in this conversation',
@@ -138,25 +151,41 @@ export function albumsUnavailable(reason: KeepReason): { title: string; text: st
 		case 'encrypted-message':
 			return {
 				title: 'Albums are off for these messages',
-				text: 'These messages arrived with experimental encryption. Albums are stored server-readable (the server operator could see file names and album contents), so they are off. Share files in the conversation instead.'
+				text: 'Wabi sent or received these messages with experimental encryption (not independently verified). Albums are stored server-readable (the server operator could see file names and album contents), so they are off. Share files in the conversation instead.'
 			};
 		case 'experimental-encryption':
 			return {
 				title: 'Albums are off in this conversation',
-				text: 'This conversation uses experimental encryption. Albums are stored server-readable (the server operator could see file names and album contents), so they are off. Share files in the conversation instead.'
+				text: 'This conversation uses experimental encryption (not independently verified). Albums are stored server-readable (the server operator could see file names and album contents), so they are off. Share files in the conversation instead.'
 			};
 	}
 }
 
 /** Shown once per kept message with links. */
-export const LINK_PREVIEW_OFF_HINT = 'No link previews here, and media from other sites loads only when you choose: either would show these links to another server.';
+export const LINK_PREVIEW_OFF_HINT = 'No link previews here. Images and players from other sites load only if you choose; audio and video links are not played here.';
 
-/** The click-to-load control for media hosted elsewhere. */
-export function remoteLoadLabel(url: string): string {
-	return `Load from ${hostOf(url)}`;
+/**
+ * The click-to-load control for media hosted elsewhere. Every host the click would contact is
+ * named; a URL on a server proxy endpoint (`/api/…?url=…`) is named by the outside host it
+ * fetches, with "via this Wabi server".
+ */
+export function remoteLoadLabel(urls: string | string[]): string {
+	return `Load from ${remoteHosts(urls).join(', ')}`;
 }
-export function remoteLoadHint(url: string): string {
-	return `Loading contacts ${hostOf(url)}, which learns that this was opened.`;
+export function remoteLoadHint(urls: string | string[]): string {
+	const hosts = remoteHosts(urls);
+	const who = hosts.length === 1 ? hosts[0] : `${hosts.slice(0, -1).join(', ')} and ${hosts[hosts.length - 1]}`;
+	return `Loading contacts ${who}, which ${hosts.length === 1 ? 'learns' : 'learn'} that this was opened.`;
+}
+
+function remoteHosts(urls: string | string[]): string[] {
+	const list = Array.isArray(urls) ? urls : [urls];
+	return [...new Set(list.map(describeRemote))];
+}
+
+function describeRemote(url: string): string {
+	const target = proxiedTarget(url);
+	return target ? `${hostOf(target)} (via this Wabi server)` : hostOf(url);
 }
 
 export function hostOf(url: string): string {

@@ -49,7 +49,7 @@
 	import '$lib/prism-theme.css';
 	import { longpress } from '$lib/actions/longpress';
 	import { activeServerUrl, getServerUrl } from '$lib/serverUrl';
-	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { resolveAttachmentUrl } from '$lib/privacy/remoteMedia';
 	import { downloadWithBoosters } from '$lib/volunteerBoosters';
 		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
@@ -1571,38 +1571,9 @@
 		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
 		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 	}
+	/** The one attachment URL builder (privacy/remoteMedia.ts): what is rendered is what is gated. */
 	function getFileUrl(fileUrl?: string): string {
-		if (!fileUrl) return '';
-		if (fileUrl.startsWith('data:')) {
-			return fileUrl;
-		}
-
-		if (fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
-			try {
-				const absoluteUrl = new URL(fileUrl);
-				const isLocalUpload =
-					(absoluteUrl.hostname === 'localhost' || absoluteUrl.hostname === '127.0.0.1') &&
-					absoluteUrl.pathname.startsWith('/uploads/');
-
-				if (isLocalUpload) {
-					const normalizedPath = `${absoluteUrl.pathname}${absoluteUrl.search}${absoluteUrl.hash}`;
-					if ($relayEnabled) {
-						return getRelayFileUrl(normalizedPath);
-					}
-					return `${getServerUrl()}${normalizedPath}`;
-				}
-			} catch {
-				// Fall through and return original URL if parsing fails.
-			}
-			return fileUrl;
-		}
-
-		// Use relay if enabled and available
-		if ($relayEnabled) {
-			return getRelayFileUrl(fileUrl);
-		}
-		// Otherwise, prepend the resolved backend server URL
-		return `${getServerUrl()}${fileUrl}`;
+		return resolveAttachmentUrl(fileUrl).url;
 	}
 
 	function isEncryptedAttachment(attachment: { attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string } }): boolean {
