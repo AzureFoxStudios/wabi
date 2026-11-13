@@ -245,9 +245,11 @@ async fn require_rules_for_mutation(
 }
 
 /// Content-bearing mutations use this as well as the ordinary access check.
-pub async fn require_participation(state: &AppState, user_id: i64, channel_id: &str) -> Result<()> {
+/// Returns the channel it checked, so callers can use its persisted kind.
+pub async fn require_participation(state: &AppState, user_id: i64, channel_id: &str) -> Result<Channel> {
     let channel = require_access(state, user_id, channel_id).await?;
-    require_rules_for_mutation(state, user_id, channel.channel_kind).await
+    require_rules_for_mutation(state, user_id, channel.channel_kind).await?;
+    Ok(channel)
 }
 
 /// Keep membership and the original credential valid until the admitted work

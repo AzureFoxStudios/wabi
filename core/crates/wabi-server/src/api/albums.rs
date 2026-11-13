@@ -164,8 +164,9 @@ async fn create_album(
     admission
         .run(&operation_state, async move {
             require_scope(&state, &auth, &payload.scope_type, &payload.scope_id).await?;
-            crate::channel_access::require_participation(&state, auth.user_id, &payload.scope_id)
-                .await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &payload.scope_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Albums").await?;
             let album_id = state
                 .wdb
                 .create_album(
@@ -264,8 +265,9 @@ async fn add_item(
     admission
         .run(&operation_state, async move {
             let album = authorized_album(&state, &auth, &album_id).await?;
-            crate::channel_access::require_participation(&state, auth.user_id, &album.scope_id)
-                .await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &album.scope_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Albums").await?;
             let item_id = state
                 .wdb
                 .add_item(

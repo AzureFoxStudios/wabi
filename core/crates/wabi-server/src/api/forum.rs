@@ -97,7 +97,9 @@ async fn create_thread(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Forum threads and posts").await?;
             let post_id = state
                 .wdb
                 .create_forum_thread(
@@ -146,7 +148,9 @@ async fn create_post(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Forum threads and posts").await?;
             let _thread = thread_locks()
                 .lock(&format!("{channel_id}:{thread_id}"))
                 .await;
@@ -197,7 +201,9 @@ async fn update_post(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Forum threads and posts").await?;
             let _thread = thread_locks()
                 .lock(&format!("{channel_id}:{thread_id}"))
                 .await;
