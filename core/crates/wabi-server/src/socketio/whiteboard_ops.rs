@@ -276,15 +276,28 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
     }
-    if let Err(error) = crate::channel_access::require_participation(&state.app, user_id, &board_to_channel_id(&board_id)).await {
-        let (code, message) = match error {
-            crate::error::AppError::Forbidden(ref reason) if reason.starts_with("Read and acknowledge") =>
-                ("RULES_REQUIRED", "Read and acknowledge this server's rules before editing"),
-            _ => ("ACCESS_DENIED", "This board is unavailable to your account"),
+    let channel = match crate::channel_access::require_participation(&state.app, user_id, &board_to_channel_id(&board_id)).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            let (code, message) = match error {
+                crate::error::AppError::Forbidden(ref reason) if reason.starts_with("Read and acknowledge") =>
+                    ("RULES_REQUIRED", "Read and acknowledge this server's rules before editing"),
+                _ => ("ACCESS_DENIED", "This board is unavailable to your account"),
+            };
+            whiteboard_board_error(&socket, &board_id, code, message);
+            return;
+        }
+    };
+    // Board gate, then the encryption-policy lock, as in the REST handlers.
+    // Held through persistence (snapshot) or the relay (patch).
+    let _encryption_policy =
+        match crate::api::e2ee::admit_readable_text(&state.app, &channel, user_id, "Whiteboards").await {
+            Ok(guard) => guard,
+            Err(error) => {
+                whiteboard_board_error(&socket, &board_id, "ENCRYPTED_CONVERSATION", &error.to_string());
+                return;
+            }
         };
-        whiteboard_board_error(&socket, &board_id, code, message);
-        return;
-    }
 
     if let Err(error) = crate::api::whiteboard_policy::require_write(&state.app, user_id, &board_id, Some(&document)).await {
         whiteboard_board_error(&socket, &board_id, "READ_ONLY", &error.to_string());
@@ -367,15 +380,28 @@ async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
     }
-    if let Err(error) = crate::channel_access::require_participation(&state.app, user_id, &board_to_channel_id(&board_id)).await {
-        let (code, message) = match error {
-            crate::error::AppError::Forbidden(ref reason) if reason.starts_with("Read and acknowledge") =>
-                ("RULES_REQUIRED", "Read and acknowledge this server's rules before editing"),
-            _ => ("ACCESS_DENIED", "This board is unavailable to your account"),
+    let channel = match crate::channel_access::require_participation(&state.app, user_id, &board_to_channel_id(&board_id)).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            let (code, message) = match error {
+                crate::error::AppError::Forbidden(ref reason) if reason.starts_with("Read and acknowledge") =>
+                    ("RULES_REQUIRED", "Read and acknowledge this server's rules before editing"),
+                _ => ("ACCESS_DENIED", "This board is unavailable to your account"),
+            };
+            whiteboard_board_error(&socket, &board_id, code, message);
+            return;
+        }
+    };
+    // Board gate, then the encryption-policy lock, as in the REST handlers.
+    // Held through persistence (snapshot) or the relay (patch).
+    let _encryption_policy =
+        match crate::api::e2ee::admit_readable_text(&state.app, &channel, user_id, "Whiteboards").await {
+            Ok(guard) => guard,
+            Err(error) => {
+                whiteboard_board_error(&socket, &board_id, "ENCRYPTED_CONVERSATION", &error.to_string());
+                return;
+            }
         };
-        whiteboard_board_error(&socket, &board_id, code, message);
-        return;
-    }
 
     if let Err(error) = crate::api::whiteboard_policy::require_write(&state.app, user_id, &board_id, None).await {
         whiteboard_board_error(&socket, &board_id, "READ_ONLY", &error.to_string());

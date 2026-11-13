@@ -20,12 +20,26 @@ async fn on_create_thread(socket: SocketRef, data: Value, state: SioState, io: S
 
     let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "create-thread-error").await else { return; };
     let user_id = identity.user_id;
-    if let Err(error) = crate::channel_access::require_participation(&state.app, user_id, &channel_id).await {
-        let _ = socket.emit("create-thread-error", &json!({"error": error.to_string()}));
-        return;
-    }
+    let channel = match crate::channel_access::require_participation(&state.app, user_id, &channel_id).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            let _ = socket.emit("create-thread-error", &json!({"error": error.to_string()}));
+            return;
+        }
+    };
+    // A thread title is server-readable text: same boundary as a plaintext send.
+    let encryption_policy =
+        match crate::api::e2ee::admit_readable_text(&state.app, &channel, user_id, "Forum threads and posts").await {
+            Ok(guard) => guard,
+            Err(error) => {
+                let _ = socket.emit("create-thread-error", &json!({"channelId": channel_id, "error": error.to_string()}));
+                return;
+            }
+        };
+    let created = state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64, None, None, None).await;
+    drop(encryption_policy);
 
-    match state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64, None, None, None).await {
+    match created {
         Ok(thread_id) => {
             let _ = socket.emit("thread-created", &json!({
                 "channelId": channel_id,

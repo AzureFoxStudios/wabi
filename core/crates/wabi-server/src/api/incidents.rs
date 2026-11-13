@@ -50,7 +50,9 @@ async fn create_incident(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Incidents").await?;
             let incident_id = state
                 .wdb
                 .create_incident(
@@ -105,7 +107,9 @@ async fn update_incident(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Incidents").await?;
             let existing = state
                 .wdb
                 .get_incident(&channel_id, &incident_id)
