@@ -80,6 +80,12 @@ jobs:
           STATIC_BUILD=1 npm run build
           test -f build/index.html
 
+      # The lean core is the default build (`default = []`). This reads cargo
+      # metadata only — no compilation — and fails if an optional add-on crate
+      # has become a normal dependency of wabi-server.
+      - name: Default build links no optional add-on crate
+        run: python3 scripts/check-default-build-addons.py
+
       # --- Compile smoke after generating the assets required by wabi-server ---
       - name: Cargo check
         run: cargo check --workspace
@@ -194,6 +200,12 @@ jobs:
           for file in core/crates/wabi-server/tests/lore_*.rs core/crates/wabi-server/tests/wabi_sync_contract.rs; do
             cargo test --locked -p wabi-server --features wabi-lore --test "$(basename "$file" .rs)"
           done
+
+      # The same contract the `test` job runs on the default build, plus the
+      # half that only exists when Lore IS compiled in: its routes must say
+      # "not enabled on this server" while the switch is off, never 500.
+      - name: Add-on detach contract (lore compiled in, switched off)
+        run: cargo test --locked -p wabi-server --features wabi-lore --test addons_absent_contract
 
   # ------------------------------------------------------------------------
   # WabiDB crash-injection tests: #[ignore] + test-harness feature, so neither

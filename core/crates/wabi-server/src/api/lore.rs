@@ -445,13 +445,19 @@ async fn ensure_channel_member(state: &AppState, channel_id: i64, user_id: i64) 
     Ok(())
 }
 
+/// The Lore service, or a clear "switched off" answer.
+///
+/// Lore is compiled in behind `--features wabi-lore`, but its routes are
+/// mounted whether or not the runtime switch is on and whether or not the
+/// external Lore service answered its startup health check. A client that
+/// calls one of them on a server with Lore switched off used to get
+/// `500 Internal server error`, which reads as "this server is broken" rather
+/// than "this server does not run that add-on". Steam already answers 404 with
+/// a sentence that says so (`api/steam.rs`); Lore now matches it.
 async fn lore_service(state: &AppState) -> Result<Arc<wabi_lore::LoreService>> {
-    state
-        .lore_service
-        .read()
-        .await
-        .clone()
-        .ok_or_else(|| AppError::Internal("Lore addon not initialized".into()))
+    state.lore_service.read().await.clone().ok_or_else(|| {
+        AppError::NotFound("The Lore add-on is not enabled on this server".into())
+    })
 }
 
 /// True when the channel's repo is a read-only external mirror.

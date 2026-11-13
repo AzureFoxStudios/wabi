@@ -118,16 +118,33 @@ impl TailcatManager {
 
     /// Load persisted state and start tasks if the pipe should run. Called
     /// once from main; also implicitly via mutations in tests.
+    ///
+    /// A disabled add-on starts nothing: no forwarder bound on the pipe port,
+    /// no monitor task. `set_enabled` calls `ensure_tasks` itself, so turning
+    /// private access on later still starts both. Before this, every server —
+    /// including one that had never touched Tailcat — bound
+    /// 127.0.0.1:<server port + 1> for the life of the process, which made the
+    /// "disabled = zero footprint" promise in docs/addons/ATTACH_DETACH.md
+    /// untrue and could collide with whatever else wanted that port.
     pub async fn init(self: &Arc<Self>) {
         let settings = self.store.load_settings();
         self.inner.write().await.wanted = settings.enabled;
-        if settings.enabled {
-            info!("[tailcat] enabled in persisted settings; starting listener");
+        if !settings.enabled {
+            return;
         }
+        info!("[tailcat] enabled in persisted settings; starting listener");
         self.ensure_tasks().await;
-        if settings.enabled {
-            self.rebounce.notify_one();
-        }
+        self.rebounce.notify_one();
+    }
+
+    /// The runtime switch, without the side effects of a full `status()`.
+    ///
+    /// `status()` probes the tailcat binary (`tailcat version`) the first time
+    /// it is called. `GET /api/addons` is unauthenticated and asks every
+    /// add-on whether it is enabled, so it must not be able to spawn a
+    /// subprocess on a server where the add-on is switched off.
+    pub async fn is_enabled(&self) -> bool {
+        self.inner.read().await.wanted
     }
 
     /// Process shutdown, not a persisted user setting change. Stop the monitor
@@ -678,6 +695,28 @@ fn canonical_key(key: &str) -> String {
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+
+    /// A switched-off add-on must leave no trace in the process. `init()` used
+    /// to call `ensure_tasks()` unconditionally, so every server bound
+    /// 127.0.0.1:<server port + 1> and ran a monitor task for an add-on that
+    /// was off — against the "disabled = no listener, zero footprint" promise
+    /// in docs/addons/ATTACH_DETACH.md.
+    #[tokio::test]
+    async fn init_starts_nothing_while_the_switch_is_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = TailcatManager::new(3001, dir.path());
+        manager.init().await;
+
+        assert!(!manager.is_enabled().await, "default settings are off");
+        assert!(
+            !manager.tasks.initialized(),
+            "init started the forwarder and monitor tasks although the add-on is off"
+        );
+        assert!(
+            manager.forwarder.lock().await.is_none(),
+            "init bound a forwarder on the pipe port although the add-on is off"
+        );
+    }
 
     #[tokio::test]
     async fn disabled_listener_rejects_publication_before_monitor_stops() {

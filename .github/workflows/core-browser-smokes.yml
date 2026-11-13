@@ -124,3 +124,12 @@ jobs:
       - name: Encrypted shared conversation notes
         working-directory: frontend
         run: xvfb-run -a node scripts/shared-notes-end-to-end.mjs
+
+      # The Authority built above is the default build (no features), so this
+      # walks the shell of a server that holds no optional add-on and switches
+      # none on: no add-on entry point may be offered as usable.
+      - name: Core shell with every add-on absent or off
+        working-directory: frontend
+        env:
+          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
+        run: xvfb-run -a node scripts/addons-absent-browser-smoke.mjs
