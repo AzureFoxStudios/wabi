@@ -2,11 +2,11 @@
 // server and permission picker are fixtures; no host devices or live accounts.
 import { get } from 'svelte/store';
 import { startGroupCall, joinVoiceChannel, leaveVoiceChannel, revokeGroupCall,
-  handleForcedVoiceMove, handleForcedVoiceLeave, cleanupAllConnections, createCallOffer,
+  handleForcedVoiceMove, handleForcedVoiceLeave, cleanupAllConnections,
   startScreenShare } from '../src/lib/calling_impl_core';
 import { callSocketDisconnected, callSocketInitialized } from '../src/lib/callSocketLifecycle';
 import { getWabidbRelayDiagnostics, disconnectWabidbCall } from '../src/lib/callingWabidb';
-import { localStream, localScreenStream, isSharing, activeGroupCall, activeVoiceChannel, isInCall, isMuted, voiceChannelNotice } from '../src/lib/callingStateStores';
+import { localStream, localScreenStream, isSharing, activeGroupCall, activeVoiceChannel, isInCall, isMuted, voiceChannelNotice, callOfflineNotice } from '../src/lib/callingStateStores';
 import { groupMembership } from '../src/lib/groupAccess';
 import { setConfiguredServerUrl } from '../src/lib/serverUrl';
 import { setAuthToken, setStoredDbUserId } from '../src/lib/authSession';
@@ -32,7 +32,7 @@ class RawSocket {
 }
 class FixtureSocket {
   connected = true;
-  held = new Set<string>(); denied = new Set<string>();
+  held = new Set<string>(); denied = new Set<string>(); relayDenied = new Set<string>();
   sent: [string, any][] = [];
   listeners = new Map<string, Set<(data: any) => void>>();
   constructor(public id: string) {}
@@ -40,7 +40,9 @@ class FixtureSocket {
   off(event: string, fn: (data: any) => void) { this.listeners.get(event)?.delete(fn); return this; }
   emit(event: string, data: any) {
     this.sent.push([event, data]);
-    if (event === 'join-wabidb-call') queueMicrotask(() => this.receive('wabidb-call-joined', data));
+    if (event === 'join-wabidb-call') queueMicrotask(() => this.relayDenied.has(data.channelId)
+      ? this.receive('wabidb-call-denied', { ...data, reason: 'Fixture relay denied' })
+      : this.receive('wabidb-call-joined', data));
     if (event === 'call-initiate') queueMicrotask(() => this.receive('group-call-started', { ...data, established: true }));
     if (event === 'start-screen-share') queueMicrotask(() => this.receive('screen-share-targets', { ...data, targets: [] }));
     if ((event === 'voice-channel-join' || event === 'voice-channel-subscribe') && !this.held.has(data.channelId)) {
@@ -67,6 +69,7 @@ async function run() {
   const relays = () => getWabidbRelayDiagnostics().map(row => row.key);
   let captures = 0, holdCapture = false, failCapture = false, finishCapture: ((stream: MediaStream) => void) | undefined;
   let holdLeave = false;
+  let painter: ReturnType<typeof setInterval> | undefined;
   const heldLeaves: (() => void)[] = [];
   setConfiguredServerUrl(location.origin, false);
   setAuthToken(`header.${btoa(JSON.stringify({ sub: '1', exp: 4102444800 }))}.fixture`);
@@ -165,25 +168,47 @@ async function run() {
     assert(!get(localStream), 'last moved initial session kick releases capture');
     results.push('move during initial microphone permission: primary role transfers and retired join cleanup cannot erase destination');
 
-    setCallTransportMode('p2p-only');
-    await joinVoiceChannel(current as any, 'p2p-source');
-    await joinVoiceChannel(current as any, 'p2p-canary', { listenOnly: true });
-    const sourcePeer = await createCallOffer(current as any, 'source-peer', 'Source', { channelId: 'p2p-source', forceTransport: 'p2p' });
-    const canaryPeer = await createCallOffer(current as any, 'canary-peer', 'Canary', { channelId: 'p2p-canary', forceTransport: 'p2p' });
+    // Community voice is relay/SFU only: the client refuses direct P2P because
+    // the Authority cannot enforce server mute/deafen on browser-to-browser RTP
+    // (callingFallback.effectiveChain, 22e1fa59). Moves and kicks are proved on
+    // the WabiDB relay, the transport community voice actually uses.
+    await joinVoiceChannel(current as any, 'relay-source');
+    await joinVoiceChannel(current as any, 'relay-canary', { listenOnly: true });
+    assert(relays().includes('relay-source') && relays().includes('relay-canary'), 'source and canary each own a real relay');
     const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 16;
-    const screen = canvas.captureStream(); sources.push(screen);
+    // The relay encodes real frames: keep the synthetic screen painting.
+    const paint = canvas.getContext('2d')!; let frame = 0;
+    painter = setInterval(() => { paint.fillStyle = frame++ % 2 ? '#000' : '#fff'; paint.fillRect(0, 0, 16, 16); }, 33);
+    const screen = canvas.captureStream(30); sources.push(screen);
     navigator.mediaDevices.getDisplayMedia = async () => screen;
     assert(await startScreenShare(current as any) === screen && get(isSharing), 'source owns real screen capture');
-    await handleForcedVoiceMove(current as any, 'p2p-source', 'p2p-destination');
-    assert(sourcePeer?.connectionState === 'closed' && canaryPeer?.connectionState !== 'closed', 'move closes only source P2P peer');
+    current.held.add('relay-destination');
+    const relayMove = handleForcedVoiceMove(current as any, 'relay-source', 'relay-destination');
+    assert(!relays().includes('relay-source') && relays().includes('relay-canary'), 'move retires only the source relay');
     assert(!get(localScreenStream) && !get(isSharing) && screen.getTracks().every(track => track.readyState === 'ended'), 'move stops source screen sharing');
-    assert(relays().length === 0 && callSessionManager.get('p2p-destination')?.lifecycle !== 'connected', 'empty P2P destination never reports a connected relay');
-    const destinationPeer = await createCallOffer(current as any, 'destination-peer', 'Destination', { channelId: 'p2p-destination', forceTransport: 'p2p' });
-    await handleForcedVoiceLeave(current as any, 'p2p-destination');
-    assert(destinationPeer?.connectionState === 'closed' && canaryPeer?.connectionState !== 'closed' && get(localStream), 'kick closes exactly the destination peer and retains other capture consumer');
-    await handleForcedVoiceLeave(current as any, 'p2p-canary');
-    assert(canaryPeer?.connectionState === 'closed' && !get(localStream), 'last P2P kick closes remaining peer and microphone');
-    results.push('P2P moves and kicks: source screen/peer retired, unrelated peer survives, empty destination never claims connected media');
+    await until(() => !!current.request('relay-destination'), 'relay destination admission requested');
+    assert(!relays().includes('relay-destination') && callSessionManager.get('relay-destination')?.lifecycle !== 'connected', 'unadmitted destination never claims connected media');
+    current.receive('voice-channel-admitted', current.request('relay-destination')); await relayMove;
+    assert(relays().includes('relay-destination') && callSessionManager.get('relay-destination')?.lifecycle === 'connected', 'admitted destination connects its own relay');
+    await handleForcedVoiceLeave(current as any, 'relay-destination');
+    assert(!relays().includes('relay-destination') && relays().includes('relay-canary') && get(localStream), 'kick removes exactly the destination relay and retains other capture consumer');
+    await handleForcedVoiceLeave(current as any, 'relay-canary');
+    assert(relays().length === 0 && !get(localStream), 'last relay kick closes remaining relay and microphone');
+    results.push('relay moves and kicks: source screen/relay retired, unrelated relay survives, unadmitted destination never claims connected media');
+
+    let offers = 0;
+    RTCPeerConnection.prototype.createOffer = function(...args: any[]): any { offers++; return originalOffer.apply(this, args as any); };
+    voiceChannelMembers.update(roster => ({ ...roster, 'p2p-refused': [{ userId: 'mesh-peer', username: 'Mesh',
+      isSpeaking: false, isMuted: false, isDeafened: false }] }));
+    setCallTransportMode('p2p-only');
+    const refusal = await joinVoiceChannel(current as any, 'p2p-refused').then(() => '', error => String(error?.message ?? error));
+    setCallTransportMode('wabidb');
+    RTCPeerConnection.prototype.createOffer = originalOffer;
+    assert(refusal.includes('Direct P2P is unavailable for community voice') && get(callOfflineNotice)?.includes('mute/deafen'), 'P2P-only community voice join is refused with its reason');
+    assert(offers === 0 && relays().length === 0 && !callSessionManager.get('p2p-refused') && !get(activeVoiceChannel) && !get(isInCall) && !get(localStream),
+      'refused P2P join creates no peer offer, relay or session and releases the microphone');
+    results.push('P2P-only community voice: refused before any peer offer, leaves no session, relay or microphone');
+
     setCallTransportMode('wabidb'); failCapture = true;
     assert(await joinVoiceChannel(current as any, 'failed-source').then(() => false, () => true), 'initial microphone denial rejects join');
     const afterFailure = current.sent.length;
@@ -192,31 +217,34 @@ async function run() {
       'stale move after failed join cannot start an unrequested call');
     results.push('failed initial join retires socket ownership; stale moderator events cannot acquire a new microphone or call');
 
-    setCallTransportMode('p2p-only');
+    // Auto keeps a P2P tail for DMs/groups only; on community voice a dead
+    // relay must fail the join, never fall through to a mesh offer.
+    setCallTransportMode('auto');
     await joinVoiceChannel(current as any, 'failure-canary');
-    const retainedPeer = await createCallOffer(current as any, 'retained-peer', 'Retained', { channelId: 'failure-canary', forceTransport: 'p2p' });
-    let unanswered: RTCPeerConnection | undefined;
-    RTCPeerConnection.prototype.createOffer = function(...args: any[]): any {
-      unanswered = this; return originalOffer.apply(this, args as any);
-    };
+    assert(relays().includes('failure-canary'), 'canary owns a real relay');
+    let fallbackOffers = 0;
+    RTCPeerConnection.prototype.createOffer = function(...args: any[]): any { fallbackOffers++; return originalOffer.apply(this, args as any); };
     voiceChannelMembers.update(roster => ({ ...roster, 'failed-transport': [{ userId: 'unanswered-peer', username: 'Unavailable',
       isSpeaking: false, isMuted: false, isDeafened: false }] }));
+    current.relayDenied.add('failed-transport');
     const transportFailed = await joinVoiceChannel(current as any, 'failed-transport').then(() => false, () => true);
     RTCPeerConnection.prototype.createOffer = originalOffer;
-    assert(transportFailed && unanswered?.signalingState === 'closed' && !callSessionManager.get('failed-transport'), 'failed P2P join retires its real unanswered peer as well as its visible session');
-    assert(retainedPeer?.signalingState !== 'closed' && get(localStream)?.getAudioTracks()[0].readyState === 'live', 'failed join preserves unrelated peer and microphone consumer');
+    assert(transportFailed && !relays().includes('failed-transport') && !callSessionManager.get('failed-transport'), 'failed relay join surfaces failure and retires its relay and visible session');
+    assert(fallbackOffers === 0, 'Auto never falls through to a P2P offer for community voice');
+    assert(relays().includes('failure-canary') && callSessionManager.get('failure-canary') && get(localStream)?.getAudioTracks()[0].readyState === 'live', 'failed join preserves unrelated relay and microphone consumer');
     await leaveVoiceChannel(current as any, 'failure-canary');
-    results.push('unanswered P2P join: timeout surfaces failure, closes its peer, and preserves unrelated peer/capture consumer');
+    setCallTransportMode('wabidb');
+    results.push('denied relay join: failure surfaces, no P2P fallback, its relay/session retired, unrelated relay/capture preserved');
     return results;
   } finally {
-    holdLeave = false; heldLeaves.splice(0).forEach(resolve => resolve());
+    holdLeave = false; heldLeaves.splice(0).forEach(resolve => resolve()); clearInterval(painter);
     revokeGroupCall('group-canary');
     for (const session of callSessionManager.list()) await leaveVoiceChannel(current as any, session.id);
     cleanupAllConnections(); callSessionManager.leaveAll(); await disconnectWabidbCall();
     sources.forEach(stream => stream.getTracks().forEach(track => track.stop())); await context.close();
     window.fetch = originalFetch; window.WebSocket = OriginalWebSocket;
     navigator.mediaDevices.getUserMedia = originalCapture; navigator.mediaDevices.getDisplayMedia = originalDisplay; setAuthToken(null);
-    RTCPeerConnection.prototype.createOffer = originalOffer;
+    RTCPeerConnection.prototype.createOffer = originalOffer; setCallTransportMode('wabidb');
     voiceChannelMembers.set({});
   }
 }
