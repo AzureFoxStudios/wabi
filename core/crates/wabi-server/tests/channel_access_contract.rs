@@ -1761,6 +1761,101 @@ async fn screen_and_peer_signaling_stay_in_one_call_and_reject_old_membership() 
 }
 
 #[tokio::test]
+async fn community_voice_never_relays_p2p_call_signaling() {
+    // Server mute / deafen / listen-only are enforced on the relay and SFU.
+    // Direct RTP between browsers bypasses all three, so the Authority must
+    // never broker a P2P call (call-offer / call-answer-sdp /
+    // call-ice-candidate) scoped to a community voice channel, whoever asks.
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, outsider, owner) = users(&state).await;
+    let mut extra = Vec::new();
+    for name in ["peer", "muted", "listener"] {
+        extra.push(
+            state
+                .wdb
+                .create_user(name, None, "registered-test-hash")
+                .await
+                .unwrap(),
+        );
+    }
+    let (peer, muted, listener) = (extra[0], extra[1], extra[2]);
+    let voice = channel(&state, member, ChannelKind::Voice).await;
+    for uid in [peer, muted, listener] {
+        state
+            .wdb
+            .add_channel_member(&voice, uid, MemberRole::Member)
+            .await
+            .unwrap();
+    }
+    state
+        .wdb
+        .mute_user(&voice, owner, muted, i64::MAX)
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut speaker = SocketClient::connect(&app, &jwt(&state, member)).await;
+    let mut recipient = SocketClient::connect(&app, &jwt(&state, peer)).await;
+    let mut silenced = SocketClient::connect(&app, &jwt(&state, muted)).await;
+    let mut listen_only = SocketClient::connect(&app, &jwt(&state, listener)).await;
+    let stranger = SocketClient::connect(&app, &jwt(&state, outsider)).await;
+    for client in [&mut speaker, &mut recipient, &mut silenced] {
+        client
+            .emit("voice-channel-join", json!({"channelId":voice}))
+            .await;
+        client.event("voice-channel-admitted").await;
+    }
+    listen_only
+        .emit("voice-channel-subscribe", json!({"channelId":voice}))
+        .await;
+    listen_only.event("voice-channel-admitted").await;
+
+    const CALL_SIGNALS: [(&str, &str); 3] = [
+        ("call-offer", "offer"),
+        ("call-answer-sdp", "answer"),
+        ("call-ice-candidate", "candidate"),
+    ];
+    // A non-member is refused by channel access alone (control case).
+    for (event, field) in CALL_SIGNALS {
+        stranger
+            .emit(event, json!({"targetId":recipient.socket_id,"channelId":voice,field:{"canary":format!("non-member-{event}")}}))
+            .await;
+    }
+    for (label, sender) in [
+        ("member", &speaker),
+        ("server-muted", &silenced),
+        ("listen-only", &listen_only),
+    ] {
+        for (event, field) in CALL_SIGNALS {
+            sender
+                .emit(event, json!({"targetId":recipient.socket_id,"channelId":voice,field:{"canary":format!("{label}-{event}")}}))
+                .await;
+        }
+        // Same-socket barrier: screen-share signalling in this channel is
+        // still relayed (its media path is separate), so once it arrives
+        // every call-* emit above from this sender has been handled.
+        sender
+            .emit("webrtc-offer", json!({"targetId":recipient.socket_id,"channelId":voice,"offer":{"canary":format!("{label}-barrier")}}))
+            .await;
+        assert_eq!(
+            recipient.event("webrtc-offer").await["offer"]["canary"],
+            format!("{label}-barrier")
+        );
+    }
+    let leaked: Vec<&Value> = recipient
+        .events
+        .iter()
+        .filter(|event| CALL_SIGNALS.iter().any(|(name, _)| event[0] == *name))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "community voice relayed P2P call signalling: {leaked:?}"
+    );
+}
+
+#[tokio::test]
 async fn group_consent_is_device_owned_and_old_disconnect_cannot_evict_a_replacement() {
     async fn disconnect(client: &SocketClient, state: &AppState) {
         // Queue the disconnect behind the gate, then wait for its read-side

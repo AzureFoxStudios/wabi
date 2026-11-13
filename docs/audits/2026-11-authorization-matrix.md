@@ -356,7 +356,7 @@ scan, not a claim that a fixture router is production-exposed.
 | `core/crates/wabi-server/src/app_router.rs:827` | other | `(root/helper/test)` | `/health` | GET | `health_check` | no handler-level token — REVIEW |
 | `core/crates/wabi-server/src/app_router.rs:829` | other | `(root/helper/test)` | `/livez` | GET | `liveness_check` | no handler-level token — REVIEW |
 | `core/crates/wabi-server/src/app_router.rs:831` | other | `(root/helper/test)` | `/readyz` | GET | `readiness_check` | no handler-level token — REVIEW |
-| `core/crates/wabi-server/src/app_router.rs:833` | other | `(root/helper/test)` | `/metrics` | GET | `metrics_handler` | no handler-level token — REVIEW |
+| `core/crates/wabi-server/src/app_router.rs:897` | other | `(root/helper/test)` | `/metrics` | GET | `metrics_handler` | admin_auth (legacy admin extractor) |
 | `core/crates/wabi-server/src/app_router.rs:850` | other | `(root/helper/test)` | `/uploads/{filename}` | GET/HEAD | `serve_upload, head_upload` | AuthUser bearer |
 | `core/crates/wabi-server/src/bin/wabi-db-replica-dev.rs:229` | other | `(root/helper/test)` | `/livez` | GET | `(inline closure)` | inline closure — REVIEW (usually a test/router fixture) |
 | `core/crates/wabi-server/src/bin/wabi-db-replica-dev.rs:230` | other | `(root/helper/test)` | `/api/v1/sync/status` | GET | `status` | AuthUser bearer |
@@ -491,9 +491,10 @@ scan, not a claim that a fixture router is production-exposed.
   directories are listed with their local path; compose the full URL as
   `/api` + the parent nest in `api/routes.rs` + the nested prefix.
 - `app_router.rs` adds `/health`, `/livez`, `/readyz`, `/metrics`,
-  `/uploads/{filename}`, `/ws/*` and `/api/*`; `/health*` and `/metrics`
-  are deliberately unauthenticated operational endpoints (the audit
-  report records their exposure).
+  `/uploads/{filename}`, `/ws/*` and `/api/*`; `/health`, `/livez` and
+  `/readyz` are deliberately unauthenticated operational endpoints.
+  `/metrics` requires an admin (`admin_auth`) or `WABI_METRICS_TOKEN`
+  unless `WABI_METRICS_PUBLIC=1` (see `docs/deployment/INSTALL.md`).
 - Handlers reached via `axum::routing::get(...)` written inside a
   multi-line expression are still captured; `REVIEW` rows are listed so
   a human can confirm the guard rather than assume one.

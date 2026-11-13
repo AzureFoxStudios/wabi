@@ -32,7 +32,21 @@ describe('transport watchdog', () => {
 		transportWatchdog.stop();
 	});
 
-	test('p2p demotion requires explicit trust-boundary opt-in', async () => {
+	test('p2p demotion requires explicit trust-boundary opt-in; the relay is retried once instead', async () => {
+		(globalThis as any).__wabidbProbePrimary = () => false;
+		const connectedVia: string[] = [];
+		transportWatchdog.start({
+			mode: 'auto', active: 'wabidb', graceMs: 5, probeIntervalMs: 10,
+			connect: async transport => { connectedVia.push(transport); throw new Error('relay still down'); }
+		});
+		transportWatchdog.handleDisconnect();
+		await new Promise((r) => setTimeout(r, 40));
+		expect(connectedVia).toEqual(['wabidb']);
+		expect(transportWatchdog.status).toBe('stopped');
+		transportWatchdog.stop();
+	});
+
+	test('without a permitted fallback a successful relay retry resumes monitoring', async () => {
 		(globalThis as any).__wabidbProbePrimary = () => false;
 		const connectedVia: string[] = [];
 		transportWatchdog.start({
@@ -41,8 +55,9 @@ describe('transport watchdog', () => {
 		});
 		transportWatchdog.handleDisconnect();
 		await new Promise((r) => setTimeout(r, 40));
-		expect(connectedVia).toEqual([]);
-		expect(transportWatchdog.status).toBe('stopped');
+		expect(connectedVia).toEqual(['wabidb']);
+		expect(transportWatchdog.status).toBe('monitoring');
+		expect(transportWatchdog.riding).toBe('wabidb');
 		transportWatchdog.stop();
 	});
 

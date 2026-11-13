@@ -446,6 +446,23 @@ async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioStat
 async fn scoped_signaling_consent(
     state: &SioState, socket: &SocketRef, target: Option<&str>, data: &Value,
 ) -> bool {
+    signaling_consent(state, socket, target, data, false).await
+}
+
+/// Consent for direct P2P *call* media (call-offer / call-answer-sdp /
+/// call-ice-candidate). DMs and private groups only: community voice is
+/// relay/SFU-only because server mute, deafen and listen-only cannot be
+/// enforced once browsers exchange RTP directly. Screen-share signalling
+/// (webrtc-*) keeps using `scoped_signaling_consent`.
+async fn scoped_call_p2p_consent(
+    state: &SioState, socket: &SocketRef, target: Option<&str>, data: &Value,
+) -> bool {
+    signaling_consent(state, socket, target, data, true).await
+}
+
+async fn signaling_consent(
+    state: &SioState, socket: &SocketRef, target: Option<&str>, data: &Value, p2p_call: bool,
+) -> bool {
     let Some(identity) = resolve_identity(socket, state).await else { return false; };
     let sender = format!("user-{}", identity.user_id);
     let socket_id = socket.id.to_string();
@@ -465,6 +482,7 @@ async fn scoped_signaling_consent(
         if expected.as_str() != Some(actual.to_string().as_str()) { return false; }
     }
     match record.channel_kind {
+        wabidb::domain::ChannelKind::Voice if p2p_call => false,
         wabidb::domain::ChannelKind::Voice => {
             let voice = state.voice_channels.read().await;
             voice.get(channel).is_some_and(|members| {
@@ -516,7 +534,8 @@ async fn on_call_offer(socket: SocketRef, data: Value, state: SioState, io: Sock
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    if !scoped_signaling_consent(&state, &socket, Some(&target_id), &data).await {
+    if !scoped_call_p2p_consent(&state, &socket, Some(&target_id), &data).await {
+        warn!("[sio] call-offer consent denied: socket {} ({}) -> {}", socket.id, my_stable_id, target_id);
         return;
     }
     let _ = io
