@@ -491,22 +491,10 @@
 	color: var(--w-text);
 	font-variant-numeric: tabular-nums;
 }
-.calls-conn__route {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px 12px;
-	margin-top: 16px;
+.calls-conn__hint {
+	margin: 16px 0 0;
 	padding-top: 14px;
 	border-top: var(--w-bw) solid var(--w-line);
-}
-.calls-conn__label {
-	color: var(--w-text);
-	font: var(--w-t-label);
-}
-.calls-conn__hint {
-	flex-basis: 100%;
-	margin: 0;
 	color: var(--w-mute);
 	font: var(--w-t-small);
 }

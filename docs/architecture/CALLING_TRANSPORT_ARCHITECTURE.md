@@ -138,6 +138,19 @@ Wabi's default `auto` calling policy prefers the WabiDB-labelled relay with a
 P2P fallback; explicit P2P and optional LiveKit policies also exist. See
 `callingFallback.ts` and `callingTransport.ts` for policy and selection.
 
+**Community voice channels never use direct P2P call media** (2026-11-13).
+Server mute, deafen and listen-only are enforced on the relay and SFU; they
+cannot be enforced once browsers exchange RTP directly. So: `effectiveChain`
+drops P2P for `surface: 'channel'` (a P2P-only join is refused before the
+microphone prompt), there is no manual switch to P2P, the mid-call watchdog
+retries the relay and otherwise shows a reason (it never demotes to P2P), and
+the server refuses `call-offer` / `call-answer-sdp` / `call-ice-candidate`
+scoped to a voice channel (`scoped_call_p2p_consent`, contract test
+`community_voice_never_relays_p2p_call_signaling`). Direct calls and group DMs
+keep P2P where their chain allows it; neither has moderator-enforced
+mute/deafen/listen-only. Screen-share signalling (`webrtc-*`) in voice channels
+is still relayed for webviews without WebCodecs; see the open item below.
+
 The relay name does **not** mean that microphone samples are persisted as
 WabiDB events. Call control uses the server's session/API/WebSocket machinery;
 live audio/video envelopes use authenticated Socket.IO rooms. The server
@@ -184,11 +197,15 @@ not close a bidirectional P2P connection or its camera/sender. This intentionall
 retains backup transport bandwidth; retiring it safely would require additional
 bidirectional coordination, not a decode counter.
 
-Manual channel switches prepare before tearing down the old route. A P2P switch
-requires connected peers, not merely emitted SDP offers, and requires every
-expected roster peer before leaving relay rooms. Failed preparation retains
-the old route. DM/group manual switching and multiple channel-owned PCs for the
-same peer are not supported by the current peer-key contract.
+Manual channel switches can only target the relay; a switch to P2P is refused
+with its reason (community voice, above). DM/group manual switching and multiple
+channel-owned PCs for the same peer are not supported by the current peer-key
+contract.
+
+Open item: P2P screen share in a voice channel (webviews without WebCodecs) can
+carry screen audio directly between browsers, where relay deafen and
+listen-only publish rules do not apply. It needs an owner decision (refuse it,
+or send screen audio over the relay only) before it can be closed.
 
 ## Group media ownership and signaling scope (2026-09-08)
 
@@ -282,12 +299,13 @@ destination uses the same cancellable readmission and transport fallback path as
 reconnect, not a separate relay-only setup. A newer move/kick cancels the old
 operation; stale joins cannot clear a replacement. Forced kicks use scoped voice
 leave, preserving other calls and releasing capture when the last consumer ends.
-Failed initial joins use that same teardown: an unanswered P2P connection must
-close when setup fails, not survive removal of its visible session.
+Failed initial joins use that same teardown and must not leave a relay or
+visible session behind.
 Recovery reacquires ended microphone tracks only after fresh admission. Call
 session transport labels use their own fallback outcome, not another session's
 last write to the shared transport diagnostic. The `/__voice_ownership` headful
-route covers these client races, including real P2P peer/screen teardown. Its
+route covers these client races over the relay, and pins that community voice
+makes no P2P offer (P2P-only join, Auto fallback, manual switch, watchdog). Its
 fixture server does not certify moderator/breakout multi-device behavior or the
 separate account-level persisted leave/rejoin race within one membership revision.
 
