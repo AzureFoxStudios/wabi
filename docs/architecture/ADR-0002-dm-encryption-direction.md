@@ -298,6 +298,7 @@ The owner answered the nine questions in their own words. Each entry gives the a
 
 4. **MLS library.** *"Give a doc giving verbose info about both, but deeply think about the longer term of both and choose that one, outlining why in said document."*
    - Yes to the trial. Its result is a document, `docs/architecture/ADR-0003-mls-library-choice.md`: both libraries built for the browser and the desktop, measured, with their maintenance history, governance, review history and licence checked against primary sources, and one chosen for the long term with the reasons written out.
+   - Decided in [ADR-0003](ADR-0003-mls-library-choice.md), accepted by the owner on 2026-11-13: **mls-rs**, behind one small Wabi-owned interface so the choice can be reversed.
 
 5. **Losing every device.** *"Wabi being ephemeral is strong, but … we should allow people to 'discordify': keep deep history. However we need to make sure it's sane and not going to make people pull their hair out."*
    - Default: history in encrypted conversations is gone with the last device. No recovery key at setup, so setup stays one step.
