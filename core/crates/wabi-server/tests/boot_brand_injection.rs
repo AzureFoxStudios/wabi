@@ -158,7 +158,14 @@ async fn sw_and_manifest_revalidate() {
 
     for path in ["/sw.js", "/manifest.webmanifest"] {
         let (status, headers, _body) = get(&app, path).await;
-        assert_eq!(status, StatusCode::OK, "GET {path}");
+        // Needs the real files from a frontend build. Without one, these
+        // paths used to fall through to an empty 200 shell and passed
+        // without testing anything; they are now an honest 503.
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "GET {path} (needs a real frontend build: cd frontend && STATIC_BUILD=1 npm run build)"
+        );
         assert_eq!(
             headers.get("cache-control").and_then(|v| v.to_str().ok()),
             Some("no-cache"),

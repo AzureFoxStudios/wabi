@@ -34,7 +34,7 @@ Open:
 http://localhost:3001
 ```
 
-Create the first/owner account.
+Create the first/owner account. `docker compose logs wabi-server` shows the server's ready block, including `No owner yet: the first account created becomes the owner.` until that account exists. If the page answers `503` saying the web app is missing, the image was built without the frontend; rebuild with `docker compose up -d --build`.
 
 ## 2. Verify the Authority before adding anything else
 

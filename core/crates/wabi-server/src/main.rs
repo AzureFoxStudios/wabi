@@ -56,6 +56,7 @@ mod secrets;
 mod socketio;
 mod socketio_impl;
 mod standby;
+mod startup_report;
 mod state;
 mod upload_registry;
 mod web_push;
@@ -67,6 +68,8 @@ mod websocket;
 #[path = "../../wabi-consensus/src/fork_gate.rs"]
 mod fork_gate;
 use crate::nodes::NodeCapability;
+use crate::startup_report::{ListenFailed, OpenDataFailed};
+use anyhow::Context as _;
 use crate::state::AppState;
 use clap::Parser;
 use std::net::SocketAddr;
@@ -263,10 +266,10 @@ async fn wait_for_shutdown(shutdown_on_stdin_close: bool) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
     // Dedicated opt-in before logging, maintenance, JWT, AppState/WabiDB and
     // upload setup. Recovery peers never become another community Authority.
-    if let Some(path) = args.recovery_node_config {
+    if let Some(path) = args.recovery_node_config.take() {
         anyhow::ensure!(std::env::var_os("WABI_PURGE_ORPHANS").is_none(),
             "Recovery node mode cannot run Authority maintenance");
         anyhow::ensure!(std::env::var_os("WABI_SERVER_ROLE").is_none(),
@@ -343,6 +346,30 @@ async fn main() -> anyhow::Result<()> {
         return purge_orphaned_messages(&data_dir).await;
     }
 
+    // Everything below can fail for reasons a person can fix (port in use,
+    // data directory locked or unreadable). Say so plainly on stderr as well
+    // as in the log; the terminal is where they are looking.
+    let log_file = startup_report::daily_log_file(std::path::Path::new(&log_dir), "wabi-server.log");
+    let fatal_context = startup_report::FatalContext {
+        host: args.host.clone(),
+        port: args.port,
+        // An Anchor and a helper own no community data directory.
+        data_dir: (ServerRole::from_env() == ServerRole::Authority && !args.helper_mode)
+            .then(|| startup_report::display_path(std::path::Path::new(&args.data_dir))),
+        log_file: Some(log_file.clone()),
+    };
+    if let Err(error) = serve(args, log_file).await {
+        tracing::error!("wabi-server stopped with an error: {error:#}");
+        eprint!("{}", startup_report::fatal_message(&error, &fatal_context));
+        // `exit` skips destructors: flush the file log first.
+        drop(_guard);
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// The helper, Anchor or Authority runtime. Errors are explained by `main`.
+async fn serve(args: Args, log_file: std::path::PathBuf) -> anyhow::Result<()> {
     info!("🚀 Wabi Node v{}", env!("CARGO_PKG_VERSION"));
 
     // --- Helper mode: outbound worker, no listening socket ---
@@ -402,10 +429,20 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::anyhow!("WABI_AUTHORITY_URL is required when WABI_SERVER_ROLE=anchor")
             })?;
         let app = crate::anchor::create_anchor_router(authority_url.clone())?;
-        let listener = TcpListener::from_std(listener::bind_configured(&args.host, args.port)?)?;
+        let listener = TcpListener::from_std(
+            listener::bind_configured(&args.host, args.port).context(ListenFailed)?,
+        )?;
         let bound_addr = listener.local_addr()?;
         if args.print_bound_address {
             print_bound_address(bound_addr)?;
+        } else {
+            startup_report::print_ready(&startup_report::ready_block(
+                &startup_report::Network::detect(bound_addr),
+                &startup_report::Role::Anchor {
+                    authority: &startup_report::printable_url(&authority_url),
+                },
+                &log_file,
+            ));
         }
         info!("📡 Starting stateless regional anchor on {}", bound_addr);
         info!("↪ Authority: {}", authority_url);
@@ -431,11 +468,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Refuse a retired Authority before resolving/persisting JWT material,
     // creating upload directories, or opening any file-backed sidecar.
-    state::ensure_authority_not_fenced(&args.data_dir)?;
+    state::ensure_authority_not_fenced(&args.data_dir).context(OpenDataFailed)?;
 
     // Reserve the actual requested socket before storage/helpers are opened.
     // Port zero remains reserved; every helper sees the allocated port.
-    let listener = TcpListener::from_std(listener::bind_configured(&args.host, args.port)?)?;
+    let listener = TcpListener::from_std(
+        listener::bind_configured(&args.host, args.port).context(ListenFailed)?,
+    )?;
     let bound_addr = listener.local_addr()?;
 
     // Compute uploads_dir and blacklist_file before data_dir is consumed.
@@ -449,7 +488,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| format!("{}/blacklist.txt", args.data_dir));
     let authority_url = std::env::var("WABI_AUTHORITY_URL").ok();
 
-    let jwt_secret = resolve_jwt_secret(&args.data_dir)?;
+    let jwt_secret = resolve_jwt_secret(&args.data_dir).context(OpenDataFailed)?;
 
     let turn = TurnStartupConfig::from_env().map_err(anyhow::Error::msg)?;
 
@@ -517,20 +556,22 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Ensure data directory exists
-    std::fs::create_dir_all(&config.data_dir)?;
+    std::fs::create_dir_all(&config.data_dir).context(OpenDataFailed)?;
 
     // Ensure uploads directory exists
-    std::fs::create_dir_all(&config.uploads_dir)?;
+    std::fs::create_dir_all(&config.uploads_dir).context(OpenDataFailed)?;
 
     info!("📡 Starting server on {}:{}", config.host, config.port);
 
     // Create application state
     let state = Arc::new(
-        AppState::new_with_desktop_bootstrap(config.clone(), desktop_bootstrap_token).await?,
+        AppState::new_with_desktop_bootstrap(config.clone(), desktop_bootstrap_token)
+            .await
+            .context(OpenDataFailed)?,
     );
     // Create staging only after the missing-registry recovery guard inspects
     // uploads; an empty fresh instance must not look like lost upload history.
-    std::fs::create_dir_all(format!("{}/.tmp", config.uploads_dir))?;
+    std::fs::create_dir_all(format!("{}/.tmp", config.uploads_dir)).context(OpenDataFailed)?;
     if args.desktop_managed && state.needs_setup().await && !bound_addr.ip().is_loopback() {
         anyhow::bail!("Create the owner with local-only hosting before enabling LAN sharing");
     }
@@ -881,8 +922,23 @@ async fn main() -> anyhow::Result<()> {
 
     // This record is address discovery only; supervisors must still check
     // /readyz and /api/setup/status while observing child liveness.
+    // Supervisors (desktop app, smokes) read stdout as one JSON record per
+    // line and show their own UI, so the human block is for everyone else:
+    // a terminal, `docker compose logs`, a systemd journal.
     if args.print_bound_address {
         print_bound_address(bound_addr)?;
+    } else {
+        let data_dir = startup_report::display_path(std::path::Path::new(&config.data_dir));
+        startup_report::print_ready(&startup_report::ready_block(
+            &startup_report::Network::detect(bound_addr),
+            &startup_report::Role::Authority {
+                data_dir: &data_dir,
+                setup_required: state.needs_setup().await,
+                desktop_managed: args.desktop_managed,
+                web_app_included: crate::app_router::embedded_frontend_present(),
+            },
+            &log_file,
+        ));
     }
 
     info!("✅ Server ready on {}", bound_addr);

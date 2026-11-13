@@ -58,7 +58,7 @@ Measured on `main` (2026-11-13) as root, without IPv6, with an empty
 | real frontend build | `anchor::tests::anchor_serves_embedded_immutable_assets_locally_and_forwards_missing_versions` |
 | real frontend build | `app_router::embedded_immutable_tests::only_exact_public_immutable_paths_are_local` |
 | real frontend build | `rate_limit::tests::cold_boot_assets_do_not_exhaust_the_unmatched_allowance_but_missing_versions_do` |
-| real frontend build | `boot_brand_injection`: `brand_json_cannot_break_out_of_script`, `injects_brand_into_index_and_deep_links`, `publication_with_unchanged_mtime_cannot_pin_stale_branding`, `recomposes_when_policy_changes`, `rejects_non_hex_accent`, `stock_server_serves_untouched_shell` |
+| real frontend build | `boot_brand_injection`: `brand_json_cannot_break_out_of_script`, `injects_brand_into_index_and_deep_links`, `publication_with_unchanged_mtime_cannot_pin_stale_branding`, `recomposes_when_policy_changes`, `rejects_non_hex_accent`, `stock_server_serves_untouched_shell`, `sw_and_manifest_revalidate` (before the missing-web-app `503`, this one passed vacuously on an empty build) |
 | IPv6 (`::1`, os error 97) | `listener::tests::explicit_ipv6_loopback_is_preserved` |
 | non-root user | `channel_access_contract::failed_retention_write_preserves_policy_and_rolls_back_new_channel` |
 | non-root user | `recovery_peer_operator_contract::allocated_cleanup_failure_closes_admission_and_restart_refuses_remnants` |

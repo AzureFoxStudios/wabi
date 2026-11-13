@@ -40,17 +40,32 @@ cargo build --locked --release -p wabi-server
 ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 ```
 
-The server keeps running in that terminal and **prints nothing there**. Its log goes to `./logs/wabi-server.log.<date>` (set `WABI_LOG_DIR` to move it). Stop it with Ctrl+C. Run the checks below from a second terminal. Keeping it running after you log out (a systemd unit or similar) is not covered here yet.
+The server keeps running in that terminal. When it is ready to accept connections it prints a short block like this (your paths, date and address will differ):
+
+```text
+Wabi server is ready.
+  Open in a browser:  http://localhost:3000
+                      http://192.168.1.20:3000  (from other devices)
+  Data directory:     /home/you/wabi/data/wabi-server
+  Log file:           /home/you/wabi/logs/wabi-server.log.2026-11-13
+  No owner yet: the first account created becomes the owner.
+```
+
+The second address is this machine's address on your network; when the server cannot work it out, that line says `or this machine's address, port 3000` instead. The `No owner yet` line appears only until the first account exists. A `Web app: not included in this build` line means the frontend was not built (pitfall 1). Nothing secret is ever printed.
+
+Everything else goes to the log file named in the block, `./logs/wabi-server.log.<date>` relative to where you started the server (set `WABI_LOG_DIR` to move it). If the server cannot start (port already in use, another server using the same data directory, a data directory it cannot read), it says what happened and what to do on the terminal, then exits. Stop it with Ctrl+C. Keeping it running after you log out (a systemd unit or similar) is not covered here yet.
+
+The block is left out when the server is started with `--print-bound-address`: that flag is for a supervising program (the desktop app, test harnesses) that reads stdout as one JSON record per line.
 
 Secrets: first boot generates `<data_dir>/jwt_secret` and `<data_dir>/wabidb/root_key` (mode 0600) if no env var provides them. To manage secrets externally instead, export `WABI_JWT_KEY` (JWT_SECRET is a legacy alias) and `WABIDB_ROOT_KEY` (64 hex chars) — env always wins over the files. **Back the data dir up**: the root key is not recoverable, and losing it loses the data.
 
-**Check:**
+**Check** (from a second terminal):
 ```bash
-curl -s http://127.0.0.1:3000/readyz
-curl -s http://127.0.0.1:3000/ | grep -qi '<!doctype html' && echo "frontend OK" || echo "frontend MISSING"
+curl -fsS http://127.0.0.1:3000/readyz
+curl -fsS -o /dev/null http://127.0.0.1:3000/ && echo "web app OK"
 ```
 
-`/readyz` should answer `{"engine":"ready","status":"ok"}`. If the second check prints `frontend MISSING`, rebuild the frontend with `STATIC_BUILD=1` and then rebuild the binary (the embed is compile-time). Checking only the status code of `/` is not enough: without a frontend build the server still answers `200` with an empty page.
+`/readyz` should answer `{"engine":"ready","status":"ok"}`. The second check fails (`curl: (22) ... 503`) when the binary was built without the web app: the server then answers every page with `503` and a page saying so, while the API and health checks keep working. Fix: rebuild the frontend with `STATIC_BUILD=1`, then rebuild the binary (pitfall 1).
 
 **Create the owner:** open `http://localhost:3000` (or `http://<this machine's address>:3000` from another computer on your network) in a browser. The first account created becomes the server owner; the setup screens then ask for starter rooms and whether anyone may register (**Open**) or nobody (**Closed**). See [Inviting someone](#inviting-someone) for what that choice means.
 
@@ -68,6 +83,8 @@ docker compose up -d --build   # first build compiles frontend + server (~10+ mi
 Compose prepares fresh bind-mount directory ownership with a short initializer, then runs the Authority as UID/GID 1000. Existing files are not recursively changed.
 
 The image is a multi-stage build (frontend → cargo → runtime), so a fresh clone needs no host toolchain. No `.env` is required: secrets auto-generate into the bind-mounted `./data/wabi-server` on first boot. Set `WABI_JWT_KEY` / `WABIDB_ROOT_KEY` in `.env` only if you manage secrets externally. Default publish: host `3001` → container `3000`.
+
+`docker compose logs wabi-server` shows the same ready block as the binary path. Inside a container the server cannot see which host port Docker published, so the block says `the host port mapped to 3000 in this container` (with the provided `docker-compose.yml`, `http://localhost:3001`) and marks its data directory and log file as paths inside the container (`/data` is `./data/wabi-server` on the host).
 
 Dev override: to run a host-built binary instead of the image's, mount it over the baked-in one and restart:
 
@@ -165,7 +182,7 @@ Also standard: run behind HTTPS (Caddy/cloudflared profile), keep
 
 ## Common pitfalls
 
-1. **`STATIC_BUILD=1` is required for the frontend build.** If you run `npm run build` without it, SvelteKit uses `adapter-node` and emits `handler.js`/`server/` — **no `index.html`**. The Rust binary embeds the frontend via `rust_embed` at compile time, so it needs the static `index.html`. `/health` and `/` still return 200, but `/` is an empty page with no HTML. Fix: `cd frontend && STATIC_BUILD=1 npm run build`, then rebuild the binary.
+1. **`STATIC_BUILD=1` is required for the frontend build.** If you run `npm run build` without it, SvelteKit uses `adapter-node` and emits `handler.js`/`server/` — **no `index.html`**. The Rust binary embeds the frontend via `rust_embed` at compile time, so it needs the static `index.html`. Without it the startup block says `Web app: not included in this build`, and `/` (and every other page) answers `503` with a page explaining this; `/health`, `/readyz` and the API still answer normally. Fix: `cd frontend && STATIC_BUILD=1 npm run build`, then rebuild the binary.
 
 2. **First account is the owner.** The first user registered becomes the server admin/owner. Use a strong password. Don't create throwaway accounts first.
 

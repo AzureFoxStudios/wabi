@@ -36,6 +36,7 @@ pub mod instance_archive;
 pub mod jobs;
 pub mod lan;
 pub mod listener;
+pub mod startup_report;
 pub mod mdns;
 pub mod media;
 pub mod metrics;
