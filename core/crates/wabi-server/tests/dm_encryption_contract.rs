@@ -269,7 +269,7 @@ async fn register_device(app: &Router, state: &AppState, uid: u64, device: &str)
         json!({"deviceId":device,"label":"contract","encryptionPublicKey":opaque_key(),"signingPublicKey":opaque_key()}),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "register {device}: {body}");
+    assert_eq!(status, StatusCode::OK, "device registration refused: {body}");
 }
 
 async fn room_status(app: &Router, state: &AppState, uid: u64, ch: &str) -> (StatusCode, Value) {
@@ -810,7 +810,7 @@ async fn pending_room_refuses_plaintext_until_each_sender_consents_or_encryption
 
     for (sio, uid) in [(&mut sio_a, a), (&mut sio_b, b)] {
         let accepted = plaintext_entry_paths(&app, &state, sio, uid, &group, &marker, "pending").await;
-        assert!(accepted.is_empty(), "pending room accepted plaintext from {uid}: {accepted:#?}");
+        assert!(accepted.is_empty(), "pending room accepted plaintext: {accepted:#?}");
     }
     // An envelope is not accepted either: the room has no key yet.
     let (event, _) = sio_a
@@ -1387,7 +1387,7 @@ async fn server_stores_only_public_device_keys_and_keys_wrapped_to_registered_de
             json!({"senderDeviceId":room.devices[0],"epoch":3,"membershipRevision":revision,"envelopes":envelopes}),
         )
         .await;
-        assert_ne!(status, StatusCode::OK, "escrow recipient {device} accepted: {body}");
+        assert_ne!(status, StatusCode::OK, "escrow recipient accepted: {body}");
         envelopes.pop();
     }
     // An envelope set that omits a member device is refused too (so a server
@@ -1450,7 +1450,7 @@ async fn server_stores_only_public_device_keys_and_keys_wrapped_to_registered_de
     assert_eq!(stored_room["envelopes"].as_array().unwrap().len(), 3);
     // Nothing anywhere under the data directory holds the stray secrets.
     for secret in [&raw_room_key, &private_key] {
-        assert!(files_containing(dir.path(), secret).is_empty(), "{secret} stored");
+        assert!(files_containing(dir.path(), secret).is_empty(), "a room key or private key was stored under the data directory");
     }
     // A member only ever receives the wrapped keys addressed to them.
     let (_, status) = room_status(&app, &state, b, &room.ch).await;
