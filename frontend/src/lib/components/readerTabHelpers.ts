@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify';
 import { Marked, type Tokens } from 'marked';
 import { normalizeReaderCodeLanguage } from '$lib/readerCode';
+import { neutralizeRemoteMediaHtml } from '$lib/privacy/remoteMedia';
 import type { ReaderDocumentFormat } from '$lib/readerWorkspace';
 
 // A private parser instance avoids inheriting chat-only extensions and line-break rules.
@@ -39,14 +40,23 @@ export function renderReaderCode(content: string): string {
 	return `<pre data-reader-code-document="true"><code>${escapeReaderHtml(normalized)}</code></pre>`;
 }
 
-export function renderReaderHtml(content: string, format: ReaderDocumentFormat): string {
+export type ReaderRenderOptions = {
+	/**
+	 * false for a document opened from content that stays on the device (a long message under
+	 * experimental encryption): media from other hosts become links (privacy/remoteMedia.ts).
+	 */
+	remoteMedia?: boolean;
+};
+
+export function renderReaderHtml(content: string, format: ReaderDocumentFormat, options: ReaderRenderOptions = {}): string {
 	if (!content.trim()) return '<p>No content loaded yet.</p>';
 	if (format === 'text') return renderReaderPlainText(content);
 	if (format === 'code') return renderReaderCode(content);
 	// DOMPurify is browser-only; never emit unsanitized HTML during SSR.
 	if (typeof DOMPurify.sanitize !== 'function') return renderReaderPlainText(content);
 	const html = format === 'markdown' ? readerMarkdown.parse(content, { async: false }) : content;
-	return DOMPurify.sanitize(html, SANITIZE_CONFIG);
+	const clean = DOMPurify.sanitize(html, SANITIZE_CONFIG);
+	return options.remoteMedia === false ? neutralizeRemoteMediaHtml(clean) : clean;
 }
 
 export function countWords(value: string): number {

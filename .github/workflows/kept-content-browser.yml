@@ -1,0 +1,44 @@
+name: Kept content browser check
+
+# Experimental-encryption content must not fetch from other hosts: runs the real chat and Reader
+# renderers in Chromium and records every request (frontend/scripts/kept-content-browser-smoke.mjs).
+on:
+  pull_request:
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/src/lib/markdown.ts'
+      - 'frontend/src/lib/privacy/**'
+      - 'frontend/src/lib/components/readerTabHelpers.ts'
+      - 'frontend/scripts/kept-content-browser-smoke.mjs'
+      - '.github/workflows/kept-content-browser.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kept-content-browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kept-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Render kept content in Chromium and record requests
+        working-directory: frontend
+        run: node scripts/kept-content-browser-smoke.mjs

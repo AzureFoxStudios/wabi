@@ -41,8 +41,8 @@
 		import AlbumUploadForm from './AlbumUploadForm.svelte';
 		import AlbumItemRow from './AlbumItemRow.svelte';
 		import AlbumItemsHeader from './AlbumItemsHeader.svelte';
-		import { cachedE2eeStatus, e2eeStatusRevision, ensureE2eeStatus } from '$lib/dm/dmE2eeState';
-		import { ALBUMS_UNAVAILABLE_TEXT, ALBUMS_UNAVAILABLE_TITLE, roomKeepsContentOnDevice } from '$lib/privacy/contentEgress';
+		import { e2eeStatusRevision, ensureE2eeStatus, roomContentKeepReason } from '$lib/dm/dmE2eeState';
+		import { albumsUnavailable } from '$lib/privacy/contentEgress';
 
 	$: activeChannel = $channels.find((channel) => channel.id === $currentChannel) || null;
 	$: scopeType = (activeChannel?.type === 'dm' || activeChannel?.type === 'group' ? 'dm' : 'channel') as MediaAlbumScopeType;
@@ -51,12 +51,9 @@
 	// Albums are server-readable (file names, captions, the files themselves). A DM or group with
 	// experimental encryption enabled or pending, or whose status is still unknown, gets an
 	// explanation instead of the create/upload controls (privacy/contentEgress.ts).
-	function readAlbumRoomPolicy(channelId: string, conversation: boolean, _revision: number) {
-		return conversation && channelId ? cachedE2eeStatus(channelId) : null;
-	}
-	$: albumRoomPolicy = readAlbumRoomPolicy(scopeId, scopeType === 'dm', $e2eeStatusRevision);
-	$: albumsOffHere =
-		scopeType === 'dm' && Boolean(scopeId) && roomKeepsContentOnDevice({ channelType: activeChannel?.type ?? 'dm', policy: albumRoomPolicy });
+	$: albumsKeepReason = scopeId ? roomContentKeepReason(scopeId, activeChannel?.type ?? null, $e2eeStatusRevision) : null;
+	$: albumsOffHere = albumsKeepReason !== null;
+	$: albumsOff = albumsKeepReason ? albumsUnavailable(albumsKeepReason) : null;
 	$: if (scopeType === 'dm' && scopeId) ensureE2eeStatus(scopeId);
 	let albumsWereOff = false;
 	$: if (albumsWereOff !== albumsOffHere) {
@@ -803,14 +800,14 @@
 		<div class="empty-state">
 			Sign in to create and browse persistent albums.
 		</div>
-	{:else if albumsOffHere}
+	{:else if albumsOff}
 		<div class="album-list is-empty">
-			<div class="empty-state" role="status">
+			<div class="empty-state" role={albumsKeepReason === 'checking' ? 'status' : undefined}>
 				{#if variant === 'full'}
-					<h3>{ALBUMS_UNAVAILABLE_TITLE}</h3>
-					<p>{ALBUMS_UNAVAILABLE_TEXT}</p>
+					<h3>{albumsOff.title}</h3>
+					<p>{albumsOff.text}</p>
 				{:else}
-					<strong>{ALBUMS_UNAVAILABLE_TITLE}.</strong> {ALBUMS_UNAVAILABLE_TEXT}
+					<strong>{albumsOff.title}.</strong> {albumsOff.text}
 				{/if}
 			</div>
 		</div>

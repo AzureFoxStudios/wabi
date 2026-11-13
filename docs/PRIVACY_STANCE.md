@@ -109,15 +109,34 @@ clear a problem; damaged registry state blocks sends and key changes.
 The browser decrypts an experimental-encryption message into an ordinary message object. For a
 message that arrived encrypted, and for any message in a DM or group whose encryption is enabled,
 pending or not yet known to the client, the web client (`frontend/src/lib/privacy/contentEgress.ts`)
-does not send that content onward on its own: no server link previews (`/api/url-preview`,
-`/api/image-proxy`); images, video, audio, GIFs, 3D models and Spotify players from other hosts
-wait for a click; images written in the message text render as links; no auto-translation, and
-manual translation asks once per conversation per session before sending text to the configured
-service; album, Lore, Blender-import and forward actions are off because those features are
-server-readable. Reporting such a message discloses its decrypted text to the server's moderators
-only after the reporter ticks an explicit disclosure box. These are client behaviors in this web
-client; they do not change the experimental status above, and a modified client is not bound by
-them.
+keeps that content on the device unless the member chooses otherwise:
+
+- no server link previews (`/api/url-preview`, `/api/image-proxy`);
+- nothing in the message loads from a host other than this Wabi server until the member clicks
+  "Load from <host>" (`privacy/remoteMedia.ts`, decided by parsing the URL): linked images,
+  video, audio, 3D models and Spotify players, GIFs, sender-chosen emoji images, attachments
+  stored elsewhere, and images or media written into the message text, in chat and in the Reader.
+  Server endpoints under `/api/` count as another host, since they fetch on the caller's behalf;
+- no auto-translation; manual translation asks once per conversation per session before sending
+  text to the configured service;
+- album, Lore, Blender-import and forward actions are off, because those features are
+  server-readable;
+- reporting discloses the message's decrypted text to the server's moderators only after the
+  reporter ticks an explicit disclosure box.
+
+Explanations name the actual reason: a conversation whose status is still being checked is told
+so, not that it is encrypted. A DM this device has seen before uses its last stored status while
+the server is asked again.
+
+Still not gated: custom emoji and emotes served by this Wabi server render as before (the server
+can see that a viewer rendered them, though usually from the browser cache); a long message
+opened in the Reader stays in this device's local storage; after a "Load from" click, video and
+audio elements send the browser's default referrer (the Wabi origin; HTML has no per-element
+referrer setting for them); the YouTube watch-queue embed, which only exists in shared channels,
+loads YouTube's player script as before.
+
+These are client behaviors in this web client; they do not change the experimental status above,
+and a modified client is not bound by them.
 
 ### Experimental registry and recovery boundary
 

@@ -5,7 +5,8 @@
 	import YouTubeWatchEmbed from '../plugins/YouTubeWatchEmbed.svelte';
 	import SpotifyControlsEmbed from '../plugins/SpotifyControlsEmbed.svelte';
 	import RemoteMediaGate from './RemoteMediaGate.svelte';
-	import { LINK_PREVIEW_OFF_HINT } from '$lib/privacy/contentEgress';
+	import { LINK_PREVIEW_OFF_HINT, keepReasonFor } from '$lib/privacy/contentEgress';
+	import { e2eeStatusRevision, roomContentKeepReason } from '$lib/dm/dmE2eeState';
 	import { needsLinkPreviewComponent, planLinkEmbeds, type LinkEmbedContext } from './linkEmbedPolicy';
 
 	export let message: Message;
@@ -16,11 +17,15 @@
 	export let LinkPreviewComponent: any;
 	export let ensureLinkPreviewLoaded: () => void;
 	export let onOpenModelInDedicatedTab: (src: string, fileName: string) => void;
-	/**
-	 * The message or its room is under experimental encryption (privacy/contentEgress.ts): no
-	 * server-side link preview, and media from other hosts waits for a click (linkEmbedPolicy.ts).
-	 */
-	export let contentOnDevice = false;
+
+	// Kept content (privacy/contentEgress.ts), derived here from the message and the room so no
+	// parent can switch it off: no server-side link preview, and media from other hosts waits for
+	// a click (linkEmbedPolicy.ts).
+	$: contentOnDevice =
+		keepReasonFor(
+			message,
+			roomContentKeepReason(currentChannel, channels.find((channel) => channel.id === currentChannel)?.type ?? null, $e2eeStatusRevision)
+		) !== null;
 
 	function isYouTubeQueueChannel(channelId: string, list: Channel[]): boolean {
 		const channel = list.find((channelRecord) => channelRecord.id === channelId);
@@ -33,7 +38,8 @@
 		youtubeQueueChannel: isYouTubeQueueChannel(currentChannel, channels)
 	} satisfies LinkEmbedContext;
 	$: plans = planLinkEmbeds(messageText, embedContext);
-	$: previewOffShown = plans.some((plan) => plan.plainLink && !plan.direct) && contentOnDevice;
+	// One note per message, not per link; the links themselves are already in the message text.
+	$: previewOffShown = contentOnDevice && plans.length > 0;
 
 	// Load the preview card component as soon as the message has a link that will use it. This must
 	// live in script: a side effect inside a template {@const} is dropped by the production
@@ -53,16 +59,14 @@
 		{:else}
 			<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
 		{/if}
-	{:else if plan.plainLink && !plan.direct}
-		<a href={url} target="_blank" rel="noopener noreferrer nofollow" class="plain-link-fallback">{url}</a>
 	{/if}
 	{#if plan.direct}
 		{#if plan.directNeedsClick}
-			<RemoteMediaGate {url}>
+			<RemoteMediaGate {url} showLink={false} showHint={false}>
 				{#if plan.direct === 'youtube-queue'}
 					<div class="youtube-queue-section"><YouTubeWatchEmbed url={url} channelId={currentChannel} /></div>
 				{:else if plan.direct === 'spotify'}
-					<SpotifyControlsEmbed {url} />
+					<SpotifyControlsEmbed {url} noReferrer />
 				{:else if plan.direct === 'image'}
 					<img
 						src={url}

@@ -3,6 +3,7 @@ import { marked } from 'marked';
 // they must not be statically imported here).
 import Prism from '$lib/prism';
 import DOMPurify from 'dompurify';
+import { neutralizeRemoteMediaHtml } from '$lib/privacy/remoteMedia';
 import katex from 'katex';
 // Phase 4 boot optimization: these stylesheets ship with THIS module (off the
 // login boot path) instead of +layout.svelte's eager graph.
@@ -300,31 +301,12 @@ function injectMessageEntityPlaceholders(
 export type ParseMessageOptions = {
 	allowTables?: boolean;
 	/**
-	 * false: images written in the message itself (`![alt](url)` or raw `<img>`) become plain links
-	 * instead of loading from their host. Used for messages under experimental encryption
-	 * (privacy/contentEgress.ts), where loading would tell that host the message was read.
-	 * Custom emoji and emotes from this server's own registry are unaffected.
+	 * false: after sanitizing, every element that would fetch from a host other than this Wabi
+	 * server becomes a plain link (privacy/remoteMedia.ts). Used for content that stays on the
+	 * device (privacy/contentEgress.ts). Custom emoji served by this server still render.
 	 */
 	remoteImages?: boolean;
 };
-
-const IMG_TAG = /<img\b[^>]*>/gi;
-
-function imgAttribute(tag: string, name: string): string {
-	const match = tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
-	return match ? (match[1] ?? match[2] ?? match[3] ?? '') : '';
-}
-
-/** Replace every <img> in rendered message HTML with a link to its source (sanitized later). */
-export function imagesToLinks(html: string): string {
-	return html.replace(IMG_TAG, (tag) => {
-		const src = imgAttribute(tag, 'src');
-		const alt = imgAttribute(tag, 'alt');
-		if (!src) return alt;
-		const label = alt ? `${alt} (image)` : src;
-		return `<a href="${src}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`;
-	});
-}
 
 export function parseMessage(text: string, entities: MessageEntity[] = [], options: ParseMessageOptions = {}): string {
 	const remoteImages = options.remoteImages !== false;
@@ -392,8 +374,6 @@ export function parseMessage(text: string, entities: MessageEntity[] = [], optio
 		html = text; // Fallback to plain text
 	}
 
-	// Before the emote pass: only images the message text itself asked for are rewritten.
-	if (!remoteImages) html = imagesToLinks(html);
 
 	// Replace emote codes with images (custom emotes uploaded by users)
 	html = html.replace(/:([a-zA-Z0-9_+-]+):/g, (match, emoteName) => {
@@ -462,8 +442,12 @@ export function parseMessage(text: string, entities: MessageEntity[] = [], optio
 		FORBID_ATTR: ['style', 'onerror', 'onload']
 	});
 
+	// Content kept on the device: on the parsed, sanitized DOM, anything that would fetch from
+	// another host becomes a link (a regex before sanitizing can be bypassed by the parser).
+	const kept = remoteImages ? clean : neutralizeRemoteMediaHtml(clean);
+
 	// 4) Inject trusted KaTeX HTML AFTER sanitize (keeps styles; no FORBID_ATTR widen)
-	const withMath = renderMathSlots(clean, mathSlots);
+	const withMath = renderMathSlots(kept, mathSlots);
 
 	markdownRenderCache.set(cacheKey, withMath);
 	pruneMarkdownRenderCache();

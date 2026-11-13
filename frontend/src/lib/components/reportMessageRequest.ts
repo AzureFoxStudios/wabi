@@ -11,8 +11,9 @@
  */
 import type { Message } from '$lib/socket-types';
 import { messageUnderExperimentalEncryption } from '$lib/privacy/contentEgress';
+import { E2EE_MESSAGE_PREFIX } from '$lib/e2eeEnvelope';
 
-/** The server keeps at most this many characters of a disclosed snapshot. */
+/** The server keeps at most this many characters (Unicode scalar values, Rust `chars()`) of a disclosed snapshot. */
 export const DISCLOSED_SNAPSHOT_MAX_CHARS = 12_000;
 
 export type ReportRequestBody = {
@@ -25,10 +26,10 @@ export type ReportRequestBody = {
 
 export type ReportRequestPlan =
 	/** Send this body. */
-	| { kind: 'send'; body: ReportRequestBody }
+	| { kind: 'send'; body: ReportRequestBody; truncated: boolean }
 	/** Encrypted message: ask the reporter to confirm disclosure first. Nothing is sent. */
 	| { kind: 'needs-disclosure' }
-	/** Encrypted message this device could not decrypt: there is no text to disclose. */
+	/** Encrypted message this device could not decrypt (or has not decrypted yet): there is no text to disclose. */
 	| { kind: 'unreadable' }
 	/** Encrypted message with no decrypted text (attachments only): the server needs text. */
 	| { kind: 'nothing-to-disclose' };
@@ -52,10 +53,20 @@ export function planReportRequest(input: {
 		reason: input.reason,
 		comment: input.comment.trim() || null
 	};
-	if (!reportRequiresDisclosure(input.message)) return { kind: 'send', body };
-	if (input.message.e2eeUnreadable) return { kind: 'unreadable' };
-	if (!input.disclosureConfirmed) return { kind: 'needs-disclosure' };
-	const text = String(input.message.text ?? '').trim();
+	if (!reportRequiresDisclosure(input.message)) return { kind: 'send', body, truncated: false };
+	const raw = String(input.message.text ?? '');
+	// A raw envelope is ciphertext that has not been decrypted here: never offer it as decrypted text.
+	if (input.message.e2eeUnreadable || raw.startsWith(E2EE_MESSAGE_PREFIX)) return { kind: 'unreadable' };
+	const { text, truncated } = disclosedText(raw);
 	if (!text) return { kind: 'nothing-to-disclose' };
-	return { kind: 'send', body: { ...body, disclosedSnapshot: text.slice(0, DISCLOSED_SNAPSHOT_MAX_CHARS) } };
+	if (!input.disclosureConfirmed) return { kind: 'needs-disclosure' };
+	return { kind: 'send', body: { ...body, disclosedSnapshot: text }, truncated };
+}
+
+/** The text a disclosure would carry: trimmed, cut on a code-point boundary at the server's limit. */
+export function disclosedText(raw: string): { text: string; truncated: boolean } {
+	const trimmed = raw.trim();
+	const points = Array.from(trimmed);
+	if (points.length <= DISCLOSED_SNAPSHOT_MAX_CHARS) return { text: trimmed, truncated: false };
+	return { text: points.slice(0, DISCLOSED_SNAPSHOT_MAX_CHARS).join('').trimEnd(), truncated: true };
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { albumsHint, type KeepReason } from '$lib/privacy/contentEgress';
 	import type { Message, FileAttachment } from '$lib/socket';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { _ } from '$lib/i18n';
@@ -49,17 +50,19 @@
 	$: if (!effectiveSpoiler) spoilerRevealed = false;
 	export let albumAnnouncement: AlbumAnnouncement | null;
 	export let albumAnnouncementUploadName: string | null;
-	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean) => void;
-	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean) => void;
-	export let onTriggerAlbumUpload: (meta: any) => void;
+	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean, message?: Message) => void;
+	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean, message?: Message) => void;
+	export let onTriggerAlbumUpload: (meta: any, message?: Message) => void;
 	export let onOpenAlbumPanel: () => void;
 	export let onOpenAlbumPreview: (message: Message, fileAttachment: FileAttachment) => void;
 	export let onEnlargeImage: (url: string, gallery?: string[]) => void;
 	export let onEnlargeVideo: (url: string) => void;
 	export let onOpenModelInDedicatedTab: (src: string, fileName: string) => void;
-	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string) => void;
+	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string, message?: Message) => void;
 	export let onDownloadAttachment: (fileUrl: string, fileName: string, encryption?: any) => void;
 	export let onImageContextMenu: (event: MouseEvent, message: Message) => void;
+	/** Why this message's content stays on the device (privacy/contentEgress.ts), or null. */
+	export let keepReason: KeepReason | null = null;
 
 	function getFileUrl(fileUrl?: string): string {
 		if (!fileUrl) return '';
@@ -119,14 +122,14 @@
 						<div
 							class="album-message-card album-message-card--actionable"
 							class:album-message-card--deleted={albumAnnouncementDeleted}
-							role={albumAnnouncementDeleted ? undefined : 'button'}
-							tabindex={albumAnnouncementDeleted ? undefined : 0}
+							role={albumAnnouncementDeleted || keepReason ? undefined : 'button'}
+							tabindex={albumAnnouncementDeleted || keepReason ? undefined : 0}
 							on:click={() => {
-								if (!albumAnnouncementDeleted) onHandleAlbumActivate(albumAnnouncement, true);
+								if (!albumAnnouncementDeleted && !keepReason) onHandleAlbumActivate(albumAnnouncement, true, message);
 							}}
 							on:keydown={(event) => {
-								if (!albumAnnouncementDeleted)
-									onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, true);
+								if (!albumAnnouncementDeleted && !keepReason)
+									onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, true, message);
 							}}
 						>
 							<div class="album-message-main">
@@ -173,12 +176,14 @@
 							<div class="album-message-actions">
 								{#if albumAnnouncementDeleted}
 									<span class="album-message-deleted-note">Album deleted</span>
+								{:else if keepReason}
+									<span class="album-message-deleted-note">{albumsHint(keepReason)}</span>
 								{:else}
 									<button
 										type="button"
 										class="album-message-btn"
 										disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-										on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
+										on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement, message)}
 									>
 										{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
 									</button>
@@ -315,7 +320,7 @@
 											<span class="file-size-small">{fileMeta(fileAttachment.fileName, fileAttachment.fileSize)}</span>
 										</div>
 										<div class="blend-actions">
-											<button class="blend-import-btn" on:click={() => onOpenBlendImportSettings(fileAttachment.fileUrl, fileAttachment.fileName)}>
+											<button class="blend-import-btn" hidden={Boolean(keepReason)} on:click={() => onOpenBlendImportSettings(fileAttachment.fileUrl, fileAttachment.fileName, message)}>
 												{$_('messages.blend.import_settings')}
 											</button>
 										</div>
@@ -488,7 +493,7 @@
 								</div>
 							</div>
 							<div class="blend-file-actions">
-								<button class="blend-import-btn" on:click={() => message.fileUrl && message.fileName && onOpenBlendImportSettings(message.fileUrl, message.fileName)}>
+								<button class="blend-import-btn" hidden={Boolean(keepReason)} on:click={() => message.fileUrl && message.fileName && onOpenBlendImportSettings(message.fileUrl, message.fileName, message)}>
 									{$_('messages.blend.import_settings')}
 								</button>
 								<button class="blend-download-btn" on:click={() => message.fileUrl && message.fileName && onDownloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}>

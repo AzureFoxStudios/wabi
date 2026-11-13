@@ -286,3 +286,13 @@ describe('stream stylesheet the rows rely on (spec §7.17, §7.18, §8.12)', () 
 		expect(block("\t:root[data-message-density='compact'] .messages-pane")).toContain('--stream-text-x: calc(var(--stream-lead) + 120px * var(--w-fs) + var(--stream-gap));');
 	});
 });
+
+describe('hover-bar Forward under kept content', () => {
+	test('is aria-disabled with the menu row’s reason, and enabled otherwise', async () => {
+		const blocked = await renderActions([], { forwardBlocked: 'Forwarding sends the text as a new server-readable message. Off because Wabi is still checking this conversation’s encryption setting.' });
+		expect(blocked).toMatch(/aria-disabled="true"[^>]*aria-describedby="forward-off-message-1"/);
+		expect(blocked).toMatch(/<span id="forward-off-message-1" class="sr-only[^"]*">Forwarding sends the text/);
+		const open = await renderActions([]);
+		expect(open).not.toContain('aria-disabled="true"');
+	});
+});

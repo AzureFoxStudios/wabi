@@ -8,6 +8,9 @@
 	} from './message/messageTranslator';
 	import { observeTranslatorVisibility } from '$lib/addons/translatorViewport';
 	import MessageItemContent from './MessageItemContent.svelte';
+	import { autoTranslationSkip } from '$lib/addons/translatorAutoPolicy';
+	import { keepReasonFor } from '$lib/privacy/contentEgress';
+	import { e2eeStatusRevision, roomContentKeepReason } from '$lib/dm/dmE2eeState';
 
 	let {
 		message,
@@ -16,7 +19,6 @@
 		translationLoading = false,
 		ownMessage = false,
 		editText = '',
-		contentOnDevice = false,
 		...rest
 	} = $props<{
 		message: Message;
@@ -25,8 +27,6 @@
 		translationLoading?: boolean;
 		ownMessage?: boolean;
 		editText?: string;
-		/** Under experimental encryption (privacy/contentEgress.ts): nothing is auto-translated. */
-		contentOnDevice?: boolean;
 		[key: string]: unknown;
 	}>();
 
@@ -36,6 +36,15 @@
 	let autoTranslationLoading = $state(false);
 	let lastAutoRequestKey = $state('');
 	let requestGeneration = 0;
+
+	// Kept content (privacy/contentEgress.ts) is never auto-translated. Derived here from the
+	// message and the room, so a parent cannot switch it off.
+	let channelId = $derived(String(rest.currentChannel ?? ''));
+	let channelType = $derived(
+		((rest.channels as Array<{ id: string; type?: string }> | undefined) ?? []).find((channel) => channel.id === channelId)?.type ?? null
+	);
+	let roomKeep = $derived(roomContentKeepReason(channelId, channelType, $e2eeStatusRevision));
+	let contentOnDevice = $derived(keepReasonFor(message, roomKeep) !== null);
 
 	let effectiveTranslatedText = $derived(translatedText ?? autoTranslatedText);
 	let effectiveTranslationLoading = $derived(translationLoading || autoTranslationLoading);
@@ -70,21 +79,25 @@
 	$effect(() => {
 		const text = message.text || '';
 		const settings = translatorSettings;
-		const visible = isNearViewport;
-		const manualTranslation = translatedText;
-		const isOwn = ownMessage;
-		const messageType = String(message.type || '');
-		const keepOnDevice = contentOnDevice;
-		if (!visible || manualTranslation || isOwn || settings.mode !== 'auto') return;
-		if (keepOnDevice) {
-			// A room that became encrypted after a translation started drops it.
+		const skip = autoTranslationSkip({
+			visible: isNearViewport,
+			manualTranslation: translatedText,
+			ownMessage,
+			mode: settings.mode,
+			messageType: String(message.type || ''),
+			localCard: Boolean(message.localCard || message.userId === 'local-directions'),
+			keepOnDevice: contentOnDevice
+		});
+		if (skip === 'kept') {
+			// Kept content: drop any translation in flight and forget the last request, so it is
+			// asked again if the room later turns out to be server-readable.
 			requestGeneration += 1;
 			autoTranslatedText = undefined;
 			autoTranslationLoading = false;
+			lastAutoRequestKey = '';
 			return;
 		}
-		if (messageType !== 'text' && messageType !== 'gif') return;
-		if (message.localCard || message.userId === 'local-directions') return;
+		if (skip) return;
 		void runAutoTranslation(text, settings);
 	});
 
@@ -104,7 +117,7 @@
 		autoTranslationLoading = true;
 		try {
 			const { requestAutoTranslation } = await import('$lib/addons/translatorAuto');
-			const result = await requestAutoTranslation(message.id, text, settings, { keepOnDevice: contentOnDevice });
+			const result = await requestAutoTranslation(message.id, text, settings, { message, channelId, channelType });
 			if (generation !== requestGeneration) return;
 			autoTranslatedText = result?.translatedText || undefined;
 		} catch {
@@ -122,7 +135,6 @@
 	{message}
 	{messageDomId}
 	{ownMessage}
-	{contentOnDevice}
 	translatedText={effectiveTranslatedText}
 	translationLoading={effectiveTranslationLoading}
 	{editText}

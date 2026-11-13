@@ -5,6 +5,9 @@ import {
 	type TranslationResult,
 	type TranslatorSettings
 } from '$lib/components/message/messageTranslator';
+import type { Message } from '$lib/socket-types';
+import { keepReasonFor } from '$lib/privacy/contentEgress';
+import { roomContentKeepReason } from '$lib/dm/dmE2eeState';
 
 const MAX_CONCURRENT_AUTO_TRANSLATIONS = 2;
 const MAX_AUTO_CACHE_ENTRIES = 500;
@@ -32,22 +35,26 @@ export function isAutoTranslationCandidateText(text: string): boolean {
 	return /[\p{L}\p{N}]/u.test(meaningful);
 }
 
-export type AutoTranslationOptions = {
-	/**
-	 * The message or its room is under experimental encryption (privacy/contentEgress.ts):
-	 * its decrypted text is never sent to the translation service automatically. Manual
-	 * translation asks first instead.
-	 */
-	keepOnDevice?: boolean;
+/**
+ * What the message and its room are, so this module decides itself whether the text may go to
+ * the translation service: content kept on the device (privacy/contentEgress.ts) is never sent
+ * automatically; manual translation asks first instead. Required, so no caller can skip it.
+ */
+export type AutoTranslationContext = {
+	message: Partial<Pick<Message, 'e2ee' | 'encrypted' | 'text' | 'attachmentEncryption' | 'files'>>;
+	channelId: string;
+	channelType: string | null | undefined;
 };
 
 export function requestAutoTranslation(
 	messageKey: string,
 	text: string,
 	settings: TranslatorSettings,
-	options: AutoTranslationOptions = {}
+	context: AutoTranslationContext
 ): Promise<TranslationResult | null> {
-	if (options.keepOnDevice) return Promise.resolve(null);
+	if (keepReasonFor(context.message, roomContentKeepReason(context.channelId, context.channelType)) !== null) {
+		return Promise.resolve(null);
+	}
 	if (settings.mode !== 'auto' || !isAutoTranslationCandidateText(text)) {
 		return Promise.resolve(null);
 	}
