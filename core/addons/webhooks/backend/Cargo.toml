@@ -1,6 +1,7 @@
 [package]
 name = "wabi-webhooks"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Wabi webhooks addon"
 license = "MIT"

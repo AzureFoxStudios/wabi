@@ -2,7 +2,7 @@
 #
 # CI runs `cargo deny check advisories licenses sources` in ADVISORY mode
 # (`continue-on-error: true`) until the triage in
-# docs/audits/2026-11-cve-register.md lands. Flip that step to blocking at the
+# docs/audits/2026-11-CVE-register.md lands. Flip that step to blocking at the
 # same time as `supply_chain_check.py --mode blocking`.
 #
 # No advisory is blanket-ignored. If a specific RUSTSEC ID must be temporarily
@@ -15,7 +15,31 @@ all-features = false
 [advisories]
 # cargo-deny 0.20.x (the CI-pinned version) has no `yanked` lint field; yanked
 # crate versions are handled through `ignore` entries with a reason instead.
-ignore = []
+#
+# Owner decision 2026-11-13: `unmaintained` notices get dated notes, not
+# removal. cargo-deny 0.20.2 ignore entries accept only `id` and `reason` (no
+# expiry field), so every entry below carries "re-check by 2027-05-13" in its
+# reason and in the comment above it. Each one is informational, has no
+# patched release, and has a row in docs/audits/2026-11-CVE-register.md
+# (section 3 or 3a, searched by the RUSTSEC id).
+#
+# Real vulnerabilities are NOT ignored here. In particular RUSTSEC-2026-0387
+# (crypto-bigint 0.5 timing) stays a failure: Wabi's own P-256 code still uses
+# the affected version until PR 353 merges.
+ignore = [
+    # Expires 2027-05-13. Register row: RUSTSEC-2023-0089 (section 3a).
+    { id = "RUSTSEC-2023-0089", reason = "atomic-polyfill 1.0.3 (unmaintained, informational, no patched release). Pulled in by heapless 0.7 <- postcard 1 <- wabidb / wabi-server, and only on targets without native atomics, so not on Wabi's release targets. Accepted until 2027-05-13; re-check by 2027-05-13 or when postcard releases." },
+    # Expires 2027-05-13. Register row: RUSTSEC-2025-0012 (section 3a).
+    { id = "RUSTSEC-2025-0012", reason = "backoff 0.4.0 (unmaintained, informational, no patched release). Pulled in by rust_socketio 0.6 <- wabi-tui only (not the server). Accepted until 2027-05-13; re-check by 2027-05-13 or when rust_socketio releases." },
+    # Expires 2027-05-13. Register row: RUSTSEC-2026-0374 (section 3).
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml 0.1.10 (unmaintained, informational, no patched release). Pulled in by i18n-config <- i18n-embed / i18n-embed-fl <- age 0.12 <- wabi-server (build-time i18n metadata). Accepted until 2027-05-13; re-check by 2027-05-13 or when age releases." },
+    # Expires 2027-05-13. Register row: RUSTSEC-2024-0384 (section 3a).
+    { id = "RUSTSEC-2024-0384", reason = "instant 0.1.13 (unmaintained, informational, no patched release). Pulled in by backoff 0.4 <- rust_socketio 0.6 <- wabi-tui only. Accepted until 2027-05-13; re-check by 2027-05-13 or when rust_socketio releases." },
+    # Expires 2027-05-13. Register row: RUSTSEC-2024-0436 (section 3a).
+    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 (unmaintained, informational, no patched release; proc-macro). Pulled in by ratatui 0.29 <- wabi-tui only. Accepted until 2027-05-13; re-check by 2027-05-13 or when ratatui releases." },
+    # Expires 2027-05-13. Register row: RUSTSEC-2026-0215 (section 3).
+    { id = "RUSTSEC-2026-0215", reason = "smallstr 0.3.1 (unmaintained, informational, no patched release). Pulled in by yrs 0.24 (CRDT) <- wabi-server. Accepted until 2027-05-13; re-check by 2027-05-13 or when yrs releases." },
+]
 
 [licenses]
 confidence-threshold = 0.8
@@ -40,6 +64,14 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Owner decision 2026-11-13: keep `wildcards = "deny"` for registry crates but
+# accept Wabi's own in-workspace `path = ...` dependencies without `version =`.
+# In cargo-deny 0.20.2 this exemption applies only when the crate that DECLARES
+# the path dependency is private (`publish = false`, or published only to a
+# private registry), or the dependency is a dev-dependency. A publishable crate
+# with a versionless path dependency is still denied, and a registry
+# dependency with `version = "*"` is denied everywhere.
+allow-wildcard-paths = true
 highlight = "all"
 
 [sources]
