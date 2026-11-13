@@ -108,7 +108,7 @@ hierarchy and no blind retry after uncertain creation.
 ## Ronin workspace context for other AI chats
 
 Verified September 30: this computer reports hostname `dotRonin`; the shared
-local Wabi Git checkout is `/home/ironin/wabi`. The organizer is the independent
+local Wabi Git checkout is `/home/operator/wabi`. The organizer is the independent
 Authority at `https://wabi.chat`. Its disposable **Codex test** Project is
 `ch_c72`. The registered local Codex MCP connection is
 `wabi-codex-test-20260930`; its tools currently cover this Project's cards and

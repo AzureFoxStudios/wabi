@@ -7,7 +7,7 @@
   "externalStateVerified": false,
   "fullInstanceReady": false,
   "remote": {
-    "computer": "192.168.1.11",
+    "computer": "198.51.100.20",
     "snapshotSha256": "fb946cc14d07fa1c24c82aef1863f15cea56bf823416d8feb365c909efd4475e",
     "verification": {
       "schemaVersion": 1,

@@ -3,7 +3,7 @@
 # (bun test + svelte-check), then squash-merge. Logs to stdout.
 set -u
 export PATH="$HOME/.local/bin:$PATH"
-cd /home/ironin/wabi
+cd /home/operator/wabi
 
 merge_pr() { # pr branch
   local pr="$1" branch="$2"

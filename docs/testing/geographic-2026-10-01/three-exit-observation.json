@@ -17,7 +17,7 @@
       "expectedHostMatches": true
     },
     {
-      "hostname": "192.168.1.11",
+      "hostname": "198.51.100.20",
       "reportedEgressSha256": "b651aadd99e41188c8fcb68f33aa22c286dd855505ac10153144aef9046317cd",
       "siteLabel": "Iyoku",
       "result": "PASS",

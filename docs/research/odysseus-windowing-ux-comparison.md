@@ -1,6 +1,6 @@
 # Odysseus Windowing UX Comparison for Wabi
 
-Status: investigation notes from `/var/home/Ronin/odysseus` and current Wabi dirty work.
+Status: investigation notes from `/var/home/operator/odysseus` and current Wabi dirty work.
 
 ## The short version
 
@@ -18,18 +18,18 @@ That means Wabi can get most of the same feel on the web first. Tauri should be 
 
 ## Odysseus files that matter
 
-- `/var/home/Ronin/odysseus/static/js/windowDrag.js`
+- `/var/home/operator/odysseus/static/js/windowDrag.js`
   - Shared `makeWindowDraggable(modal, { content, header, ...options })` helper.
   - Converts a modal into a movable fixed-position pane.
   - Handles top-edge fullscreen snap and side-edge dock gestures.
   - Uses drag thresholds and suppresses synthetic click after real dragging.
 
-- `/var/home/Ronin/odysseus/static/js/modalSnap.js`
+- `/var/home/operator/odysseus/static/js/modalSnap.js`
   - Side docking controller.
   - Applies left/right dock classes and CSS vars.
   - Manages dock width, left nav offsets, body layout reservation, and dock cleanup.
 
-- `/var/home/Ronin/odysseus/static/js/tileManager.js`
+- `/var/home/operator/odysseus/static/js/tileManager.js`
   - Global desktop tiling manager for modal headers.
   - Defines snap zones:
     - true fullscreen when cursor crosses top edge
@@ -42,7 +42,7 @@ That means Wabi can get most of the same feel on the web first. Tauri should be 
   - Stores previous geometry in `dataset._tilePreSnap` so dragging away can restore a floating window.
   - Re-clamps snapped windows on viewport resize/sidebar changes.
 
-- `/var/home/Ronin/odysseus/static/style.css`
+- `/var/home/operator/odysseus/static/style.css`
   - Defines `#tile-ghost` visual preview.
   - Defines modal/dock layout classes such as `.modal-right-docked`, `.modal-left-docked`, and body dock active states.
   - Uses CSS variables for dock widths and layout offsets.

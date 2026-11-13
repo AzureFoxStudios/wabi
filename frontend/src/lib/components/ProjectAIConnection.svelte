@@ -100,7 +100,7 @@
    <p class="connection-note">The access check verifies this credential, not whether your chat is online. Computer and workspace are your labels, not a verified Lore link. Sending requests from Wabi requires a separately running worker.</p>
   {:else if $currentUser?.highestRole === 'owner'}
    <label>Connection name<input bind:value={name} maxlength="80" placeholder="ronin-codex-design" /></label>
-   <details><summary>Computer and workspace (optional)</summary><label>Computer<input bind:value={computer} maxlength="120" placeholder="Ronin" /></label><label>Local workspace<input bind:value={workspace} maxlength="500" placeholder="/home/ironin/wabi" /></label></details>
+   <details><summary>Computer and workspace (optional)</summary><label>Computer<input bind:value={computer} maxlength="120" placeholder="Ronin" /></label><label>Local workspace<input bind:value={workspace} maxlength="500" placeholder="/home/operator/wabi" /></label></details>
    <label class="grant"><input type="checkbox" bind:checked={consent} />Allow this service to read and edit this Project’s cards and wiki. Content you ask Codex to use goes to its model provider.</label>
    <button type="button" disabled={busy || !consent || !name.trim()} onclick={() => void connect()}>{busy ? 'Connecting…' : 'Create Project connection'}</button>
   {:else}<p>The server owner can create a connection for this Project. Your own personal Planner stays separate.</p>{/if}

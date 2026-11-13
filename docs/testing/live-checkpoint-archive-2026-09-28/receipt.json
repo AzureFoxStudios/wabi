@@ -105,36 +105,36 @@
   },
   "cleanup": {
     "artifact_lock_held": true,
-    "completed_generated_incremental_cache_removed": "/home/ironin/wabi/target/debug/incremental",
+    "completed_generated_incremental_cache_removed": "/home/operator/wabi/target/debug/incremental",
     "incremental_cache_logical_bytes": 13794510295,
     "owned_artifacts_removed": [
       {
-        "path": "/home/ironin/wabi/target/debug/deps/wabi_instance_snapshot-05a66cb3f4021401",
+        "path": "/home/operator/wabi/target/debug/deps/wabi_instance_snapshot-05a66cb3f4021401",
         "bytes": 453877448,
         "sha256": "b2ec709a9dfe93f5506117b0864651c728dfd132d6932095eb9ca35ffe663a59"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/wabi_instance_snapshot-05a66cb3f4021401.d",
+        "path": "/home/operator/wabi/target/debug/deps/wabi_instance_snapshot-05a66cb3f4021401.d",
         "bytes": 929,
         "sha256": "a84b5c681799594e4cdcf8b17edf77f89b7a880d002eed134e60cac28d76c11e"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/live_checkpoint_archive_contract-fab427bb16ca83e1",
+        "path": "/home/operator/wabi/target/debug/deps/live_checkpoint_archive_contract-fab427bb16ca83e1",
         "bytes": 486187528,
         "sha256": "1e75461b6ea99c381c3fa78d12a5c55b5644dab883c3a5dbe1ab00dd7cfa965d"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/live_checkpoint_archive_contract-fab427bb16ca83e1.d",
+        "path": "/home/operator/wabi/target/debug/deps/live_checkpoint_archive_contract-fab427bb16ca83e1.d",
         "bytes": 574,
         "sha256": "2166b6bdf2075850c88fe69c3ec46017cdbffa7e8b03df93f34ed5f42d98e68e"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257",
+        "path": "/home/operator/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257",
         "bytes": 481813528,
         "sha256": "762d7bd7f73a5fbb752175243d03065df93779fbb2b4cd67cc6a90966c59f1a5"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257.d",
+        "path": "/home/operator/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257.d",
         "bytes": 357,
         "sha256": "30021b6a363e003bb75b6021ea8210eeff4cd3e26258e5cf58e585be1b0017f5"
       },

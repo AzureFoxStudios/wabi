@@ -72,19 +72,19 @@
     "cargo_lock": "exclusive nonblocking acquired",
     "removed": [
       {
-        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76",
+        "path": "/home/operator/wabi/target/debug/deps/account_recovery_contract-36de912130581d76",
         "logical_file_bytes": 416670640
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76.d",
+        "path": "/home/operator/wabi/target/debug/deps/account_recovery_contract-36de912130581d76.d",
         "logical_file_bytes": 342
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
+        "path": "/home/operator/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
         "logical_file_bytes": 413177688
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
+        "path": "/home/operator/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
         "logical_file_bytes": 382
       },
       {

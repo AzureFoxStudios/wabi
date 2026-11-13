@@ -28,7 +28,7 @@ This is a follow-up to the Oct 1 annotated UI pass. This follow-up was deployed 
 
 - Pinned Cargo 1.93 (rustc 1.93.1), addons enabled, offline/locked release build passed in 23m35s.
 - Deployed binary SHA-256: `08fc046b72c436e5356bec93fc22299991e563cf2b92772c856b8023baca4ed3` (87,837,184 bytes).
-- Tim backup: `/home/tim/wabi-backups/ui-20261002T063108Z`; previous binary and Authority data/uploads/plugins preserved before replacement.
+- Tim backup: `/home/operator/wabi-backups/ui-20261002T063108Z`; previous binary and Authority data/uploads/plugins preserved before replacement.
 - Existing Authority container recreated; advisory lock inode remained `6029360`. No lock file was unlinked.
 - Disposable and live Authority checks passed: embedded UI/version, health/liveness/readiness/setup, immutable entry hashes, addons manifest, anonymous admin denial (401).
 - Browser loaded the new production login page after the update reload. The existing signed-in session did not survive that reload; authenticated production Forum/Home interaction was therefore not repeated. Actual Forum/Wiki components were verified in the development browser fixture before deployment.

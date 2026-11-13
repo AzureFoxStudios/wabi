@@ -102,7 +102,7 @@ imports rather than leaving them. (svelte-check warns but the worker must keep t
 ---
 
 ## VERIFICATION (Hermes runs after worker exits)
-1. `cd /home/Ronin/wabi/frontend && npm run check` — no NEW errors vs baseline (2 pre-existing).
+1. `cd /home/operator/wabi/frontend && npm run check` — no NEW errors vs baseline (2 pre-existing).
 2. Grep confirm StorageSettings now references `getWabiDB`/`listScopes`/`retryFailed` in body.
 3. Confirm no `keyPath: 'key'` + keyless-record mismatch remains (read the final db.ts).
 4. Runtime proof (queued for Ronin's real browser, since headless Chromium can't render Wabi):

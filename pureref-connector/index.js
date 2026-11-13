@@ -9,7 +9,7 @@ const chokidar = require('chokidar');
 // --- Configuration ---
 // In a real app, this would come from a config file or UI
 const PUREF_EXECUTABLE_PATH = 'C:/Program Files/PureRef/PureRef.exe'; // IMPORTANT: User must set this
-const PUREF_SCENE_PATH = 'C:/Users/Willp/Documents/Test/MyScene.pur'; // IMPORTANT: User must set this
+const PUREF_SCENE_PATH = 'C:/Users/operator/Documents/Test/MyScene.pur'; // IMPORTANT: User must set this
 const EXPORT_DIR = path.join(__dirname, 'exported');
 const EXPORT_FILE_PATH = path.join(EXPORT_DIR, 'board.png');
 const PORT = 12345;

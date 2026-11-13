@@ -17,9 +17,9 @@
   "liveChecks": ["Wiki exact page", "channel current messages", "Lore exact file", "Gallery exact work", "Forum exact thread", "uploaded image", "outside click", "Escape", "Continue exact destination", "focus restoration", "health", "livez", "readyz", "setup status", "anonymous admin 401", "Lore enabled", "public precache identity"],
   "limits": ["External framing respects existing CSP and destination restrictions", "Maps and audio/video lack live fixture acceptance", "Existing gallery feedback endpoint returned 404"],
   "previousBinarySha256": "54170e5e85a0bd1e5a59a9412848f5d2779296c40ef4c25254ad72b1d29cf7db",
-  "rollbackDirectory": "/home/tim/wabi-backups/glance-20261004-final",
+  "rollbackDirectory": "/home/operator/wabi-backups/glance-20261004-final",
   "lockInodeBeforeAndAfter": 6029360,
-  "cleanup": {"directory": "/home/Iyoku/.cache/wabi-glance-20261003", "size": "2.8G", "processesDrained": true, "removed": true, "otherCheckoutsUntouched": true},
+  "cleanup": {"directory": "/home/operator/.cache/wabi-glance-20261003", "size": "2.8G", "processesDrained": true, "removed": true, "otherCheckoutsUntouched": true},
   "pushed": false,
   "merged": false
 }

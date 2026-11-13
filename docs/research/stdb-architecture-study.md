@@ -2,7 +2,7 @@
 
 > An independent technical review conducted from the perspective of a self-hosted, privacy-first chat/social platform evaluating whether to keep using SpacetimeDB or build a purpose-built replacement.
 >
-> Source tree: `/var/home/Ronin/vendor/SpacetimeDB` (tag v2.6.0)
+> Source tree: `/var/home/operator/vendor/SpacetimeDB` (tag v2.6.0)
 > Date: 2026-06-18
 
 ---
@@ -15,7 +15,7 @@ The "zen" of SpacetimeDB can be summarized as: **in-memory committed state + app
 
 The key architectural claim — "the database is the server" — is realized through this colocation: client connections arrive over WebSocket (or HTTP for ad-hoc queries), the connection handler deserializes the reducer call, the module host invokes the WASM/V8 function inside a transaction, the transaction commits to the in-memory state and the commitlog, and the subscription manager computes the delta between the pre- and post-transaction state and pushes it to every subscribed client. All of this happens in a single process.
 
-The workspace at `/var/home/Ronin/vendor/SpacetimeDB/Cargo.toml:118` declares version `2.6.0`, edition `2024`, rust-version `1.93.0`.
+The workspace at `/var/home/operator/vendor/SpacetimeDB/Cargo.toml:118` declares version `2.6.0`, edition `2024`, rust-version `1.93.0`.
 
 The database side is built on a collection of carefully separated Rust crates — roughly 40+ workspace members — that the rest of this document will walk through in detail. From a product perspective, what a user or operator sees is: a single `spacetimedb start` command boots an HTTP+WebSocket server that accepts connections, module uploads, and SQL queries. The server compiles uploaded modules (Rust via `wasm-pack`, C# via the `spacetimedb-csharp-codegen` toolchain, TypeScript via rolldown + V8), runs them, and maintains the database state. There is no separate database process, no ORM, no API gateway to deploy. This colocation is the defining architectural decision.
 
@@ -23,7 +23,7 @@ The database side is built on a collection of carefully separated Rust crates �
 
 ## 2. License and Licensing Reality
 
-The repository is licensed under the **Business Source License 1.1** (BSL 1.1), with the full text at `/var/home/Ronin/vendor/SpacetimeDB/LICENSE.txt`.
+The repository is licensed under the **Business Source License 1.1** (BSL 1.1), with the full text at `/var/home/operator/vendor/SpacetimeDB/LICENSE.txt`.
 
 ### Key license parameters (lines 7-27):
 
@@ -727,4 +727,4 @@ The commitlog, snapshots, and program bytes are all stored as plaintext files. T
 
 ---
 
-*This document was produced as an independent technical study of the SpacetimeDB source tree at `/var/home/Ronin/vendor/SpacetimeDB` (v2.6.0). It is not legal advice. It does not reproduce significant portions of the STDB source code. All claims are backed by file:line citations to specific source files read during the study.*
+*This document was produced as an independent technical study of the SpacetimeDB source tree at `/var/home/operator/vendor/SpacetimeDB` (v2.6.0). It is not legal advice. It does not reproduce significant portions of the STDB source code. All claims are backed by file:line citations to specific source files read during the study.*

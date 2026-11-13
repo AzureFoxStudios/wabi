@@ -15,9 +15,9 @@
 3. Focus target for `navigateToRef({ kind, channelId, *Id })`
 
 ## North-star mocks (existing)
-- `/var/home/Ronin/wabi-channel-specs/forum_mockup_v2.html` — 3-pane old-school boards
-- `/var/home/Ronin/wabi-channel-specs/wiki_mockup_v2.html` — tree + editorial docs
-- `/var/home/Ronin/wabi-channel-specs/gallery_mockup_v2.html` + `frontend/static/gallery-prototype.html` — Steam-style library
+- `/var/home/operator/wabi-channel-specs/forum_mockup_v2.html` — 3-pane old-school boards
+- `/var/home/operator/wabi-channel-specs/wiki_mockup_v2.html` — tree + editorial docs
+- `/var/home/operator/wabi-channel-specs/gallery_mockup_v2.html` + `frontend/static/gallery-prototype.html` — Steam-style library
 
 ## Suggested later board (not seeded yet)
 - gallery: add ChannelKind::Gallery + wire existing GalleryChannel.svelte

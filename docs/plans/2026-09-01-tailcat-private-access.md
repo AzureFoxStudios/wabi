@@ -174,7 +174,7 @@ ironin (containerized sandbox NAT — a harder-than-typical client).
 
 | Measurement | Result |
 |---|---|
-| `ping --until-direct` ×10 | 1/10 upgraded to **direct** (Tim's public socket 27.130.21.128) within the 10s budget; 9/10 served via **DERP(tok) relay** |
+| `ping --until-direct` ×10 | 1/10 upgraded to **direct** (Tim's public socket 203.0.113.10) within the 10s budget; 9/10 served via **DERP(tok) relay** |
 | Single 60s-budget run | stayed relayed for all 58 pongs |
 | Cold full connection (socks + HTTP GET) | ~0.8 s through relay |
 | Throughput, RELAYED (10 MB, DERP(tok)) | **~390 KB/s (≈3.1 Mbps)** — chat-class traffic is fine; big uploads work but slowly |

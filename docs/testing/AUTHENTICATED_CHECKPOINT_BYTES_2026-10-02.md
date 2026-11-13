@@ -59,7 +59,7 @@ preserved. Existing Raft loss, restart and snapshot tests also pass.
 
 ## Exact source and artifacts
 
-- Execution: dotRonin, `/home/ironin/wabi`, branch
+- Execution: dotRonin, `/home/operator/wabi`, branch
   `codex/security-boundary-hardening-20260930`, base
   `138abe39e08e400188d1812ed3bfd378df435315`.
 - Before-launch source/build digest:

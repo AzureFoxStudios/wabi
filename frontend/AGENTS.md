@@ -2,7 +2,7 @@
 
 Frontend for Wabi. Svelte 5 + SvelteKit + plain CSS. Ships as both a web build and a **Tauri desktop app** (repository-root `src-tauri/`, i.e. `../src-tauri/` from here). This file is the durable reference for the UI redesign: read it instead of re-deriving. The design contract is `../docs/design/DESIGN_CONTRACT.md`.
 
-## Verification (run from `/var/home/Ronin/wabi/frontend`)
+## Verification (run from `/var/home/operator/wabi/frontend`)
 
 - Typecheck: `bun run check` — `svelte-kit sync && svelte-check`. The known baseline is four `xlsx` type errors in `lib/workspaces/sheets/fileAdapter*.ts`; add no new ones.
 - Web build for the server: `bun run build:static` (adapter-static; required for Rust embed). The minifier is esbuild; never switch it to terser.

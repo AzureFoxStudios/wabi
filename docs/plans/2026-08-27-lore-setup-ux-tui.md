@@ -128,7 +128,7 @@ exists. Setup is GitHub-simple:
 - **Wabi-on-wabi fixture (the point of the exercise)**: lore channel `wabi`
   (`ch_460` = 1120) on Tim now hosts a full copy of the wabi worktree:
   `:lore push` staged 2,534 files and sealed them with ONE snapshot —
-  `Initial import from /home/ironin/wabi-lore (2534 files)`, head revision
+  `Initial import from /home/operator/wabi-lore (2534 files)`, head revision
   `c6c9de511b45a739…`. Browsable via the API (`GET /repos/1120/files`,
   `/manifest`) and in the TUI Lore screen (`✓ wabi · 2534 files`, repo
   `lore://host.docker.internal:41337/wabi`).
