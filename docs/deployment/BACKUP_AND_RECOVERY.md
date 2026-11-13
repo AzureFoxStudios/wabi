@@ -114,6 +114,24 @@ curl -f http://localhost:3001/livez
 curl -f http://localhost:3001/readyz
 ```
 
+### Binary (cargo) example
+
+When you run `./target/release/wabi-server --data-dir ./data/wabi-server ...` yourself (INSTALL.md cargo path), from the directory you started it in:
+
+```bash
+# Stop the server: press Ctrl+C in its terminal and wait for the prompt to return.
+
+mkdir -p ../wabi-backups/2026-09-14
+cp -a data/wabi-server ../wabi-backups/2026-09-14/
+# Only if you set WABI_UPLOADS_DIR, or use .env / wabi.config / plugins:
+cp -a uploads .env wabi.config plugins ../wabi-backups/2026-09-14/ 2>/dev/null || true
+
+# Start it again with the same command as before, then check:
+curl -f http://127.0.0.1:3000/readyz
+```
+
+With the default configuration uploads live in `data/wabi-server/uploads`, so the first `cp` already holds them.
+
 A backup is not proven merely because files were copied. Periodically restore one to a separate machine or isolated directory and prove the application reaches readiness and the expected accounts/content can be read.
 
 ### Archive example
@@ -225,6 +243,19 @@ A [disposable real-process loopback check](../testing/CONTROLLED_PASSIVE_MOVE_20
 8. Verify `/livez` and `/readyz`.
 9. Log in and verify representative data: owner account, channels, messages/content, uploads, and any critical workspace state.
 10. Only then re-enable optional ingress, TURN/SFU, tunnels, plugins, or other helpers.
+
+For the binary path, restoring the example backup above into a new, empty directory is (the restored server must not run alongside the original on the same port):
+
+```bash
+mkdir -p /srv/wabi-restored/data
+cp -a ../wabi-backups/2026-09-14/wabi-server /srv/wabi-restored/data/
+cd /srv/wabi-restored
+/path/to/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
+# second terminal:
+curl -f http://127.0.0.1:3000/livez && curl -f http://127.0.0.1:3000/readyz
+```
+
+Then sign in and check representative content (step 9). `core/crates/wabi-server/tests/install_from_nothing_contract.rs` runs this sequence in CI: stop, `cp -a` of the data directory, `cp -a` into an empty directory, start, sign in with a password, read the channel and DM messages back.
 
 Do not restore by copying selected `.wseg`/`.widx` files into an unrelated live data directory. WabiDB state has ordering, encryption, projection, and checkpoint relationships that should be recovered as one data set.
 
