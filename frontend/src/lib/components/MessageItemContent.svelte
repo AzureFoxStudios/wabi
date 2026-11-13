@@ -11,6 +11,8 @@
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { longpress } from '$lib/actions/longpress';
 	import MessageItemActions from './message/MessageItemActions.svelte';
+	import { serverReadableActionBlock } from './message/messageListGuards';
+	import { e2eeStatusRevision, roomContentKeepReason } from '$lib/dm/dmE2eeState';
 	import MessageReplyPreview from './message/MessageReplyPreview.svelte';
 	import MessageReactions from './message/MessageReactions.svelte';
 	import { messageItemTransition } from './message/messageItemAnimation';
@@ -76,14 +78,14 @@
 	export let onEnlargeVideo: (url: string) => void;
 	export let onImageContextMenu: (event: MouseEvent, message: Message) => void;
 	export let onDownloadAttachment: (fileUrl: string, fileName: string, encryption?: any) => void;
-	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string) => void;
+	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string, message?: Message) => void;
 	export let onOpenModelInDedicatedTab: (src: string, fileName: string) => void;
 	export let onOpenMapPanel: (placeId: string, options: any) => void;
 	export let onOpenFullMapTab: (placeId: string, options: any) => void;
 	export let onOpenPreferredMapSurface: (placeId: string, options: any) => void;
 	export let onOpenDirectionsExternal: (url?: string) => void;
-	export let onTriggerAlbumUpload: (meta: any) => void;
-	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean) => void;
+	export let onTriggerAlbumUpload: (meta: any, message?: Message) => void;
+	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean, message?: Message) => void;
 	export let onOpenAlbumPanel: () => void;
 	export let onOpenAlbumPreview: (message: Message, fileAttachment: FileAttachment) => void;
 	export let onHandleUtilityPinToggle: (message: Message) => void;
@@ -92,7 +94,7 @@
 	export let onDeletionModeDelete: (message: Message) => void | Promise<void> = () => {};
 	export let onHandleUsernameClick: (event: MouseEvent, message: Message, resolvedUser?: User) => void;
 	export let onHandleUsernameContextMenu: (event: MouseEvent, message: Message, resolvedUser?: User) => void = () => {};
-	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean) => void;
+	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean, message?: Message) => void;
 
 	export let LinkPreviewComponent: any;
 	export let ensureLinkPreviewLoaded: () => void;
@@ -106,6 +108,11 @@
 	};
 
 
+	$: forwardBlocked = serverReadableActionBlock(
+		'forward',
+		message,
+		roomContentKeepReason(currentChannel, channels.find((channel) => channel.id === currentChannel)?.type ?? null, $e2eeStatusRevision)
+	);
 	$: roleLabelMap = (() => {
 		const labels: Record<string, string> = { ...fallbackRoleLabels };
 		for (const role of roleDefinitions) {
@@ -241,6 +248,7 @@
 			{onReply}
 			{onQuickMention}
 			{onForward}
+			{forwardBlocked}
 			{onContextMenu}
 			{onOpenReactionPicker}
 			{onQuickReact}

@@ -88,6 +88,11 @@
 	export let onReply: (message: Message) => void;
 	export let onQuickMention: (message: Message) => void;
 	export let onForward: (message: Message) => void = () => {};
+	/**
+	 * Why forwarding is off for this message (privacy/contentEgress.ts), or null. The button stays
+	 * focusable so the reason can be read, but does nothing; MessageList's handler refuses too.
+	 */
+	export let forwardBlocked: string | null = null;
 	export let onContextMenu: (event: MouseEvent, message: Message) => void;
 	export let onOpenReactionPicker: (event: MouseEvent, messageId: string) => void;
 	export let onQuickReact: (messageId: string, emojiId: string) => void;
@@ -260,7 +265,16 @@
 		<Icon name="reply" size={16} />
 	</button>
 
-	<button type="button" class="action-btn w-ibtn" title={$_('context_menu.forward')} aria-label={$_('context_menu.forward')} on:click={() => onForward(message)}>
+	<button
+		type="button"
+		class="action-btn w-ibtn"
+		title={forwardBlocked ?? $_('context_menu.forward')}
+		aria-label={$_('context_menu.forward')}
+		aria-disabled={forwardBlocked ? 'true' : undefined}
+		aria-describedby={forwardBlocked ? `forward-off-${message.id}` : undefined}
+		on:click={() => { if (!forwardBlocked) onForward(message); }}
+	>
+		{#if forwardBlocked}<span id={`forward-off-${message.id}`} class="sr-only">{forwardBlocked}</span>{/if}
 		<Icon name="forward" size={16} />
 	</button>
 

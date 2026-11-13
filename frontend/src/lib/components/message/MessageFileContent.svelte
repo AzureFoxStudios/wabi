@@ -1,12 +1,12 @@
 <script lang="ts">
+	import { albumsHint, type KeepReason } from '$lib/privacy/contentEgress';
 	import type { Message, FileAttachment } from '$lib/socket';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { _ } from '$lib/i18n';
 	import { parseMessage } from '$lib/markdown';
 	import ModelViewerLauncher from '../ModelViewerLauncher.svelte';
 	import ZipPreviewPanel from '../ZipPreviewPanel.svelte';
-	import { getServerUrl } from '$lib/serverUrl';
-	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { resolveAttachmentUrl } from '$lib/privacy/remoteMedia';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
 	import { deletedAlbumNames, isAlbumDeletedByNameSet } from '$lib/albumLifecycle';
 	import { promoteCacheStore } from '$lib/lorePromoteCache';
@@ -49,37 +49,27 @@
 	$: if (!effectiveSpoiler) spoilerRevealed = false;
 	export let albumAnnouncement: AlbumAnnouncement | null;
 	export let albumAnnouncementUploadName: string | null;
-	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean) => void;
-	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean) => void;
-	export let onTriggerAlbumUpload: (meta: any) => void;
+	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean, message?: Message) => void;
+	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean, message?: Message) => void;
+	export let onTriggerAlbumUpload: (meta: any, message?: Message) => void;
 	export let onOpenAlbumPanel: () => void;
 	export let onOpenAlbumPreview: (message: Message, fileAttachment: FileAttachment) => void;
 	export let onEnlargeImage: (url: string, gallery?: string[]) => void;
 	export let onEnlargeVideo: (url: string) => void;
 	export let onOpenModelInDedicatedTab: (src: string, fileName: string) => void;
-	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string) => void;
+	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string, message?: Message) => void;
 	export let onDownloadAttachment: (fileUrl: string, fileName: string, encryption?: any) => void;
 	export let onImageContextMenu: (event: MouseEvent, message: Message) => void;
+	/**
+	 * Why this message's content stays on the device (privacy/contentEgress.ts), or null. Kept
+	 * content shows audio, video and 3D models as file links, never as players: a file on this
+	 * server can still be a playlist or model that pulls from other hosts.
+	 */
+	export let keepReason: KeepReason | null = null;
 
+	/** The one attachment URL builder (privacy/remoteMedia.ts): what is rendered is what is gated. */
 	function getFileUrl(fileUrl?: string): string {
-		if (!fileUrl) return '';
-		if (fileUrl.startsWith('data:')) return fileUrl;
-		if (fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
-			try {
-				const absoluteUrl = new URL(fileUrl);
-				const isLocalUpload =
-					(absoluteUrl.hostname === 'localhost' || absoluteUrl.hostname === '127.0.0.1') &&
-					absoluteUrl.pathname.startsWith('/uploads/');
-				if (isLocalUpload) {
-					const normalizedPath = `${absoluteUrl.pathname}${absoluteUrl.search}${absoluteUrl.hash}`;
-					return $relayEnabled ? getRelayFileUrl(normalizedPath) : `${getServerUrl()}${normalizedPath}`;
-				}
-			} catch {
-				// Keep original URL when parsing fails.
-			}
-			return fileUrl;
-		}
-		return $relayEnabled ? getRelayFileUrl(fileUrl) : `${getServerUrl()}${fileUrl}`;
+		return resolveAttachmentUrl(fileUrl).url;
 	}
 
 	/** One metadata format for every attachment: "PDF · 277.6 KB" (or "name · PNG · 890.6 KB"). */
@@ -113,20 +103,21 @@
 							.filter((fileAttachment) => {
 								if (!fileAttachment?.fileUrl || !fileAttachment?.fileName) return false;
 								if (isEncryptedAttachment(fileAttachment)) return false;
-								return isImage(fileAttachment.fileName) || isVideo(fileAttachment.fileName);
+								// Kept content plays no audio/video from a URL (privacy/remoteMedia.ts rule 3).
+								return isImage(fileAttachment.fileName) || (!keepReason && isVideo(fileAttachment.fileName));
 							})
 							.slice(0, 4)}
 						<div
 							class="album-message-card album-message-card--actionable"
 							class:album-message-card--deleted={albumAnnouncementDeleted}
-							role={albumAnnouncementDeleted ? undefined : 'button'}
-							tabindex={albumAnnouncementDeleted ? undefined : 0}
+							role={albumAnnouncementDeleted || keepReason ? undefined : 'button'}
+							tabindex={albumAnnouncementDeleted || keepReason ? undefined : 0}
 							on:click={() => {
-								if (!albumAnnouncementDeleted) onHandleAlbumActivate(albumAnnouncement, true);
+								if (!albumAnnouncementDeleted && !keepReason) onHandleAlbumActivate(albumAnnouncement, true, message);
 							}}
 							on:keydown={(event) => {
-								if (!albumAnnouncementDeleted)
-									onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, true);
+								if (!albumAnnouncementDeleted && !keepReason)
+									onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, true, message);
 							}}
 						>
 							<div class="album-message-main">
@@ -173,12 +164,14 @@
 							<div class="album-message-actions">
 								{#if albumAnnouncementDeleted}
 									<span class="album-message-deleted-note">Album deleted</span>
+								{:else if keepReason}
+									<span class="album-message-deleted-note">{albumsHint(keepReason)}</span>
 								{:else}
 									<button
 										type="button"
 										class="album-message-btn"
 										disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-										on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
+										on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement, message)}
 									>
 										{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
 									</button>
@@ -245,7 +238,7 @@
 											</div>
 										{/if}
 									</div>
-								{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+								{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment) && !keepReason}
 									<!-- svelte-ignore a11y-media-has-caption -->
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
 									<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -272,7 +265,7 @@
 											</div>
 										{/if}
 									</div>
-								{:else if isAudio(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+								{:else if isAudio(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment) && !keepReason}
 									<!-- svelte-ignore a11y-media-has-caption -->
 									<div class="gallery-file-item audio-item" class:last-item={index === 3 && message.files.length > 4}>
 										<audio
@@ -289,7 +282,7 @@
 											</div>
 										{/if}
 									</div>
-								{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+								{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment) && !keepReason}
 									<div class="gallery-file-item model-item" class:last-item={index === 3 && message.files.length > 4}>
 										<ModelViewerLauncher src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || $_('messages.media.model_fallback_name')} height={220} />
 										<button
@@ -315,7 +308,7 @@
 											<span class="file-size-small">{fileMeta(fileAttachment.fileName, fileAttachment.fileSize)}</span>
 										</div>
 										<div class="blend-actions">
-											<button class="blend-import-btn" on:click={() => onOpenBlendImportSettings(fileAttachment.fileUrl, fileAttachment.fileName)}>
+											<button class="blend-import-btn" hidden={Boolean(keepReason)} on:click={() => onOpenBlendImportSettings(fileAttachment.fileUrl, fileAttachment.fileName, message)}>
 												{$_('messages.blend.import_settings')}
 											</button>
 										</div>
@@ -370,7 +363,7 @@
 								{singlePromote.pendingReview ? 'Staged for review' : 'In Lore'}
 							</span>
 						{/if}
-						{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
+						{#if isModelFile(message.fileName) && !isEncryptedAttachment(message) && !keepReason}
 						<div class="model-container">
 							<ModelViewerLauncher src={getFileUrl(message.fileUrl)} fileName={message.fileName || $_('messages.media.model_fallback_name')} />
 							<button
@@ -436,7 +429,7 @@
 								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)} <span class="file-sealed">{$_('messages.encrypted')}</span>
 							</a>
 						</div>
-					{:else if isVideo(message.fileName) && !isEncryptedAttachment(message)}
+					{:else if isVideo(message.fileName) && !isEncryptedAttachment(message) && !keepReason}
 						<!-- Display video with player -->
 						<div class="video-container">
 							<!-- svelte-ignore a11y-media-has-caption -->
@@ -462,7 +455,7 @@
 								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)}
 							</a>
 						</div>
-					{:else if isAudio(message.fileName) && !isEncryptedAttachment(message)}
+					{:else if isAudio(message.fileName) && !isEncryptedAttachment(message) && !keepReason}
 						<!-- Display audio with player -->
 						<div class="audio-container">
 							<!-- svelte-ignore a11y-media-has-caption -->
@@ -488,7 +481,7 @@
 								</div>
 							</div>
 							<div class="blend-file-actions">
-								<button class="blend-import-btn" on:click={() => message.fileUrl && message.fileName && onOpenBlendImportSettings(message.fileUrl, message.fileName)}>
+								<button class="blend-import-btn" hidden={Boolean(keepReason)} on:click={() => message.fileUrl && message.fileName && onOpenBlendImportSettings(message.fileUrl, message.fileName, message)}>
 									{$_('messages.blend.import_settings')}
 								</button>
 								<button class="blend-download-btn" on:click={() => message.fileUrl && message.fileName && onDownloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}>

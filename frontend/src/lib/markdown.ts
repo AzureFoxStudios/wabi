@@ -3,6 +3,7 @@ import { marked } from 'marked';
 // they must not be statically imported here).
 import Prism from '$lib/prism';
 import DOMPurify from 'dompurify';
+import { neutralizeRemoteMediaHtml } from '$lib/privacy/remoteMedia';
 import katex from 'katex';
 // Phase 4 boot optimization: these stylesheets ship with THIS module (off the
 // login boot path) instead of +layout.svelte's eager graph.
@@ -297,8 +298,19 @@ function injectMessageEntityPlaceholders(
 	};
 }
 
-export function parseMessage(text: string, entities: MessageEntity[] = [], options: { allowTables?: boolean } = {}): string {
-	const cacheKey = `${emojiCacheVersion}:${emoteCacheVersion}:${options.allowTables ? 'tables' : 'chat'}:${text}:${entities.length > 0 ? JSON.stringify(entities) : ''}`;
+export type ParseMessageOptions = {
+	allowTables?: boolean;
+	/**
+	 * false: after sanitizing, every element that would fetch from a host other than this Wabi
+	 * server becomes a plain link (privacy/remoteMedia.ts). Used for content that stays on the
+	 * device (privacy/contentEgress.ts). Custom emoji served by this server still render.
+	 */
+	remoteImages?: boolean;
+};
+
+export function parseMessage(text: string, entities: MessageEntity[] = [], options: ParseMessageOptions = {}): string {
+	const remoteImages = options.remoteImages !== false;
+	const cacheKey = `${emojiCacheVersion}:${emoteCacheVersion}:${options.allowTables ? 'tables' : 'chat'}:${remoteImages ? 'img' : 'noimg'}:${text}:${entities.length > 0 ? JSON.stringify(entities) : ''}`;
 	const cached = markdownRenderCache.get(cacheKey);
 	if (cached !== undefined) {
 		markdownRenderCache.delete(cacheKey);
@@ -361,6 +373,7 @@ export function parseMessage(text: string, entities: MessageEntity[] = [], optio
 		console.error('Markdown parse error:', e);
 		html = text; // Fallback to plain text
 	}
+
 
 	// Replace emote codes with images (custom emotes uploaded by users)
 	html = html.replace(/:([a-zA-Z0-9_+-]+):/g, (match, emoteName) => {
@@ -429,8 +442,12 @@ export function parseMessage(text: string, entities: MessageEntity[] = [], optio
 		FORBID_ATTR: ['style', 'onerror', 'onload']
 	});
 
+	// Content kept on the device: on the parsed, sanitized DOM, anything that would fetch from
+	// another host becomes a link (a regex before sanitizing can be bypassed by the parser).
+	const kept = remoteImages ? clean : neutralizeRemoteMediaHtml(clean, { noAudioVideo: true });
+
 	// 4) Inject trusted KaTeX HTML AFTER sanitize (keeps styles; no FORBID_ATTR widen)
-	const withMath = renderMathSlots(clean, mathSlots);
+	const withMath = renderMathSlots(kept, mathSlots);
 
 	markdownRenderCache.set(cacheKey, withMath);
 	pruneMarkdownRenderCache();

@@ -6,6 +6,7 @@
 	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import { getTranslatorSettings } from '$lib/components/message/messageTranslator';
 	import { buildMessageMenu } from './messageContextMenuItems';
+	import { keepReasonFor, type KeepReason } from '$lib/privacy/contentEgress';
 	import { _ } from '$lib/i18n';
 
 	export let message: Message;
@@ -30,6 +31,8 @@
 	export let quickMentionEnabled = true;
 	export let personalPinsEnabled = true;
 	export let isPersonalPinned = false;
+	/** The room's (or caller's) reason to keep content on the device; the message's own flag is added here. */
+	export let roomKeepReason: KeepReason | null = null;
 	export let canManageOwnMessage: boolean | null = null;
 	export let canDeleteMessage: boolean | null = null;
 
@@ -62,9 +65,9 @@
 	// `visible` is intentionally an explicit dependency. Translator settings live
 	// in localStorage, so reopening the menu must rebuild actions after an Add-ons
 	// settings change without requiring a page reload.
-	$: items = buildItems(visible);
+	$: items = buildItems(visible, message, roomKeepReason);
 
-	function buildItems(_menuVisible: boolean): MenuEntry[] {
+	function buildItems(_menuVisible: boolean, _message: Message, _room: KeepReason | null): MenuEntry[] {
 		return buildMessageMenu({
 			t: get(_),
 			isOwn: isOwnMessageByIdentity,
@@ -74,6 +77,7 @@
 			canCopyText,
 			isPinned: !!message.isPinned,
 			isPersonalPinned,
+			keepReason: keepReasonFor(message, roomKeepReason),
 			translatorEnabled: getTranslatorSettings().mode !== 'off',
 			quickMentionEnabled,
 			personalPinsEnabled,

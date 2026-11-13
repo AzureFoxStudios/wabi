@@ -15,6 +15,7 @@ import { getServerUrl, normalizeServerUrl } from './serverUrl';
 import { messageDeliveries, UNCONFIRMED_MESSAGE } from './messageDelivery';
 import { MESSAGE_QUEUE_OWNERSHIP_ERROR } from './wabidb/queue/groupPolicy';
 import { E2EE_MESSAGE_PREFIX, encryptMessageForChannel, prepareIncomingE2eeMessage } from './e2ee';
+import { E2EE_OBSERVED } from './e2eeEnvelope';
 import { shouldAttemptE2eeForChannelType } from './e2eeChannelPolicy';
 import { showToast } from './toast';
 
@@ -243,7 +244,7 @@ export async function sendMessage(
 		...(attachmentStorage !== undefined ? { attachmentStorage } : {}),
 		...(encrypted !== undefined ? { encrypted } : {}),
 		...(iv !== undefined ? { iv } : {}),
-		...(e2eeEpoch !== null ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch } : {})
+		...(e2eeEpoch !== null ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch, [E2EE_OBSERVED]: true } : {})
 	};
 	appendOptimisticMessage(channelId, optimisticMessage);
 
@@ -320,17 +321,26 @@ export function _trackMessageDelivery(sock: object, channelId: string, clientMes
 export async function editMessage(channelId: string, messageId: string, newText: string): Promise<void> {
 	const sock = getSocket();
 	if (!sock) return;
-	updateOptimisticMessage(channelId, (m) => m.id === messageId, { text: newText, isEdited: true });
+	const matches = (m: Message) => m.id === messageId;
 
 	let wireText = newText;
 	if (await shouldAttemptE2eeForChannel(channelId)) {
 		try {
 			const encrypted = await encryptMessageForChannel(channelId, newText, 'text', {});
 			if (encrypted) wireText = encrypted.wireText;
+			// An encrypted edit marks the row (privacy/contentEgress.ts), even when it replaces an
+			// older plaintext message: the new text must not reach previews or embeds before the echo.
+			updateOptimisticMessage(channelId, matches, {
+				text: newText,
+				isEdited: true,
+				...(encrypted ? { encrypted: true, e2ee: true, e2eeVerified: true, e2eeEpoch: encrypted.epoch, [E2EE_OBSERVED]: true } : {})
+			});
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Could not encrypt this edit.', 'error');
 			return;
 		}
+	} else {
+		updateOptimisticMessage(channelId, matches, { text: newText, isEdited: true });
 	}
 
 	const db = getWabiDB();
