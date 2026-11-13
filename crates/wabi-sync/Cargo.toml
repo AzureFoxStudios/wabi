@@ -1,6 +1,7 @@
 [package]
 name = "wabi-sync"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Folder-level two-way sync between a local directory and a Wabi Lore repo — works with any editor"
 license = "MIT"
