@@ -38,7 +38,7 @@ Class-level playbook for **live Tim/wabi.chat runtime failures** after a binary 
 **Truth:** `needs_setup()` = `owner_user_id.is_none()` after load from **WabiDB OwnerProjection** (`claim_owner` / `get_owner_user_id` on `WdbAdapter`).
 
 - Legacy `server_owner.json` was a one-time migration shim (integer user id only — not credentials, not HTTP). Prefer removing the load path; delete file on host if present.
-- Phantom owner: setup false + empty/broken users projection → wipe **`data/wabi-server/wabidb`** (engine), clear **both** locks (`.lock` and `wabidb/.lock` if present), keep **`.env`**.
+- Phantom owner: setup false + empty/broken users projection → wipe **`data/wabi-server/wabidb`** (engine), keep **`.env`**. Never delete a lock to get a start: `wabidb/.lock` is a persistent OS advisory lock, and a legacy root `.lock` may be removed only after confirming every old process is stopped (`AGENTS.md` rule 9).
 - **Forbidden:** `POST /api/auth/register` probes on live (creates users / can steal first-owner).
 - Agent never creates the owner account — hand registration to user after `setupRequired: true`.
 

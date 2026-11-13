@@ -57,5 +57,5 @@ Residual risk: stolen session + online guessing of current password without rate
 
 ## Related
 
-- Deploy lock file: `tim-update-runbook.md` (`rm -f data/wabi-server/wabidb/.lock` on every stop)
+- Deploy lock file: `tim-update-runbook.md` (never delete `data/wabi-server/wabidb/.lock`; `AGENTS.md` rule 9)
 - Retention defaults: `wabi-frontend-polish` / product default 24h ephemeral — separate from ops `RUST_LOG` logs

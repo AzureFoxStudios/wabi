@@ -30,11 +30,11 @@ scp target/release/wabi-server tim@100.96.11.45:~/Desktop/Wabi/target/release/wa
 ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && \
   test "$(sha256sum target/release/wabi-server.new | awk "{print \$1}")" = "<LOCAL_SHA>" && \
   docker compose stop wabi-server && \
-  rm -f data/wabi-server/.lock data/wabi-server/wabidb/.lock && \
   mv -f target/release/wabi-server.new target/release/wabi-server && \
   chmod +x target/release/wabi-server && \
   docker compose up -d wabi-server'
 ```
+Do not delete `data/wabi-server/wabidb/.lock` in this sequence (`AGENTS.md` rule 9); `docker compose stop` must leave no running process on the data tree.
 (Split scp from the compose-up ssh — Hermes may block a single long-lived shell ending in `up -d`.)
 
 ## Lore addon enablement (runtime-disabled trap)
@@ -73,17 +73,12 @@ from inside the container.
 - `/api/addons/lore/health` → `{"addon":"lore","status":"ok"}`
 - logs: `[lore] Lore addon initialized`
 
-## Stale-lock restart loop after data-dir change
+## `engine already running` after a data-dir change
 
 Adding `WABI_LORE_DATA_DIR` (or any data-dir change) can crash-loop the container with
-`Error: engine already running` even after `docker compose stop`. The two known lock paths
-(`data/wabi-server/.lock`, `data/wabi-server/wabidb/.lock`) may not be the only ones.
-Use the broad sweep:
-```bash
-docker compose stop wabi-server
-find data -name '*.lock' -delete
-docker compose up -d wabi-server
-```
+`Error: engine already running`. Do **not** sweep-delete `*.lock` files.
+Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped."
+On `Error: engine already running`, find and stop the process that actually holds the lock (check every container and process on the host); do not unlink the file to force a start. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 ## Lore route shape (axum `{*path}` conflict)
 
