@@ -27,7 +27,7 @@ not a function` -> the boot `async` IIFE in `+page.svelte` dies before `dismissD
 
 ## Decisive diagnosis (run this BEFORE touching app code)
 ```bash
-cd /var/home/Ronin/wabi/frontend
+cd <wabi-root>/frontend
 
 # 1) Unminified SPA — if this boots clean, terser is the culprit
 TAURI_DEBUG=1 STATIC_BUILD=1 bun run build

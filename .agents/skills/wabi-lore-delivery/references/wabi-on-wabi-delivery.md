@@ -1,11 +1,11 @@
 # Wabi-on-Wabi Delivery Reference
 
-## Verified Tim facts
+## Verified <host> facts
 
-- SSH: `tim@100.96.11.45`.
-- Host Lore CLI: `/home/tim/.local/bin/lore`.
+- SSH: `<user>@<host>`.
+- Host Lore CLI: `/home/<user>/.local/bin/lore`.
 - Container Lore CLI: `/usr/local/lorebin/lore`.
-- Canonical fixture repo: `~/Desktop/Wabi/lore-data/2` / `/var/wabi/lore/2`.
+- Canonical fixture repo: `<wabi-root>/lore-data/2` / `/var/wabi/lore/2`.
 - Lore version verified: `0.8.6+373`.
 - Native fixture initial revision verified with identity `Wabi Test Fixture <wabi-test@localhost>`.
 - Runtime Lore environment: `WABI_LORE_ENABLED=true`, `WABI_LORE_MODE=embedded`, `WABI_LORE_DATA_DIR=/var/wabi/lore`, `WABI_LORE_BINARY_PATH=/usr/local/lorebin/lore`, `WABI_LORE_SERVER_URL=lore://host.docker.internal:41337`.
@@ -27,10 +27,10 @@ Keep each fixture addition small and additive. Pair each source commit with a Lo
 For runtime changes, verify all of:
 
 ```text
-local release SHA == Tim bind-mounted binary SHA
+local release SHA == <host> bind-mounted binary SHA
 wabi-server container == healthy
-Tim :3001/health == 200
-Tim Caddy :8088/health == 200
+<host> :3001/health == 200
+<host> Caddy :8088/health == 200
 public https://wabi.chat/health == 200
 public / == 200 with cache-control: no-cache
 ```

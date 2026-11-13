@@ -73,7 +73,7 @@ pub async fn open(config: WabiDbConfig) -> Result<Self> {
 ## Verification Commands
 
 ```bash
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 cargo test -p wabidb --lib 2>&1 | tail -3
 cargo test -p wabi-server 2>&1 | tail -3
 cargo check -p wabi-server 2>&1 | tail -3

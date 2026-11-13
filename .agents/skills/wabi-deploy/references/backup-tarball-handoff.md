@@ -1,6 +1,6 @@
 # Wabi Backup Tarball Handoff (no deploy)
 
-Use when the user asks to "back up wabi and send to Tim (or another host), don't deploy — just a backup." This captures the FULL working tree INCLUDING uncommitted changes, then ships a single tarball.
+Use when the user asks to "back up wabi and send to <host> (or another host), don't deploy — just a backup." This captures the FULL working tree INCLUDING uncommitted changes, then ships a single tarball.
 
 ## Why not `git archive` / `git bundle`
 
@@ -18,9 +18,9 @@ Real source + live `data/` (WabiDB state, ~600M including .git) is ~350–400M c
 ## Build the local tarball
 
 ```bash
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 TS=$(date +%Y%m%d-%H%M%S)
-OUT="/var/home/Ronin/backups/wabi-backup-${TS}.tar.gz"
+OUT="/home/<user>/backups/wabi-backup-${TS}.tar.gz"
 tar --exclude='./target' \
     --exclude='./node_modules' \
     --exclude='./frontend/node_modules' \
@@ -38,14 +38,14 @@ tar -tzf "$OUT" | head
 
 Keep `data/` IN the tarball — it carries live WabiDB state (small) and is the point of a backup.
 
-## Ship to Tim (Tailscale SSH)
+## Ship to <host> (Tailscale SSH)
 
-scp to `tim@100.96.11.45`. This will hit the Tailscale web-auth checkpoint the FIRST time per session — see `references/tailscale-ssh-auth.md` for how to extract and surface the `login.tailscale.com/...` URL BEFORE reporting any failure.
+scp to `<user>@<host>`. This will hit the Tailscale web-auth checkpoint the FIRST time per session — see `references/tailscale-ssh-auth.md` for how to extract and surface the `login.tailscale.com/...` URL BEFORE reporting any failure.
 
 ```bash
 # User must authorize the auth link first; then:
 scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
-  "$OUT" tim@100.96.11.45:/home/tim/
+  "$OUT" <user>@<host>:/home/<user>/
 ```
 
 scp to a raw IP (100.x) triggers a client-side command-approval prompt even after SSH auth clears. The user must click **allow** on that prompt. If it comes back "BLOCKED", that is the consent guard, not a network failure — re-issue the SAME command once the user says they are watching / send it.
@@ -56,12 +56,12 @@ scp to a raw IP (100.x) triggers a client-side command-approval prompt even afte
 # local
 sha256sum "$OUT"
 # remote
-ssh tim@100.96.11.45 "sha256sum /home/tim/$(basename $OUT)"
+ssh <user>@<host> "sha256sum /home/<user>/$(basename $OUT)"
 ```
 
 SHAs must match. Report both sizes and the SHA so the user can confirm.
 
 ## Notes
 - This is archive/handoff only — no build, no restart, no deploy.
-- Drop location: Tim's home `/home/tim/` unless the user names a path.
-- The tarball stays in `/var/home/Ronin/backups/` too; ask whether to keep or remove the local copy.
+- Drop location: <host>'s home `/home/<user>/` unless the user names a path.
+- The tarball stays in `/home/<user>/backups/` too; ask whether to keep or remove the local copy.

@@ -133,7 +133,7 @@ error: Permission denied (os error 13) at path "/module/target..."
 
 ## Compose command shape
 
-From `/var/home/Ronin/wabi`:
+From `<wabi-root>`:
 
 ```bash
 WABI_STDB_BRIDGE_DATABASE=wabi-state-local \

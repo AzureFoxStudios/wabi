@@ -20,7 +20,7 @@ A plain `cargo build --release -p wabi-server` **silently drops** the `addons`
 feature (`addons = ["wabi-webhooks", "wabi-lore"]`, `default = []` in
 `core/crates/wabi-server/Cargo.toml`). The build succeeds, SHA changes, all your
 other string checks pass — and lore/webhooks routes are just gone from the
-binary. Verified incident 2026-08-22: shipped a no-addons binary to Tim; every
+binary. Verified incident 2026-08-22: shipped a no-addons binary to <host>; every
 pre-swap check was green because they tested wave-specific strings, not addon
 strings.
 
@@ -48,13 +48,13 @@ curl -fsS http://127.0.0.1:8088/api/addons
 
 ## Gate 2 — Probe suite after swap (post-wave-3, 2026-08-21+)
 
-On the Tim HOST, container port 3001 is NOT reachable from the shell (only the
+On the <host> HOST, container port 3001 is NOT reachable from the shell (only the
 caddy tunnel port is routed); probe through **8088**. From off-host (LAN IP /
 Tailscale / public), :3001 works. Verified 2026-08-26: full suite green via
 8088 during swap verification.
 
 ```bash
-BASE=http://127.0.0.1:8088   # on Tim host; use :3001 (or public URL) from elsewhere
+BASE=http://127.0.0.1:8088   # on <host> host; use :3001 (or public URL) from elsewhere
 curl $BASE/health     # {"status":"ok",...}
 curl $BASE/livez      # liveness (process up)
 curl $BASE/readyz     # engine canary — proves WabiDB readable (503 if degraded)
@@ -105,6 +105,6 @@ verify) so a failure pinpoints its stage.
 Tailscale SSH checkpoints expire periodically (seen again 2026-08-22, ~daily).
 The ssh command hangs until timeout printing
 `https://login.tailscale.com/a/<hash>`. Hand the raw URL to Ronin immediately,
-then poll with `ssh -o ConnectTimeout=10 tim@100.96.11.45 'echo ok'` between
+then poll with `ssh -o ConnectTimeout=10 <user>@<host> 'echo ok'` between
 other work. Do not burn retries on long commands while blocked — do local-side
 work (builds, kanban cards) during the wait.

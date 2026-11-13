@@ -51,10 +51,10 @@ If the command used is bare `ssh user@100.x.x.x` with OpenSSH, and the SSH key o
 
 ### 3. Tailscale SSH Feature Disabled on the Target Machine
 
-Tailscale SSH lets you connect with `tailscale ssh user@host` without any SSH keys or passphrases at all. It uses Tailscale ACLs for authorization. If this feature is **not** enabled on the target (tim, Iyoku, ironin), connections fall back to regular OpenSSH, which brings back key/passphrase prompts.
+Tailscale SSH lets you connect with `tailscale ssh user@host` without any SSH keys or passphrases at all. It uses Tailscale ACLs for authorization. If this feature is **not** enabled on the target (<host>, <staging-host>, <dev-host>), connections fall back to regular OpenSSH, which brings back key/passphrase prompts.
 
 - Check: On the target machine, run `tailscale status` and look for the SSH badge (`●` or `>`). Or look in the admin console for whether Tailscale SSH is approved for that machine.
-- Fix: In the Tailscale admin console, approve Tailscale SSH for the target machine under its ACL settings. Once enabled, `tailscale ssh tim@tim` (or `tailscale ssh user@100.x.x.x`) should work with zero prompt.
+- Fix: In the Tailscale admin console, approve Tailscale SSH for the target machine under its ACL settings. Once enabled, `tailscale ssh <user>@<host>` (or `tailscale ssh user@100.x.x.x`) should work with zero prompt.
 
 ## Diagnostic Quick-Check
 
@@ -83,16 +83,16 @@ Run a non-interactive SSH attempt with publickey-only; the daemon prints the URL
 
 ```bash
 KEY=~/.ssh/id_ed25519
-for u in tim root; do
-  echo "===== $u@100.96.11.45 ====="
+for u in <user> root; do
+  echo "===== $<user>@<host> ====="
   timeout 8 ssh -i "$KEY" -o BatchMode=yes -o StrictHostKeyChecking=no \
     -o ConnectTimeout=5 -o PreferredAuthentications=publickey \
-    ${u}@100.96.11.45 'echo OK' 2>&1 \
+    ${u}@<host> 'echo OK' 2>&1 \
     | grep -iE "login.tailscale|additional|authenticate" | head -3
 done
 ```
 
-Each OS user (`tim`, `root`, ...) emits its own distinct URL. Hand BOTH to the user if unsure which account they want to scp as, and let them click the matching one.
+Each OS user (`<user>`, `root`, ...) emits its own distinct URL. Hand BOTH to the user if unsure which account they want to scp as, and let them click the matching one.
 
 ### Flow after extraction
 
@@ -105,8 +105,8 @@ Each OS user (`tim`, `root`, ...) emits its own distinct URL. Hand BOTH to the u
 
 | Host | Tailscale IP | Tailscale SSH enabled? |
 |------|-------------|------------------------|
-| tim | 100.96.11.45 | Check in admin console |
-| Iyoku | 100.104.166.42 | Check in admin console |
-| ironin | 100.80.172.12 | Check in admin console |
+| <host> | <host> | Check in admin console |
+| <staging-host> | <staging-host> | Check in admin console |
+| <dev-host> | <dev-host> | Check in admin console |
 
 Fix the root cause (key expiry, agent, or Tailscale SSH toggle) rather than re-authing every session.

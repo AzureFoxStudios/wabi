@@ -36,10 +36,10 @@ Use these commands to explore WabiDB integration patterns:
 
 ```bash
 # View WabiStore trait implementation
-read_file /var/home/Ronin/wabi/core/crates/wabidb/src/engine/wabi_store.rs
+read_file <wabi-root>/core/crates/wabidb/src/engine/wabi_store.rs
 
 # View adapter implementation
-read_file /var/home/Ronin/wabi/core/crates/wabidb/src/adapter/mod.rs
+read_file <wabi-root>/core/crates/wabidb/src/adapter/mod.rs
 
 # Run integration tests
 cargo test -p wabidb --test wabi_store
@@ -259,7 +259,7 @@ Wabi's public/text chat has three storage classes, resolved in the send path BEF
 - **timed** (product default) — `wdb.send_message` + schedule delete after `DEFAULT_CHANNEL_AUTO_DELETE_MS` (24h) unless an explicit map/policy overrides.
 - **forever** — `wdb.send_message`, no TTL spawn. Explicit opt-in.
 
-**Load-bearing rule — do NOT add a class field to the `Channel` domain struct.** Adding a trailing field to a postcard-encoded record (`Channel`, `UserRecord`, `MessageRecord`, etc.) breaks replay of older on-disk events unless you also write a `RecordV0`/`V1` dual-decode fallback (the same bug class that dropped Tim's user accounts). For a per-channel feature flag that does NOT need to survive restart the same way message bodies do, key it off an existing in-memory map instead:
+**Load-bearing rule — do NOT add a class field to the `Channel` domain struct.** Adding a trailing field to a postcard-encoded record (`Channel`, `UserRecord`, `MessageRecord`, etc.) breaks replay of older on-disk events unless you also write a `RecordV0`/`V1` dual-decode fallback (the same bug class that dropped <host>'s user accounts). For a per-channel feature flag that does NOT need to survive restart the same way message bodies do, key it off an existing in-memory map instead:
 
 ```rust
 // live/forever sentinels live in the existing in-memory label map,

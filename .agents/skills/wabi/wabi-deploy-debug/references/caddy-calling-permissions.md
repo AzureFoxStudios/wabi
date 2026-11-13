@@ -1,7 +1,7 @@
-# Caddy calling Permissions-Policy / CSP (Tim)
+# Caddy calling Permissions-Policy / CSP (<host>)
 
 ## File
-`/home/tim/Desktop/Wabi/Caddyfile.tunnel` (also keep local `Caddyfile.tunnel` in repo in sync).
+`<wabi-root>/Caddyfile.tunnel` (also keep local `Caddyfile.tunnel` in repo in sync).
 
 ## Bad defaults (block getUserMedia / getDisplayMedia)
 ```
@@ -18,8 +18,8 @@ Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; 
 
 ## Apply
 ```bash
-# after editing Caddyfile.tunnel on Tim
-cd /home/tim/Desktop/Wabi
+# after editing Caddyfile.tunnel on <host>
+cd <wabi-root>
 docker compose restart caddy-tunnel   # container name may be wabi-tunnel-caddy
 curl -sI http://127.0.0.1:8088/health | grep -i permissions
 # expect camera=(self), microphone=(self)

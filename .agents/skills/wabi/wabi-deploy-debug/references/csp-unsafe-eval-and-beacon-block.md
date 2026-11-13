@@ -31,7 +31,7 @@ In `Caddyfile.tunnel`, add `'unsafe-eval'` to the `script-src` directive:
 + Content-Security-Policy "...; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com ...; ..."
 ```
 
-Then restart the Caddy container on Tim:
+Then restart the Caddy container on <host>:
 ```bash
 docker restart wabi-tunnel-caddy
 ```

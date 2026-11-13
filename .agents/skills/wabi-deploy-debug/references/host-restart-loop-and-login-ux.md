@@ -1,8 +1,8 @@
-# Tim restart-loop + login UX hardening
+# <host> restart-loop + login UX hardening
 
 ## Observed failure mode (2026-08-10)
 
-Tim's `wabi-server` container was in a ~1-minute restart loop:
+<host>'s `wabi-server` container was in a ~1-minute restart loop:
 
 ```
 🚀 Wabi Node v0.1.0
@@ -27,10 +27,10 @@ Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current 
 
 ## Recovery command sequence
 
-Run on Tim (`tim@100.96.11.45`):
+Run on <host> (`<user>@<host>`):
 
 ```bash
-cd ~/Desktop/Wabi
+cd <wabi-root>
 docker compose stop wabi-server
 docker rm wabi-server
 docker ps -a; pgrep -af wabi-server   # stop every other Wabi container/process on this data tree

@@ -8,7 +8,7 @@
 
 ## Triage order (each step cheap, in order)
 
-1. `sha256sum` local binary vs Tim binary; `docker inspect wabi-server --format '{{.State.StartedAt}}'` must be AFTER binary mtime (in-place `mv` + `compose up -d` can keep serving the old inode — force `docker rm -f` + `up -d`).
+1. `sha256sum` local binary vs <host> binary; `docker inspect wabi-server --format '{{.State.StartedAt}}'` must be AFTER binary mtime (in-place `mv` + `compose up -d` can keep serving the old inode — force `docker rm -f` + `up -d`).
 2. `curl https://wabi.chat/ | grep -oE '0\.[A-Za-z0-9_-]+\.css'` vs `strings target/release/wabi-server | grep -oE '0\.[A-Za-z0-9_-]+\.css'` — CF edge staleness if different.
 3. Check the SW: `curl https://wabi.chat/sw.js` and confirm `__WABI_SW_VERSION__` in `frontend/vite.config.ts` is **committed** (an uncommitted bump ships nothing; the precached shell never invalidates).
 4. If all of the above are clean and the user still sees stale/broken UI on a fresh browser profile: **stop blaming cache. Grep the broken component's CSS classes across the whole `frontend/src` tree.**

@@ -92,7 +92,7 @@ Then for each hit, check whether that same file also imports a store of the same
 
 1. Login bounce with `/api/user/me` 401 `token revoked` → `login-bounce-token-revocation.md`
 2. `Join as: null` after force-reset → `post-login-socket-and-channels.md`
-3. Public 502 with Tim healthy → dead tunnel edge (not SPA)
+3. Public 502 with <host> healthy → dead tunnel edge (not SPA)
 
 Only then sourcemap / `$prop` audit.
 

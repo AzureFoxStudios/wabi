@@ -1,10 +1,10 @@
-# Tim STDB → WabiDB cutover checklist (2026-07-15)
+# <host> STDB → WabiDB cutover checklist (2026-07-15)
 
 > **WARNING (superseded lock guidance):** this file may tell you to delete `data/wabi-server/.lock` or `wabidb/.lock`. That predates the OS advisory-lock engine. Do **not** unlink `wabidb/.lock`; see `AGENTS.md` rule 9 and `docs/deployment/BACKUP_AND_RECOVERY.md`. A legacy root `data/wabi-server/.lock` may be removed only after every old Wabi process is confirmed stopped.
 
 Session-proven sequence. Re-probe before repeating; live state drifts.
 
-## Signals Tim is still STDB-era
+## Signals <host> is still STDB-era
 
 - `docker-compose.yml` header mentions SpacetimeDB / has `spacetimedb:` service
 - `docker ps` shows `wabi-stdb-proxy` / cloudflared / tunnel caddy but **no healthy `wabi-server`**
@@ -19,7 +19,7 @@ Session-proven sequence. Re-probe before repeating; live state drifts.
 
 ## Sequence that worked
 
-1. **Backup on Tim**  
+1. **Backup on <host>**  
    `~/Desktop/wabi-pre-wabidb-cutover-<stamp>/` with compose, `.env`, full `data/`, `docker-ps.txt`.
 
 2. **Build on Ronin**  
@@ -31,7 +31,7 @@ Session-proven sequence. Re-probe before repeating; live state drifts.
    Exclude: `data/`, `uploads/`, `.env`, `target/`, `node_modules/`, `.git/`, frontend build artifacts.
 
 4. **Ship binary**  
-   `scp …/wabi-server` → `~/Desktop/Wabi/target/release/wabi-server`.
+   `scp …/wabi-server` → `<wabi-root>/target/release/wabi-server`.
 
 5. **`.env` minimum (WabiDB)**  
    ```
@@ -68,7 +68,7 @@ Session-proven sequence. Re-probe before repeating; live state drifts.
     ```
 
 11. **CF optional**  
-    Host `:8088` (tunnel caddy) → `wabi-server:3000` can be healthy while **public CF still 502**. Fix ingress separately or CF-less via Tailscale `http://100.96.11.45:3001`.
+    Host `:8088` (tunnel caddy) → `wabi-server:3000` can be healthy while **public CF still 502**. Fix ingress separately or CF-less via Tailscale `http://<host>:3001`.
 
 ## Data note
 
@@ -76,10 +76,10 @@ Fresh `data/wabi-server` is a **new** WabiDB. Old STDB under `data/spacetimedb` 
 
 ## Approval / YOLO
 
-If a multi-step Tim stop/start is denied because the user was away, **retry once** with standing permission — do not invent a "user refused cutover" story without an explicit no.
+If a multi-step <host> stop/start is denied because the user was away, **retry once** with standing permission — do not invent a "user refused cutover" story without an explicit no.
 
 **Do not turn a denied command into a multi-option menu and wait** (Ronin 2026-07-17). A runtime block is not a user refusal — it will clear on retry. Acknowledge the block once, briefly (one line, not a paragraph), then re-issue the same command. Do NOT type out a 4-option "go / go no-exec / just restart / specific instructions" menu and explain you'll wait for direction — the user read that as "throwing a tantrum." Do NOT split the batch to hedge ("is it the `docker exec cat Caddyfile` subcommand you don't want?"). Do NOT treat a clean "yes go ahead" reply as needing further branching unless the user explicitly overrides the planned command. Right rhythm: brief stop → retry → continue the workflow that was already approved.
 
 ## 502 with origin alive (post-cutover diagnosis)
 
-After cutover, a wabi.chat 502 is rarely an origin problem. See `references/wabichat-502-diagnosis.md` for the full recipe: confirm origin 200 on Tim (`wabi-server` :3001 + Caddy :8088), confirm Caddyfile is the clean single-line `reverse_proxy wabi-server:3000`, check cloudflared PID start time vs container "Up" duration for the re-registration smoking gun, `docker restart wabi-cloudflared-named` to force edge re-registration. Do NOT scp a new binary when public 502 has a healthy origin.
+After cutover, a wabi.chat 502 is rarely an origin problem. See `references/wabichat-502-diagnosis.md` for the full recipe: confirm origin 200 on <host> (`wabi-server` :3001 + Caddy :8088), confirm Caddyfile is the clean single-line `reverse_proxy wabi-server:3000`, check cloudflared PID start time vs container "Up" duration for the re-registration smoking gun, `docker restart wabi-cloudflared-named` to force edge re-registration. Do NOT scp a new binary when public 502 has a healthy origin.

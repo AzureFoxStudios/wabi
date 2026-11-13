@@ -17,8 +17,8 @@ The WS upgrade is stripped somewhere in Cloudflare → cloudflared → caddy. Is
 a raw `Upgrade` handshake at each hop:
 
 ```bash
-# 1. Direct to caddy on Tim (bypasses Cloudflare/tunnel) — should return 101
-ssh tim@100.96.11.45 'curl -s -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
+# 1. Direct to caddy on <host> (bypasses Cloudflare/tunnel) — should return 101
+ssh <user>@<host> 'curl -s -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
   -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
   "http://127.0.0.1:8088/socket.io/?EIO=4&transport=websocket" | head -12'
 # Expect: HTTP/1.1 101 Switching Protocols  +  Upgrade: websocket
@@ -57,7 +57,7 @@ Then rebuild + redeploy:
 ```bash
 cd frontend && rm -rf build .svelte-kit && STATIC_BUILD=1 bun run build && cd ..
 cargo build --release -p wabi-server
-# ship binary, lock-clear, up (see tim-update-runbook.md)
+# ship binary, lock-clear, up (see host-update-runbook.md)
 ```
 
 ## Verify end-to-end (no browser needed)
@@ -70,7 +70,7 @@ curl -s "https://wabi.chat/socket.io/?EIO=4&transport=polling" | head -c 200
 
 # login to get a token
 TOK=$(curl -s -X POST https://wabi.chat/api/auth/login -H "Content-Type: application/json" \
-  -d '{"username":"wabi","password":"Please1"}' | python3 -c "import sys,json;print(json.load(sys.stdin).get('token',''))")
+  -d '{"username":"wabi","password":"<password>"}' | python3 -c "import sys,json;print(json.load(sys.stdin).get('token',''))")
 
 SID=$(curl -s "https://wabi.chat/socket.io/?EIO=4&transport=polling" | sed 's/^0//' \
   | python3 -c "import sys,json;print(json.load(sys.stdin).get('sid',''))")

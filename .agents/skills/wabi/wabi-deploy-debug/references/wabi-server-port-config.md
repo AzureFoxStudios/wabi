@@ -12,7 +12,7 @@ port: u16,
 |---|---|---|
 | Production wabi-server | 3000 | Caddy reverse_proxy target |
 | Local dev (manual start) | 3001 | Common dev convention, NOT default |
-| Docker compose (Tim) | 3001 (host) → 3000 (container) | `WABI_PORT_OUT` env var |
+| Docker compose (<host>) | 3001 (host) → 3000 (container) | `WABI_PORT_OUT` env var |
 | Caddy tunnel | 3000 | `reverse_proxy wabi-server:3000` |
 
 ## Critical: Caddy Expects Internal Port 3000

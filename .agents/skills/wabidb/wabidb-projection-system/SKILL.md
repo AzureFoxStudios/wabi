@@ -17,7 +17,7 @@ This skill covers WabiDB's in-memory materialized view system — how events are
 
 ## Prerequisites
 
-- Access to WabiDB source code at `/var/home/Ronin/wabi`
+- Access to WabiDB source code at `<wabi-root>`
 - Understanding of event sourcing basics (commands → events → materialized views)
 - Familiarity with WabiDB's sequencer commit flow
 

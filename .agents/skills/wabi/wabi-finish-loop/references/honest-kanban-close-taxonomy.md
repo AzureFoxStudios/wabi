@@ -15,14 +15,14 @@ For living markdown boards (`docs/showcase-prep-kanban.md`).
 
 - Green from compaction / MoA narrative without `stat`/`rg`/`git status`
 - Close "fixed" when only parked
-- Claim Tim live JSON when curl still returns `text/html`
+- Claim <host> live JSON when curl still returns `text/html`
 
 ## Code done vs live green (R7b pattern)
 
-When source has `/api/places` nest but Tim binary still SPA-falls through:
+When source has `/api/places` nest but <host> binary still SPA-falls through:
 
-- Card: **code done** + **Tim still HTML until deploy**
-- Log: `code done | places stub; Tim HTML until binary deploy`
+- Card: **code done** + **<host> still HTML until deploy**
+- Log: `code done | places stub; <host> HTML until binary deploy`
 - Counts: `R7b-code` not "R7b live"
 
 ## Single close ritual

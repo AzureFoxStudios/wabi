@@ -30,16 +30,16 @@ This is distinct from "WS upgrade stripped" (site loads, socket fails). Here the
 | Probe | Healthy-origin dead-tunnel result |
 |---|---|
 | `https://wabi.chat/health` | Cloudflare body `error code: 502` |
-| Tim `127.0.0.1:3001/health` | 200 JSON ok |
-| Tim `127.0.0.1:8088/health` | 200 (Via: Caddy) |
+| <host> `127.0.0.1:3001/health` | 200 JSON ok |
+| <host> `127.0.0.1:8088/health` | 200 (Via: Caddy) |
 | `docker logs --since 2m wabi-cloudflared-named` during public curls | **empty** — edge never handed traffic to connector |
 | cloudflared historical ERR | `failed to dial to edge with quic: timeout: no recent network activity` |
 
-Running compose on Tim had been `tunnel --no-autoupdate --protocol quic ...` even when the repo's intended posture is http2. Container "Up 6 days" is not proof the edge path is live.
+Running compose on <host> had been `tunnel --no-autoupdate --protocol quic ...` even when the repo's intended posture is http2. Container "Up 6 days" is not proof the edge path is live.
 
-### Fix (Tim `/home/tim/Desktop/Wabi`, no wipe)
+### Fix (<host> `<wabi-root>`, no wipe)
 ```bash
-cd /home/tim/Desktop/Wabi
+cd <wabi-root>
 cp -a docker-compose.yml "docker-compose.yml.bak-quic-$(date +%Y%m%d%H%M%S)"
 sed -i 's/--protocol quic/--protocol http2/g' docker-compose.yml
 docker compose --profile tunnel --profile tunnel-named up -d --force-recreate \

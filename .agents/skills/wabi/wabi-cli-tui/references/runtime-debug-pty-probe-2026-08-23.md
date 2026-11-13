@@ -21,7 +21,7 @@ if pid == 0:
     os.dup2(slave,0); os.dup2(slave,1); os.dup2(slave,2)
     import fcntl, termios
     fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
-    os.execv('/var/home/Ronin/wabi/target/release/wabi-tui', ['wabi-tui'])
+    os.execv('<wabi-root>/target/release/wabi-tui', ['wabi-tui'])
 os.close(slave)
 out = b''; start = time.time()
 while time.time()-start < 12:
@@ -66,7 +66,7 @@ AppMode::Login instead of flapping.
 
 wabi-server container stdout is flooded with "Error: engine already running"
 and `[sio]` lines are not retrievable via `docker logs`. Don't burn time on
-Tim's box for client-side socket issues; probe client-side instead.
+<host>'s box for client-side socket issues; probe client-side instead.
 
 ## Bisect tip
 

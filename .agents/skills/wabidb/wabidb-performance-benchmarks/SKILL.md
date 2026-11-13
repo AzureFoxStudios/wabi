@@ -15,7 +15,7 @@ This skill covers WabiDB's Criterion-based benchmark suite in `benches/projectio
 
 ## Prerequisites
 
-- Access to WabiDB source code at `/var/home/Ronin/wabi`
+- Access to WabiDB source code at `<wabi-root>`
 - Rust toolchain with nightly (for `cargo bench`)
 
 ## How to Run

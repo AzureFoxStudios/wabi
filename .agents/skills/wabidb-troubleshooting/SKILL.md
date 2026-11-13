@@ -108,7 +108,7 @@ curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" https://wabi.chat/
 ### Step 2: Check Service Health
 ```bash
 # If you have server access:
-ssh tim@100.104.166.42
+ssh <user>@<staging-host>
 # Then on the server:
 systemctl --user status wabi-server
 journalctl --user -u wabi-server -n 50
@@ -119,7 +119,7 @@ docker logs $(docker ps -q -f name=wabi) 2>/dev/null | tail -20
 ### Step 3: Verify Deployed Version
 ```bash
 # On server:
-cd /home/tim/wabi
+cd <wabi-root>
 git log --oneline -5
 ./target/release/wabi-server --version
 ```
@@ -127,8 +127,8 @@ git log --oneline -5
 ### Step 4: Check Configuration
 ```bash
 # On server:
-cat /home/tim/wabi/.env
-cat /home/tim/wabi/config.yaml
+cat <wabi-root>/.env
+cat <wabi-root>/config.yaml
 ```
 
 ### Step 5: Test Endpoints Directly (if server accessible)
@@ -151,7 +151,7 @@ docker compose up -d
 ### If Configuration Issue
 ```bash
 # On server:
-cd /home/tim/wabi
+cd <wabi-root>
 # Fix .env or config.yaml
 systemctl --user restart wabi-server
 ```
@@ -159,7 +159,7 @@ systemctl --user restart wabi-server
 ### If Code Needs Deployment
 ```bash
 # On server:
-cd /home/tim/wabi
+cd <wabi-root>
 git pull origin main
 cd frontend && STATIC_BUILD=1 npm run build && cd ..
 cargo build --release -p wabi-server

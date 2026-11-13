@@ -79,7 +79,7 @@ General lesson: when a frontend admin feature "doesn't work", grep the backend f
 route BEFORE blaming the UI — the frontend may anticipate endpoints the backend never
 shipped (and the admin UI flows around them are often untested).
 
-## Server-side state files (deploy host, e.g. /home/tim/Desktop/Wabi/data/wabi-server/)
+## Server-side state files (deploy host, e.g. <wabi-root>/data/wabi-server/)
 
 - `blacklist.txt` — `type|value|reason|expires_timestamp`, types user/ip.
 - `revocations.json` — `{epoch, jtis[], users[]}`; non-empty `users` = permanent token

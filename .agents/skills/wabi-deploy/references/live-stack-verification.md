@@ -1,4 +1,4 @@
-# Live Stack Verification — Tim / Iyoku / ironin
+# Live Stack Verification — <host> / <staging-host> / <dev-host>
 
 ## Purpose
 
@@ -32,7 +32,7 @@ ls -la target/release/wabi-server 2>/dev/null
 NAME                     IMAGE                          STATUS
 wabi-server              wabi-wabi-server               Up (healthy)
 ```
-Host bind mount: `~/Desktop/Wabi/target/release/wabi-server` is embedded into the container as a read-only binary.
+Host bind mount: `<wabi-root>/target/release/wabi-server` is embedded into the container as a read-only binary.
 
 ### Old Node Stack (historical state)
 

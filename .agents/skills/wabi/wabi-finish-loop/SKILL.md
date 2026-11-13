@@ -1,6 +1,6 @@
 ---
 name: wabi-finish-loop
-description: Run the Wabi website-finish implementation loop — Hermes captain + OpenCode DeepSeek-v4 workers, card cadence, free-model stall recovery, and Tim deploy batches. Use when Ronin asks to finish wabi.chat via the loop, burn SuperGrok/DeepSeek battery on DoD waves, or continue multi-card website polish without model-hopping.
+description: Run the Wabi website-finish implementation loop — Hermes captain + OpenCode DeepSeek-v4 workers, card cadence, free-model stall recovery, and <host> deploy batches. Use when Ronin asks to finish wabi.chat via the loop, burn SuperGrok/DeepSeek battery on DoD waves, or continue multi-card website polish without model-hopping.
 version: 1.0.0
 author: Hermes Agent
 license: MIT
@@ -12,7 +12,7 @@ metadata:
 
 # Wabi website-finish loop
 
-Class-level workflow for burning down `docs/plans/*website-finish*` (or equivalent DoD) on live `wabi.chat` / Tim.
+Class-level workflow for burning down `docs/plans/*website-finish*` (or equivalent DoD) on live `wabi.chat` / <host>.
 
 ## Roles (locked)
 
@@ -95,8 +95,8 @@ Binary embeds SPA (working tree **is** the SPA source):
 cd frontend && rm -rf build .svelte-kit && STATIC_BUILD=1 bun run build
 # must see index.html + _app/ — not handler.js
 cd .. && cargo build --release -p wabi-server
-scp target/release/wabi-server root@100.96.11.45:/home/tim/Desktop/Wabi/target/release/wabi-server.new
-# Tim: SHA match → stop → rm BOTH locks → mv .new → up -d
+scp target/release/wabi-server root@<host>:<wabi-root>/target/release/wabi-server.new
+# <host>: SHA match → stop → rm BOTH locks → mv .new → up -d
 # Prove :3001 + :8088 health + public CSS hash
 ```
 Never terser minify. Headless cannot verify UI — Ronin real browser + hard refresh.

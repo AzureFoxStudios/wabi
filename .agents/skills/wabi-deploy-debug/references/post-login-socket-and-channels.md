@@ -61,4 +61,4 @@ Fix: optimistic upsert into `channels` store from `CreateChannelResponse`; liste
 5. Only then sourcemap store hunt (`references/post-login-store-crash.md`).
 
 ## Deploy note
-FE is rust_embed'd: `STATIC_BUILD=1 bun run build` → `cargo build --release -p wabi-server` → scp binary to Tim `/home/tim/Desktop/Wabi/target/release/wabi-server` → confirm the old process exited (never delete `wabidb/.lock`, `AGENTS.md` rule 9) → `docker compose restart wabi-server`.
+FE is rust_embed'd: `STATIC_BUILD=1 bun run build` → `cargo build --release -p wabi-server` → scp binary to <host> `<wabi-root>/target/release/wabi-server` → confirm the old process exited (never delete `wabidb/.lock`, `AGENTS.md` rule 9) → `docker compose restart wabi-server`.
