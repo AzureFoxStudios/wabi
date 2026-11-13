@@ -55,7 +55,7 @@ Then rebuild the release binary so rust_embed picks up the fixed frontend:
 ```bash
 STATIC_BUILD=1 bun run build && cargo build --release -p wabi-server
 ```
-Deploy (stop -> rm BOTH locks -> swap binary -> up) and verify login reaches the form.
+Deploy (stop -> confirm the process exited, never delete `wabidb/.lock` (AGENTS.md rule 9) -> swap binary -> up) and verify login reaches the form.
 
 ## Why the first pass went wrong (so the next session doesn't)
 - Assumed "SPA crash = app-code regression" and started a `git bisect` of overnight code. The pre-overnight

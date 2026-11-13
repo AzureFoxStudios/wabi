@@ -203,5 +203,5 @@ Do not run pre-advisory and advisory-lock binaries against one data tree (`AGENT
 - `references/message-identity-new-eats-old.md` — UUID message ids, merge/key/dedupe, don't delete `dedupeByIdKey`, SW stale chunk proof
 - `references/sw-truth-and-css-cascade.md` — (2026-08-08 audit) SW never caches chunks; "deploys don't change anything" = CSS cascade / capability gates / z-index / stubs, NOT caching
 - `references/lore-runtime-and-create-repo-fix.md` — container-traversal permission fix (host home dir `o+rx`), create-repo URL contract (`POST /repos` vs `/repos/{id}/link`), feature-flag vs runtime-disabled distinction
-- `references/host-restart-loop-and-login-ux.md` — <host> restart-loop diagnosis, lock cleanup, and login/boot UX hardening when backend 502 causes "stuck signed in"
+- `references/host-restart-loop-and-login-ux.md` — <host> restart-loop diagnosis (lock holder, never delete the lock), and login/boot UX hardening when backend 502 causes "stuck signed in"
 - `scripts/css-cascade-audit.py` — list every class defined in 2+ sheets and which @import wins; run first when UI looks stale despite verified deploy
