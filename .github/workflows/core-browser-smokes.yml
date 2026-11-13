@@ -1,0 +1,126 @@
+name: Core Browser Smokes
+
+# Headful smokes for the core tier (docs/VISION.md): encrypted DMs and groups, privacy
+# labels, DM calls, shared conversation notes, channel access and local storage boundaries.
+# They used to have no workflow at all, so a UI change broke most of them unseen.
+#
+# Only smokes that pass on main are listed. dm-friends-end-to-end, login-entry and
+# public-route-boot are left out while the product regressions they found are open
+# (see the PR that added this file); add them back when they pass.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'crates/wabi-core/**'
+      - 'core/crates/wabi-server/**'
+      - 'core/crates/wabidb/**'
+      - 'src-tauri/tauri.conf.json'
+      - '.github/workflows/core-browser-smokes.yml'
+  # Unfiltered on main and weekly, so a regression merged by an unrelated PR marks
+  # main's commit instead of waiting for the next PR that touches a listed path.
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 5 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Isolated harness smokes (no Authority)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.4'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      # The harnesses' Vite transform reads tsconfig.json, which extends
+      # .svelte-kit/tsconfig.json; a fresh checkout does not have it until sync.
+      - name: Generate SvelteKit config
+        working-directory: frontend
+        run: npx svelte-kit sync
+
+      - name: Install Chromium for Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Channel access wiring (desktop CSP)
+        working-directory: frontend
+        run: xvfb-run -a node scripts/channel-access-browser-smoke.mjs
+
+      - name: Local storage boundary (browser and Tauri signals)
+        working-directory: frontend
+        run: xvfb-run -a node scripts/storage-boundary-browser-smoke.mjs
+
+  authority:
+    name: Disposable Authority + real app smokes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # Keep this version in sync with rust-toolchain.toml. The
+      # dtolnay/rust-toolchain action does not accept a toolchain-file input.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93 (branch)
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.4'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate SvelteKit config
+        working-directory: frontend
+        run: npx svelte-kit sync
+
+      - name: Install Chromium for Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # The smokes serve the app from Vite against a disposable Authority, so the
+      # embedded SPA is not needed; rust_embed only requires the directory to exist.
+      - name: Build disposable Authority
+        run: |
+          mkdir -p frontend/build
+          cargo build --locked -p wabi-server --bin wabi-server
+
+      - name: Experimental encryption by default (two accounts, ciphertext at rest)
+        working-directory: frontend
+        run: xvfb-run -a node scripts/e2ee-default-end-to-end.mjs
+
+      - name: Privacy labels and DM controls
+        working-directory: frontend
+        env:
+          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
+        run: xvfb-run -a node scripts/privacy-labels-browser-smoke.mjs
+
+      - name: DM and group calls (fake media, p2p)
+        working-directory: frontend
+        run: xvfb-run -a node scripts/dm-call-end-to-end.mjs
+
+      - name: Encrypted shared conversation notes
+        working-directory: frontend
+        run: xvfb-run -a node scripts/shared-notes-end-to-end.mjs

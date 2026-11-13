@@ -73,14 +73,18 @@ try {
 		if (scenario.story && !scenario.neutral) await page.getByRole('heading', { name: 'Acorn’s community story' }).waitFor();
 		if (scenario.closed) {
 			await page.getByText('Registration is closed on this server.').waitFor();
-			assert.equal(await page.locator('.guest-expand').count(), 0);
+			// .guest-expand became a "Continue as guest" button in 1ac33fe1 (wave 1c).
+			assert.equal(await page.getByRole('button', { name: 'Continue as guest', exact: true }).count(), 0);
+			assert.equal(await page.locator('.auth-divider').count(), 0, 'closed server offers no guest access');
 		}
 		const geometry = await page.evaluate(() => {
 			const container = document.querySelector('.login-container');
-			const primary = document.querySelector('.auth-btn-primary');
+			const primary = document.querySelector('.login-auth-panel .login-submit.w-btn--primary'); // .auth-btn-primary before 1ac33fe1 (wave 1c)
 			const style = primary ? getComputedStyle(primary) : null;
 			const luminance = color => {
-				const rgb = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => { const s = value / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
+				// Chromium serializes color-mix() results as `color(srgb r g b)` with 0..1 channels.
+				const unit = color.startsWith('color(srgb') ? 1 : 255;
+				const rgb = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => { const s = value / unit; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
 				return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
 			};
 			const fg = luminance(style.color), bg = luminance(style.backgroundColor);
@@ -123,17 +127,23 @@ try {
 		await sampleStyle.evaluate(node => node.remove());
 		if (scenario.name === 'desktop') {
 			await page.getByLabel('Username or handle', { exact: true }).fill('fixture');
-			await page.getByPlaceholder('Password', { exact: true }).fill('fixture-password');
+			// The password field lost its placeholder (it is labelled "Password") and "Login" became
+			// "Sign in" (120ff091, 1ac33fe1); the steps and what they prove are unchanged.
+			const password = page.locator('.login-auth-panel .password-field input');
+			await password.fill('fixture-password');
+			assert.equal(await password.getAttribute('type'), 'password');
 			await page.getByRole('button', { name: 'Show password', exact: true }).click();
-			assert.equal(await page.getByPlaceholder('Password', { exact: true }).getAttribute('type'), 'text');
+			assert.equal(await password.getAttribute('type'), 'text');
 			await page.getByLabel('Remember me on this device').check();
-			await page.getByRole('button', { name: 'Login', exact: true }).click();
-			await page.getByRole('alert').waitFor();
+			await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+			// The toast host is also role=alert (empty); the sign-in error must be the one shown.
+			await page.getByRole('alert').filter({ hasText: 'Fixture: sign-in rejected. Try again.' }).waitFor();
 			await page.getByRole('button', { name: 'Create a registered account' }).click();
 			await page.getByRole('heading', { name: 'Find your place here.' }).waitFor();
 			await page.screenshot({ path: `${evidence}/registration.png` });
-			await page.getByRole('button', { name: 'Log in', exact: true }).click();
-			await page.locator('.guest-expand').click();
+			await page.locator('.auth-alt-prompt').getByRole('button', { name: 'Sign in', exact: true }).click();
+			await page.getByRole('heading', { name: 'Welcome back.' }).waitFor();
+			await page.getByRole('button', { name: 'Continue as guest', exact: true }).click();
 			await page.getByLabel('Guest display name').waitFor();
 			await page.locator('#locale-picker').selectOption('es');
 			assert.match(await page.locator('.login-locale-control').innerText(), /Espa/);

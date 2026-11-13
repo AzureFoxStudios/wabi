@@ -8,7 +8,11 @@ import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { chromium } from 'playwright';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const out=fileURLToPath(new URL('../../docs/testing/screenshots/2026-09-30-codex-test/',import.meta.url));
+// Screenshots go to a temporary directory so a normal run leaves the tree clean. Set
+// WABI_UPDATE_SCREENSHOT_EVIDENCE=1 to overwrite the tracked evidence under docs/testing/screenshots.
+const evidence=fileURLToPath(new URL('../../docs/testing/screenshots/2026-09-30-codex-test/',import.meta.url));
+const out=process.env.WABI_UPDATE_SCREENSHOT_EVIDENCE==='1'?evidence:(await mkdtemp(tmpdir()+'/wabi-connect-screens-'))+'/';
+console.log(`Screenshots: ${out}`);
 const scratch=await mkdtemp(tmpdir()+'/wabi-connect-browser-');
 const server=await createServer({root,configFile:false,resolve:{alias:{$lib:root+'src/lib'}},server:{host:'127.0.0.1',port:0,fs:{allow:[root]}},plugins:[svelte({configFile:false}),{
  name:'connection-fixtures',enforce:'pre',resolveId(id,importer){
