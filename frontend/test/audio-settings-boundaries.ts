@@ -1,7 +1,8 @@
 // Only the mounted settings component's application-service imports are
 // replaced. Device acquisition, DSP, ownership and MediaRecorder are real.
 import { writable } from 'svelte/store';
-export { audioProcessingRuntimeStatus, callTransportState, spatialAudioDiagnostics, spatialAudioRuntimeStatus } from '../src/lib/callingStateStores';
+// isInCall: AudioSettingsTab reads it since 0deef6bf (wave 1c) to decide whether to mirror connection details.
+export { audioProcessingRuntimeStatus, callTransportState, isInCall, spatialAudioDiagnostics, spatialAudioRuntimeStatus } from '../src/lib/callingStateStores';
 export const _ = writable((key: string) => key);
 export const DESKTOP_HELPER_PROFILE_KEY = 'smoke-helper';
 export const desktopHelperState = writable({ message: 'Off' });
