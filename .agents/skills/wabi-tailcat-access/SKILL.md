@@ -1,13 +1,14 @@
 ---
 name: wabi-tailcat-access
-description: Wabi Tailcat private-access addon — architecture, ops semantics, and change rules for the token-dialed WireGuard transport (core/addons/tailcat). Use when working on private access, pipe ingress tagging, member keys, or the tailcat subprocess lifecycle.
+description: Use when changing Tailcat private access (core/addons/tailcat), pipe ingress tagging, member keys, /api/addons/tailcat routes or the Tauri tailcat client.
 ---
 
 # Wabi Tailcat private access
 
 Family/friend instances reach a home-hosted wabi-server through tailcat's userspace WireGuard
 pipes. Canonical design + spike/E2E evidence: `docs/plans/2026-09-01-tailcat-private-access.md`.
-Ops handoff: `docs/deployment/HERMES_TAILCAT_HANDOFF.md`.
+Host-specific ops handoff record: `docs/deployment/HERMES_TAILCAT_HANDOFF.md`.
+Maturity: see `docs/PROJECT_STATUS.md` (first-time invitation enrollment is not finished).
 
 ## Architecture (one paragraph)
 
@@ -48,8 +49,8 @@ account (`POST /api/addons/tailcat/keys`); the listener allow-lists them. Tauri 
 - Rate-limit keying: `core/crates/wabi-server/src/api/auth.rs` (`handle_guest`)
 - Frontend: `frontend/src/lib/api/tailcat.ts`, admin `TailcatPanel.svelte` (Runtime section),
   member `TailcatConnectionCard.svelte` (Settings → Server)
-- Tests: `wabi-tailcat` unit (4), `wabi-server` integration
-  `tests/tailcat_private_access_contract.rs` (3, hardened mock binary)
+- Tests: `wabi-tailcat` unit tests, `wabi-server` integration
+  `tests/tailcat_private_access_contract.rs` (hardened mock binary)
 
 ## Desktop client (Tauri) specifics
 
@@ -61,7 +62,7 @@ account (`POST /api/addons/tailcat/keys`); the listener allow-lists them. Tauri 
   is allowlisted in `serverUrl.ts`) and restores the prior URL on disconnect.
 - Self-hosted DERP: set `WABI_TAILCAT_DERPMAP_URL` server-side (passed as `--derpmap-url`).
 
-## Measured cross-NAT baseline (2026-09-02, ironin→Tim)
+## Measured cross-NAT baseline (2026-09-02, <dev-host>→<host>)
 
 Relay floor ALWAYS works (~390 KB/s via DERP(tok), ~0.8s cold connect); direct punch happened
 1/10 within the 10s `--until-direct` budget from a containerized-NAT client to a public-IP

@@ -33,22 +33,22 @@ Known quirk: `--version` prints two `Duplicate specification` warnings via Getop
 
 1. **SSH key auth must work** — tailscale SSH will prompt browser approval on first connect:
    ```bash
-   ssh ironin@100.80.172.12 "echo ok"  # tailscale link appears first time
+   ssh <user>@<dev-host> "echo ok"  # tailscale link appears first time
    # User approves via browser
    # Retry: now works
    ```
    If keys are not set up, use `ssh-copy-id`.
 
-2. **Use the clean repo copy on ironin**, not the broken `wabi-merged`:
-   - `ironin:~/wabi-merged/wabi` — all tracked files deleted (~600 staged `D`), DO NOT SYNC
-   - `ironin:~/Documents/wabi` — 142 uncommitted changes, tracked files intact — USE THIS
+2. **Use the clean repo copy on <dev-host>**, not the broken `wabi-merged`:
+   - `<dev-host>:~/wabi-merged/wabi` — all tracked files deleted (~600 staged `D`), DO NOT SYNC
+   - `<dev-host>:<wabi-root>` — 142 uncommitted changes, tracked files intact — USE THIS
 
-## Usage (ironin -> local)
+## Usage (<dev-host> -> local)
 
 ```bash
 parsyncfp --NP=4 --chunksize=50M \
   --rsyncopts="-az" \
-  --startdir=/home/ironin/Documents \
+  --startdir=/home/<user>/Documents \
   wabi \
   Ronin@<your-local-tailscale-ip>:~/wabi/
 ```

@@ -1,17 +1,17 @@
 # Tailscale Desktop Archive Handoff
 
-Use this when the user asks to send the Wabi project archive/zip to Ironin or Tim's Desktop instead of doing a live deploy or destructive repo sync.
+Use this when the user asks to send the Wabi project archive/zip to <dev-host> or <host>'s Desktop instead of doing a live deploy or destructive repo sync.
 
 ## Rules
 
-- Treat this as a file handoff only. Do not stop/restart services, rsync into the repo, or touch Tim unless explicitly requested.
+- Treat this as a file handoff only. Do not stop/restart services, rsync into the repo, or touch <host> unless explicitly requested.
 - Prefer a resumable transfer for large archives over plain `scp`.
 - If an approval prompt is denied because the user missed it, ask plainly and retry only after the user explicitly says to ask again / approve.
 - If a transfer times out or the host goes offline, do not blindly start over. First verify whether the remote file exists and whether its SHA matches.
 
 ## Recommended flow
 
-1. Create archive locally under `/var/home/Ronin/Desktop/Wabi/backups/`, excluding generated/runtime folders:
+1. Create archive locally under `<wabi-root>/backups/`, excluding generated/runtime folders:
    - `.git/`
    - `node_modules/`, `frontend/node_modules/`
    - `target/`, `core/target/`, `spacetimedb/target/`
@@ -20,22 +20,22 @@ Use this when the user asks to send the Wabi project archive/zip to Ironin or Ti
 
 2. Record local size and SHA:
    ```bash
-   ls -lh /var/home/Ronin/Desktop/Wabi/backups/<archive>.zip
-   sha256sum /var/home/Ronin/Desktop/Wabi/backups/<archive>.zip
+   ls -lh <wabi-root>/backups/<archive>.zip
+   sha256sum <wabi-root>/backups/<archive>.zip
    ```
 
 3. For large archives over Tailscale, prefer resumable rsync:
    ```bash
    rsync -avP --partial --inplace \
-     /var/home/Ronin/Desktop/Wabi/backups/<archive>.zip \
-     ironin@100.80.172.12:/home/ironin/Desktop/
+     <wabi-root>/backups/<archive>.zip \
+     <user>@<dev-host>:/home/<user>/Desktop/
    ```
    Use `scp` only for smaller files or when the user specifically wants it.
 
 4. Verify remote before reporting success:
    ```bash
-   ssh ironin@100.80.172.12 \
-     'ls -lh /home/ironin/Desktop/<archive>.zip; sha256sum /home/ironin/Desktop/<archive>.zip'
+   ssh <user>@<dev-host> \
+     'ls -lh /home/<user>/Desktop/<archive>.zip; sha256sum /home/<user>/Desktop/<archive>.zip'
    ```
 
 5. If Tailscale SSH says approval is required, paste the raw approval URL and stop until the user confirms. If command approval is denied in the CLI UI, explicitly restate the command and ask again; do not treat a distracted denial as a final refusal unless the user says no.

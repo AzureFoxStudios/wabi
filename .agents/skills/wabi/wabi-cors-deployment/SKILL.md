@@ -1,6 +1,6 @@
 ---
 name: wabi-cors-deployment
-description: CORS configuration for WabiServer deployments, especially behind Cloudflare tunnels. Covers WABI_CORS_ORIGINS setup, header forwarding, and debugging CORS failures.
+description: Use when a Wabi server behind a reverse proxy or tunnel fails CORS preflight or credentialed requests; covers WABI_CORS_ORIGINS and verification.
 version: 1.0.0
 author: Hermes Agent
 license: MIT
@@ -40,11 +40,6 @@ reverse_proxy wabi-server:3000 {
     header_up X-Forwarded-Proto https
     header_up X-Forwarded-Host {host}
     header_up X-Forwarded-For {http.request.remote.host}
-    # Pass through CORS headers
-    header_up Access-Control-Allow-Origin {upstream_response.header.Access-Control-Allow-Origin}
-    header_up Access-Control-Allow-Credentials {upstream_response.header.Access-Control-Allow-Credentials}
-    header_up Access-Control-Allow-Methods {upstream_response.header.Access-Control-Allow-Methods}
-    header_up Access-Control-Allow-Headers {upstream_response.header.Access-Control-Allow-Headers}
 }
 ```
 
@@ -101,7 +96,7 @@ curl -s -H "Origin: https://wabi.chat" -X OPTIONS https://wabi.chat/api/auth/log
 
 ### Issue: `Access-Control-Allow-Origin` header missing on OPTIONS preflight
 
-**Cause:** `AllowOrigin::predicate` doesn't echo the origin; `AllowOrigin::list` is required for credentials mode.
+**Cause:** With `WABI_CORS_ORIGINS` unset, `build_cors_layer` (`app_router.rs`) only allows safe local origins (`is_safe_local_origin`); a public origin is rejected.
 
 **Fix:** Ensure `WABI_CORS_ORIGINS` is set; the server uses `AllowOrigin::list(parsed)` when this env var is present.
 
@@ -109,7 +104,6 @@ curl -s -H "Origin: https://wabi.chat" -X OPTIONS https://wabi.chat/api/auth/log
 
 - `wabi-deploy` — Full deployment workflow
 - `wabi-deploy-debug` — Debugging deployment issues
-- `cloudflare-websocket-strip` — WebSocket issues through Cloudflare
 
 ## References
 

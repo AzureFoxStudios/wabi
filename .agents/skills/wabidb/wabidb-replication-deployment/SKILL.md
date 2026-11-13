@@ -36,10 +36,10 @@ Use these commands to explore replication deployment patterns:
 
 ```bash
 # View replication configuration template
-read_file /var/home/Ronin/wabi/core/crates/wabidb/docs/replication-config.md
+read_file <wabi-root>/core/crates/wabidb/docs/replication-config.md
 
 # View deployment configuration template
-read_file /var/home/Ronin/wabi/core/crates/wabidb/docs/deployment-config.md
+read_file <wabi-root>/core/crates/wabidb/docs/deployment-config.md
 
 # Run replication health checks
 cargo test -p wabidb --test replication_health

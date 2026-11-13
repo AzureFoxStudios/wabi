@@ -12,7 +12,7 @@ metadata:
 
 # Wabi Post-Deploy Runtime
 
-Class-level playbook for **live Tim/wabi.chat runtime failures** after a binary ship: first-user setup, SPA/API contract, and Svelte `$store` crashes. Complements `wabi-deploy` (ship path) without replacing it.
+Class-level playbook for **live <host>/wabi.chat runtime failures** after a binary ship: first-user setup, SPA/API contract, and Svelte `$store` crashes. Complements `wabi-deploy` (ship path) without replacing it.
 
 **User prefs (Ronin):** direct execution; no account creation (`DO.NOT.MAKE.A.USER`); if he says nothing is in production, skip backup theater and wipe engine when needed; hard-refresh instructions for his real browser (headless Wabi is unreliable).
 
@@ -38,7 +38,7 @@ Class-level playbook for **live Tim/wabi.chat runtime failures** after a binary 
 **Truth:** `needs_setup()` = `owner_user_id.is_none()` after load from **WabiDB OwnerProjection** (`claim_owner` / `get_owner_user_id` on `WdbAdapter`).
 
 - Legacy `server_owner.json` was a one-time migration shim (integer user id only — not credentials, not HTTP). Prefer removing the load path; delete file on host if present.
-- Phantom owner: setup false + empty/broken users projection → wipe **`data/wabi-server/wabidb`** (engine), clear **both** locks (`.lock` and `wabidb/.lock` if present), keep **`.env`**.
+- Phantom owner: setup false + empty/broken users projection → wipe **`data/wabi-server/wabidb`** (engine), keep **`.env`**. Never delete a lock to get a start: `wabidb/.lock` is a persistent OS advisory lock, and a legacy root `.lock` may be removed only after confirming every old process is stopped (`AGENTS.md` rule 9).
 - **Forbidden:** `POST /api/auth/register` probes on live (creates users / can steal first-owner).
 - Agent never creates the owner account — hand registration to user after `setupRequired: true`.
 
@@ -185,7 +185,7 @@ After subscribe is fixed, audit send if it still feels flaky. Full recipe: `refe
 
 1. `STATIC_BUILD=1 bun run build` → `frontend/build/index.html` present.
 2. `cargo build --release -p wabi-server` after FE build (embed order).
-3. Stage `wabi-server.new`, SHA match, stop, **rm locks**, swap, up.
+3. Stage `wabi-server.new`, SHA match, stop, confirm the process exited (never delete `wabidb/.lock`, AGENTS.md rule 9), swap, up.
 4. Prove `/health`, `/api/setup/status`, public CSS hash, `/api/*` 404 JSON.
 5. User hard-refresh; agent does not invent UI success from SHA alone.
 
@@ -206,5 +206,5 @@ Prefer deepseek-v4-flash-free for bulk FE; Hermes verifies. Gallery upload path:
 - `message.id ?? fallback` is wrong when id can be `""` — use `||` + blank-id filter (`references/each-key-duplicate.md`).
 - MessageContent `$displayEnhancement…` fix **regressed once** — re-run `scripts/find-prop-store-shadow.py` before every message-path ship.
 - **New eats old:** never merge by `id || clientMessageId` interchangeably; never null-out cmid on spread; MessageList keys prefer **server id once accepted**; stamp UUID into record before commit — projection must not overwrite with `msg_{seq}` only.
-- **Design-deploy stash cascade (2026-08-06):** polishing Tim while another session holds uncommitted crash fixes, then stashing that WIP for a "clean" STATIC_BUILD, ships design CSS without MessageContent/MessageList/ChannelSidebar fixes. Live sequence after join: (1) `[SUBSCRIBE_FAIL]` plain settings object + `spoilerAllMessagesEnabled` on undefined `i()` — bare prop fix + redeploy; (2) hard refresh still shows `each_key_duplicate` — MessageList visible-message dedupe + `clientMessageId||id` keys + category unique filter + TextChannelList fallback keys. **Commit crash fixes before or with the design bake; never stash-and-forget them on production.** CF Insights CORS/SRI remains noise.
+- **Design-deploy stash cascade (2026-08-06):** polishing <host> while another session holds uncommitted crash fixes, then stashing that WIP for a "clean" STATIC_BUILD, ships design CSS without MessageContent/MessageList/ChannelSidebar fixes. Live sequence after join: (1) `[SUBSCRIBE_FAIL]` plain settings object + `spoilerAllMessagesEnabled` on undefined `i()` — bare prop fix + redeploy; (2) hard refresh still shows `each_key_duplicate` — MessageList visible-message dedupe + `clientMessageId||id` keys + category unique filter + TextChannelList fallback keys. **Commit crash fixes before or with the design bake; never stash-and-forget them on production.** CF Insights CORS/SRI remains noise.
 - Support files: `references/svelte-store-subscribe-crash.md`, `references/message-send-path.md`, `references/each-key-duplicate.md`, `references/css-cascade-duplicate-selectors.md`, `scripts/find-prop-store-shadow.py`.

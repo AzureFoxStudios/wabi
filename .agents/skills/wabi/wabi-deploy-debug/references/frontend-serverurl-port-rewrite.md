@@ -2,7 +2,7 @@
 
 **Symptom:** When wabi-server serves the embedded frontend on port 3000, the frontend makes API calls to a different port (3001) causing CORS errors:
 ```
-Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://100.87.255.66:3001/api/public/frontend-app-metadata
+Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://<local-host>:3001/api/public/frontend-app-metadata
 ```
 
 ## Root Cause

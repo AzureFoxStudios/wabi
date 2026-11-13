@@ -19,31 +19,28 @@ When you need to start fresh with a clean database:
 
 2. **Remove the database directory:**
    ```bash
-   rm -rf /home/Ronin/wabi/data/wabidb
-   mkdir -p /home/Ronin/wabi/data/wabidb
+   rm -rf <wabi-root>/data/wabidb
+   mkdir -p <wabi-root>/data/wabidb
    ```
 
-3. **Remove lock files (if any):**
-   ```bash
-   rm -f /home/Ronin/wabi/data/wabidb/.lock
-   ```
+3. **Do not delete lock files.** The `rm -rf` in step 2 is a deliberate full data wipe of a dev tree. Never unlink `wabidb/.lock` on its own to get past `engine already running`: find and stop the process that holds it (`AGENTS.md` rule 9, `docs/deployment/BACKUP_AND_RECOVERY.md`).
 
 4. **Clean old JWT secret:**
    ```bash
-   rm -f /home/Ronin/wabi/data/jwt_secret
+   rm -f <wabi-root>/data/jwt_secret
    ```
 
 5. **Start the server:**
    ```bash
-   cd /home/Ronin/wabi
+   cd <wabi-root>
    WABIDB_ROOT_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-   WABI_CORS_ORIGINS="https://wabi.chat,http://localhost:3000,http://100.87.255.66:3000" \
+   WABI_CORS_ORIGINS="https://wabi.chat,http://localhost:3000,http://<local-host>:3000" \
    ./target/release/wabi-server --port 3000 --host 0.0.0.0 --data-dir ./data
    ```
 
 ## DO NOT Create Users (After Reset)
 
-**After a database reset, leave the system empty.** The user will create the first account themselves via the frontend at `http://100.87.255.66:3000`.
+**After a database reset, leave the system empty.** The user will create the first account themselves via the frontend at `http://<local-host>:3000`.
 
 The registration endpoint exists and will work:
 ```bash

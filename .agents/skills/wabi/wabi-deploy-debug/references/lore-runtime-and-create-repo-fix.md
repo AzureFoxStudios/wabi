@@ -8,7 +8,7 @@ WARN ... Lore command failed: [Error] loading global config: Permission denied (
 ```
 
 **Why it happens:** The Lore CLI runs as uid 1000 (`wabi`) inside the container. If `HOME` resolves to a path the container user can’t write, `lore` fails trying to create `$HOME/.config/lore/` for global config. Two common triggers:
-- Host home dir lacks world-execute, so a bind-mounted path under `/home/tim` is untraversable from uid 1000.
+- Host home dir lacks world-execute, so a bind-mounted path under `/home/<user>` is untraversable from uid 1000.
 - `HOME=/home/wabi` but `/home/wabi` does not exist in the image/container, so `mkdir -p /home/wabi/.config/lore` fails with EACCES before the CLI even starts.
 
 **Preferred fix (general self-hosting):** In the Lore backend, set `HOME` to an already-writable bind-mounted path when spawning the CLI:
@@ -24,18 +24,18 @@ This avoids any host home-dir chmod and requires no compose changes. `/var/wabi/
 
 **Ephemeral manual fix (existing container only):**
 ```bash
-ssh tim@100.96.11.45 "docker exec -u root wabi-server mkdir -p /home/wabi/.config/lore /var/wabi/.config/lore && docker exec -u root wabi-server chown -R 1000:1000 /home/wabi /var/wabi/.config/lore"
+ssh <user>@<host> "docker exec -u root wabi-server mkdir -p /home/wabi/.config/lore /var/wabi/.config/lore && docker exec -u root wabi-server chown -R 1000:1000 /home/wabi /var/wabi/.config/lore"
 ```
 
 **Host chmod fallback (legacy):**
 ```bash
-ssh tim@100.96.11.45 "chmod o+rx /home/tim"
+ssh <user>@<host> "chmod o+rx /home/<user>"
 ```
-Only use this if you cannot change the spawn `HOME`. Changing `/home/tim` owner to uid 1000 breaks Tim's own login and desktop. Adding `o+rx` is the minimal correct fix when required.
+Only use this if you cannot change the spawn `HOME`. Changing `/home/<user>` owner to uid 1000 breaks <host>'s own login and desktop. Adding `o+rx` is the minimal correct fix when required.
 
 **Verify:**
 ```bash
-ssh tim@100.96.11.45 "docker exec wabi-server /usr/local/lorebin/lore --version"
+ssh <user>@<host> "docker exec wabi-server /usr/local/lorebin/lore --version"
 # → lore 0.8.6+373
 ```
 
@@ -98,16 +98,11 @@ This is distinct from "disabled" — when the feature flag is absent, the `lore`
 Error: engine already running
 ```
 
-Container restart-loops after `docker compose up -d`. This is a stale WabiDB lock from a prior unclean shutdown. There are **TWO** lock files that BOTH must be removed:
-- `data/wabi-server/.lock`
-- `data/wabi-server/wabidb/.lock`
+Container restart-loops after `docker compose up -d`. Older text here said to delete both lock files; that predates the OS advisory-lock engine.
 
-Fix:
-```bash
-ssh tim@100.96.11.45 "docker rm -f wabi-server && find ~/Desktop/Wabi/data -name '*.lock' -delete && docker compose -f ~/Desktop/Wabi/docker-compose.yml up -d wabi-server"
-```
+Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped."
 
-Only clearing the top-level lock leaves the deeper engine lock, causing an immediate restart loop. After cleanup, the container should become `healthy` within seconds.
+On `Error: engine already running`, find and stop the process that actually holds the lock (check every container and process on the host); do not unlink the file to force a start. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 ---
 

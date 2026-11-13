@@ -5,8 +5,8 @@
 ### Problem
 After frontend rebuild with `VITE_SOCKET_URL="https://wabi.chat"`, the browser console showed:
 ```
-[ServerUrl] Resolved: http://100.87.255.66:3001 (source: dev_vite)
-Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://100.87.255.66:3001/api/public/frontend-app-metadata
+[ServerUrl] Resolved: http://<local-host>:3001 (source: dev_vite)
+Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://<local-host>:3001/api/public/frontend-app-metadata
 ```
 
 ### Root Cause Analysis

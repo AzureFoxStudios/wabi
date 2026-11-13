@@ -1,6 +1,6 @@
 ---
 name: wabidb-fuzz-testing-strategies
-description: "Learn WabiDB's 4 inline fuzz targets for binary format safety."
+description: "Use when adding or reviewing WabiDB's inline decode-robustness tests in src/fuzz/mod.rs (RecordHeader, StreamRef, CommitIndexEntry, reaction keys)."
 version: 0.1.0
 author: Hermes
 platforms: [linux, macos, windows]
@@ -32,8 +32,7 @@ This skill provides a structured approach to learning WabiDB's fuzz testing impl
 ## How to Learn
 
 This is a reference skill - use it by:
-1. Loading with `skill_view(name='wabidb-fuzz-testing-strategies')`
-2. Referencing the fuzz module source during security reviews
+1. Referencing the fuzz module source during security reviews
 3. Applying patterns to implement similar fuzz coverage in your projects
 
 ## Quick Reference
@@ -80,7 +79,7 @@ Study `src/fuzz/mod.rs` to understand the overall structure:
 - Input: Raw bytes attempting to decode as StreamRef
 - Process: Attempt decode, return result (success or failure)
 - Tests: Structure validation of StreamRef fields
-- Valid inputs: Correctly formatted StreamRef (29 bytes)
+- Valid inputs: Correctly formatted StreamRef (33 bytes, `StreamRef::ENCODED_SIZE`)
 - Invalid handling: Decode errors return naturally
 
 **Target 3: fuzz_commit_index_entry_decode** (lines 23-34)
@@ -130,10 +129,8 @@ Review the test cases in `mod.rs` lines 45-154:
 
 **WabiDB-Specific Applications:**
 - Protects against malformed disk/corruption attacks
-- Ensures network message safety
 - Validates configuration and metadata parsing
 - Hardens recovery procedures against invalid logs
-- Secures inter-service communication channels
 
 ### 5. Review Integration with Test Suite
 
@@ -183,6 +180,8 @@ By studying this fuzz testing implementation, you will learn how WabiDB ensures 
 - Consistent application of the "parse, validate, or reject" principle
 - Thoughtful test case design addressing common failure modes
 - Integration-ready fuzz functions suitable for continuous fuzzing
-- A model for securing binary format parsers against attack vectors
+- A model for hardening binary format parsers
+
+These are `#[test]` cases with fixed inputs, not coverage-guided fuzzing; they do not prove resistance to malicious input.
 
 This approach provides strong guarantees that WabiDB handles unexpected or malicious input gracefully without panicking, leaking resources, or entering inconsistent states.

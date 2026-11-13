@@ -186,7 +186,7 @@ cd frontend && npm run check
 
 ### Port Mismatch Bug: serverUrl.ts Hardcoded :3001 (CRITICAL PITFALL)
 
-**Symptom**: wabi.chat at `100.87.255.66:3000` shows websocket disconnects and CORS failures despite the server being healthy on `:3000`. DevTools shows `Cross-Origin Request Blocked` for `:3001` endpoints that return `(null)` status.
+**Symptom**: wabi.chat at `<local-host>:3000` shows websocket disconnects and CORS failures despite the server being healthy on `:3000`. DevTools shows `Cross-Origin Request Blocked` for `:3001` endpoints that return `(null)` status.
 
 **Root cause**: `frontend/src/lib/serverUrl.ts` has a `port === '3000'` code path (triggered when frontend is served directly on port 3000, no Docker port-forwarding) that incorrectly rewrites the backend URL to `:3001`. The `ssr_default` path also hardcodes `:3001`. When the server is on `:3000` and the frontend is on `:3000`, the frontend must not rewrite the port.
 

@@ -46,5 +46,5 @@ Implementation intent:
 ## Pitfalls
 
 - Do not call bot/seed mode “mock”; that confuses verification semantics.
-- Do not deploy Tim from a local tree whose real localdev cannot prove the server/frontend build path.
+- Do not deploy <host> from a local tree whose real localdev cannot prove the server/frontend build path.
 - Static checks can pass while the local runtime is fake or pointed at stale services; verify HTTP readiness for STDB proxy and Rust `/health`.

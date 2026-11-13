@@ -17,4 +17,4 @@
 ## Ship gates
 - [ ] bun check + STATIC_BUILD
 - [ ] Real browser eyeball
-- [ ] Explicit deploy word before Tim
+- [ ] Explicit deploy word before <host>

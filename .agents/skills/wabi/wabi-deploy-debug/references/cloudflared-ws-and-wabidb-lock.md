@@ -30,16 +30,16 @@ This is distinct from "WS upgrade stripped" (site loads, socket fails). Here the
 | Probe | Healthy-origin dead-tunnel result |
 |---|---|
 | `https://wabi.chat/health` | Cloudflare body `error code: 502` |
-| Tim `127.0.0.1:3001/health` | 200 JSON ok |
-| Tim `127.0.0.1:8088/health` | 200 (Via: Caddy) |
+| <host> `127.0.0.1:3001/health` | 200 JSON ok |
+| <host> `127.0.0.1:8088/health` | 200 (Via: Caddy) |
 | `docker logs --since 2m wabi-cloudflared-named` during public curls | **empty** — edge never handed traffic to connector |
 | cloudflared historical ERR | `failed to dial to edge with quic: timeout: no recent network activity` |
 
-Running compose on Tim had been `tunnel --no-autoupdate --protocol quic ...` even when the repo's intended posture is http2. Container "Up 6 days" is not proof the edge path is live.
+Running compose on <host> had been `tunnel --no-autoupdate --protocol quic ...` even when the repo's intended posture is http2. Container "Up 6 days" is not proof the edge path is live.
 
-### Fix (Tim `/home/tim/Desktop/Wabi`, no wipe)
+### Fix (<host> `<wabi-root>`, no wipe)
 ```bash
-cd /home/tim/Desktop/Wabi
+cd <wabi-root>
 cp -a docker-compose.yml "docker-compose.yml.bak-quic-$(date +%Y%m%d%H%M%S)"
 sed -i 's/--protocol quic/--protocol http2/g' docker-compose.yml
 docker compose --profile tunnel --profile tunnel-named up -d --force-recreate \
@@ -58,18 +58,13 @@ curl -s "https://wabi.chat/socket.io/?EIO=4&transport=polling"               # {
 ```
 Real login still needs Ronin's browser + real credentials.
 
-## WabiDB two-level lock (restart-loop trap)
+## WabiDB lock (superseded guidance corrected)
 
-`wabi-server` owns a data dir (e.g. `data/wabi-server/`). Two lock files exist:
-- `data/wabi-server/.lock` (top-level)
-- `data/wabi-server/wabidb/.lock` (DEEPER — the engine lock)
+Older text here told deploy scripts to delete both lock files. That predates the OS advisory-lock engine.
 
-A stale DEEPER lock causes `Error: engine already running` and the container restart-loops even after `docker stop` + `docker rm` + `up`. Clearing only the top lock leaves the engine lock and loops the new container.
+Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped."
 
-### Deploy script MUST remove BOTH:
-```bash
-rm -f "${DEST}/data/wabi-server/.lock" "${DEST}/data/wabi-server/wabidb/.lock" || true
-```
+On `Error: engine already running`, find and stop the process that actually holds the lock (check every container and process on the host); do not unlink the file to force a start. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 ### Full DB wipe + fresh owner (dev server, user-authorized "relax"):
 ```bash

@@ -69,7 +69,7 @@ not caching:
 
 ## Triage order that actually resolves "it doesn't update"
 
-1. Prove the build: Tim SHA == local; `docker inspect` `State.StartedAt` >
+1. Prove the build: <host> SHA == local; `docker inspect` `State.StartedAt` >
    binary `stat -c %y` (force-recreate with `docker rm -f` + `up -d`, not
    `restart`).
 2. Prove serving: public `/` CSS/JS hash == `strings <binary> | grep -oE '0\.[A-Za-z0-9_-]+\.(css|js)'`.

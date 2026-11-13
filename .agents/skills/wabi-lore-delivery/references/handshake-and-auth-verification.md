@@ -2,7 +2,7 @@
 
 ## Why a matching SHA is not enough
 
-A Tim binary can match the local release SHA while still being built without Lore. The addon is feature-gated:
+A <host> binary can match the local release SHA while still being built without Lore. The addon is feature-gated:
 
 ```bash
 cargo build --release -p wabi-server --features addons

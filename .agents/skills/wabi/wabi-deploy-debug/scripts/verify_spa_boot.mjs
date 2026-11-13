@@ -9,7 +9,7 @@
 // Set env API_PROXY=1 (default) to proxy /api/* to https://wabi.chat so boot proceeds
 // like production. Set API_PROXY=0 to let /api 404 (a WORKING build then reads "stuck",
 // useful only to distinguish crash vs stuck).
-import pkg from '/var/home/Ronin/wabi/frontend/node_modules/playwright-core/index.js';
+import pkg from '<wabi-root>/frontend/node_modules/playwright-core/index.js';
 const { chromium } = pkg;
 
 const PORT = process.argv[2] || '8099';

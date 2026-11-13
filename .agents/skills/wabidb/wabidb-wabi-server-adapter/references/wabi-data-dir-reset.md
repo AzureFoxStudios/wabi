@@ -18,22 +18,22 @@ pkill -f "wabi-server --port 3001" || true
 sleep 1
 
 # 2. Backup first (mandatory)
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 mkdir -p backups
 tar czf backups/wabi-data-pre-reset-$(date +%Y%m%d-%H%M%S).tar.gz data/
 
 # 3. Nuclear reset of durable state (keep uploads + blacklist)
 cd data
 rm -rf wabidb server_owner.json
-rm -f wabidb/.lock 2>/dev/null || true   # stale lock can block restart
+# (do not delete lock files on their own; AGENTS.md rule 9)
 
 # 4. Verify what's left
 ls -la   # should now show only blacklist.txt + uploads/
 
 # 5. Restart with required bootstrap key (dev zero-key example)
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 WABIDB_ROOT_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
-target/debug/wabi-server --port 3001 --data-dir /var/home/Ronin/wabi/data > /tmp/wabi-server-current.log 2>&1 &
+target/debug/wabi-server --port 3001 --data-dir <wabi-root>/data > /tmp/wabi-server-current.log 2>&1 &
 ```
 
 **Missing the key produces:**
@@ -79,7 +79,7 @@ Expected after clean start + first register:
 ## Pitfalls
 - Do not delete the entire `data/` if you want to keep uploads or blacklist.
 - Always set `WABIDB_ROOT_KEY` — the binary will exit immediately without it.
-- Stale `.lock` in wabidb/ will prevent startup.
+- `engine already running` means another process holds the data tree. Stop it; never unlink `wabidb/.lock` to admit a writer (`AGENTS.md` rule 9).
 - **Client state is the most common cause of "still spinning after reset"** — backend may be perfect but browser still holds old token.
 - 404 on theme/places/plugins is normal on fresh DB; 500s usually mean the server didn't start or a handler assumed existing data.
 - Frontend dev server (5173) and backend (3001) are independent processes. Restarting one does not restart the other.

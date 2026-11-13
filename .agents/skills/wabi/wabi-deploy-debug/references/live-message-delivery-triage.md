@@ -8,7 +8,7 @@ logs. The trap is assuming a deploy broke ingestion — often it didn't.
 
 1. **Public reachability**: `curl -o /dev/null -w '%{http_code}' https://wabi.chat/`
    → 200 means tunnel + binary alive. Check container `StartedAt` vs binary
-   mtime on Tim — a very recent restart means a deploy just shipped and is the
+   mtime on <host> — a very recent restart means a deploy just shipped and is the
    prime suspect.
 
 2. **Persistence probe (the key fork)**: `GET /api/messages/<channel_id>` is
@@ -46,7 +46,7 @@ logs. The trap is assuming a deploy broke ingestion — often it didn't.
 6. **Which frontend is embedded**: rust_embed bakes the frontend at COMPILE time,
    so the served entry chunks identify the build:
    - live: `curl -s https://wabi.chat/ | grep -oE 'start\.[A-Za-z0-9_-]+\.js'`
-   - Tim tree: `ls ~/Desktop/Wabi/frontend/build/_app/immutable/entry/`
+   - <host> tree: `ls <wabi-root>/frontend/build/_app/immutable/entry/`
    Mismatch means someone rebuilt the frontend AFTER the binary was baked
    (tree is newer than what's live) — or the binary embeds an older build than
    the tree's. Either way, the tree state ≠ deployed state.

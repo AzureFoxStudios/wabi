@@ -1,8 +1,8 @@
-# Tim restart-loop + login UX hardening
+# <host> restart-loop + login UX hardening
 
 ## Observed failure mode (2026-08-10)
 
-Tim's `wabi-server` container was in a ~1-minute restart loop:
+<host>'s `wabi-server` container was in a ~1-minute restart loop:
 
 ```
 🚀 Wabi Node v0.1.0
@@ -21,19 +21,20 @@ is unrelated CF instrumentation noise; ignore it.
 
 ## Root cause
 
-Stale WabiDB lock at `data/wabi-server/wabidb/.lock`. There are two lock files;
-removing only `data/wabi-server/.lock` is insufficient.
+`Error: engine already running`: another process held (or an old binary was using) the data tree. The older diagnosis here, "stale lock file, delete it", predates the OS advisory-lock engine.
+
+Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped." On `Error: engine already running`, find and stop the process that actually holds the lock (check every container and process on the host); do not unlink the file to force a start. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 ## Recovery command sequence
 
-Run on Tim (`tim@100.96.11.45`):
+Run on <host> (`<user>@<host>`):
 
 ```bash
-cd ~/Desktop/Wabi
+cd <wabi-root>
 docker compose stop wabi-server
 docker rm wabi-server
-find data/wabi-server -name '*.lock' -print   # confirm before delete
-find data/wabi-server -name '*.lock' -delete
+docker ps -a; pgrep -af wabi-server   # stop every other Wabi container/process on this data tree
+# Do NOT delete wabidb/.lock (AGENTS.md rule 9)
 docker compose up -d wabi-server
 ```
 

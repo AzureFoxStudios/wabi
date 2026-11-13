@@ -2,7 +2,7 @@
 
 > **WARNING (superseded lock guidance):** this file may tell you to delete `data/wabi-server/.lock` or `wabidb/.lock`. That predates the OS advisory-lock engine. Do **not** unlink `wabidb/.lock`; see `AGENTS.md` rule 9 and `docs/deployment/BACKUP_AND_RECOVERY.md`. A legacy root `data/wabi-server/.lock` may be removed only after every old Wabi process is confirmed stopped.
 
-## Symptom (Tim 2026-07-17 / 2026-07-19)
+## Symptom (<host> 2026-07-17 / 2026-07-19)
 
 After a normal WabiDB binary swap + restart:
 
@@ -40,11 +40,11 @@ made the **new** decoder reject **old** `user_registered` payloads (shorter layo
 
 So the server looks claimed, but username/password lookup has nothing (or only a partial set).
 
-### Verified mechanism (Tim 2026-07-19 — the deeper "owner killed")
+### Verified mechanism (<host> 2026-07-19 — the deeper "owner killed")
 
 The dual-decode fix (try `UserRecord`, then `UserRecordV1`) only helps when the
-`user_registered` event is **present in the replayable commit log**. On Tim the
-real owner (`wabi`, `user_id 1`, correct `Please1` bcrypt hash) was found **only
+`user_registered` event is **present in the replayable commit log**. On <host> the
+real owner (`wabi`, `user_id 1`, correct `<password>` bcrypt hash) was found **only
 in `projections/snapshot.json`** — its original `user_registered` event is
 **absent from the commit log** (written out-of-band during the 2026-07-17
 recovery, never as a durable event). The server loads the live `users_by_name`
@@ -56,7 +56,7 @@ though the snapshot is intact.
 Confirm with an offline decode (no production mutation):
 
 ```bash
-scp tim@100.96.11.45:~/Desktop/Wabi/data/wabi-server/wabidb/projections/snapshot.json /tmp/snap.json
+scp <user>@<host>:<wabi-root>/data/wabi-server/wabidb/projections/snapshot.json /tmp/snap.json
 python3 - <<'PY'
 import json, binascii
 d=json.load(open('/tmp/snap.json'))
@@ -82,7 +82,7 @@ for name,data in d['indexes']:
                 color,i=rd(b,i); phash,i=rd(b,i)
                 print("OWNER id",uid,"username",uname,"hash",phash[:20])
                 import bcrypt
-                print("Please1 matches:", bcrypt.checkpw(b"Please1", phash.encode()))
+                print("<password> matches:", bcrypt.checkpw(b"<password>", phash.encode()))
 PY
 ```
 
@@ -103,18 +103,18 @@ User IDs: on `user_registered`, projection sets `user_id = event.commit_seq` (ma
 
 ## Post-deploy checks (accounts)
 
-After every Tim restart / binary swap:
+After every <host> restart / binary swap:
 
 ```bash
-ssh tim@100.96.11.45 'docker logs --since 2m wabi-server 2>&1 | grep -iE "postcard|user_registered|corrupt|replayed|engine already"'
+ssh <user>@<host> 'docker logs --since 2m wabi-server 2>&1 | grep -iE "postcard|user_registered|corrupt|replayed|engine already"'
 # expect: no postcard/user_registered corrupt errors
 
 # Owner pointer vs setup
 curl -sS http://127.0.0.1:3001/api/setup/status
-# on Tim host files (compose data dir):
-#   ~/Desktop/Wabi/data/wabi-server/  → container /data
+# on <host> host files (compose data dir):
+#   <wabi-root>/data/wabi-server/  → container /data
 #   engine store: /data/wabidb/
-#   legacy STDB-era owner file may still exist at ~/Desktop/Wabi/data/server_owner.json
+#   legacy STDB-era owner file may still exist at <wabi-root>/data/server_owner.json
 #   AppState load_owner uses WDB first, then <data_dir>/server_owner.json (= /data/server_owner.json)
 ```
 
@@ -142,15 +142,12 @@ Binary swap must:
 
 ```bash
 docker compose stop wabi-server
-rm -f data/wabi-server/.lock
+# confirm the process exited; leave wabidb/.lock in place (AGENTS.md rule 9)
 # replace binary
 docker compose up -d wabi-server
 ```
 
-Stale `.lock` → crash-loop `Error: engine already running` even when previous process exited cleanly.
-(Verified 2026-07-19: the live lock is `data/wabi-server/.lock`, NOT
-`data/wabi-server/wabidb/.lock`. There is no `wabidb/` subdir lock in the
-current tree. See SKILL.md pitfall 6.)
+Superseded (2026-07-19 notes described a root PID lock). Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped." See SKILL.md pitfall 6.
 
 ## Recovery shape
 
@@ -175,8 +172,8 @@ holds the correct record; the gap is only that the event isn't in the replay log
    - **Safe:** leave it orphaned (harmless unused account), only re-emit id 1.
    - **Clean:** trim the id-2 `user_registered` event from the log (delicate —
      verify the log format/seq first; confirm the server replays cleanly after).
-4. Restart with lock clear (`rm -f data/wabi-server/.lock`). Verify
-   `POST /api/auth/login {wabi, Please1}` → 200 + token, and that the owner's
+4. Restart (do not delete `wabidb/.lock`; a legacy root `.lock` only after every old process is confirmed stopped). Verify
+   `POST /api/auth/login {wabi, <password>}` → 200 + token, and that the owner's
    channels/messages are owned by user_id 1.
 
 The permanent fix for recurrence: once id-1's `user_registered` is durably in the
@@ -184,7 +181,7 @@ log, future restarts keep the owner. Diagnose the source of the original
 out-of-band creation so it does not recur on the next binary swap.
 
 If the postcard-schema variant (replay errors in logs) is the cause instead:
-ship the dual-decode binary first, restart with lock clear, verify no postcard
+ship the dual-decode binary first, restart (leave `wabidb/.lock` in place), verify no postcard
 errors. Historical events may still be on disk under
 `streams/other/users/events/`; recover offline or rebuild projections with the
 fixed decoder. Snapshot watermark skips already-applied seqs; full rebuild needs
@@ -211,7 +208,7 @@ docker logs --since 2m wabi-server 2>&1 | grep -iE 'postcard|user_registered|cor
 ```
 
 **Incident note (2026-07-19):** a `register wabi` probe created a duplicate
-`wabi` (id 2) on Tim during diagnosis. Treat `register` probes on production as
+`wabi` (id 2) on <host> during diagnosis. Treat `register` probes on production as
 FORBIDDEN (SKILL.md pitfall 19). Recover via the recipe above; do not leave the
 probe credential live.
 
@@ -228,21 +225,21 @@ probe credential live.
 
 Projection must apply non-empty `password_hash` on `user_updated` or change-password appears to succeed but login still uses old hash.
 
-## Paths on Tim
+## Paths on <host>
 
 | What | Host path |
 |------|-----------|
-| Compose project | `~/Desktop/Wabi` |
+| Compose project | `<wabi-root>` |
 | Container data | `./data/wabi-server` → `/data` |
 | WabiDB engine root | `/data/wabidb` (= `data/wabi-server/wabidb`) |
 | Streams | `.../wabidb/streams/` |
 | Snapshot | `.../wabidb/projections/snapshot.json` |
-| Lock | `data/wabi-server/.lock` (NOT `data/wabi-server/wabidb/.lock`) |
+| Lock | `data/wabi-server/wabidb/.lock` (persistent OS advisory lock, never delete); legacy root `data/wabi-server/.lock` on old installs |
 | Bind-mounted binary | `target/release/wabi-server` → `/wabi-server` |
 
 ## Related
 
-- `references/tim-update-runbook.md` — ship sequence + lock clear
+- `references/host-update-runbook.md` — ship sequence (lock left in place)
 - `references/pre-deploy-live-stack-audit.md` — audit before swap
 - `references/user-schema-and-account-safety.md` — condensed checklist
 - `references/chat-retention-default-ephemeral.md` — chat TTL default 24h (separate from auth/schema)

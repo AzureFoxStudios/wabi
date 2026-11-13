@@ -1,6 +1,6 @@
 ---
 name: wabidb-store-trait
-description: "Learn the WabiStore trait — WabiDB's typed domain API with 50+ read/write methods, and its two implementations: WdbAdapter and LocalWabiStore."
+description: "Use when wiring a domain read or write through the WabiStore trait, WdbAdapter and LocalWabiStore."
 ---
 
 # WabiDB Store Trait
@@ -37,7 +37,7 @@ pub trait WabiStore: Send + Sync {
     // writes
     async fn send_message(&self, channel_id: &str, user_id: u64, content: &str) -> Result<String>;
     async fn create_user(&self, username: &str, handle: Option<&str>, password_hash: &str) -> Result<u64>;
-    // ... 50+ methods total
+    // ... about 200 methods total
 
     // reads return domain types
     async fn get_message_typed(&self, message_id: &str) -> Result<Option<Message>>;
@@ -46,9 +46,9 @@ pub trait WabiStore: Send + Sync {
 }
 ```
 
-Every method has a default stub returning `Ok(None)` / `Ok(Vec::new())` / `Ok(String::new())` — so implementors only need to override the methods they support.
+Some methods are required; others have default stubs, and unsupported writes return an explicit error. Read the trait in `core/crates/wabidb/src/engine/wabi_store.rs` before relying on a default.
 
-**Drift audit 2026-08-21:** the trait has grown to **~186 async fns** (count `async fn` in wabi_store.rs). Beyond the domains listed below it now carries: **payments** (`get_payment_policy`/`upsert_payment_policy`, `list_payment_account_links`, `upsert/delete_payment_account_link`, payment intent persistence + more under the `// --- payments ---` section), **whiteboard docs** (`get_whiteboard_doc`/`put_whiteboard_doc`, raw JSON by board id), plus dm-identity and server-meta reads. The "50+ methods" figure is historical.
+**Drift audit 2026-08-21:** the trait has grown to **~186 async fns** (count `async fn` in wabi_store.rs). Beyond the domains listed below it now carries: **payments** (`get_payment_policy`/`upsert_payment_policy`, `list_payment_account_links`, `upsert/delete_payment_account_link`, payment intent persistence + more under the `// --- payments ---` section), **whiteboard docs** (`get_whiteboard_doc`/`put_whiteboard_doc`, raw JSON by board id), plus dm-identity and server-meta reads.
 
 ## Domain Types
 
@@ -171,26 +171,7 @@ call-session or voice/group-roster lock; helpers must not acquire it recursively
 Raw WS releases these guards before bounded network writes and uses versioned
 revocation notifications to cancel old subscriptions without erasing later ones.
 
-| Adapter Method | Event Type | stream_kind |
-|----------------|-----------|------------|
-| send_message | message_created | 0 |
-| create_user | user_registered | 1 |
-| create_channel | channel_created | 1 |
-| add_reaction | reaction_added | 0 |
-| add_channel_member | channel_member_added | 1 |
-| create_album | album_created | 6 |
-| delete_album | album_deleted | 6 |
-| create_wiki_page | wiki_page_created | 6 |
-| update_wiki_page | wiki_page_edited | 6 |
-| delete_wiki_page | wiki_page_deleted | 6 |
-| create_forum_thread | forum_thread_created | 6 |
-| create_forum_post | forum_post_created | 6 |
-| update_forum_post | forum_post_edited | 6 |
-| delete_forum_post | forum_post_deleted | 6 |
-| create_incident | incident_created | 6 |
-| update_incident | incident_updated | 6 |
-| resolve_incident | incident_resolved | 6 |
-| send_dm_message | dm_message_created | 2 |
+Stream kinds and write helpers are not uniform (AGENTS.md rule 8): read the target method's existing `run`/`run_room` call and copy it; do not take a kind from a table.
 
 ### Users roster read (`list_users`)
 
@@ -216,7 +197,7 @@ impl WabiStore for LocalWabiStore {
 
 1. **Domain type** in `src/domain/mod.rs` — struct + `From<Record>` impl
 2. **Trait methods** in `WabiStore` — add with default stub
-3. **WdbAdapter impl** — read from projection, write via `self.run()`
+3. **WdbAdapter impl** — read from projection (messages, channels and channel members are read from the SQLite read model through `ProjectionState::read_model()`), write by copying the target module's existing `run`/`run_room` pattern
 4. **LocalWabiStore impl** — add HashMap field + read methods
 5. **Import** `use wabidb::engine::wabi_store::WabiStore;` in API handlers
 

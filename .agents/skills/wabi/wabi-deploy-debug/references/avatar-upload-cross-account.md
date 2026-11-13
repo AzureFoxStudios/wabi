@@ -7,7 +7,7 @@
 4. **B6:** merge patch into pre-write snapshot for broadcast (do not re-read WDB immediately after write — projection race)
 
 ## Cross-account blank checklist
-1. **GET `/uploads/<file>`** on Tim origin and public CF — expect **200**, `Content-Type: image/*`, not HTML/SPA
+1. **GET `/uploads/<file>`** on <host> origin and public CF — expect **200**, `Content-Type: image/*`, not HTML/SPA
 2. Uploads dir mounted and `serve_upload` path-traversal guards OK
 3. Upload CSP: `default-src 'none'` + sandbox is intentional for script safety; `img-src 'self' data:` must allow display
 4. Wire payload includes `profilePicture` for observers (`user-updated`)
