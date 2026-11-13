@@ -16,6 +16,10 @@ members = [
 exclude = [
   "src-tauri",
   "frontend/src-tauri",
+  # Throwaway MLS library trial (ADR-0003). Each crate under here declares its
+  # own [workspace]; this entry is belt-and-braces so the trial can never touch
+  # Wabi's lockfile, cargo-deny or CI.
+  "prototypes",
 ]
 resolver = "2"
 

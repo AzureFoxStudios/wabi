@@ -1,0 +1,19 @@
+[package]
+name = "old-openmls-081"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[[bin]]
+name = "old-openmls-081"
+path = "../old_openmls.rs"
+
+[dependencies]
+openmls = "=0.8.1"
+openmls_rust_crypto = "=0.5.1"
+openmls_basic_credential = "=0.5.0"
+openmls_memory_storage = "=0.5.0"
+serde_json = "1"
