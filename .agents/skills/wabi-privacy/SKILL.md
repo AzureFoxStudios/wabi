@@ -27,7 +27,7 @@ Audit and harden Wabi's data privacy posture. Covers what the server stores, wha
 
 ### What lives on disk
 
-| Location | Content | Size on Tim |
+| Location | Content | Size on <host> |
 |----------|---------|-------------|
 | `data/wabi-server/wabidb/` | All persistent state — messages, channels, DMs, users, presence, projections | ~200M |
 | `data/wabi-server/wabidb/commit-log/` | Append-only event log (WabiDB source of truth) | Included above |
@@ -175,5 +175,5 @@ After deploying privacy fixes, verify:
 ## Related skills
 
 - `wabidb-troubleshooting` — WabiChat deployment and runtime issues
-- `wabi-deploy` — Deploy wabi-server to Tim or other hosts
+- `wabi-deploy` — Deploy wabi-server to <host> or other hosts
 - `wabidb-core-capabilities` — WabiDB engine reference

@@ -1,6 +1,6 @@
 # Networking: CGNAT, calling, Cloudflare
 
-Updated 2026-07-17 (post Tim WabiDB cutover + dual-connector 502 fix).
+Updated 2026-07-17 (post <host> WabiDB cutover + dual-connector 502 fix).
 
 ## Layer stack
 
@@ -39,17 +39,17 @@ There is no “public internet + zero intermediary + CGNAT + hide home IP” fre
 
 ## Origin vs edge health
 
-Proven: Tim origin (`:3001` / Caddy `:8088`) can be fully healthy while **https://wabi.chat** 502s for some clients.
+Proven: <host> origin (`:3001` / Caddy `:8088`) can be fully healthy while **https://wabi.chat** 502s for some clients.
 
 Always report separately:
 
-1. Origin on Tim
-2. Public from Tim egress
+1. Origin on <host>
+2. Public from <host> egress
 3. Public from Ronin / user egress
 
 Do not redeploy the binary to fix CF-only 502. Client-IP split and dual-connector fix: **`references/wabichat-502-diagnosis.md`**.
 
-Production tunnel shape (Tim compose, tunnel profiles):
+Production tunnel shape (<host> compose, tunnel profiles):
 
 - `caddy-tunnel` → `wabi-tunnel-caddy`, `127.0.0.1:8088`, `Caddyfile.tunnel`
 - `cloudflared-named` + `cloudflared-named-2` — same token, **quic**, both registered
@@ -59,7 +59,7 @@ Production tunnel shape (Tim compose, tunnel profiles):
 1. Stop cloudflared containers (+ tunnel caddy if only for CF).
 2. Dashboard: pause tunnel / DNS if needed.
 3. Prove `curl http://127.0.0.1:3001/health` on the host.
-4. Access via Tailscale `http://100.96.11.45:3001` until CF rewired or permanently dropped.
+4. Access via Tailscale `http://<host>:3001` until CF rewired or permanently dropped.
 
 ## Agent rule
 

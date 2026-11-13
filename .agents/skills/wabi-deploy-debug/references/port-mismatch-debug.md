@@ -33,11 +33,11 @@ Restart wabi-server on port 3000 (Caddy's expected internal port):
 # Kill existing process
 pkill -f "wabi-server.*--port 3001"
 
-# Remove any stale locks
-rm -f /home/Ronin/wabi/data/wabidb/.lock
+# Do NOT remove data/.../wabidb/.lock (AGENTS.md rule 9): confirm the old process exited
+pgrep -af wabi-server   # must print nothing before you start a new one
 
 # Start on correct port
-cd /home/Ronin/wabi
+cd <wabi-root>
 WABIDB_ROOT_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   ./target/release/wabi-server \
   --port 3000 --host 127.0.0.1 --data-dir ./data \

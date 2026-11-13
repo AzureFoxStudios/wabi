@@ -41,9 +41,9 @@ it is not. Do these in order:
    did not exist on the first run.
 
    ```bash
-   mkdir -p /var/home/Ronin/wabi/data/spacetimedb-local
-   mkdir -p /var/home/Ronin/wabi/data/spacetimedb-local-config
-   mkdir -p /var/home/Ronin/wabi/data/wabi-server-local
+   mkdir -p <wabi-root>/data/spacetimedb-local
+   mkdir -p <wabi-root>/data/spacetimedb-local-config
+   mkdir -p <wabi-root>/data/wabi-server-local
    ```
 
 2. **Start STDB.** Use `--network=host` so the container can bind 3000
@@ -55,8 +55,8 @@ it is not. Do these in order:
    podman run -d --rm \
      --name wabi-stdb-local \
      --network=host \
-     -v /var/home/Ronin/wabi/data/spacetimedb-local:/var/lib/spacetimedb:Z,U \
-     -v /var/home/Ronin/wabi/data/spacetimedb-local-config:/home/spacetime/.config/spacetime:Z,U \
+     -v <wabi-root>/data/spacetimedb-local:/var/lib/spacetimedb:Z,U \
+     -v <wabi-root>/data/spacetimedb-local-config:/home/spacetime/.config/spacetime:Z,U \
      docker.io/clockworklabs/spacetime:latest \
      start --listen-addr 0.0.0.0:3000 --data-dir /var/lib/spacetimedb --non-interactive --page_pool_max_size 268435456
    ```
@@ -78,9 +78,9 @@ it is not. Do these in order:
    `core/`, the binary lands at the repo root, not `core/target/`.
 
    ```bash
-   cd /var/home/Ronin/wabi/core
+   cd <wabi-root>/core
    cargo build --release -p wabi-server
-   # binary is at: /var/home/Ronin/wabi/target/release/wabi-server
+   # binary is at: <wabi-root>/target/release/wabi-server
    ```
 
 5. **Start wabi-server as a host process.** NOT in a container. The
@@ -100,7 +100,7 @@ it is not. Do these in order:
    WABI_STDB_DATABASE=wabi-state-local \
    JWT_SECRET=*** \
    RUST_LOG=info \
-   /var/home/Ronin/wabi/target/release/wabi-server \
+   <wabi-root>/target/release/wabi-server \
      --port 3001 --host 0.0.0.0
    ```
 
@@ -131,7 +131,7 @@ it is not. Do these in order:
    CLI=/tmp/stdb-install/spacetimedb-cli
 
    $CLI server set-default local   # or: server add --url http://127.0.0.1:3000 wabi-local --default yes
-   $CLI publish --module-path /var/home/Ronin/wabi/spacetimedb/wabi_state_bridge wabi-state-local --yes
+   $CLI publish --module-path <wabi-root>/spacetimedb/wabi_state_bridge wabi-state-local --yes
    ```
 
    The `publish` step compiles the Rust module to WASM (~12s cold) and
@@ -140,14 +140,14 @@ it is not. Do these in order:
    stop showing `wabi-state-local not found`.
 
 8. **Restart vite with `VITE_SOCKET_URL=http://127.0.0.1:3001`.** The
-   default `serverUrl.ts` falls back to `http://localhost:8080` (Tim's
+   default `serverUrl.ts` falls back to `http://localhost:8080` (<host>'s
    production port) for unknown env. You must tell vite where the local
    backend is, or the login form will hit a 404 and the user will think
    the backend is broken when it isn't.
 
    ```bash
    pkill -f 'bun x vite'   # kill current vite
-   cd /var/home/Ronin/wabi/frontend
+   cd <wabi-root>/frontend
    VITE_SOCKET_URL=http://127.0.0.1:3001 bun x vite dev --host 0.0.0.0 --port 5173
    ```
 

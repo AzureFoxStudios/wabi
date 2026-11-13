@@ -18,7 +18,7 @@ Also note: `/api/auth/me` is NOT a real route (SPA HTML 200). Real path is **`/a
 `/api/channels` may still 200 without AuthUser on some paths — do not use it as proof the token is valid.
 
 ## Root cause
-On Tim: `data/wabi-server/revocations.json` e.g.
+On <host>: `data/wabi-server/revocations.json` e.g.
 ```json
 { "epoch": 0, "jtis": [], "users": [1] }
 ```
@@ -30,12 +30,12 @@ How user landed in `users`:
 
 ## Live fix (no rebuild)
 ```bash
-ssh root@100.96.11.45
-REV=/home/tim/Desktop/Wabi/data/wabi-server/revocations.json
+ssh root@<host>
+REV=<wabi-root>/data/wabi-server/revocations.json
 cp -a "$REV" "${REV}.bak-$(date +%Y%m%d%H%M%S)"
 # set users to []
-python3 -c 'import json;p="/home/tim/Desktop/Wabi/data/wabi-server/revocations.json";d=json.load(open(p));d["users"]=[];json.dump(d,open(p,"w"),indent=2)'
-cd /home/tim/Desktop/Wabi && docker compose restart wabi-server
+python3 -c 'import json;p="<wabi-root>/data/wabi-server/revocations.json";d=json.load(open(p));d["users"]=[];json.dump(d,open(p,"w"),indent=2)'
+cd <wabi-root> && docker compose restart wabi-server
 # wait healthy, re-run login + /api/user/me → 200
 ```
 

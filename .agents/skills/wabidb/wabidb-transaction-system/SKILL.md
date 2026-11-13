@@ -1,6 +1,6 @@
 ---
 name: wabidb-transaction-system
-description: "Trace and change WabiDB command completion, durability, projection barriers, and crash recovery."
+description: "Use when changing WabiDB command sequencing, durability/ack order, projection application, checkpoints or startup replay."
 metadata:
   hermes:
     tags: [Transaction, WabiDB, Durability, Recovery]
@@ -64,6 +64,10 @@ these synchronous locks across an await. Save only complete healthy commits,
 writing/fsyncing a temporary JSON snapshot and renaming it over the old file
 (parent-directory fsync on Unix). Engine checkpoints still use
 `projections/snapshot.json`, not the separate binary snapshot implementation.
+Messages, channels and channel members are not in the snapshot: they live in
+`projections/read-model.sqlite3`, written in one transaction per commit
+(`ReadModel::finish_commit`). A checkpoint makes the read model durable at the
+watermark before writing `snapshot.json` (STORAGE_FORMAT.md §4.1).
 
 The dispatcher may start a periodic snapshot after sending its application
 acknowledgment. A sequencer writer pause alone therefore does not freeze that
@@ -81,7 +85,9 @@ orphans, but count their sequences for nonce allocation. Recover every indexed
 post-snapshot event or fail startup; apply in `(commit_seq, event_ref ordinal)`
 order. A registered handler failure is a startup error. The applied watermark
 tracks committed work, not the larger orphan-inclusive sequence high-water.
-Failed open must release only the lock it acquired.
+Failed open must release only the lock it acquired. A failed startup replay
+leaves none of its rows in the read model (test
+`tests::read_model_channel_members::a_failed_startup_replay_leaves_none_of_its_members_in_the_file`).
 
 Legacy writer caching uses stream ID, not (kind, ID); chat/workspace operations
 can therefore record different kinds in one physical stream directory. Replay
@@ -101,8 +107,9 @@ migration. This completion change required no encoded-record changes.
 Use gates/acknowledgments to prove pending state rather than sleeps that make a
 race disappear. Cover multi-event application, concurrent snapshotting, failure
 after partial apply, canceled callers, admission/backpressure, and durable
-group-window failure. The subprocess regression exits at all five sequencer
-crash points and reopens actual segments/indexes; it is process-crash coverage,
+group-window failure. The subprocess regression exits at the five sequencer
+crash points (the checkpoint path has its own
+`tests::power_loss::crash_between_read_model_sync_and_snapshot*` tests) and reopens actual segments/indexes; it is process-crash coverage,
 not a hardware power-cut test.
 
 Update the active plan and relevant docs/skills for projection/domain changes

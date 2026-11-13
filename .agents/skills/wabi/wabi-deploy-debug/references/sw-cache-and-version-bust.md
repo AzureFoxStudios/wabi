@@ -15,7 +15,7 @@ new assets while the local SW still serves its cached shell.
 ## Triage
 
 1. Prove the new build is actually on disk and embedded:
-   - Tim SHA vs local SHA
+   - <host> SHA vs local SHA
    - `strings` the binary for your new feature/CSS marker
 2. Confirm whether public `curl` still serves the OLD CSS hash:
    - `curl -s https://wabi.chat/ | grep -oE "0\.[A-Za-z0-9_-]+\.css"`

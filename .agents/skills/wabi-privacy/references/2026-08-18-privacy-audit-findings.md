@@ -10,11 +10,11 @@ Followed by: "recheck against the git pull", "is it desktop wabi??", "how big is
 
 | Fact | Value |
 |------|-------|
-| Live production tree | `~/Desktop/Wabi/` on Tim (`tim@100.96.11.45`) |
-| STDB-era zombie | `~/wabi/` on Tim (renamed to `~/wabi-outdated_backup/`, root-locked, can't delete remotely) |
-| Live `wabi-server` binary | `~/Desktop/Wabi/target/release/wabi-server` (bind-mounted by docker-compose) |
+| Live production tree | `<wabi-root>/` on <host> (`<user>@<host>`) |
+| STDB-era zombie | `~/wabi/` on <host> (renamed to `~/wabi-outdated_backup/`, root-locked, can't delete remotely) |
+| Live `wabi-server` binary | `<wabi-root>/target/release/wabi-server` (bind-mounted by docker-compose) |
 | Docker compose | `docker-compose.yml` bind-mounts `./target/release/wabi-server:/wabi-server:ro` |
-| Live data | `~/Desktop/Wabi/data/wabi-server/wabidb/` |
+| Live data | `<wabi-root>/data/wabi-server/wabidb/` |
 | Disk after cleanup | 117G total, 51G used, 60G free (46%) |
 | Disk consumed by Wabi | Live tree 286M + zombies ~22G |
 
@@ -84,10 +84,10 @@ DO NOT claim: "deleted messages are gone" (soft-deleted, content still in log).
 
 ```bash
 # Build release binary
-cd /var/home/Ronin/wabi && cargo build --release -p wabi-server
+cd <wabi-root> && cargo build --release -p wabi-server
 
 # Run privacy-focused smoke test
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 mkdir -p /tmp/wabi-privacy-test/data
 WABI_JWT_KEY="$(openssl rand -base64 48)" WABIDB_ROOT_KEY="$(openssl rand -hex 32)" \
   ./target/release/wabi-server --data-dir /tmp/wabi-privacy-test/data --host 127.0.0.1 --port 3001 &

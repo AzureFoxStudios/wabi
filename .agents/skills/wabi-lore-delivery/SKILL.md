@@ -1,6 +1,6 @@
 ---
 name: wabi-lore-delivery
-description: Ship Wabi Lore across Git, Tim, and runtime.
+description: Ship Wabi Lore across Git, <host>, and runtime.
 version: 1.0.0
 author: Hermes Agent
 license: MIT
@@ -13,7 +13,7 @@ metadata:
 
 # Wabi Lore Delivery Skill
 
-Use this skill when a Wabi Lore change must become a reproducible testable state. It coordinates three truths: Wabi source in Git, the Wabi-on-Wabi Lore fixture on Tim, and the deployed Wabi runtime. It does not replace the deployment runbook or the Lore coding-workspace design skill; it supplies the delivery gate connecting them.
+Use this skill when a Wabi Lore change must become a reproducible testable state. It coordinates three truths: Wabi source in Git, the Wabi-on-Wabi Lore fixture on <host>, and the deployed Wabi runtime. It does not replace the deployment runbook or the Lore coding-workspace design skill; it supplies the delivery gate connecting them.
 
 ## When to Use
 
@@ -25,8 +25,8 @@ Use this skill when a Wabi Lore change must become a reproducible testable state
 ## Prerequisites
 
 - Wabi checkout with `AGENTS.md`.
-- Tim reachable as `tim@100.96.11.45`.
-- Tim Lore CLI at `/home/tim/.local/bin/lore`, currently 0.8.6+373.
+- <host> reachable as `<user>@<host>`.
+- <host> Lore CLI at `/home/<user>/.local/bin/lore`, currently 0.8.6+373.
 - Canonical smoke fixture currently lives in the native Lore repo attached to Wabi channel 2, but channel 2 is an audit fixture location, not a product constant. Resolve the actual Lore channel by name/wire id for every new demo or fixture operation; never hardcode `2`, `215`, `220`, or `225` in product code.
 - Read the protected/user-owned `wabi-deploy` skill for the full live audit and binary-swap runbook; do not edit it autonomously.
 
@@ -52,20 +52,20 @@ tests/fixtures/lore-meta/
 └── assets/test.svg
 ```
 
-Tim path: `~/Desktop/Wabi/lore-data/2`
+<host> path: `<wabi-root>/lore-data/2`
 
 Lore commit:
 
 ```bash
-cd ~/Desktop/Wabi/lore-data/2
-/home/tim/.local/bin/lore status --scan
-/home/tim/.local/bin/lore stage README.md .wabiignore src/hello.rs docs/design-notes.md assets/test.svg
-/home/tim/.local/bin/lore commit \
+cd <wabi-root>/lore-data/2
+/home/<user>/.local/bin/lore status --scan
+/home/<user>/.local/bin/lore stage README.md .wabiignore src/hello.rs docs/design-notes.md assets/test.svg
+/home/<user>/.local/bin/lore commit \
   "Initial Wabi-on-Wabi Lore smoke-test fixture" \
   --identity "Wabi Test Fixture <wabi-test@localhost>" \
   --local --non-interactive
-/home/tim/.local/bin/lore status --revision-only --no-pager
-/home/tim/.local/bin/lore history --no-pager
+/home/<user>/.local/bin/lore status --revision-only --no-pager
+/home/<user>/.local/bin/lore history --no-pager
 ```
 
 Runtime build gate:
@@ -91,11 +91,10 @@ For fixture-only changes, Git + Lore commit is complete; rebuilding the Wabi bin
 
 ### Binary/frontend delivery
 
-For code/frontend changes, use the static build and `--features addons`. Ship the bind-mounted binary to `~/Desktop/Wabi/target/release/wabi-server.new`, then stop, clear both locks, replace, and recreate:
+For code/frontend changes, use the static build and `--features addons`. Ship the bind-mounted binary to `<wabi-root>/target/release/wabi-server.new`, then stop, confirm the process exited, replace, and recreate. Do not delete `data/wabi-server/wabidb/.lock` (`AGENTS.md` rule 9: it is a persistent OS advisory lock; a legacy root `data/wabi-server/.lock` may be removed only after confirming every old process is stopped):
 
 ```bash
 docker compose stop wabi-server
-rm -f data/wabi-server/.lock data/wabi-server/wabidb/.lock
 mv target/release/wabi-server.new target/release/wabi-server
 chmod +x target/release/wabi-server
 docker rm -f wabi-server || true
@@ -111,7 +110,7 @@ After restart, inspect logs for `Rehydrated N Lore repo(s) from WDB` and `Skippi
 ### Live verification
 
 ```bash
-sha256sum ~/Desktop/Wabi/target/release/wabi-server
+sha256sum <wabi-root>/target/release/wabi-server
 curl http://127.0.0.1:3001/health
 curl http://127.0.0.1:8088/health
 curl https://wabi.chat/health
@@ -138,14 +137,14 @@ A delivery is complete only when:
 - Git commit is present and pushed.
 - Fixture state has a matching Lore revision/history entry.
 - Runtime changes have a static build and release binary.
-- Tim binary SHA matches the shipped binary.
+- <host> binary SHA matches the shipped binary.
 - Container, Caddy, and public health checks pass.
 - Startup logs show awaited Lore rehydration.
 - User can hard-refresh and exercise the fixture in a real browser.
 
 ## References
 
-- `references/wabi-on-wabi-delivery.md` — canonical fixture, triple-action examples, and verified Tim probes.
+- `references/wabi-on-wabi-delivery.md` — canonical fixture, triple-action examples, and verified <host> probes.
 - `references/handshake-and-auth-verification.md` — feature-marker proof, live addon health, authorized repo probes, and guest-403 interpretation.
 - Protected/user-owned `wabi-deploy` skill — full live-stack audit and deployment runbook; request curator adoption before modifying it.
 - User-owned `wabi-lore-coding-workspace` skill — product destination and Lore architecture; do not autonomously patch it.

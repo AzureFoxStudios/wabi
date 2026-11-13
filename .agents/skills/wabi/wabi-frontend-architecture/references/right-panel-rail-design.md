@@ -132,7 +132,7 @@ Multiple iterations proved that **subtle design is invisible** for a critical re
 
 ## Mockup
 
-- `/home/Ronin/wabi/docs/design/right-panel-rail-mockup.html` — self-contained HTML (no server, no CDN), built in Wabi's Nebula theme, implements all three states + a hint bar + an "open in center stage" toast. Open in Ronin's real browser (headless Chromium cannot render Wabi; use it only for non-rendering checks).
+- `<wabi-root>/docs/design/right-panel-rail-mockup.html` — self-contained HTML (no server, no CDN), built in Wabi's Nebula theme, implements all three states + a hint bar + an "open in center stage" toast. Open in Ronin's real browser (headless Chromium cannot render Wabi; use it only for non-rendering checks).
 
 ## Nebula dark theme token values (for mockups/prototypes)
 

@@ -36,10 +36,10 @@ Use these commands to explore WabiDB integration patterns:
 
 ```bash
 # View WabiStore trait implementation
-read_file /var/home/Ronin/wabi/core/crates/wabidb/src/engine/wabi_store.rs
+read_file <wabi-root>/core/crates/wabidb/src/engine/wabi_store.rs
 
 # View adapter implementation
-read_file /var/home/Ronin/wabi/core/crates/wabidb/src/adapter/mod.rs
+read_file <wabi-root>/core/crates/wabidb/src/adapter/mod.rs
 
 # Run integration tests
 cargo test -p wabidb --test wabi_store
@@ -259,7 +259,7 @@ Wabi's public/text chat has three storage classes, resolved in the send path BEF
 - **timed** (product default) — `wdb.send_message` + schedule delete after `DEFAULT_CHANNEL_AUTO_DELETE_MS` (24h) unless an explicit map/policy overrides.
 - **forever** — `wdb.send_message`, no TTL spawn. Explicit opt-in.
 
-**Load-bearing rule — do NOT add a class field to the `Channel` domain struct.** Adding a trailing field to a postcard-encoded record (`Channel`, `UserRecord`, `MessageRecord`, etc.) breaks replay of older on-disk events unless you also write a `RecordV0`/`V1` dual-decode fallback (the same bug class that dropped Tim's user accounts). For a per-channel feature flag that does NOT need to survive restart the same way message bodies do, key it off an existing in-memory map instead:
+**Load-bearing rule — do NOT add a class field to the `Channel` domain struct.** Adding a trailing field to a postcard-encoded record (`Channel`, `UserRecord`, `MessageRecord`, etc.) breaks replay of older on-disk events unless you also write a `RecordV0`/`V1` dual-decode fallback (the same bug class that dropped <host>'s user accounts). For a per-channel feature flag that does NOT need to survive restart the same way message bodies do, key it off an existing in-memory map instead:
 
 ```rust
 // live/forever sentinels live in the existing in-memory label map,
@@ -304,7 +304,7 @@ When the server returns 500s (auth, user, theme, places) or `server_owner.json` 
 - **Ports are separate by design**: 5173 = frontend Vite (`bun run dev`). 3001 = backend `wabi-server`. `serverUrl.ts` rewrites all backend URLs to :3001 when the page is on 5173 (source: 'dev_vite'). This is why users ask "why the swap" — there is no swap; they are two processes.
 - After DB reset the most common cause of "infinite spinning on 5173" is stale browser localStorage holding an old "wabi" token/session. Clear storage or use incognito.
 - Server **requires** `WABIDB_ROOT_KEY` (or equivalent from_passphrase). Missing it produces: `validation failed for load_bootstrap_key: env var WABIDB_ROOT_KEY not set`.
-- Clean up stale `wabidb/.lock` before restart.
+- Do not delete `wabidb/.lock` before restart: it is a persistent OS advisory lock and its presence does not mean a live writer (`AGENTS.md` rule 9). On `engine already running`, stop the process that holds it.
 
 See `references/wabi-data-dir-reset.md` for the exact backup + `rm -rf wabidb server_owner.json` + restart steps using the active `--data-dir`.
 
