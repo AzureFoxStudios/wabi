@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { KeepReason } from '$lib/privacy/contentEgress';
 	import { _ } from '$lib/i18n';
 	import type { Message, User } from '$lib/socket';
 	import MessageContextMenu from '../MessageContextMenu.svelte';
@@ -20,8 +21,8 @@
 	export let reactionPickerX = 0;
 	export let reactionPickerY = 0;
 	export let contextMenuMessage: Message | null = null;
-	/** The menu's message is under experimental encryption (privacy/contentEgress.ts). */
-	export let contextMenuKeepsContent = false;
+	/** Why the menu's message keeps its content on the device (privacy/contentEgress.ts), or null. */
+	export let contextMenuKeepReason: KeepReason | null = null;
 	/** The room the message list shows; reports name it rather than the app's current channel. */
 	export let reportChannelId = '';
 	export let contextMenuVisible = false;
@@ -144,7 +145,7 @@
 		onAddReaction={handleAddReaction}
 		onTranslate={handleTranslate}
 		onReport={handleReport}
-		keepContentOnDevice={contextMenuKeepsContent}
+		roomKeepReason={contextMenuKeepReason}
 		quickMentionEnabled={quickMentionEnabled}
 		personalPinsEnabled={personalPinsEnabled}
 		isPersonalPinned={isPersonalPinnedMessage(contextMenuMessage.id)}

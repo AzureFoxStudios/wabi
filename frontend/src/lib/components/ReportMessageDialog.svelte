@@ -13,7 +13,8 @@
 	import BaseModal from './BaseModal.svelte';
 	import Icon from './ui/Icon.svelte';
 	import Notice from './ui/Notice.svelte';
-	import { planReportRequest, reportRequiresDisclosure } from './reportMessageRequest';
+	import { disclosedText, planReportRequest, reportRequiresDisclosure } from './reportMessageRequest';
+	import { E2EE_MESSAGE_PREFIX } from '$lib/e2eeEnvelope';
 
 	export let visible = false;
 	export let message: Message | null = null;
@@ -34,8 +35,9 @@
 	// text only when the reporter explicitly agrees to disclose it (reportMessageRequest.ts).
 	let discloseConfirmed = false;
 	$: disclosureNeeded = reportRequiresDisclosure(message);
-	$: unreadable = disclosureNeeded && Boolean(message?.e2eeUnreadable);
-	$: nothingToDisclose = disclosureNeeded && !unreadable && !String(message?.text ?? '').trim();
+	$: unreadable = disclosureNeeded && (Boolean(message?.e2eeUnreadable) || String(message?.text ?? '').startsWith(E2EE_MESSAGE_PREFIX));
+	$: disclosure = disclosedText(String(message?.text ?? ''));
+	$: nothingToDisclose = disclosureNeeded && !unreadable && !disclosure.text;
 	$: canSend = !disclosureNeeded || (discloseConfirmed && !unreadable && !nothingToDisclose);
 
 	$: if (!visible) { failure = null; sent = false; comment = ''; reason = 'Server rule violation'; discloseConfirmed = false; }
@@ -119,7 +121,10 @@
 						{:else if nothingToDisclose}
 							<p>This message has no text to disclose. Attachments are not sent with a report. Tell a moderator directly if the files are the problem.</p>
 						{:else}
-							<p>This conversation uses experimental encryption, so the server cannot read this message. Sending this report gives the server’s moderators the decrypted text shown above, stored in the moderation case.</p>
+							<p>This message arrived with experimental encryption, so the server holds it only in encrypted form. Sending this report gives the server’s moderators its decrypted text, shown above, stored in the moderation case.</p>
+							{#if disclosure.truncated}
+								<p>Only the first 12,000 characters are sent; the server keeps no more than that.</p>
+							{/if}
 							<p class="report-quiet">The server records it as your disclosure; it cannot check it against the encrypted original. The snapshot remains until the server’s chosen expiry or the owner removes it; backups may last longer. Only this message is disclosed.</p>
 							<label class="report-disclose">
 								<input type="checkbox" class="w-check" bind:checked={discloseConfirmed} disabled={busy} />

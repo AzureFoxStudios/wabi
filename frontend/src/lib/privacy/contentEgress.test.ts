@@ -1,21 +1,32 @@
 /**
  * Decrypted content from a room with experimental encryption must not leave the device through
- * previews, third-party embeds, translation, albums or reports without the member's explicit
- * choice (docs/PRIVACY_STANCE.md, point 6). Each test drives the gate a component uses with an
- * encrypted message and records every request a fake `fetch` sees.
+ * previews, third-party media, translation, albums, Lore or reports without the member's explicit
+ * choice (docs/PRIVACY_STANCE.md, point 6). These tests drive the pure gates; the components that
+ * call them are rendered in components/message/keptContent.render.test.ts, and the HTML
+ * renderers run in a real browser (scripts/kept-content-browser-smoke.mjs).
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
+	albumsHint,
+	albumsUnavailable,
 	clearTranslationConsent,
 	contentStaysOnDevice,
+	forwardHint,
+	keepReasonFor,
 	mayTranslate,
 	messageUnderExperimentalEncryption,
-	roomKeepsContentOnDevice
+	roomKeepReason,
+	roomKeepsContentOnDevice,
+	translationConsentRequest,
+	type KeepReason
 } from './contentEgress';
+import { isWabiServerMediaUrl, remoteAttachmentUrls } from './remoteMedia';
 import { needsLinkPreviewComponent, planLinkEmbeds } from '../components/message/linkEmbedPolicy';
 import { addMessageAttachmentsToAlbum, getMessageAttachmentActionItems } from '../components/message/messageAttachmentActions';
-import { planReportRequest } from '../components/reportMessageRequest';
+import { serverReadableActionBlock, shouldFetchPromotes, translationRoomKey } from '../components/message/messageListGuards';
+import { DISCLOSED_SNAPSHOT_MAX_CHARS, planReportRequest } from '../components/reportMessageRequest';
 import { clearAutoTranslationState, requestAutoTranslation } from '../addons/translatorAuto';
+import { autoTranslationSkip } from '../addons/translatorAutoPolicy';
 import { addMediaAlbumItem, listMediaAlbums } from '../api/albums';
 import type { Message } from '../socket-types';
 
@@ -62,7 +73,7 @@ const pendingRoom = { channelType: 'group', policy: { enabled: false, pendingDef
 const olderReadableDm = { channelType: 'dm', policy: { enabled: false, pendingDefault: false, serverReadableSelected: false } };
 const communityChannel = { channelType: 'text', policy: null };
 
-describe('one source of truth', () => {
+describe('one source of truth, with its reason', () => {
 	test('decrypted and undecryptable envelopes, and own encrypted sends, count as encrypted', () => {
 		expect(messageUnderExperimentalEncryption(decrypted())).toBe(true);
 		expect(messageUnderExperimentalEncryption({ text: 'Unable to decrypt', e2ee: true, e2eeUnreadable: 'no-key' } as Message)).toBe(true);
@@ -71,44 +82,93 @@ describe('one source of truth', () => {
 		expect(messageUnderExperimentalEncryption({ text: 'plain' })).toBe(false);
 	});
 
-	test('encrypted, pending and still-checking private rooms keep content on the device', () => {
-		expect(roomKeepsContentOnDevice(encryptedRoom)).toBe(true);
+	test('rooms answer with what is actually true about them', () => {
+		expect(roomKeepReason(encryptedRoom)).toBe('experimental-encryption');
+		expect(roomKeepReason(pendingRoom)).toBe('encryption-pending');
+		expect(roomKeepReason({ channelType: 'dm', policy: null })).toBe('checking');
+		expect(roomKeepReason(olderReadableDm)).toBeNull();
+		expect(roomKeepReason({ channelType: 'dm', policy: { serverReadableSelected: true, serverReadableAllowedByMe: true } })).toBeNull();
+		expect(roomKeepReason(communityChannel)).toBeNull();
 		expect(roomKeepsContentOnDevice(pendingRoom)).toBe(true);
-		expect(roomKeepsContentOnDevice({ channelType: 'dm', policy: null })).toBe(true);
-		expect(roomKeepsContentOnDevice(olderReadableDm)).toBe(false);
-		expect(roomKeepsContentOnDevice({ channelType: 'dm', policy: { serverReadableSelected: true, serverReadableAllowedByMe: true } })).toBe(false);
-		expect(roomKeepsContentOnDevice(communityChannel)).toBe(false);
 	});
 
-	test('an encrypted message keeps its content on the device even when the room status says otherwise', () => {
-		expect(contentStaysOnDevice(decrypted(), roomKeepsContentOnDevice(olderReadableDm))).toBe(true);
-		expect(contentStaysOnDevice({ text: 'plain' }, roomKeepsContentOnDevice(pendingRoom))).toBe(true);
-		expect(contentStaysOnDevice({ text: 'plain' }, roomKeepsContentOnDevice(communityChannel))).toBe(false);
+	test('an encrypted message keeps its content even when the room says otherwise', () => {
+		expect(keepReasonFor(decrypted(), roomKeepReason(olderReadableDm))).toBe('encrypted-message');
+		expect(keepReasonFor(decrypted(), 'checking')).toBe('encrypted-message');
+		expect(keepReasonFor(decrypted(), 'experimental-encryption')).toBe('experimental-encryption');
+		expect(keepReasonFor({ text: 'plain' }, 'encryption-pending')).toBe('encryption-pending');
+		expect(contentStaysOnDevice({ text: 'plain' }, null)).toBe(false);
 	});
 });
 
-describe('link previews and direct embeds', () => {
-	const context = (keepOnDevice: boolean) => ({ keepOnDevice, spotifyControlsEnabled: true, youtubeQueueChannel: false });
+describe('wording never claims more than the reason', () => {
+	const reasons: KeepReason[] = ['experimental-encryption', 'encryption-pending', 'checking', 'encrypted-message'];
+	const words = (reason: KeepReason) => [
+		albumsHint(reason),
+		forwardHint(reason),
+		albumsUnavailable(reason).title,
+		albumsUnavailable(reason).text,
+		translationConsentRequest('https://translate.example.org/translate', reason).body
+	];
 
-	test('an encrypted message never asks for /api/url-preview or /api/image-proxy', () => {
-		const message = decrypted({ text: 'see https://example.org/a and https://www.youtube.com/watch?v=abc' });
-		const plans = planLinkEmbeds(message.text, context(contentStaysOnDevice(message, false)));
-		expect(plans.some((plan) => plan.preview)).toBe(false);
-		expect(plans.every((plan) => plan.plainLink)).toBe(true);
-		expect(needsLinkPreviewComponent(message.text, context(true))).toBe(false);
-		expect(requests.filter((url) => url.includes('/api/url-preview') || url.includes('/api/image-proxy'))).toEqual([]);
+	test('only an enabled room is told it uses experimental encryption', () => {
+		for (const reason of reasons) {
+			const claims = words(reason).some((text) => /uses experimental encryption/.test(text));
+			expect([reason, claims]).toEqual([reason, reason === 'experimental-encryption']);
+		}
+		expect(words('checking').every((text) => !/encrypt(ed|ion) (is|uses)/i.test(text))).toBe(true);
+		expect(albumsHint('checking')).toContain('still checking');
+		expect(albumsHint('encryption-pending')).toContain('waiting for encryption');
 	});
 
-	test('media hosted elsewhere waits for a click in an encrypted room, and loads as before elsewhere', () => {
+	test('no surface says secure, verified or end-to-end', () => {
+		for (const reason of reasons) {
+			for (const text of words(reason)) expect(text).not.toMatch(/\b(secure|verified|end-to-end|E2EE)\b/i);
+		}
+	});
+});
+
+describe('the locality rule for media', () => {
+	const origins = ['https://wabi.example.org'];
+
+	test('a real URL parse decides, not a prefix', () => {
+		expect(isWabiServerMediaUrl('/uploads/a.png', origins)).toBe(true);
+		expect(isWabiServerMediaUrl('https://wabi.example.org/uploads/a.png', origins)).toBe(true);
+		expect(isWabiServerMediaUrl('//t.example.net/x.gif', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('https://t.example.net/x.gif', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/api/image-proxy?url=https://t.example.net/x.gif', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/API/image-proxy?url=x', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('data:image/png;base64,AAAA', origins)).toBe(true);
+		expect(isWabiServerMediaUrl('blob:https://wabi.example.org/1234', origins)).toBe(true);
+		expect(isWabiServerMediaUrl('javascript:alert(1)', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('https://wabi.example.org.evil.net/a.png', origins)).toBe(false);
+	});
+
+	test('remote attachments are found among a message’s files', () => {
+		const message = { fileUrl: '/uploads/a.wabi', files: [{ fileUrl: 'https://cdn.example.net/b.png' }, { fileUrl: '//cdn.example.net/c.mp4' }] };
+		expect(remoteAttachmentUrls(message, origins)).toEqual(['https://cdn.example.net/b.png', '//cdn.example.net/c.mp4']);
+		expect(remoteAttachmentUrls({ fileUrl: '/uploads/a.wabi' }, origins)).toEqual([]);
+	});
+});
+
+describe('link plans', () => {
+	const context = (keepOnDevice: boolean) => ({ keepOnDevice, spotifyControlsEnabled: true, youtubeQueueChannel: false });
+
+	test('kept content never plans a server preview', () => {
+		const text = 'see https://example.org/a and https://www.youtube.com/watch?v=abc';
+		expect(planLinkEmbeds(text, context(true)).some((plan) => plan.preview)).toBe(false);
+		expect(needsLinkPreviewComponent(text, context(true))).toBe(false);
+		expect(needsLinkPreviewComponent(text, context(false))).toBe(true);
+	});
+
+	test('media hosted elsewhere waits for a click in kept content, and loads as before elsewhere', () => {
 		const text = 'https://cdn.example.net/photo.png https://open.spotify.com/track/abc https://cdn.example.net/clip.mp4';
-		const encrypted = planLinkEmbeds(text, context(true));
-		expect(encrypted.map((plan) => [plan.direct, plan.directNeedsClick, plan.plainLink])).toEqual([
-			['image', true, true],
-			['spotify', true, true],
-			['video', true, true]
+		expect(planLinkEmbeds(text, context(true)).map((plan) => [plan.direct, plan.directNeedsClick])).toEqual([
+			['image', true],
+			['spotify', true],
+			['video', true]
 		]);
-		const readable = planLinkEmbeds(`${text} https://example.org/a`, context(false));
-		expect(readable.map((plan) => [plan.direct, plan.directNeedsClick, plan.preview])).toEqual([
+		expect(planLinkEmbeds(`${text} https://example.org/a`, context(false)).map((plan) => [plan.direct, plan.directNeedsClick, plan.preview])).toEqual([
 			['image', false, false],
 			['spotify', false, false],
 			['video', false, false],
@@ -127,38 +187,60 @@ describe('translation', () => {
 		understoodLanguages: ['en'],
 		useProxy: false as const
 	};
+	const visible = { visible: true, manualTranslation: undefined, ownMessage: false, mode: 'auto', messageType: 'text', localCard: false };
 
-	test('auto-translate sends nothing for a message that stays on the device', async () => {
-		const result = await requestAutoTranslation('m-1', 'Wir treffen uns morgen am Bahnhof', settings, { keepOnDevice: true });
-		expect(result).toBeNull();
-		expect(requests).toEqual([]);
+	test('MessageItem’s rule skips kept content before anything else', () => {
+		expect(autoTranslationSkip({ ...visible, keepOnDevice: true })).toBe('kept');
+		expect(autoTranslationSkip({ ...visible, visible: false, keepOnDevice: true })).toBe('kept');
+		expect(autoTranslationSkip({ ...visible, keepOnDevice: false })).toBeNull();
+		expect(autoTranslationSkip({ ...visible, mode: 'on-demand', keepOnDevice: false })).toBe('mode');
 	});
 
-	test('auto-translate still works for a server-readable message', async () => {
-		const result = await requestAutoTranslation('m-2', 'Wir treffen uns morgen am Bahnhof', settings);
+	test('auto-translate sends nothing for kept content, and still works for server-readable content', async () => {
+		const words = 'Wir treffen uns morgen am Bahnhof';
+		expect(await requestAutoTranslation('m-1', words, settings, { message: decrypted({ text: words }), channelId: 'general', channelType: 'text' })).toBeNull();
+		expect(await requestAutoTranslation('m-1', words, settings, { message: { text: words }, channelId: 'dm-1', channelType: 'dm' })).toBeNull();
+		expect(requests).toEqual([]);
+		const result = await requestAutoTranslation('m-2', words, settings, { message: { text: words }, channelId: 'general', channelType: 'text' });
 		expect(result?.translatedText).toBe('hello');
 		expect(requests.some((url) => url.startsWith('https://translate.example.org/'))).toBe(true);
 	});
 
-	test('manual translation asks once per room, and a refusal sends nothing', async () => {
+	test('manual translation asks once per server, account and room; a refusal is final for that call', async () => {
 		const asked: string[] = [];
 		const decline = async (request: { body: string }) => { asked.push(request.body); return false; };
 		const accept = async (request: { body: string }) => { asked.push(request.body); return true; };
-		const base = { roomKey: 'server|dm-1', keepOnDevice: true, providerUrl: settings.providerUrl };
+		const room = translationRoomKey('https://wabi.example.org', 12, 'dm-1');
+		const base = { roomKey: room, reason: 'experimental-encryption' as const, providerUrl: settings.providerUrl };
 
 		expect(await mayTranslate({ ...base, ask: decline })).toBe(false);
 		expect(asked[0]).toContain('translate.example.org');
 		expect(await mayTranslate({ ...base, ask: accept })).toBe(true);
 		expect(await mayTranslate({ ...base, ask: decline })).toBe(true);
 		expect(asked.length).toBe(2);
-		expect(await mayTranslate({ ...base, roomKey: 'server|dm-2', ask: decline })).toBe(false);
-		expect(await mayTranslate({ ...base, keepOnDevice: false, roomKey: 'server|text-1', ask: decline })).toBe(true);
-		expect(asked.length).toBe(3);
-		expect(requests).toEqual([]);
+		expect(await mayTranslate({ ...base, roomKey: translationRoomKey('https://wabi.example.org', 13, 'dm-1'), ask: decline })).toBe(false);
+		expect(await mayTranslate({ ...base, roomKey: translationRoomKey('https://other.example.org', 12, 'dm-1'), ask: decline })).toBe(false);
+		expect(await mayTranslate({ ...base, reason: null, roomKey: 'x|1|text-1', ask: decline })).toBe(true);
+		expect(asked.length).toBe(4);
 	});
 });
 
-describe('albums', () => {
+describe('server-readable actions', () => {
+	test('albums, forward, Lore and Blender import are blocked for kept content with the right reason', () => {
+		for (const action of ['album', 'forward', 'lore', 'blend'] as const) {
+			expect(serverReadableActionBlock(action, decrypted(), null)).toContain('this message arrived with experimental encryption');
+			expect(serverReadableActionBlock(action, { text: 'plain' }, 'checking')).toContain('still checking');
+			expect(serverReadableActionBlock(action, { text: 'plain' }, null)).toBeNull();
+		}
+	});
+
+	test('the Lore badge lookup is skipped for kept content', () => {
+		expect(shouldFetchPromotes(true, decrypted(), null)).toBe(false);
+		expect(shouldFetchPromotes(true, { text: 'plain' }, 'encryption-pending')).toBe(false);
+		expect(shouldFetchPromotes(true, { text: 'plain' }, null)).toBe(true);
+		expect(shouldFetchPromotes(false, { text: 'plain' }, null)).toBe(false);
+	});
+
 	const withFile = decrypted({
 		type: 'file',
 		text: 'Shared: passport-scan.jpg',
@@ -170,7 +252,7 @@ describe('albums', () => {
 
 	test('"Add to album" on an encrypted message sends nothing to /api/albums', async () => {
 		const outcome = await addMessageAttachmentsToAlbum({
-			keepOnDevice: contentStaysOnDevice(withFile, false),
+			keepOnDevice: serverReadableActionBlock('album', withFile, null) !== null,
 			messageId: withFile.id,
 			items: getMessageAttachmentActionItems(withFile),
 			resolveAlbum: async () => {
@@ -186,7 +268,7 @@ describe('albums', () => {
 	test('a server-readable message still reaches the album index', async () => {
 		const plain = { ...withFile, encrypted: false, e2ee: false, attachmentEncryption: undefined } as Message;
 		const outcome = await addMessageAttachmentsToAlbum({
-			keepOnDevice: contentStaysOnDevice(plain, roomKeepsContentOnDevice(communityChannel)),
+			keepOnDevice: serverReadableActionBlock('album', plain, null) !== null,
 			messageId: plain.id,
 			items: getMessageAttachmentActionItems(plain),
 			resolveAlbum: async () => ({ id: 7, name: 'Trip' }),
@@ -205,17 +287,33 @@ describe('report', () => {
 		expect(planReportRequest({ ...base, message, disclosureConfirmed: false })).toEqual({ kind: 'needs-disclosure' });
 		expect(planReportRequest({ ...base, message, disclosureConfirmed: true })).toEqual({
 			kind: 'send',
+			truncated: false,
 			body: { channelId: 'dm-1', messageId: 'm-1', reason: 'Harassment', comment: null, disclosedSnapshot: 'the decrypted words' }
 		});
 	});
 
 	test('a server-readable message never sends a disclosed snapshot', () => {
 		const plan = planReportRequest({ ...base, message: { id: 'm-9', text: 'plain' }, disclosureConfirmed: true });
-		expect(plan).toEqual({ kind: 'send', body: { channelId: 'dm-1', messageId: 'm-9', reason: 'Harassment', comment: null } });
+		expect(plan).toEqual({ kind: 'send', truncated: false, body: { channelId: 'dm-1', messageId: 'm-9', reason: 'Harassment', comment: null } });
 	});
 
-	test('a message this device could not decrypt has nothing to disclose', () => {
-		const message = decrypted({ text: 'This message could not be decrypted on this device.', e2eeUnreadable: 'no-key', e2eeVerified: false });
-		expect(planReportRequest({ ...base, message, disclosureConfirmed: true })).toEqual({ kind: 'unreadable' });
+	test('undecryptable, not-yet-decrypted and text-less messages have nothing to disclose', () => {
+		const unreadable = decrypted({ text: 'This message could not be decrypted on this device.', e2eeUnreadable: 'no-key', e2eeVerified: false });
+		expect(planReportRequest({ ...base, message: unreadable, disclosureConfirmed: true })).toEqual({ kind: 'unreadable' });
+		// Reviewer probe: a raw envelope must never be offered as decrypted text.
+		expect(planReportRequest({ channelId: 'dm-1', message: { id: 'm', text: 'wabi-e2ee-v1:{"v":1}' }, reason: 'Spam', comment: '', disclosureConfirmed: true }).kind).not.toBe('send');
+		expect(planReportRequest({ ...base, message: decrypted({ text: '   ' }), disclosureConfirmed: true })).toEqual({ kind: 'nothing-to-disclose' });
+	});
+
+	test('a long disclosure is cut on a code-point boundary at the server’s limit, and says so', () => {
+		// Reviewer probe: never end on a lone surrogate.
+		const text = 'a'.repeat(11_999) + '😀' + 'tail';
+		const plan = planReportRequest({ channelId: 'dm-1', message: { id: 'm', text, e2ee: true }, reason: 'Spam', comment: '', disclosureConfirmed: true });
+		expect(plan.kind).toBe('send');
+		const snapshot = plan.kind === 'send' ? plan.body.disclosedSnapshot ?? '' : '';
+		expect(/[\uD800-\uDBFF]$/.test(snapshot)).toBe(false);
+		expect(Array.from(snapshot).length).toBe(DISCLOSED_SNAPSHOT_MAX_CHARS);
+		expect(snapshot.endsWith('😀')).toBe(true);
+		expect(plan.kind === 'send' && plan.truncated).toBe(true);
 	});
 });

@@ -7,7 +7,8 @@ import type { Message } from '$lib/socket-types';
 import { E2eeNoKeyError, classifyUnreadable, unreadableMessageText, type E2eeUnreadableClass } from './e2eeUnreadable';
 import type { AttachmentEncryptionMeta } from '../../../packages/wabi-protocol/src';
 
-export const E2EE_MESSAGE_PREFIX = 'wabi-e2ee-v1:';
+import { E2EE_MESSAGE_PREFIX } from './e2eeEnvelope';
+export { E2EE_MESSAGE_PREFIX };
 const DEVICE_VERSION = 1;
 const FILE_CHUNK_SIZE = 1024 * 1024;
 const encoder = new TextEncoder();
@@ -376,6 +377,11 @@ function cachedRoomStatus(channelId: string): E2eeRoomStatus | null {
 	const raw = safeLocalGet(roomStatusStorageKey(channelId));
 	if (!raw) return null;
 	try { return JSON.parse(raw) as E2eeRoomStatus; } catch { return null; }
+}
+
+/** This device's last stored status for a room (no network), or null. Never a downgrade of an observed encrypted room. */
+export function storedE2eeRoomStatus(channelId: string): E2eeRoomStatus | null {
+	try { return cachedRoomStatus(channelId); } catch { return null; }
 }
 
 export async function getE2eeRoomStatus(channelId: string, allowCached = true): Promise<E2eeRoomStatus> {

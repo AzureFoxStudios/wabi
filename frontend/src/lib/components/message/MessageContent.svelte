@@ -23,16 +23,12 @@
 	import type { MessageEntity } from '$lib/socket';
 	import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
 	import RemoteMediaGate from './RemoteMediaGate.svelte';
-	import { ALBUMS_SERVER_READABLE_HINT } from '$lib/privacy/contentEgress';
+	import { albumsHint, keepReasonFor } from '$lib/privacy/contentEgress';
+	import { isWabiServerMediaUrl, remoteAttachmentUrls } from '$lib/privacy/remoteMedia';
+	import { e2eeStatusRevision, roomContentKeepReason } from '$lib/dm/dmE2eeState';
 
 	export let message: Message;
 	export let messageText: string;
-	/**
-	 * The message or its room is under experimental encryption (privacy/contentEgress.ts): images
-	 * written in the text become links, GIFs from other hosts wait for a click, no link previews,
-	 * and the server-readable album actions are not offered.
-	 */
-	export let contentOnDevice = false;
 	export let albumAnnouncementUploadName: string | null;
 	export let translatedText: string | undefined;
 	export let translationLoading: boolean;
@@ -59,20 +55,20 @@
 				(channels.find((ch) => ch.id === currentChannel)?.forceSpoiler ?? false) ||
 				$activeServerSpoilAll ||
 				Boolean(displayEnhancementSettingsStore?.spoilerAllMessagesEnabled));
-	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean) => void;
-	export let onTriggerAlbumUpload: (meta: any) => void;
+	export let onHandleAlbumActivate: (meta: any, hasFiles: boolean, message?: Message) => void;
+	export let onTriggerAlbumUpload: (meta: any, message?: Message) => void;
 	export let onOpenAlbumPanel: () => void;
 	export let onOpenAlbumPreview: (message: Message, fileAttachment: FileAttachment) => void;
 	export let onEnlargeImage: (url: string, gallery?: string[]) => void;
 	export let onEnlargeVideo: (url: string) => void;
 	export let onImageContextMenu: (event: MouseEvent, message: Message) => void;
 	export let onDownloadAttachment: (fileUrl: string, fileName: string, encryption?: any) => void;
-	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string) => void;
+	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string, message?: Message) => void;
 	export let onOpenModelInDedicatedTab: (src: string, fileName: string) => void;
 	export let onHandleMarkdownContentClick: (event: MouseEvent) => void;
 	export let LinkPreviewComponent: any;
 	export let ensureLinkPreviewLoaded: () => void;
-	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean) => void;
+	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean, message?: Message) => void;
 
 	function getAlbumAnnouncementStatusLabel(meta: { name: string }, itemCount = 0): string {
 		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name)) return 'Deleted';
@@ -87,6 +83,18 @@
 		if (itemCount > 0) return 'Open Albums to browse this shared album or add more files.';
 		return 'This shared album has no files yet. Use Add Media to drop the first one, or Open Albums to manage it.';
 	}
+
+	// Content kept on the device (privacy/contentEgress.ts), derived here from the message and the
+	// room rather than handed down, so no parent can switch it off: nothing loads from another host
+	// without a click, no link previews, and no server-readable album actions.
+	$: roomKeep = roomContentKeepReason(
+		currentChannel,
+		channels.find((channel) => channel.id === currentChannel)?.type ?? null,
+		$e2eeStatusRevision
+	);
+	$: keepReason = keepReasonFor(message, roomKeep);
+	$: contentOnDevice = keepReason !== null;
+	$: remoteAttachments = contentOnDevice ? remoteAttachmentUrls(message) : [];
 
 	$: albumAnnouncement = parseAlbumAnnouncement(message.text);
 	// A deleted album must never show "Empty album" / "Add Media" — the empty
@@ -135,11 +143,6 @@
 		if (body) observer.observe(body);
 		measure();
 		return { destroy: () => observer.disconnect() };
-	}
-
-	/** A GIF that is not on this server (relative upload path, data: or blob: URL). */
-	function gifIsRemote(url: string): boolean {
-		return !(url.startsWith('/') || url.startsWith('data:') || url.startsWith('blob:'));
 	}
 
 	function findFirstObjectEntity(entities: MessageEntity[]): MessageEntity | null {
@@ -262,14 +265,14 @@
 			class="album-message-card album-message-card--actionable album-message-card--empty"
 			class:album-message-card--deleted={albumAnnouncementDeleted}
 			class:is-uploading={!albumAnnouncementDeleted && albumAnnouncementUploadName === albumAnnouncement.name}
-			role={albumAnnouncementDeleted ? undefined : 'button'}
-			tabindex={albumAnnouncementDeleted ? undefined : 0}
+			role={albumAnnouncementDeleted || contentOnDevice ? undefined : 'button'}
+			tabindex={albumAnnouncementDeleted || contentOnDevice ? undefined : 0}
 			aria-disabled={albumAnnouncementDeleted || albumAnnouncementUploadName === albumAnnouncement.name}
 			on:click={() => {
-				if (!albumAnnouncementDeleted) onHandleAlbumActivate(albumAnnouncement, false);
+				if (!albumAnnouncementDeleted && !contentOnDevice) onHandleAlbumActivate(albumAnnouncement, false, message);
 			}}
 			on:keydown={(event) => {
-				if (!albumAnnouncementDeleted) onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, false);
+				if (!albumAnnouncementDeleted && !contentOnDevice) onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, false, message);
 			}}
 		>
 			<div class="album-message-main">
@@ -280,17 +283,19 @@
 					</div>
 					<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement)}</span>
 				</div>
-				<div class="album-message-empty">
-					{getAlbumAnnouncementSupportText(albumAnnouncement)}
-				</div>
+				{#if !keepReason}
+					<div class="album-message-empty">
+						{getAlbumAnnouncementSupportText(albumAnnouncement)}
+					</div>
+				{/if}
 			</div>
 			{#if albumAnnouncementDeleted}
 				<div class="album-message-actions">
 					<span class="album-message-deleted-note">Album deleted</span>
 				</div>
-			{:else if contentOnDevice}
+			{:else if keepReason}
 				<div class="album-message-actions">
-					<span class="album-message-deleted-note">{ALBUMS_SERVER_READABLE_HINT}</span>
+					<span class="album-message-deleted-note">{albumsHint(keepReason)}</span>
 				</div>
 			{:else}
 				<div class="album-message-actions">
@@ -298,7 +303,7 @@
 						type="button"
 						class="album-message-btn"
 						disabled={albumAnnouncementUploadName === albumAnnouncement.name}
-						on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
+						on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement, message)}
 					>
 						{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
 					</button>
@@ -320,7 +325,7 @@
 		</div>
 	{:else if message.type === 'gif' && message.gifUrl}
 		<div class="gif-message-block">
-			{#if contentOnDevice && gifIsRemote(message.gifUrl)}
+			{#if contentOnDevice && !isWabiServerMediaUrl(message.gifUrl)}
 				<RemoteMediaGate url={message.gifUrl}>
 					<img src={message.gifUrl} alt="GIF" class="gif {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} decoding="async" referrerpolicy="no-referrer" />
 				</RemoteMediaGate>
@@ -339,7 +344,31 @@
 			{/if}
 		</div>
 	{:else if message.type === 'file'}
-		<MessageFileContent
+		{#if remoteAttachments.length > 0}
+			<!-- Kept content: an attachment on another host loads only after the member's click. -->
+			<RemoteMediaGate url={remoteAttachments[0]}>
+				<MessageFileContent
+					{message}
+					currentChannel={currentChannel}
+					forceSpoiler={effectiveSpoiler}
+					{albumAnnouncement}
+					{albumAnnouncementUploadName}
+					{onHandleAlbumActivate}
+					{onHandleAlbumAnnouncementKeydown}
+					{onTriggerAlbumUpload}
+					{onOpenAlbumPanel}
+					{onOpenAlbumPreview}
+					{onEnlargeImage}
+					{onEnlargeVideo}
+					{onOpenModelInDedicatedTab}
+					{onOpenBlendImportSettings}
+					{onDownloadAttachment}
+					{onImageContextMenu}
+					{keepReason}
+				/>
+			</RemoteMediaGate>
+		{:else}
+			<MessageFileContent
 			{message}
 			currentChannel={currentChannel}
 			forceSpoiler={effectiveSpoiler}
@@ -356,7 +385,9 @@
 			{onOpenBlendImportSettings}
 			{onDownloadAttachment}
 			{onImageContextMenu}
+			{keepReason}
 		/>
+		{/if}
 		{#if !albumAnnouncement && messageText && (message.files ? messageText !== `Shared ${message.files.length} files` : messageText !== `Shared: ${message.fileName}`)}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -365,13 +396,20 @@
 			</div>
 		{/if}
 	{:else if message.type === 'emoji' && message.emojiUrl}
-		<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+		{#if contentOnDevice && !isWabiServerMediaUrl(message.emojiUrl)}
+			<RemoteMediaGate url={message.emojiUrl}>
+				<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} decoding="async" referrerpolicy="no-referrer" />
+			</RemoteMediaGate>
+		{:else}
+			<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+		{/if}
 	{:else if isLongReaderMessage}
 		<LongMessagePreview
 			{message}
 			text={messageText}
 			contextLabel={longMessageContextLabel}
 			spoiler={effectiveSpoiler}
+			keepOnDevice={contentOnDevice}
 		/>
 	{:else}
 		<div class="message-text" class:is-clamped={textCollapsible && !textExpanded} use:measureLongText>
@@ -404,7 +442,6 @@
 			{LinkPreviewComponent}
 			{ensureLinkPreviewLoaded}
 			{onOpenModelInDedicatedTab}
-			{contentOnDevice}
 		/>
 	{/if}
 

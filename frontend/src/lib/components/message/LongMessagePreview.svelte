@@ -7,6 +7,8 @@
 	export let text: string;
 	export let contextLabel = '';
 	export let spoiler = false;
+	/** Kept content (privacy/contentEgress.ts): the Reader renders media from other hosts as links. */
+	export let keepOnDevice = false;
 
 	$: excerpt = createLongMessageExcerpt(text);
 	$: stats = getLongMessageStats(text);
@@ -15,7 +17,7 @@
 		: `Message from ${message.user}`;
 
 	function openInReader(): void {
-		openReaderDocument(readerTitle, text, 'markdown', 'chat', undefined, String(message.id));
+		openReaderDocument(readerTitle, text, 'markdown', 'chat', undefined, String(message.id), { remoteMedia: !keepOnDevice });
 	}
 </script>
 

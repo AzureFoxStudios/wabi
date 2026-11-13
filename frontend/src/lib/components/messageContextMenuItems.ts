@@ -8,7 +8,7 @@
  * the message actually has files attached.
  */
 import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
-import { ALBUMS_SERVER_READABLE_HINT, FORWARD_UNAVAILABLE_HINT } from '$lib/privacy/contentEgress';
+import { albumsHint, forwardHint, type KeepReason } from '$lib/privacy/contentEgress';
 
 type Action = (() => void) | undefined;
 
@@ -26,7 +26,7 @@ export interface MessageMenuInput {
 	 * The message or its room is under experimental encryption: rows that would hand its content to
 	 * a server-readable feature (albums, Lore, forwarding as a new message) are off, with a reason.
 	 */
-	keepContentOnDevice?: boolean;
+	keepReason?: KeepReason | null;
 	translatorEnabled: boolean;
 	quickMentionEnabled: boolean;
 	personalPinsEnabled: boolean;
@@ -61,11 +61,11 @@ export function buildMessageMenu(input: MessageMenuInput): MenuEntry[] {
 	}
 
 	const share: MenuEntry[] = [];
-	const keep = input.keepContentOnDevice === true;
+	const keep = input.keepReason ?? null;
 	if (input.onForward) {
 		share.push(
 			keep
-				? { id: 'forward', label: t('context_menu.forward'), icon: 'forward', disabled: true, hint: FORWARD_UNAVAILABLE_HINT }
+				? { id: 'forward', label: t('context_menu.forward'), icon: 'forward', disabled: true, hint: forwardHint(keep) }
 				: { id: 'forward', label: t('context_menu.forward'), icon: 'forward', onSelect: input.onForward }
 		);
 	}
@@ -76,7 +76,7 @@ export function buildMessageMenu(input: MessageMenuInput): MenuEntry[] {
 	if (input.hasFile && input.onAddToAlbum) {
 		share.push(
 			keep
-				? { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', disabled: true, hint: ALBUMS_SERVER_READABLE_HINT }
+				? { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', disabled: true, hint: albumsHint(keep) }
 				: { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', onSelect: input.onAddToAlbum }
 		);
 	}

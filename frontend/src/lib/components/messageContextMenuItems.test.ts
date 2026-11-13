@@ -144,11 +144,13 @@ describe('message menu (§8.9)', () => {
 
 describe('message menu under experimental encryption', () => {
 	test('albums and forwarding are off with a reason, Lore is not offered, report and translate stay', () => {
-		const menu = buildMessageMenu(input({ hasFile: true, keepContentOnDevice: true }));
+		const menu = buildMessageMenu(input({ hasFile: true, keepReason: 'checking' }));
 		const row = (id: string) => menu.find((entry) => entry.id === id);
 		expect(row('add-to-album')?.disabled).toBe(true);
 		expect(row('add-to-album')?.onSelect).toBeUndefined();
 		expect(row('add-to-album')?.hint).toContain('server-readable');
+		expect(row('add-to-album')?.hint).toContain('still checking');
+		expect(row('add-to-album')?.hint).not.toContain('uses experimental encryption');
 		expect(row('forward')?.disabled).toBe(true);
 		expect(row('forward')?.onSelect).toBeUndefined();
 		expect(row('promote-to-lore')).toBeUndefined();
