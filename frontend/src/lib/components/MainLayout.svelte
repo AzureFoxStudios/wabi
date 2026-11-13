@@ -394,6 +394,18 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (endPeek()) event.preventDefault();
 	}
 
+	// The phone side-panel sheet (People, pins, search, any right-dock panel) closes on Escape too,
+	// like the scrim and Back. isMobile is width-only, so a narrow desktop window shows this sheet
+	// with a keyboard present. A menu or dialog on top of the sheet (the Member-actions bottom
+	// sheet) owns Escape first.
+	function handleMobileOverlayKeydown(event: KeyboardEvent): void {
+		if (!$layoutStore.isMobile || $layoutStore.rightPanelMode === 'none') return;
+		if (event.key !== 'Escape' || event.defaultPrevented) return;
+		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+		event.preventDefault();
+		layoutStore.closeRightPanel();
+	}
+
 	/** Width from the pointer to the rail edge the panel hangs from, clamped to what fits. */
 	function dockWidthAtPointer(clientX: number): number {
 		const fromEdge = $layoutStore.stubSide === 'left' ? clientX : window.innerWidth - clientX;
@@ -1338,6 +1350,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	on:resize={measureRailWidth}
 	on:keydown={handleStagePeekKeydown}
 	on:keydown={handleCompactDrawerKeydown}
+	on:keydown={handleMobileOverlayKeydown}
 	on:mousemove={handleMouseMove}
 	on:mouseup={stopResize}
 	on:touchstart={handleTouchStart}
