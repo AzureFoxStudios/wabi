@@ -266,6 +266,8 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
 	{ tab: 'emojis', label: 'Custom emojis', keywords: ['emoji', 'stickers', 'upload emoji'] },
 	{ tab: 'storage', label: 'Chat history', keywords: ['storage', 'offline', 'archive', 'export'] },
 	{ tab: 'admin', label: 'Admin', keywords: ['administration', 'dashboard', 'roles', 'moderation', 'branding'] },
+	{ tab: 'admin', label: 'Who can join this server?', keywords: ['registration', 'sign up', 'invite only', 'open', 'closed', 'guests'] },
+	{ tab: 'admin', label: 'Invite someone', keywords: ['invite', 'invitation', 'invite link', 'add friend', 'add member', 'qr code'] },
 	{ tab: 'about', label: 'About', keywords: ['version', 'build', 'licence', 'license'] }
 ];
 

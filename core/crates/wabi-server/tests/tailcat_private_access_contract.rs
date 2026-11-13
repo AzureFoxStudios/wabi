@@ -438,6 +438,9 @@ async fn fresh_forwarder_connections_cannot_reset_guest_creation_allowance() {
 
     let tmp = tempfile::tempdir().unwrap();
     let (state, _, _) = open(&tmp.path().join("data")).await;
+    // Guests are refused while no admission policy is saved (invite only); this test is about
+    // the guest rate limit, so save an Open policy that admits guests.
+    std::fs::write(tmp.path().join("data").join("admin_policies.json"), r#"{"auth_policy":{"mode":"open","allowRegister":true,"allowGuest":true,"emailVerifyRequired":false}}"#).unwrap();
     let app = wabi_server::api::routes::create_api_router(state.clone()).with_state(state.clone());
     let authority = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let authority_addr = authority.local_addr().unwrap();

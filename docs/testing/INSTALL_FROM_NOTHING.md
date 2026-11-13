@@ -2,6 +2,7 @@
 
 **Measured:** 2026-11-13, on `main` at `af4cc3e`, in a cloud Linux sandbox (x86_64, running as root, Rust 1.93.1, Node 22.23.4, Docker client without a daemon).
 **Automated check:** `core/crates/wabi-server/tests/install_from_nothing_contract.rs` (runs in the `cargo test --workspace` step of CI).
+**Updated:** 2026-11-13, after browser invitations (branch `claude/browser-invites`): product friction item 1 is done and stage 3 is restated below. Only stage 3 was re-run (in a browser, by `frontend/scripts/browser-invites-smoke.mjs`); the other stages are as first measured.
 
 This page is the measurement behind [VISION.md](../VISION.md) point 2, "Easy to set up": a person who is not a system administrator gets from a blank machine to a running server with a friend invited, without a manual. It follows the install guide literally and writes down what happened. It does not soften the result.
 
@@ -28,14 +29,14 @@ The guide text quoted below is the text **before** this change. Where this chang
 
 | Path | Commands | Files | Decisions (of which guesses) | Reached in this sandbox |
 |---|---|---|---|---|
-| Binary built from source (INSTALL.md "Preferred: Rust / cargo path") | **28**, plus at least 4 prerequisite installs | **0** on a LAN; at least 1 (a Caddyfile) for a friend on the internet | **27 (14)** | All five milestones, with the exceptions listed under each stage |
-| Docker Compose (README, FRESH_INSTALL.md, INSTALL.md "Docker") | **22**, plus installing Docker | **0** on a LAN; at least 1 for the internet | **21 (8)** | **None** — no Docker daemon in the sandbox |
+| Binary built from source (INSTALL.md "Preferred: Rust / cargo path") | **26** (was 28), plus at least 4 prerequisite installs | **0** on a LAN; at least 1 (a Caddyfile) for a friend on the internet | **25 (11)** (was 27 (14)) | All five milestones, with the exceptions listed under each stage |
+| Docker Compose (README, FRESH_INSTALL.md, INSTALL.md "Docker") | **20** (was 22), plus installing Docker | **0** on a LAN; at least 1 for the internet | **19 (5)** (was 21 (8)) | **None** — no Docker daemon in the sandbox |
 | Downloaded release binary | — | — | — | **The guide offers no such path.** INSTALL.md never mentions a download. The newest GitHub release (v0.2.2, 2026-01-12) is not referenced anywhere in the guide and was not evaluated. |
-| Desktop app hosting (Tauri `/host` screen) | — | — | — | Not measured: the guide does not offer it as a server install, it is built from source (`bun run desktop:build`), and it needs a desktop session. It is the only place with an invitation button. |
+| Desktop app hosting (Tauri `/host` screen) | — | — | — | Not measured: the guide does not offer it as a server install, it is built from source (`bun run desktop:build`), and it needs a desktop session. It was the only place with an invitation button until browser invitations. |
 
 **Required environment variables: 0. Required files before first start: 0.** Both are now a budget in the automated test.
 
-What the numbers mean in plain terms: the server itself is close to "one command and done" — no configuration file, no secrets to generate, no database to set up. Almost all the effort is around it: building it (no prebuilt download), **inviting someone (impossible from the browser)**, putting it on the internet with HTTPS (not described), and backup/restore (described for Docker only, restore as prose only).
+What the numbers mean in plain terms: the server itself is close to "one command and done" — no configuration file, no secrets to generate, no database to set up. Almost all the effort is around it: building it (no prebuilt download), inviting someone (impossible from the browser when measured; **now Settings › Admin › Invite someone**), putting it on the internet with HTTPS (not described), and backup/restore (described for Docker only, restore as prose only).
 
 ## Path 1: binary built from source
 
@@ -74,7 +75,7 @@ What I found, in order:
 
 - **The browser app has no way to create an invitation.** The only caller of the invitation API in the frontend is the desktop app's hosting screen (`frontend/src/routes/host/+page.svelte`, through a Tauri command). INSTALL.md did not mention invitations at all.
 - **The setup screen offers no "invite only".** It offers Open (anyone who can reach the server registers, invitation or not) or Closed (nobody registers, invitations included).
-- **The default is open registration.** With no admission policy saved, a third account (`stranger`) registered here with no invitation at all.
+- **The default was open registration.** With no admission policy saved, a third account (`stranger`) registered here with no invitation at all. (Since changed: such a server is now invite only; see item 2.)
 - **An invitation link is refused in the browser over plain HTTP unless the address is `localhost` or a private LAN address** (`frontend/src/lib/hostInvites.ts`). A friend on the internet therefore needs HTTPS: INSTALL.md says only "point Caddy (or cloudflared) at 127.0.0.1:3000. Edit Caddyfile + .env" — no Caddyfile, no domain or DNS steps, no firewall/port step.
 
 So "joined by invitation" is reachable only by reading the source:
@@ -90,7 +91,19 @@ So "joined by invitation" is reachable only by reading the source:
 
 This change adds the curl recipe and the plain facts above to INSTALL.md ("Inviting someone"), so the commands are no longer guesses, but they are still commands a non-administrator should not need.
 
-Stage 3 (friend on the same LAN): **2 commands**, **0 files**, **9 decisions (4 guesses)**: discovering the invite API (guess), the link format (guess), the address the friend can reach (guess), opening the port in a firewall (guess), invitation lifetime, the friend's username and password, and the two DM fallback choices. For a friend on the internet add a domain, DNS, a TLS reverse proxy and a Caddyfile: **at least 1 more file and an unknown number of commands; not described by the guide and not run here.**
+Stage 3 as first measured (friend on the same LAN): **2 commands**, **0 files**, **9 decisions (4 guesses)**: discovering the invite API (guess), the link format (guess), the address the friend can reach (guess), opening the port in a firewall (guess), invitation lifetime, the friend's username and password, and the two DM fallback choices. For a friend on the internet add a domain, DNS, a TLS reverse proxy and a Caddyfile: **at least 1 more file and an unknown number of commands; not described by the guide and not run here.**
+
+#### Stage 3 after browser invitations
+
+What changed: the setup screen offers **Invite only** between Open and Closed and preselects it; a server with an owner and no saved policy now admits only by invitation (item 2), and **Settings › Admin › Invite someone** creates a one-use link with a lifetime, a copy button and a QR code, lists waiting invitations and cancels them. The link is built from the address the owner is using, and the page says when that address only works on the owner's network, refuses to make a link from `localhost`, and asks for HTTPS on a plain-HTTP public address. The friend's `/join` page explains used, cancelled, expired and closed-server refusals in plain words.
+
+| # | Action | Notes |
+|---|---|---|
+| browser (owner) | Settings › Admin › Invite someone › Create invitation › Copy link | Replaces commands 12 and 13 and building the link by hand. |
+| browser (friend) | open the link, choose username and password | Lands signed in. |
+| both, browser | channel message; DM with the server-readable choice | Unchanged. |
+
+Stage 3 now (friend on the same LAN): **0 commands**, **0 files**, **7 decisions (1 guess)**: invitation lifetime (default is fine), the address to open Wabi at so the friend can reach it (no longer a guess: the page says who the link works for), opening the port in a firewall (**guess**, unchanged), the friend's username and password, and the two DM fallback choices. For a friend on the internet HTTPS is still required and still not described (item 7).
 
 ### Stage 4 — backup
 
@@ -161,8 +174,8 @@ A risk read from the code, **not run**: the container runs as UID 1000 and the g
 
 None of these were changed in this PR. Items marked *owner* touch security or data-location defaults and need the owner's decision.
 
-1. **No invitation button in the browser app, and no "invite only" on the setup screen.** Add "Create invitation" to the owner's settings (the API, `POST /api/invites`, already exists and is owner-only) and an "Invite only" choice to the setup screen (the `invite` mode already exists in `auth_policy`).
-2. **Registration is open by default** (*owner*). With no policy saved, anyone who can reach the server registers. Once (1) exists, consider making the setup screen's default "Invite only". Not changed: it is an admission/security default.
+1. **Done (browser invitations).** ~~No invitation button in the browser app, and no "invite only" on the setup screen.~~ Was: add "Create invitation" to the owner's settings (the API, `POST /api/invites`, already exists and is owner-only) and an "Invite only" choice to the setup screen (the `invite` mode already exists in `auth_policy`).
+2. **Done (owner decided 2026-11-13: invite only).** The setup screen preselects Invite only, and a server with an owner and no saved policy now refuses registration without an invitation ("This server is invite only. Ask the server owner for an invitation link."), with guests refused too; a saved Open/Closed/Invite policy is always respected and the first (owner) account is created as before (`first_boot_onboarding.rs`, `unsaved_admission_policy_is_invite_only_once_an_owner_exists`). Was: **Registration is open by default** (*owner*). With no policy saved, anyone who can reach the server registers. Once (1) exists, consider making the setup screen's default "Invite only". Not changed: it is an admission/security default.
 3. **No prebuilt server.** Every path compiles Rust and the frontend (≥10 minutes, a toolchain, and an npm dependency fetched from `cdn.sheetjs.com`). Publish the container image to a registry so Compose pulls instead of builds, and/or attach `wabi-server` binaries to releases, and say so in the guide.
 4. **Silent terminal, misleading empty page.** Print one line at startup with the address to open, the data directory, the log file and "the first account becomes the owner". Answer `503` with a plain message instead of an empty `200` when the frontend was not built.
 5. **Backup and restore are 8 and 7 hand-typed commands.** A `wabi-server backup <dir>` / `wabi-server restore <backup> <new-dir>` pair that takes the engine lock, refuses a running server and copies the whole data directory would make each one command. (`wabi-instance-snapshot export/restore` exists but needs an age key pair and the uploads path; it is not a beginner's path.)
@@ -175,7 +188,7 @@ None of these were changed in this PR. Items marked *owner* touch security or da
 
 Ranked by steps removed from the journey above (commands + decisions, guesses weighted as decisions):
 
-1. **Invitation button in the browser app plus "Invite only" on the setup screen** — removes the 2 source-reading curl commands and 4 guesses, and makes the "friend by invitation" milestone possible at all on a Docker or binary install. (Item 1.)
+1. **Done:** **Invitation button in the browser app plus "Invite only" on the setup screen** — removes the 2 source-reading curl commands and 4 guesses, and makes the "friend by invitation" milestone possible at all on a Docker or binary install. (Item 1.) Restated after the change: 2 commands, 2 decisions and 3 guesses removed (the firewall guess remains).
 2. **A prebuilt server: registry image and release binaries** — removes the prerequisite installs (≥4), `git clone`, the frontend build (4 commands and the CDN dependency) and the Rust build: about 8 commands and 4 guesses on the binary path; on Compose it removes the 10-minute `--build` and the re-clone on restore. (Item 3.)
 3. **`wabi-server backup` / `restore` commands** — 15 commands become about 2, and removes 5 guesses (how to stop, which pieces, ownership, ports). (Item 5.)
 4. **One-command public HTTPS** (Compose Caddy profile with `WABI_DOMAIN`) — replaces an undocumented stage (a Caddyfile, DNS, certificates, firewall) with one command and one value; without it a friend on the internet cannot use an invitation link at all. (Item 7.)
@@ -196,7 +209,7 @@ Run: `cargo test -p wabi-server --test install_from_nothing_contract` (passed he
 ## Not run here
 
 - Anything with Docker or Compose (no daemon).
-- The frontend build (`npm ci` refused by the sandbox proxy), so **no browser step was run**: the setup screens, the `/join` page, sending messages from the UI. Each was replaced by the HTTP call the page makes.
+- The frontend build (`npm ci` refused by the sandbox proxy), so **no browser step was run** in the first measurement: the setup screens, the `/join` page, sending messages from the UI. Each was replaced by the HTTP call the page makes. Since then the setup screen's join choice, creating an invitation and the `/join` page have run in headful Chromium (`frontend/scripts/browser-invites-smoke.mjs`, in the Core Browser Smokes workflow); sending messages from the UI is covered by other smokes, not by this measurement.
 - A release build (a debug build was used).
 - Prerequisite installation and `git clone` (already present).
 - Any second machine, LAN address, firewall, public DNS, TLS or reverse proxy.

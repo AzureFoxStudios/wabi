@@ -631,7 +631,7 @@ async fn concurrent_first_registrations_create_exactly_one_owner() {
         "owner claim must clear the setup window"
     );
 
-    // After the owner exists, the open-by-default policy applies again.
+    // After the owner exists and before any policy is saved, admission is invite only.
     let later = app
         .clone()
         .oneshot(register_request("carol"))
@@ -639,9 +639,68 @@ async fn concurrent_first_registrations_create_exactly_one_owner() {
         .unwrap();
     assert_eq!(
         later.status(),
-        StatusCode::OK,
-        "post-setup registration under the default open policy must succeed"
+        StatusCode::FORBIDDEN,
+        "post-setup registration without a saved policy needs an invitation"
     );
+}
+
+/// With an owner and no saved admission policy (setup screen never finished, or an older server),
+/// the server is invite only: a stranger is refused in words that say what to do, an invitation
+/// admits, guests are refused, and an explicitly saved Open policy is respected.
+#[tokio::test]
+async fn unsaved_admission_policy_is_invite_only_once_an_owner_exists() {
+    let (tmp, app) = fresh_server().await;
+    let owner = app.clone().oneshot(register_request("owner")).await.unwrap();
+    assert_eq!(owner.status(), StatusCode::OK, "the first account (owner) is created as before");
+    let owner = json_response(owner).await;
+    let owner_token = owner["accessToken"].as_str().unwrap();
+    assert!(!tmp.path().join("admin_policies.json").exists(), "no admission policy has been saved");
+
+    let refused = app.clone().oneshot(register_request("stranger")).await.unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let refused = json_response(refused).await;
+    let message = refused["error"].as_str().unwrap();
+    assert!(
+        message.contains("invite only") && message.contains("Ask the server owner for an invitation link"),
+        "the refusal tells a would-be member what to do: {message}"
+    );
+    let guest = app.clone().oneshot(api_request("/auth/guest", serde_json::json!({}), None)).await.unwrap();
+    assert_eq!(guest.status(), StatusCode::FORBIDDEN, "invite-only admission refuses guests");
+    let public = app.clone().oneshot(Request::get("/public/auth-policy").body(Body::empty()).unwrap()).await.unwrap();
+    let public = json_response(public).await;
+    assert_eq!(public["mode"], "invite", "the sign-in page is told the truth");
+    assert_eq!(public["allowGuest"], false);
+
+    let grant = json_response(
+        app.clone()
+            .oneshot(api_request("/invites", serde_json::json!({"expiresInHours":24}), Some(owner_token)))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let invited = app
+        .clone()
+        .oneshot(api_request(
+            "/auth/register",
+            serde_json::json!({"username":"friend","password":"password123","inviteToken":grant["token"]}),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invited.status(), StatusCode::OK, "a valid invitation admits under the unsaved default");
+
+    let saved = app
+        .clone()
+        .oneshot(api_request(
+            "/admin/policies/auth_policy",
+            serde_json::json!({"mode":"open","allowRegister":true,"allowGuest":true,"emailVerifyRequired":false}),
+            Some(owner_token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let walk_in = app.clone().oneshot(register_request("walk-in")).await.unwrap();
+    assert_eq!(walk_in.status(), StatusCode::OK, "an explicitly saved Open policy is respected");
 }
 
 #[tokio::test]

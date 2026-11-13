@@ -281,12 +281,7 @@ async fn get_auth_policy(State(state): State<Arc<AppState>>) -> Result<Json<Valu
             .get("auth_policy").cloned(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(crate::error::AppError::Internal(format!("Cannot read admission policy: {error}"))),
-    }.unwrap_or_else(|| serde_json::json!({
-            "mode": "open",
-            "allowGuest": true,
-            "allowRegister": true,
-            "emailVerifyRequired": false
-        }));
+    }.unwrap_or_else(crate::api::auth::unsaved_admission_policy);
     Ok(Json(policy))
 }
 

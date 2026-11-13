@@ -134,11 +134,12 @@ pub struct AuthPolicy {
     pub email_verify_required: bool,
 }
 
+/// What applies when no policy has been saved: invite only (see `auth::unsaved_admission_policy`).
 impl Default for AuthPolicy {
     fn default() -> Self {
         Self {
-            mode: "open".into(),
-            allow_guest: true,
+            mode: "invite".into(),
+            allow_guest: false,
             allow_register: true,
             email_verify_required: false,
         }

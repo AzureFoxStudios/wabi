@@ -35,7 +35,8 @@ export function needsEmailCheck(policy: AuthPolicy | null | undefined): boolean 
 }
 
 export function joinModeOf(policy: AuthPolicy | null | undefined): JoinModeState {
-	if (!policy) return 'open';
+	// Nothing saved: the server admits by invitation only (auth.rs `unsaved_admission_policy`).
+	if (!policy) return 'invite';
 	if (needsEmailCheck(policy)) return 'unsupported';
 	if (policy.allowRegister === false || policy.mode === 'closed') return 'closed';
 	if (policy.mode === 'invite') return 'invite';
@@ -63,4 +64,17 @@ export function policyForJoinMode(policy: AuthPolicy, mode: JoinMode): AuthPolic
 /** Guest access can be switched only where the mode does not already refuse guests. */
 export function guestSwitchAvailable(policy: AuthPolicy | null | undefined): boolean {
 	return Boolean(policy) && !needsEmailCheck(policy) && policy?.mode !== 'invite' && policy?.mode !== 'closed';
+}
+
+/**
+ * The option the first-run setup screen preselects: Invite only, the owner's decision
+ * (docs/testing/INSTALL_FROM_NOTHING.md, product friction item 2). It matches what the server does
+ * when an owner exists and no policy has been saved (`unsaved_admission_policy` in auth.rs).
+ * Open and Closed stay one click away on the same screen.
+ */
+export const SETUP_DEFAULT_JOIN_MODE: JoinMode = 'invite';
+
+/** The auth_policy the setup screen saves for the owner's choice. */
+export function setupPolicy(mode: JoinMode, allowGuests: boolean): AuthPolicy {
+	return policyForJoinMode({ mode: 'open', allowRegister: true, allowGuest: allowGuests, emailVerifyRequired: false }, mode);
 }

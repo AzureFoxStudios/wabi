@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * Settings › Admin (admins only, §8.9): who can join, a short overview, and doors into the
-	 * admin dashboard. "Who can join" saves the same auth_policy the first-run wizard writes, so the
-	 * wizard's "You can change this later in Settings" is true.
+	 * Settings › Admin (admins only, §8.9): who can join, inviting someone (owner only), a short
+	 * overview, and doors into the admin dashboard. "Who can join" saves the same auth_policy the
+	 * first-run wizard writes, so the wizard's "You can change this later in Settings" is true.
 	 */
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
@@ -15,9 +15,12 @@
 	import Switch from '../ui/Switch.svelte';
 	import { guestSwitchAvailable, guestsAllowed, joinModeOf, needsEmailCheck, policyForJoinMode, type AuthPolicy, type JoinMode } from './adminJoinPolicy';
 	import { captureScope, request } from '$lib/workspaces/bridge';
+	import AdminInvitations from './AdminInvitations.svelte';
 
 	const dispatch = createEventDispatcher<{ openDashboard: { section: AdminSection } }>();
 	const canManageAdmin = $derived(['owner', 'admin'].includes($currentUser?.highestRole ?? ''));
+	// The invitation API is owner-only (api/invites.rs); admins see the section and why.
+	const isOwner = $derived($currentUser?.highestRole === 'owner');
 	const destinations: Array<{ section: AdminSection; title: string; description: string }> = [
 		{ section: 'users', title: 'People', description: 'Find members, manage roles, and help someone regain access.' },
 		{ section: 'branding', title: 'Server identity', description: 'The name, icon and banner people see for this server.' },
@@ -137,11 +140,11 @@
 							{#if joinMode === 'open'}
 								{label('login.wizard.join_open_desc', 'Anyone who reaches this server can create an account.')}
 							{:else if joinMode === 'invite'}
-								People need an invite link to create an account.
+								{label('login.wizard.join_invite_desc', "Only people you send an invitation link to can create an account. Guests can't join.")}
 							{:else if joinMode === 'unsupported'}
 								This server is set to check email first, which this version can't do, so no one can join. Choose who can join to fix it.
 							{:else}
-								{label('login.wizard.join_closed_desc', 'No one else can create an account on this server.')} Invite links can't create accounts either.
+								{label('login.wizard.join_closed_desc', 'No one else can create an account on this server, not even with an invitation.')}
 							{/if}
 						</p>
 					</div>
@@ -150,7 +153,7 @@
 							labelledby="admin-join-mode"
 							options={[
 								{ value: 'open', label: label('login.wizard.join_open_label', 'Open') },
-								{ value: 'invite', label: 'Invite only' },
+								{ value: 'invite', label: label('login.wizard.join_invite_label', 'Invite only') },
 								{ value: 'closed', label: label('login.wizard.join_closed_label', 'Closed') }
 							]}
 							value={joinMode}
@@ -197,6 +200,8 @@
 			<p class="admin-join__note" class:is-error={policyNote.error} role={policyNote.error ? 'alert' : 'status'}>{policyNote.text}</p>
 		{/if}
 	</section>
+
+	<AdminInvitations {isOwner} joinMode={policyState === 'ready' ? joinMode : null} />
 
 	<section class="settings-block admin-office" aria-labelledby="admin-office-title" aria-busy={officeState === 'loading' || officeSaving}>
 		<h3 class="settings-block__title" id="admin-office-title">Office tools <span class="w-tag w-tag--mat" title={$t('maturity.preview_title')}>{$t('maturity.preview')}</span></h3>

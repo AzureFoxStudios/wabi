@@ -52,7 +52,7 @@ curl -s http://127.0.0.1:3000/ | grep -qi '<!doctype html' && echo "frontend OK"
 
 `/readyz` should answer `{"engine":"ready","status":"ok"}`. If the second check prints `frontend MISSING`, rebuild the frontend with `STATIC_BUILD=1` and then rebuild the binary (the embed is compile-time). Checking only the status code of `/` is not enough: without a frontend build the server still answers `200` with an empty page.
 
-**Create the owner:** open `http://localhost:3000` (or `http://<this machine's address>:3000` from another computer on your network) in a browser. The first account created becomes the server owner; the setup screens then ask for starter rooms and whether anyone may register (**Open**) or nobody (**Closed**). See [Inviting someone](#inviting-someone) for what that choice means.
+**Create the owner:** open `http://localhost:3000` (or `http://<this machine's address>:3000` from another computer on your network) in a browser. The first account created becomes the server owner; the setup screens then ask for starter rooms and who can join: **Invite only** (preselected: only people you send an invitation link), **Open** (anyone who can reach the address) or **Closed** (nobody, invitations included). Until a choice is saved, a server that has an owner already behaves as Invite only. See [Inviting someone](#inviting-someone) for what that choice means.
 
 **Prod front:** point Caddy (or cloudflared) at `127.0.0.1:3000`. Edit Caddyfile + `.env` only — no STDB, no node backend.
 
@@ -90,14 +90,28 @@ docker run --rm -p 3001:3000 \
 
 ## Inviting someone
 
-What exists today, plainly:
+**From the browser (the owner):** open **Settings › Admin**. "Who can join this server?" sets Open, Invite only or Closed at any time. Under it, **Invite someone**: choose how long the link lasts (1 hour, 1 day or 7 days; 1 day is preselected), press **Create invitation**, then **Copy link** or let your friend scan the QR code. The page says when the link expires. Each link works **once**, for one person. Links waiting to be used are listed with **Cancel invitation**. The link itself is shown only once; if you lose it, cancel it and create another. Only the owner can create or cancel invitations; admins see why.
 
-- **The default is open registration.** With no admission policy saved (or **Open** chosen on the setup screen), anyone who can reach the server's address can create an account without an invitation. Send them the address; they choose **Create account**.
-- **Invitation links are created only in the desktop app's hosting screen** (`/host`, Tauri builds). The browser app served by this server has no button for creating an invitation.
-- **Invite-only admission** (`auth_policy` mode `invite`) is not offered on the browser setup screen. **Closed** refuses every registration, invitations included.
-- **An invitation link only opens over HTTPS**, or over plain HTTP on `localhost` or a private LAN address (`10.x`, `172.16–31.x`, `192.168.x`). A friend on the internet therefore needs the server behind HTTPS (see *Prod front* above and [NETWORKING.md](../NETWORKING.md)).
+**The friend** opens the link, chooses a username and password, and is signed in. If the link has been used, cancelled or has expired, or the server is Closed, the page says so in plain words and creates nothing. A taken username is refused before the invitation is spent.
 
-To make a one-use invitation without the desktop app, from a terminal on the server (the password ends up in your shell history; clear it afterwards):
+**Which address the link uses.** The link is made from the address you are using in the browser at that moment, so open Wabi the way your friend will reach it:
+
+- `https://your.domain` — works for anyone on the internet.
+- `http://192.168.x.x:3000` (or `10.x`, `172.16–31.x`) — **only works for people on your network** (same Wi-Fi or office network, or a VPN into it). The page says so next to the link.
+- `http://localhost:3000` — means "this computer" to whoever opens it, so the page will not make a link from it; open Wabi at your network or HTTPS address instead.
+- plain `http://` on a public address — friends' browsers refuse invitations there (passwords would travel unencrypted), so the page asks you to set up HTTPS first (see *Prod front* above and [NETWORKING.md](../NETWORKING.md)).
+
+**What each admission mode does:**
+
+- **Invite only** — only someone with an unused invitation can create an account. Guests cannot join. Preselected on the setup screen, and what the server does once it has an owner and no choice has been saved (for example if setup was never finished). Someone who tries to register without an invitation is told: "This server is invite only. Ask the server owner for an invitation link."
+- **Open** — anyone who can reach the address can create an account; no invitation needed. Only when chosen and saved.
+- **Closed** — nobody can create an account, not even with an invitation.
+
+The desktop app's hosting screen (`/host`, Tauri builds) has its own invitation button; it uses the same server API.
+
+<details><summary>Without a browser: the same thing with curl</summary>
+
+From a terminal on the server (the password ends up in your shell history; clear it afterwards):
 
 ```bash
 TOKEN=$(curl -s -X POST http://127.0.0.1:3000/api/auth/login \
@@ -108,7 +122,9 @@ curl -s -X POST http://127.0.0.1:3000/api/invites \
   -d '{"expiresInHours":24}'
 ```
 
-The answer contains `"token":"<64 hex characters>"`. The link to send is `https://<your server>/join#invite=<token>` (or `http://<LAN address>:3000/join#invite=<token>` on a LAN). It works once and expires after the hours you chose (1–168).
+The answer contains `"token":"<64 hex characters>"`. The link to send is `https://<your server>/join#invite=<token>` (or `http://<LAN address>:3000/join#invite=<token>` on a LAN). It works once and expires after the hours you chose (1–168). `GET /api/invites` lists invitations (never their links) and `DELETE /api/invites/<id>` cancels one.
+
+</details>
 
 ---
 

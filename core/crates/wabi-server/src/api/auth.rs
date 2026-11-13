@@ -20,10 +20,18 @@ use crate::state::AppState;
 use serde_json::{json, Value};
 use wabidb::engine::wabi_store::WabiStore;
 
+/// The admission policy that applies once an owner exists and none has been saved: invite only.
+/// A server whose owner never finished the setup screen must not be open to anyone who can reach
+/// it. The owner's own first registration is bootstrap and does not consult this.
+pub(crate) fn unsaved_admission_policy() -> Value {
+    json!({ "mode": "invite", "allowRegister": true, "allowGuest": false, "emailVerifyRequired": false })
+}
+
+/// The saved admission policy, or `unsaved_admission_policy()` when none has been saved.
 fn load_auth_policy(state: &AppState) -> Result<Value> {
     let path = std::path::Path::new(&state.config.data_dir).join("admin_policies.json");
     let policy = match std::fs::read(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => unsaved_admission_policy(),
         Err(error) => {
             return Err(AppError::Internal(format!(
                 "Cannot read admission policy: {error}"
@@ -34,7 +42,7 @@ fn load_auth_policy(state: &AppState) -> Result<Value> {
                 serde_json::from_slice(&bytes).map_err(|_| {
                     AppError::Internal("Admission policy is damaged; access refused".into())
                 })?;
-            map.get("auth_policy").cloned().unwrap_or_else(|| json!({}))
+            map.get("auth_policy").cloned().unwrap_or_else(unsaved_admission_policy)
         }
     };
     if !policy.is_object() {
@@ -226,7 +234,7 @@ async fn handle_register(
             && req.invite_token.is_none()
         {
             return Err(AppError::Forbidden(
-                "An invite is required to register on this server".into(),
+                "This server is invite only. Ask the server owner for an invitation link".into(),
             ));
         }
         None
@@ -1033,6 +1041,8 @@ mod tests {
         let legacy_hash = bcrypt::hash(&legacy_password, 4).unwrap();
         let uid = state.wdb.create_user("long-password-owner", None, &legacy_hash).await.unwrap() as i64;
         state.claim_ownership(uid, "long-password-owner").await.unwrap();
+        // Save Open so the refusal below is the password check, not invite-only admission.
+        std::fs::write(std::path::Path::new(&state.config.data_dir).join("admin_policies.json"), r#"{"auth_policy":{"mode":"open","allowRegister":true,"allowGuest":true,"emailVerifyRequired":false}}"#).unwrap();
         let response = handle_login(State(state.clone()), Json(LoginRequest {
             username: "long-password-owner".into(), password: legacy_password.clone(),
         })).await.expect("existing overlong bcrypt credentials remain usable");

@@ -3,6 +3,11 @@
   "reviewed_at": "2026-11-13",
   "allowed": [
     {
+      "path": "frontend/scripts/browser-invites-smoke.mjs",
+      "values": ["10.77.0.10"],
+      "reason": "Fictional private LAN address that Chromium reaches only through the smoke's in-process forward proxy (no real host). It must be in a private range: the join page accepts plain HTTP only on private LAN addresses, and the smoke checks the 'only works for people on your network' note; a documentation range would be refused."
+    },
+    {
       "path": "docs/architecture/offline-first-architecture.md",
       "values": ["192.168.1.5", "192.168.1.8"],
       "reason": "ASCII diagram of two devices on one home LAN; the point is that both are on a private LAN."
