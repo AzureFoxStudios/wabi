@@ -30,7 +30,7 @@ try {
 		'src/lib/components/ReaderIcon.svelte', 'src/lib/components/readerTabHelpers.ts',
 		'src/lib/components/readerDocumentTools.ts', 'src/lib/components/readerCode.css',
 		'src/lib/readerWorkspace.ts', 'src/lib/readerLibrary.ts', 'src/lib/readerCode.ts',
-		'src/lib/prism.ts', 'src/styles/components/reader-tab.css'
+		'src/lib/prism.ts', 'src/lib/privacy/remoteMedia.ts', 'src/styles/components/reader-tab.css'
 	]) {
 		await mkdir(path.dirname(path.join(fixture, relative)), { recursive: true });
 		await copyFile(path.join(frontend, relative), path.join(fixture, relative));
@@ -39,7 +39,7 @@ try {
 		target: 'ES2022', module: 'ESNext', moduleResolution: 'bundler', skipLibCheck: true
 	} }));
 	await writeFile(path.join(fixture, 'environment.js'), 'export const browser = true; export const dev = true; export const building = false;');
-	await writeFile(path.join(fixture, 'serverUrl.js'), `import { writable } from 'svelte/store'; export const activeServerUrl = writable('');`);
+	await writeFile(path.join(fixture, 'serverUrl.js'), `import { writable } from 'svelte/store'; export const activeServerUrl = writable(''); export const getServerUrl = () => location.origin;`);
 	await writeFile(path.join(fixture, 'authSession.js'), 'export const getAuthToken = () => null; export const getGuestSessionId = () => null; export const getStoredDbUserId = () => null;');
 	await writeFile(path.join(fixture, 'tabQueue.js'), 'export const mobileTabQueue = { openAddonTab() {} };');
 	await writeFile(path.join(fixture, 'channelStore.js'), `import { writable } from 'svelte/store'; export const currentChannel = writable('general'); export const channels = writable([]);`);

@@ -165,6 +165,11 @@ describe('the locality rule for media', () => {
 		expect(isWabiServerMediaUrl('/%61pi/image-proxy?url=https://t.example.net/x', origins)).toBe(false);
 		expect(isWabiServerMediaUrl('/uploads/../api/image-proxy?url=x', origins)).toBe(false);
 		expect(isWabiServerMediaUrl('/uploads/api-notes.png', origins)).toBe(true);
+		// A front proxy that strips `;params` would route these to the proxy endpoint too.
+		expect(isWabiServerMediaUrl('/api;x/image-proxy?url=https://t.example.net/x', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/;/api/image-proxy?url=https://t.example.net/x', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/;x/;y/api;z/image-proxy?url=x', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/uploads;v=1/a.png', origins)).toBe(true);
 	});
 
 	test('a proxied URL is named by the outside host it fetches', () => {
