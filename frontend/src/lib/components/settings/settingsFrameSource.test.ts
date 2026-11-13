@@ -121,7 +121,7 @@ describe('Search settings', () => {
 		addons: ['./AddonSettingsTab.svelte'],
 		emojis: ['./EmojiSettingsTab.svelte'],
 		storage: ['../StorageSettings.svelte'],
-		admin: ['./AdminSettingsTab.svelte'],
+		admin: ['./AdminSettingsTab.svelte', './AdminInvitations.svelte'],
 		about: ['./AboutSettingsTab.svelte']
 	};
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { guestSwitchAvailable, guestsAllowed, joinModeOf, needsEmailCheck, policyForJoinMode } from './adminJoinPolicy';
+import { SETUP_DEFAULT_JOIN_MODE, guestSwitchAvailable, guestsAllowed, joinModeOf, needsEmailCheck, policyForJoinMode, setupPolicy } from './adminJoinPolicy';
 
 const wizardOpen = { mode: 'open', allowRegister: true, allowGuest: true, emailVerifyRequired: false };
 
@@ -90,5 +90,32 @@ describe('Settings › Admin › Who can join reads auth_policy the way the serv
 		expect(source).toContain("joinMode === 'unsupported'");
 		expect(source).toContain('login.wizard.join_title');
 		expect(source).not.toMatch(/\balert\(|window\.confirm/);
+	});
+
+	test('the setup screen offers Open, Invite only and Closed, and saves what the server enforces', () => {
+		// The preselected option is one constant; this PR does not change it (owner's decision).
+		expect(SETUP_DEFAULT_JOIN_MODE).toBe('open');
+		expect(setupPolicy('open', true)).toEqual({ mode: 'open', allowRegister: true, allowGuest: true, emailVerifyRequired: false });
+		expect(setupPolicy('open', false).allowGuest).toBe(false);
+		// Closed is stored the way the wizard always stored it, so older readers agree.
+		expect(setupPolicy('closed', true)).toEqual({ mode: 'open', allowRegister: false, allowGuest: true, emailVerifyRequired: false });
+		// Invite only refuses guests on the server, whatever the (hidden) checkbox said.
+		expect(setupPolicy('invite', true)).toEqual({ mode: 'invite', allowRegister: true, allowGuest: false, emailVerifyRequired: false });
+		for (const mode of ['open', 'invite', 'closed'] as const) expect(joinModeOf(setupPolicy(mode, true))).toBe(mode);
+
+		const login = readFileSync(new URL('../Login.svelte', import.meta.url), 'utf8');
+		const order = ['value="open"', 'value="invite"', 'value="closed"'].map((needle) => login.indexOf(needle));
+		expect(order.every((index) => index > 0)).toBe(true);
+		expect(order).toEqual([...order].sort((a, b) => a - b));
+		expect(login).toContain('let joinPolicy: JoinMode = SETUP_DEFAULT_JOIN_MODE;');
+		expect(login).toContain("setupPolicy(joinPolicy, allowGuests)");
+	});
+
+	test('the invitation section sits beside Who can join', () => {
+		const source = readFileSync(new URL('./AdminSettingsTab.svelte', import.meta.url), 'utf8');
+		expect(source.indexOf('<AdminInvitations')).toBeGreaterThan(source.indexOf('admin-join-title'));
+		expect(source.indexOf('<AdminInvitations')).toBeLessThan(source.indexOf('admin-office-title'));
+		// Only the owner may invite (api/invites.rs); the UI does not offer it to anyone else.
+		expect(source).toContain("const isOwner = $derived($currentUser?.highestRole === 'owner');");
 	});
 });

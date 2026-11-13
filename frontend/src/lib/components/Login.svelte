@@ -20,6 +20,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	import { communityDisplayFont } from '$lib/theme/displayFonts';
 	import { buildLaunchPageStyles, hasOperatorLaunchStyling, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import type { StarterChannel } from '$lib/api/auth';
+	import { SETUP_DEFAULT_JOIN_MODE, setupPolicy, type JoinMode } from './settings/adminJoinPolicy';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	// Styles: styles/login-skin.css (loaded by the root layout).
 
@@ -50,7 +51,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let wizardMode = false;
 	let wizardStep: 1 | 2 = 1;
 	let pendingOwnerLogin: { username: string; token: string } | null = null;
-	let joinPolicy: 'open' | 'closed' = 'open';
+	let joinPolicy: JoinMode = SETUP_DEFAULT_JOIN_MODE;
 	let allowGuests = true;
 	let starterTemplate: 'basic' | 'project' | 'community' | 'blank' = 'basic';
 	let starterChannels: StarterChannel[] = [{ name: 'general', kind: 'text' }, { name: 'general', kind: 'voice' }];
@@ -203,12 +204,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		try {
 			// Owner token is admin on a fresh server; persist the join choice so
 			// it governs registration/guest access immediately.
-			await saveAdminPolicy(pendingOwnerLogin.token, 'auth_policy', {
-				mode: 'open',
-				allowRegister: joinPolicy === 'open',
-				allowGuest: allowGuests,
-				emailVerifyRequired: false
-			});
+			await saveAdminPolicy(pendingOwnerLogin.token, 'auth_policy', setupPolicy(joinPolicy, allowGuests));
 			dispatch('login', { username: pendingOwnerLogin.username, token: pendingOwnerLogin.token, authMethod: 'registered' });
 			pendingOwnerLogin = null;
 		} catch (err) {
@@ -409,6 +405,11 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 									<span class="join-option-title">{$_('login.wizard.join_open_label')}</span>
 									<span class="join-option-desc">{$_('login.wizard.join_open_desc')}</span>
 								</label>
+								<label class="join-option" class:selected={joinPolicy === 'invite'}>
+									<input type="radio" class="w-radio" name="join-policy" value="invite" bind:group={joinPolicy} disabled={loading} />
+									<span class="join-option-title">{$_('login.wizard.join_invite_label')}</span>
+									<span class="join-option-desc">{$_('login.wizard.join_invite_desc')}</span>
+								</label>
 								<label class="join-option" class:selected={joinPolicy === 'closed'}>
 									<input type="radio" class="w-radio" name="join-policy" value="closed" bind:group={joinPolicy} disabled={loading} />
 									<span class="join-option-title">{$_('login.wizard.join_closed_label')}</span>
@@ -416,13 +417,16 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 								</label>
 							</div>
 
-							<label class="join-guest-row">
-								<input type="checkbox" class="w-check" bind:checked={allowGuests} disabled={loading} />
-								<span>
-									<span class="join-option-title">{$_('login.wizard.join_guest_label')}</span>
-									<span class="join-option-desc">{$_('login.wizard.join_guest_desc')}</span>
-								</span>
-							</label>
+							<!-- Invite only refuses guests on the server, so the switch is not offered there. -->
+							{#if joinPolicy !== 'invite'}
+								<label class="join-guest-row">
+									<input type="checkbox" class="w-check" bind:checked={allowGuests} disabled={loading} />
+									<span>
+										<span class="join-option-title">{$_('login.wizard.join_guest_label')}</span>
+										<span class="join-option-desc">{$_('login.wizard.join_guest_desc')}</span>
+									</span>
+								</label>
+							{/if}
 
 							<button type="button" class="w-btn w-btn--primary w-btn--lg login-submit" aria-busy={loading} disabled={loading} on:click={completeWizardJoinPolicy}>
 								{loading ? $_('login.wizard.finishing') : $_('login.wizard.finish')}
@@ -475,7 +479,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
 							{/if}
 							<p class="auth-alt-prompt">
-								{#if authPolicy.allowRegister}
+								{#if authPolicy.allowRegister && authPolicy.mode === 'invite'}
+									<span data-invite-only>{$_('login.auth.invite_only_prompt')}</span>
+								{:else if authPolicy.allowRegister}
 									{$_('login.auth.create_account_prompt')} <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>{$_('login.auth.create_account_link')}</button>
 								{:else}
 									Registration is closed on this server.

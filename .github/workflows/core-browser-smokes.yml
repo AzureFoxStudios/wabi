@@ -1,7 +1,8 @@
 name: Core Browser Smokes
 
 # Headful smokes for the core tier (docs/VISION.md): encrypted DMs and groups, privacy
-# labels, DM calls, shared conversation notes, channel access and local storage boundaries.
+# labels, DM calls, shared conversation notes, inviting a friend from the browser, channel access
+# and local storage boundaries.
 # They used to have no workflow at all, so a UI change broke most of them unseen.
 #
 # Only smokes that pass on main are listed. dm-friends-end-to-end, login-entry and
@@ -124,3 +125,20 @@ jobs:
       - name: Encrypted shared conversation notes
         working-directory: frontend
         run: xvfb-run -a node scripts/shared-notes-end-to-end.mjs
+
+      # Owner chooses Invite only at setup, creates an invitation in Settings › Admin, a friend
+      # joins with it, and refusals (no invitation, used, cancelled, expired, closed) are explained.
+      - name: Browser invitations (setup Invite only, invite a friend)
+        working-directory: frontend
+        env:
+          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
+          WABI_SMOKE_EVIDENCE_DIR: ${{ github.workspace }}/frontend/test-results/browser-invites
+        run: xvfb-run -a node scripts/browser-invites-smoke.mjs
+
+      - name: Save invitation screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-invites-screenshots
+          path: frontend/test-results/browser-invites
+          if-no-files-found: ignore

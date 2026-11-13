@@ -64,3 +64,15 @@ export function policyForJoinMode(policy: AuthPolicy, mode: JoinMode): AuthPolic
 export function guestSwitchAvailable(policy: AuthPolicy | null | undefined): boolean {
 	return Boolean(policy) && !needsEmailCheck(policy) && policy?.mode !== 'invite' && policy?.mode !== 'closed';
 }
+
+/**
+ * The option the first-run setup screen preselects. Which default to ship is the owner's
+ * decision (docs/testing/INSTALL_FROM_NOTHING.md, product friction item 2); changing it is this
+ * one line. It does not change the server's own default when no policy is saved (Open).
+ */
+export const SETUP_DEFAULT_JOIN_MODE: JoinMode = 'open';
+
+/** The auth_policy the setup screen saves for the owner's choice. */
+export function setupPolicy(mode: JoinMode, allowGuests: boolean): AuthPolicy {
+	return policyForJoinMode({ mode: 'open', allowRegister: true, allowGuest: allowGuests, emailVerifyRequired: false }, mode);
+}
