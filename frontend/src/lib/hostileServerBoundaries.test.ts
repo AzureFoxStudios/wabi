@@ -128,3 +128,35 @@ describe('C1: the client never imports code from a URL a server chose', () => {
 		expect(source.replace(/^\s*(\/\/|\*).*$/gm, '')).not.toMatch(/import\([^)]*frontendEntry/);
 	});
 });
+
+describe('F1: placeholders are unguessable and never substituted by string', () => {
+	test('each render gets a fresh hex nonce, so typed text cannot match a real marker', async () => {
+		const { placeholderNonce } = await import('./htmlPlaceholders');
+		const seen = new Set(Array.from({ length: 50 }, () => placeholderNonce()));
+		expect(seen.size).toBe(50);
+		for (const nonce of seen) expect(nonce).toMatch(/^[0-9a-f]{16}$/);
+	});
+	test('without a DOM nothing is substituted into an attribute: the result is empty, not rebuilt', async () => {
+		const { substitutePlaceholders } = await import('./htmlPlaceholders');
+		const html = '<a href="jaMARKv1Xascript:alert(1)">x</a> MARKv1X';
+		const out = substitutePlaceholders(html, /MARKv\dX/g, new Map([['MARKv1X', { html: () => '<b>v</b>', text: 'v' }]]));
+		expect(out).toBe('');
+		expect(out).not.toContain('javascript:');
+		// No slots: the input is returned as is (nothing to substitute).
+		expect(substitutePlaceholders(html, /MARKv\dX/g, new Map())).toBe(html);
+	});
+	test('chat math and wiki links use the shared helper and sanitize last (wiring)', async () => {
+		const { readFileSync } = await import('node:fs');
+		const markdown = readFileSync(new URL('./markdown.ts', import.meta.url), 'utf8');
+		expect(markdown).toMatch(/const token = `WABIMATH\$\{nonce\}N\$\{slots\.length\}X`;/);
+		expect(markdown).toMatch(/extractMathPlaceholders\(text, placeholderNonce\(\)\)/);
+		expect(markdown).toMatch(/return substitutePlaceholders\(html, MATH_TOKEN,/);
+		expect(markdown).toMatch(/const final = mathSlots\.length \|\| !remoteImages \? sanitizeMessageHtml\(withMath/);
+		expect(markdown).not.toMatch(/\.split\(slot\.token\)/);
+		const wiki = readFileSync(new URL('./wiki/renderWikiBody.ts', import.meta.url), 'utf8');
+		expect(wiki).toMatch(/return sanitizeMessageHtml\(substitutePlaceholders\(rendered,/);
+		const channel = readFileSync(new URL('./components/WikiChannel.svelte', import.meta.url), 'utf8');
+		expect(channel).not.toMatch(/wabiwikilinkx/);
+		expect(channel).toMatch(/return renderWikiBodyHtml\(markdown, wikiLinkTarget\);/);
+	});
+});

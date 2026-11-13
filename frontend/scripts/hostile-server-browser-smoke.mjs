@@ -38,12 +38,15 @@ import { parseMessage } from '${posix(lib)}/markdown';
 import { renderReaderHtml } from '${posix(lib)}/components/readerTabHelpers';
 import { renderNote } from '${posix(lib)}/notes/render';
 import { renderLoreDocument } from '${posix(lib)}/lore/documentMarkdown';
+import { renderWikiBody } from '${posix(lib)}/wiki/renderWikiBody';
 window.wabiRender = {
 	chat: (text) => parseMessage(text, []),
 	chatKept: (text) => parseMessage(text, [], { remoteImages: false }),
 	chatTables: (text) => parseMessage(text, [], { allowTables: true }),
 	reader: (text) => renderReaderHtml(text, 'markdown'),
 	readerHtml: (text) => renderReaderHtml(text, 'html'),
+	readerKept: (text) => renderReaderHtml(text, 'html', { remoteMedia: false }),
+	wiki: (text) => renderWikiBody(text, (title) => (title.trim() === 'Home' ? { pageId: 7 } : null)),
 	note: (text) => renderNote(text),
 	lore: (text) => renderLoreDocument(text)
 };
@@ -147,6 +150,8 @@ const PAYLOADS = {
 	katexHtmlData: `$\\htmlData{onclick=${P('katexHtmlData')}}{x}$`,
 	katexError: `$\\frac{<img src=x onerror=${P('katexError')}>$`,
 	mathInLinkTitle: '[x](https://ok.test "$x$")',
+	katexGlyphs: '$\\sqrt{x^2} + \\overrightarrow{AB} + \\frac{a}{b}$',
+	katexHugeRule: '$\\rule{100000em}{100000em}$ $\\kern{99999em}$',
 	mathInLinkHref: '[x](https://ok.test/$x$)',
 	mathInImageAlt: '![$x$](/uploads/a.png)',
 	mathErrorInTitle: `[x](https://ok.test "$\\frac{onmouseover=${P('mathErrorInTitle')}$")`,
@@ -159,7 +164,38 @@ const PAYLOADS = {
 	svgUse: '<svg><use href="data:image/svg+xml,<svg id=x xmlns=http://www.w3.org/2000/svg><image href=1 onerror=pwn(1) /></svg>#x"/></svg>',
 	dataSvgImg: '<img src="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 onload=%22pwn(1)%22/>">'
 };
-const RENDERERS = ['chat', 'chatKept', 'chatTables', 'reader', 'readerHtml', 'note', 'lore'];
+// F1 (review of this PR): a math or wiki placeholder inside a URL attribute must never be cut out
+// after sanitizing, or `ja<marker>vascript:` becomes `javascript:`. Every marker spelling, in every
+// URL-bearing attribute; the literal spellings are what a member can type.
+const MARKERS = {
+	inlineMath: '$x$',
+	displayMath: '$$x$$',
+	parenMath: '\\(x\\)',
+	bracketMath: '\\[x\\]',
+	envMath: '\\begin{aligned}x\\end{aligned}',
+	literalMathOld: 'WABIMATH9X',
+	literalMathOld0: 'WABIMATH0X',
+	literalWikiOld: 'wabiwikilinkx9x',
+	literalWikiOld0: 'wabiwikilinkx0x',
+	wikiLink: '[[Home]]'
+};
+const ATTR_FORMS = {
+	href: (m, n) => `<a href="ja${m}vascript:${P(n)}">click me</a>`,
+	hrefSplitScheme: (m, n) => `<a href="java${m}script:${P(n)}">click me</a>`,
+	src: (m, n) => `<img src="ja${m}vascript:${P(n)}">`,
+	xlinkHref: (m, n) => `<svg><a xlink:href="ja${m}vascript:${P(n)}"><text>click me</text></a></svg>`,
+	action: (m, n) => `<form action="ja${m}vascript:${P(n)}"><button>click me</button></form>`,
+	formaction: (m, n) => `<button formaction="ja${m}vascript:${P(n)}">click me</button>`,
+	style: (m, n) => `<span style="background:url(ja${m}vascript:${P(n)})">click me</span>`
+};
+for (const [markerName, marker] of Object.entries(MARKERS)) {
+	for (const [formName, form] of Object.entries(ATTR_FORMS)) {
+		const name = `marker_${markerName}_${formName}`;
+		// A real slot elsewhere in the message, so literal markers would match one if they could.
+		PAYLOADS[name] = `${form(marker, name)} and $y$ and [[Home]]`;
+	}
+}
+const RENDERERS = ['chat', 'chatKept', 'chatTables', 'wiki', 'reader', 'readerHtml', 'readerKept', 'note', 'lore'];
 
 const browser = await chromium.launch(process.env.WABI_SMOKE_CHROMIUM_PATH ? { executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH } : {});
 const pageErrors = [];
@@ -212,8 +248,9 @@ const result = await page.evaluate(async ({ payloads, renderers }) => {
 					if (attr.startsWith('on')) findings.push(`${key}: event attribute ${attr} on <${tag.toLowerCase()}>`);
 					if (URL_ATTRS.includes(attr) && scriptUrl(attribute.value, tag, attr)) findings.push(`${key}: script URL in ${attr}="${attribute.value}"`);
 					if (attr === 'style' && !inKatex) findings.push(`${key}: style attribute outside KaTeX output`);
-					// Only the chat renderer substitutes placeholders after sanitizing; elsewhere they are plain text.
-					if (/class=|<span/i.test(attribute.value) || (renderer.startsWith('chat') && /WABIMATH\d+X/.test(attribute.value))) findings.push(`${key}: markup or placeholder inside ${attr}="${attribute.value.slice(0, 60)}"`);
+					// A real per-render marker must never be left in an attribute (a literal old-style
+					// WABIMATH9X a member typed is plain text and matches nothing).
+					if (/class=|<span/i.test(attribute.value) || /WABIMATH[0-9a-f]+N\d+X|wabiwikilink[0-9a-f]+n\d+x/.test(attribute.value)) findings.push(`${key}: markup or placeholder inside ${attr}="${attribute.value.slice(0, 60)}"`);
 					if (!/^[a-z][a-z0-9:_-]*$/.test(attr)) findings.push(`${key}: malformed attribute name ${JSON.stringify(attr)} (markup broke out of a quoted value)`);
 				}
 			}
@@ -221,11 +258,23 @@ const result = await page.evaluate(async ({ payloads, renderers }) => {
 	}
 	// Give any onload/onerror/timer a chance to fire.
 	await new Promise((resolve) => setTimeout(resolve, 500));
-	// Clicking links must not run script either.
-	for (const link of out.querySelectorAll('a[href]')) {
-		link.addEventListener('click', (event) => event.preventDefault(), { once: true });
+	// Click every link and button. Ordinary web links are stopped before they navigate; anything
+	// else is allowed to proceed, so a script URL that survived would run and call pwn().
+	let clicked = 0;
+	for (const element of out.querySelectorAll('a, button, [href], [formaction]')) {
+		const raw = element.getAttribute('href') ?? element.getAttribute('xlink:href') ?? element.getAttribute('formaction') ?? '';
+		let web = false;
+		try { web = ['http:', 'https:', 'mailto:', 'tel:'].includes(new URL(raw, location.href).protocol) && !/^\s*[a-z][a-z0-9+.-]*:/i.test(raw.replace(/^(https?|mailto|tel):/i, '')); } catch {}
+		if (!raw || web) element.addEventListener('click', (event) => event.preventDefault(), { once: true, capture: true });
+		const form = element.closest('form');
+		if (form) form.addEventListener('submit', (event) => { if (!/^javascript:/i.test(form.getAttribute('action') ?? '')) event.preventDefault(); }, { once: true });
+		element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+		clicked += 1;
+		// A javascript: navigation runs as a task; the next click would cancel it, so let it run.
+		if (raw && !web) await new Promise((resolve) => setTimeout(resolve, 25));
 	}
-	return { findings, pwned: [...window.__pwned], rendered };
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	return { findings, pwned: [...window.__pwned], rendered, clicked };
 }, { payloads: PAYLOADS, renderers: RENDERERS });
 
 await browser.close();
@@ -240,7 +289,16 @@ assert.match(result.rendered['chat:mathInLinkTitle'] ?? '', /<a /, 'control: the
 assert.match(result.rendered['chat:katexError'] ?? '', /katex/, 'control: math reached KaTeX');
 assert.match(result.rendered['reader:codeFence'] ?? '', /<pre/i, 'control: the Reader renders markdown');
 assert.match(result.rendered['chat:mathInLinkTitle'] ?? '', /title="x"/, 'math inside a link title is kept as its TeX source, as plain text');
-assert.match(result.rendered['chat:mathInLinkHref'] ?? '', /href="https:\/\/ok\.test\/"/, 'math inside an href is removed, never restored into the URL');
+assert.doesNotMatch(result.rendered['chat:mathInLinkHref'] ?? '', /href=/, 'an href holding math is dropped whole, never edited');
+assert.match(result.rendered['chat:mathInLinkHref'] ?? '', />x<\/a>/, 'the link text survives');
+assert.match(result.rendered['wiki:marker_wikiLink_href'] ?? '', /href="#wikipage-7"/, 'control: a real wiki link is inserted');
+assert.doesNotMatch(result.rendered['wiki:marker_wikiLink_href'] ?? '', /javascript/i, 'a wiki marker inside an href never leaves javascript: behind');
+assert.match(result.rendered['chat:katexGlyphs'] ?? '', /<svg[^>]*>[\s\S]*<path[^>]* d="/, 'KaTeX SVG glyphs survive the final sanitizer pass');
+assert.match(result.rendered['chat:katexGlyphs'] ?? '', /class="katex"[\s\S]*style="/, 'KaTeX inline styles survive the final sanitizer pass');
+for (const size of (result.rendered['chat:katexHugeRule'] ?? '').matchAll(/(-?[\d.]+)em/g)) {
+	assert.ok(Math.abs(Number(size[1])) <= 21, `KaTeX sizes are capped (saw ${size[0]})`);
+}
+assert.ok(result.clicked > 200, `the smoke clicked every link and button (${result.clicked})`);
 
 assert.deepEqual(result.pwned, [], 'no hostile payload ran script');
 assert.deepEqual(dialogs, [], 'no hostile payload opened a dialog');

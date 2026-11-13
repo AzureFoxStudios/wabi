@@ -40,6 +40,7 @@
 	import type { MenuEntry } from './context-menu/ContextMenu.svelte';
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { parseMessage } from '$lib/markdown';
+	import { renderWikiBody as renderWikiBodyHtml } from '$lib/wiki/renderWikiBody';
 	import UserPopout from './UserPopout.svelte';
 	import { users as presenceUsers, currentUser as presenceCurrentUser } from '$lib/presenceIdentity';
 	import type { User } from '$lib/socket-types';
@@ -599,24 +600,9 @@
 		const key = raw.trim().toLocaleLowerCase();
 		return allPages.find((page) => page.title.trim().toLocaleLowerCase() === key || page.slug === key || slugify(page.title) === slugify(raw));
 	}
-	// [[Title]] and [[Title|label]] become anchors AFTER markdown parsing: parseMessage treats a
-	// "#wikipage-…" destination as a channel reference and breaks the surrounding link.
-	function escapeWikiText(value: string): string {
-		return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-	}
+	// [[Title]] links: staged, inserted in text positions only and sanitized last ($lib/wiki/renderWikiBody).
 	function renderWikiBody(markdown: string): string {
-		const links: string[] = [];
-		// Code stays literal: only prose outside fences and inline code gets wiki links.
-		const stage = (prose: string) => prose.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, title: string, label?: string) => {
-			const target = wikiLinkTarget(title);
-			const text = escapeWikiText((label || title).trim());
-			links.push(target
-				? `<a href="#wikipage-${escapeWikiText(String(target.pageId))}" class="wiki-link">${text}</a>`
-				: `<a href="#wikipage-missing" class="wiki-link wiki-link-missing" title="No page with this title yet">${text}</a>`);
-			return `wabiwikilinkx${links.length - 1}x`;
-		});
-		const staged = markdown.split(/(```[\s\S]*?```|`[^`\n]*`)/g).map((part, index) => (index % 2 === 1 ? part : stage(part))).join('');
-		return parseMessage(staged, [], { allowTables: true }).replace(/wabiwikilinkx(\d+)x/g, (_m, i: string) => links[Number(i)] ?? '');
+		return renderWikiBodyHtml(markdown, wikiLinkTarget);
 	}
 	let mentionedUser = null as User | null;
 	let mentionAnchor = null as HTMLElement | null;

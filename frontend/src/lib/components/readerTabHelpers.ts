@@ -23,6 +23,8 @@ const SANITIZE_CONFIG = {
 	FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'link', 'meta', 'base']
 };
 
+const KEPT_FINAL_CONFIG = { ...SANITIZE_CONFIG, ADD_ATTR: [...SANITIZE_CONFIG.ADD_ATTR, 'target', 'rel'] };
+
 export function escapeReaderHtml(value: string): string {
 	return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -57,7 +59,11 @@ export function renderReaderHtml(content: string, format: ReaderDocumentFormat, 
 	if (typeof DOMPurify.sanitize !== 'function') return renderReaderPlainText(content);
 	const html = format === 'markdown' ? readerMarkdown.parse(content, { async: false }) : content;
 	const clean = DOMPurify.sanitize(html, SANITIZE_CONFIG);
-	return options.remoteMedia === false ? neutralizeRemoteMediaHtml(clean, { noAudioVideo: true }) : clean;
+	if (options.remoteMedia !== false) return clean;
+	// neutralizeRemoteMediaHtml rewrites media into links after the first pass (an <img src> can be
+	// a data: URL there), so the sanitizer runs again last; it keeps the links' target and rel
+	// (docs/audits/2026-11-hostile-server-audit.md, F1 follow-up).
+	return DOMPurify.sanitize(neutralizeRemoteMediaHtml(clean, { noAudioVideo: true }), KEPT_FINAL_CONFIG);
 }
 
 export function countWords(value: string): number {

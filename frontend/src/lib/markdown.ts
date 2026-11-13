@@ -4,6 +4,7 @@ import { marked } from 'marked';
 import Prism from '$lib/prism';
 import DOMPurify from 'dompurify';
 import { neutralizeRemoteMediaHtml } from '$lib/privacy/remoteMedia';
+import { placeholderNonce, substitutePlaceholders } from '$lib/htmlPlaceholders';
 import katex from 'katex';
 // Phase 4 boot optimization: these stylesheets ship with THIS module (off the
 // login boot path) instead of +layout.svelte's eager graph.
@@ -171,12 +172,13 @@ function restoreCodeRegions(
  * Supports $$...$$, $...$, \\[...\\], \\(...\\), and \\begin{env}...\\end{env}.
  * Caller must protect code regions first.
  */
-function extractMathPlaceholders(text: string): { text: string; slots: MathSlot[] } {
+function extractMathPlaceholders(text: string, nonce: string): { text: string; slots: MathSlot[] } {
 	const slots: MathSlot[] = [];
 	let out = text;
 
 	const take = (tex: string, displayMode: boolean): string => {
-		const token = `WABIMATH${slots.length}X`;
+		// The nonce is fresh per render: text a member types can never match a real slot.
+		const token = `WABIMATH${nonce}N${slots.length}X`;
 		slots.push({ token, tex, displayMode });
 		return token;
 	};
@@ -214,65 +216,30 @@ function renderMathSlot(slot: MathSlot): string {
 			throwOnError: false,
 			displayMode: slot.displayMode,
 			output: 'html',
-			strict: 'ignore'
+			strict: 'ignore',
+			// \rule, \kern and sizing cannot draw a box larger than this over the app (in em).
+			maxSize: 20,
+			maxExpand: 200
 		});
 	} catch {
 		return `<code class="katex-error">${escapeHtml(slot.tex)}</code>`;
 	}
 }
 
-const MATH_TOKEN = /WABIMATH\d+X/g;
-/** Attributes where the TeX source may stand in for a placeholder; it is plain text there. */
-const MATH_TEXT_ATTRS = new Set(['title', 'alt']);
+const MATH_TOKEN = /WABIMATH[0-9a-f]+N\d+X/g;
 
 /**
- * KaTeX HTML is injected AFTER DOMPurify so its inline styles survive, so it must only ever land
- * where markup belongs. A placeholder can end up inside an attribute (a link title, an href, an
- * image alt); string-replacing it there let KaTeX's quotes break out of the attribute
- * (docs/audits/2026-11-hostile-server-audit.md, finding M1). Placeholders are therefore replaced in
- * text nodes only. In title/alt the TeX source is set as plain text; in every other attribute the
- * placeholder is removed, so restoring TeX can never turn a vetted URL into an unvetted one.
+ * KaTeX HTML goes in after the first sanitizer pass (it needs inline styles the first pass
+ * forbids), through `substitutePlaceholders`: text nodes only, a URL attribute holding a
+ * placeholder is dropped whole, and `sanitizeMessageHtml` runs after it as the last step
+ * (docs/audits/2026-11-hostile-server-audit.md, M1 and F1).
  */
 function renderMathSlots(html: string, slots: MathSlot[]): string {
 	if (!slots.length) return html;
-	const byToken = new Map(slots.map((slot) => [slot.token, slot]));
-	if (typeof document === 'undefined') {
-		return html.replace(MATH_TOKEN, (token) => escapeHtml(byToken.get(token)?.tex ?? ''));
-	}
-	const template = document.createElement('template');
-	template.innerHTML = html;
-	for (const element of template.content.querySelectorAll('*')) {
-		for (const attribute of [...element.attributes]) {
-			if (!attribute.value.includes('WABIMATH')) continue;
-			const keepText = MATH_TEXT_ATTRS.has(attribute.name.toLowerCase());
-			element.setAttribute(
-				attribute.name,
-				attribute.value.replace(MATH_TOKEN, (token) => (keepText ? byToken.get(token)?.tex ?? '' : ''))
-			);
-		}
-	}
-	const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
-	const textNodes: Text[] = [];
-	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-		if ((node.nodeValue ?? '').includes('WABIMATH')) textNodes.push(node as Text);
-	}
-	for (const node of textNodes) {
-		const value = node.nodeValue ?? '';
-		const fragment = document.createDocumentFragment();
-		let cursor = 0;
-		for (const match of value.matchAll(MATH_TOKEN)) {
-			const slot = byToken.get(match[0]);
-			if (!slot) continue;
-			fragment.append(value.slice(cursor, match.index));
-			const rendered = document.createElement('template');
-			rendered.innerHTML = renderMathSlot(slot);
-			fragment.append(rendered.content);
-			cursor = (match.index ?? 0) + match[0].length;
-		}
-		fragment.append(value.slice(cursor));
-		node.replaceWith(fragment);
-	}
-	return template.innerHTML;
+	return substitutePlaceholders(html, MATH_TOKEN, new Map(slots.map((slot) => [
+		slot.token,
+		{ html: () => renderMathSlot(slot), text: slot.tex }
+	])));
 }
 
 function injectMessageEntityPlaceholders(
@@ -372,7 +339,7 @@ export function parseMessage(text: string, entities: MessageEntity[] = [], optio
 	text = codeProtected.text;
 
 	// 2) Extract math → opaque tokens (before marked mangles TeX)
-	const mathExtracted = extractMathPlaceholders(text);
+	const mathExtracted = extractMathPlaceholders(text, placeholderNonce());
 	text = mathExtracted.text;
 	const mathSlots = mathExtracted.slots;
 
@@ -440,64 +407,49 @@ export function parseMessage(text: string, entities: MessageEntity[] = [], optio
 	}
 
 	// Sanitize HTML to prevent XSS (math still opaque tokens — safe plain text)
-	const clean = DOMPurify.sanitize(html, {
-		ALLOWED_TAGS: [
-			...(options.allowTables ? ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption'] : []),
-			'p',
-			'br',
-			'strong',
-			'em',
-			'u',
-			's',
-			'del',
-			'code',
-			'pre',
-			'a',
-			'img',
-			'blockquote',
-			'ul',
-			'ol',
-			'li',
-			'h1',
-			'h2',
-			'h3',
-			'h4',
-			'h5',
-			'h6',
-			'hr',
-			'span'
-		],
-		ALLOWED_ATTR: [
-			'href',
-			'src',
-			'alt',
-			'class',
-			'title',
-			'target',
-			'rel',
-			'data-spoiler',
-			'data-place-id',
-			'data-place-layer-id',
-			'data-place-poi-id',
-			'data-place-name',
-			'data-ref-kind',
-			'data-ref-id',
-			'data-ref-label'
-		],
-		FORBID_TAGS: ['style', 'script'],
-		FORBID_ATTR: ['style', 'onerror', 'onload']
-	});
+	const clean = DOMPurify.sanitize(html, messageSanitizeConfig(Boolean(options.allowTables), false));
 
 	// Content kept on the device: on the parsed, sanitized DOM, anything that would fetch from
 	// another host becomes a link (a regex before sanitizing can be bypassed by the parser).
 	const kept = remoteImages ? clean : neutralizeRemoteMediaHtml(clean, { noAudioVideo: true });
 
-	// 4) Inject trusted KaTeX HTML AFTER sanitize (keeps styles; no FORBID_ATTR widen)
+	// 4) Inject KaTeX HTML into text positions, then sanitize LAST: nothing rewrites the HTML
+	// after this pass (docs/audits/2026-11-hostile-server-audit.md, F1).
 	const withMath = renderMathSlots(kept, mathSlots);
+	const final = mathSlots.length || !remoteImages ? sanitizeMessageHtml(withMath, { allowTables: options.allowTables }) : withMath;
 
-	markdownRenderCache.set(cacheKey, withMath);
+	markdownRenderCache.set(cacheKey, final);
 	pruneMarkdownRenderCache();
-	return withMath;
+	return final;
+}
+
+const MESSAGE_TAGS = ['p', 'br', 'strong', 'em', 'u', 's', 'del', 'code', 'pre', 'a', 'img', 'blockquote', 'ul', 'ol', 'li',
+	'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'span'];
+const TABLE_TAGS = ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption'];
+const MESSAGE_ATTRS = ['href', 'src', 'alt', 'class', 'title', 'target', 'rel', 'data-spoiler', 'data-place-id',
+	'data-place-layer-id', 'data-place-poi-id', 'data-place-name', 'data-ref-kind', 'data-ref-id', 'data-ref-label'];
+/** What KaTeX's `output: 'html'` emits beyond the message tags (its inline styles and SVG glyphs). */
+const KATEX_TAGS = ['svg', 'path', 'line'];
+const KATEX_ATTRS = ['style', 'aria-hidden', 'width', 'height', 'viewBox', 'viewbox', 'preserveAspectRatio', 'preserveaspectratio',
+	'd', 'x1', 'x2', 'y1', 'y2', 'stroke-width', 'xmlns'];
+
+function messageSanitizeConfig(allowTables: boolean, final: boolean) {
+	return {
+		ALLOWED_TAGS: [...(allowTables ? TABLE_TAGS : []), ...MESSAGE_TAGS, ...(final ? KATEX_TAGS : [])],
+		ALLOWED_ATTR: [...MESSAGE_ATTRS, ...(final ? KATEX_ATTRS : [])],
+		FORBID_TAGS: ['style', 'script'],
+		// The first pass removes every style; only KaTeX's own markup carries one into the final pass.
+		FORBID_ATTR: final ? ['onerror', 'onload'] : ['style', 'onerror', 'onload']
+	};
+}
+
+/**
+ * The last step for rendered message HTML (chat, forum, diary, wiki): the message allow-list plus
+ * KaTeX's markup. Anything that inserts markup after parseMessage (wiki links) must call this
+ * after its insertion, so the sanitizer always has the final word.
+ */
+export function sanitizeMessageHtml(html: string, options: { allowTables?: boolean } = {}): string {
+	return DOMPurify.sanitize(html, messageSanitizeConfig(Boolean(options.allowTables), true));
 }
 
 /**
