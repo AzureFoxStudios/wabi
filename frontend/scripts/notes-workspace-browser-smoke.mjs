@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { openWorkspace, waitForAppShell } from './smoke-shell.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-notebook-ui-');
@@ -55,7 +56,7 @@ try {
 		localStorage.setItem('notificationsEnabled', 'false');
 	}, { backend, account });
 	await page.goto(origin, { waitUntil: 'networkidle' });
-	await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+	await waitForAppShell(page);
 	await page.waitForFunction(async () => (await import('/src/lib/layoutStoreStates.ts')).layoutLoaded);
 	await page.evaluate(async () => {
 		const { layoutStore } = await import('/src/lib/layoutStore.ts');
@@ -63,8 +64,7 @@ try {
 		layoutStore.pinPanel('users');
 		layoutStore.rightPanelWidth.set(360);
 	});
-	await page.locator('.workspace-trigger').click();
-	await page.getByRole('dialog', { name: 'Choose workspace' }).getByRole('button', { name: 'Notes', exact: true }).click();
+	await openWorkspace(page, { view: 'notes', label: 'Notes' });
 	await page.locator('.chat-surface .notes-workspace').waitFor();
 	const center = page.locator('.chat-surface .notes-workspace');
 	await center.getByRole('button', { name: 'New note', exact: true }).first().click();

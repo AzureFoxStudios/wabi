@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { waitForAppShell } from './smoke-shell.mjs';
 
 const frontendRoot = fileURLToPath(new URL('../', import.meta.url));
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -90,7 +91,7 @@ async function openAccount(account, app) {
 	const page = await context.newPage();
 	page.setDefaultTimeout(30000);
 	await page.goto(app, { waitUntil: 'domcontentloaded' });
-	await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+	await waitForAppShell(page);
 	await page.waitForFunction(async () => (await import('/src/lib/socketConnection.ts')).getSocket()?.connected === true);
 	await page.waitForFunction(async () => (await import('/src/lib/groupAccess.ts')).groupMembership.ready());
 	return page;

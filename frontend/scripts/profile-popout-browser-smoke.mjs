@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { waitForAppShell } from './smoke-shell.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-profile-popout-');
@@ -58,7 +59,7 @@ try {
 		localStorage.setItem('notificationsEnabled', 'false');
 	}, { backend, account });
 	await page.goto(origin, { waitUntil: 'networkidle' });
-	await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+	await waitForAppShell(page);
 	await page.waitForFunction(async () => (await import('/src/lib/layoutStoreStates.ts')).layoutLoaded);
  await page.evaluate(async subject => {
   const { mount, unmount } = await import('/@id/__x00__profile-smoke');

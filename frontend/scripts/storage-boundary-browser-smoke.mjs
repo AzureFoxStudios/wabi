@@ -41,7 +41,11 @@ try {
     // Before-fix proof: the real Settings export still returns a removed group's
     // unowned archive. This assertion fails on the original implementation.
     const legacyExport = page.locator('.archives-section .section-header button');
-    await page.waitForFunction(() => document.body.textContent.includes('Local chat archives are unavailable') || document.querySelector('.archive-item'));
+    // 361437d4 replaced the "Local chat archives are unavailable" notice with the server-history
+    // explanation, and wave 1c (b119b9a9) restyled the section. The boundary is the same: no
+    // archive rows, no export control, and the explanation that no local copy is loaded.
+    const historyExplanation = page.getByText('This version does not keep a separate offline copy on your device.', { exact: false });
+    await page.waitForFunction(() => document.body.textContent.includes('does not keep a separate offline copy') || document.querySelector('.archive-item'));
     let exported = [];
     if (await legacyExport.count()) {
       await legacyExport.click();
@@ -49,28 +53,35 @@ try {
       exported = await page.evaluate(() => window.__storageBoundary.exports());
     }
     assert.ok(!exported.some(value => value.includes('UNOWNED-PRIVATE-ARCHIVE')), 'removed group content must not be exported from an unowned legacy archive');
-    await page.getByText('Local chat archives are unavailable', { exact: true }).waitFor();
+    await historyExplanation.waitFor();
+    assert.equal(await page.locator('.archive-item').count(), 0, 'no local archive rows are listed');
     assert.equal(await legacyExport.count(), 0);
     assert.equal(await page.getByRole('checkbox').count(), 0);
     assert.deepEqual(await page.evaluate(() => window.__storageBoundary.settingsCanary()), { existing: [5, 15], saved: [30] });
     assert.deepEqual(await page.evaluate(() => window.__storageBoundary.settingsAbort()), { rejected: true, persisted: undefined });
     await page.evaluate(() => window.__storageBoundary.prepareQueue());
-    await page.getByRole('button', { name: 'Refresh queue', exact: true }).click();
-    await page.locator('.queue-counts').filter({ hasText: 'failed: 2' }).waitFor();
+    // Wave 1c (b119b9a9): "Refresh queue" is now "Check again" and the "pending: n / failed: n"
+    // counters became one status sentence that names failures first.
+    const queueStatus = page.locator('#storage-offline-title ~ .w-srows [role="status"]');
+    await page.getByRole('button', { name: 'Check again', exact: true }).click();
+    await queueStatus.filter({ hasText: "2 actions didn't reach the server." }).waitFor();
     await page.getByRole('button', { name: 'Retry failed actions', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: 'marked for retry' }).waitFor();
-    await page.locator('.queue-counts').filter({ hasText: 'pending: 1' }).waitFor();
+    await queueStatus.filter({ hasText: 'marked for retry' }).waitFor();
+    // Only the retryable action left the failed state; the uncertain one stays failed.
+    await queueStatus.filter({ hasText: "1 action didn't reach the server." }).waitFor();
     const queue = await page.evaluate(() => window.__storageBoundary.queueState());
     assert.equal(queue.find(action => action.id === 'retryable').status, 'pending');
     assert.equal(queue.find(action => action.id === 'uncertain').status, 'failed');
     await page.evaluate(() => window.__storageBoundary.failQueueRead(true));
-    await page.getByRole('button', { name: 'Refresh queue', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: 'Fixture queue read failed' }).waitFor();
+    await page.getByRole('button', { name: 'Check again', exact: true }).click();
+    // b119b9a9 shows a fixed sentence and only logs the raw cause ("the raw cause is only logged").
+    await page.getByRole('alert').filter({ hasText: 'Nothing waiting on this device was lost.' }).waitFor();
     await page.evaluate(() => window.__storageBoundary.failQueueRead(false));
-    await page.getByRole('button', { name: 'Refresh queue', exact: true }).click();
+    await page.getByRole('button', { name: 'Check again', exact: true }).click();
     await page.getByRole('alert').waitFor({ state: 'hidden' });
     await page.evaluate(() => window.__storageBoundary.switchAccount());
-    await page.getByText('Local chat archives are unavailable', { exact: true }).waitFor();
+    await historyExplanation.waitFor();
+    assert.equal(await page.locator('.archive-item').count(), 0, 'no local archive rows after an account switch');
     assert.equal(await page.evaluate(() => window.__storageBoundary.messageStoreAccess()), 0);
     assert.deepEqual(await page.evaluate(() => window.__storageBoundary.nativeCommands()), []);
     if (!native) await page.screenshot({ path: '/tmp/wabi-group-storage-desktop.png', fullPage: true });

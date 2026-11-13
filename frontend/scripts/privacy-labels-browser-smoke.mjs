@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { waitForAppShell } from './smoke-shell.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-privacy-ui-');
@@ -58,14 +59,14 @@ try {
 	}, { backend, account });
 	await page.goto(origin, { waitUntil: 'networkidle' });
 
-    await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+    await waitForAppShell(page);
     const secondResponse = await fetch(`${backend}/api/auth/register`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: 'privacy_fixture_peer', password: 'Local-peer-fixture-9825!' })
     });
     assert.equal(secondResponse.status, 200);
     const second = await secondResponse.json();
-    await page.evaluate(async (peer) => {
+    const channelId = await page.evaluate(async (peer) => {
         const socket = await import('/src/lib/socket.ts');
         const result = await socket.createDM(String(peer.id));
         if (!result.ok) throw new Error(result.error);
@@ -74,19 +75,30 @@ try {
         layoutStore.openDM(result.channelId, other);
         return result.channelId;
     }, second.user);
-    await page.locator('.dm-tab-active').getByText('Server-readable by default', { exact: true }).waitFor();
-    await page.locator('.dm-header-title').getByText('privacy_fixture_peer', { exact: true }).waitFor();
+    // New DMs begin encryption-pending (e2639368; AGENTS.md product boundary), so the truthful label
+    // for a DM whose peer has no registered device is "Encryption pending", not the old
+    // "Server-readable by default". The label must agree with the Authority's own room status.
+    const status = await (await fetch(`${backend}/api/e2ee/channels/${channelId}`, { headers: { Authorization: `Bearer ${account.accessToken}` } })).json();
+    assert.equal(status.pendingDefault, true, 'Authority reports the new DM as encryption-pending');
+    assert.equal(status.enabled, false, 'Authority has not enabled encryption before the peer has a device');
+    const gate = page.locator('.dm-tab-active .dm-gate[data-gate="pending"]');
+    await gate.getByText('Encryption pending', { exact: true }).waitFor();
+    assert.equal(await page.locator('.dm-tab-active').getByText(/Experimental encryption|Server-readable by default/).count(), 0, 'no label claims encryption or a server-readable default the room does not have');
+    await page.locator('.dm-tab-active .dm-head-title').getByText('privacy_fixture_peer', { exact: true }).waitFor();
     await page.screenshot({ path: `${scratch}/dm-privacy-desktop.png` });
     await page.getByRole('button', { name: 'Back to all DMs', exact: true }).click();
-    await page.locator('.dm-conv-item').filter({ hasText: 'privacy_fixture_peer' }).click({ button: 'right' });
-    await page.getByText('Open Conversation', { exact: true }).waitFor();
+    await page.locator('.dm-tab .dm-row').filter({ hasText: 'privacy_fixture_peer' }).click({ button: 'right' });
+    await page.getByText('Open conversation', { exact: true }).waitFor();
     assert.equal(await page.getByText(/Set Mode:|Privacy Mode:/).count(), 0, 'no cosmetic privacy mode controls');
-    await page.getByText('Pin Conversation', { exact: true }).click();
-    await page.locator('.dm-conv-item').filter({ hasText: 'privacy_fixture_peer' }).click({ button: 'right' });
-    await page.getByText('Unpin Conversation', { exact: true }).waitFor();
-    await page.getByText('Open Conversation', { exact: true }).click();
-    await page.getByRole('button', { name: 'Conversation actions', exact: true }).click();
-    await page.locator('.context-menu-surface').getByText('Voice Call', { exact: true }).waitFor();
+    await page.getByText('Pin conversation', { exact: true }).click();
+    await page.locator('.dm-tab .dm-row').filter({ hasText: 'privacy_fixture_peer' }).click({ button: 'right' });
+    await page.getByText('Unpin conversation', { exact: true }).waitFor();
+    await page.getByText('Open conversation', { exact: true }).click();
+    // Wave 1a (ee9f7c34) moved Voice call out of the "Conversation actions" menu into an inline
+    // header button; the menu keeps the remaining actions. Both must still be reachable.
+    await page.locator('.dm-tab-active').getByRole('button', { name: 'Call privacy_fixture_peer', exact: true }).waitFor();
+    await page.locator('.dm-tab-active').getByRole('button', { name: 'Conversation actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Delete conversation' }).waitFor();
     await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: `${scratch}/dm-privacy-mobile.png` });

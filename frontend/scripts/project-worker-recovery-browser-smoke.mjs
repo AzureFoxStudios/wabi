@@ -1,12 +1,17 @@
 // Real headful rendering of candidate components; fixture HTTP/account data.
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {createServer} from 'vite';
 import {svelte} from '@sveltejs/vite-plugin-svelte';
 import {chromium} from 'playwright';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const out=fileURLToPath(new URL('../../docs/testing/screenshots/2026-09-30-worker-recovery/',import.meta.url));
+// Screenshots go to a temporary directory so a normal run leaves the tree clean. Set
+// WABI_UPDATE_SCREENSHOT_EVIDENCE=1 to overwrite the tracked evidence under docs/testing/screenshots.
+const evidence=fileURLToPath(new URL('../../docs/testing/screenshots/2026-09-30-worker-recovery/',import.meta.url));
+const out=process.env.WABI_UPDATE_SCREENSHOT_EVIDENCE==='1'?evidence:(await mkdtemp(tmpdir()+'/wabi-worker-recovery-screens-'))+'/';
+console.log(`Screenshots: ${out}`);
 const ids=['aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa','bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb','cccccccc-cccc-4ccc-cccc-cccccccccccc'];
 const server=await createServer({root,configFile:false,resolve:{alias:{$lib:root+'src/lib'}},server:{host:'127.0.0.1',port:0,fs:{allow:[root]}},plugins:[svelte({configFile:false}),{
  name:'recovery-fixtures',enforce:'pre',resolveId(id,importer){
