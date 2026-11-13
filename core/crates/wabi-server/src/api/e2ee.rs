@@ -479,9 +479,19 @@ async fn commit_marker_if_changed(state: &AppState, target: &RoomEncryptionRecor
     if current.as_ref() == Some(&next) {
         return Ok(());
     }
-    commit_marker(state.wdb.engine(), target, 0)
-        .await
-        .map_err(|e| AppError::Internal(format!("persist room encryption marker: {e}")))
+    if !next.valid() {
+        // Only reachable through too many server-readable choices in one
+        // period; the engine would refuse it too (`room_encryption::preflight`).
+        return Err(AppError::Conflict(
+            "This conversation has recorded the most server-readable choices it can. Server-readable messages cannot be chosen here now; set up encryption instead.".into(),
+        ));
+    }
+    commit_marker(state.wdb.engine(), target, 0).await.map_err(|e| match e {
+        wabidb::error::WabiError::Validation { reason, .. } => AppError::Conflict(format!(
+            "The encryption state of this conversation cannot change that way: {reason}"
+        )),
+        e => AppError::Internal(format!("persist room encryption marker: {e}")),
+    })
 }
 
 /// Authority startup, while a readable registry exists: give every room the
@@ -1451,6 +1461,27 @@ mod registry_tests {
         mark_new_room_pending(&state, ch).await.unwrap();
         assert_eq!(marker_of(&state, ch), Some(enabled_record(ch, 4)));
         assert!(!read_data(dir).unwrap().new_room_policies.contains_key(ch));
+    }
+
+    /// Too many server-readable choices: the choice is refused with a 409
+    /// that says why, nothing is committed, and the room keeps working.
+    #[tokio::test]
+    async fn a_server_readable_choice_past_the_consent_bound_is_a_conflict() {
+        let (_directory, state) = make_test_state().await;
+        let ch = test_group(&state, "full").await;
+        let limit = wabidb::projections::room_encryption::MAX_CONSENTS as i64;
+        commit_marker(state.wdb.engine(), &readable_record(&ch, 1..=limit), 0).await.unwrap();
+        let applied = state.wdb.engine().projection_state().applied_commit_seq();
+        match commit_marker_if_changed(&state, &readable_record(&ch, [limit + 1])).await {
+            Err(AppError::Conflict(reason)) => assert!(reason.contains("server-readable"), "{reason}"),
+            other => panic!("expected a conflict, got {other:?}"),
+        }
+        assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), applied);
+        assert_eq!(marker_of(&state, &ch).unwrap().consenting_user_ids.len(), limit as usize);
+        // Already recorded senders are unaffected, and the room can still be encrypted.
+        commit_marker_if_changed(&state, &readable_record(&ch, [7])).await.unwrap();
+        commit_marker_if_changed(&state, &enabled_record(&ch, 1)).await.unwrap();
+        assert_eq!(marker_of(&state, &ch), Some(enabled_record(&ch, 1)));
     }
 
     /// Writing the marker it already holds commits nothing.

@@ -60,8 +60,11 @@ pub struct RoomEncryptionRecord {
     pub consenting_user_ids: Vec<u64>,
 }
 
-/// Upper bound on recorded consents; a conversation has far fewer members.
-const MAX_CONSENTS: usize = 4096;
+/// Upper bound on the consents recorded for one server-readable period. A
+/// group has at most 256 members at a time; members can come and go during a
+/// period, so the bound is four times that. A choice that would pass it is
+/// refused before it is durable (`preflight`), never stored.
+pub const MAX_CONSENTS: usize = 1024;
 
 impl RoomEncryptionRecord {
     pub fn valid(&self) -> bool {
@@ -160,6 +163,11 @@ pub(crate) fn preflight(events: &[crate::sequencer::types::EventToWrite], state:
     if let Some(current) = get(state, &next.channel_id).map_err(|_| bad("stored room encryption marker unreadable"))? {
         if current.would_downgrade(&next) {
             return Err(bad("a room encryption marker never moves out of Enabled or to a lower epoch"));
+        }
+        // What the projection would store must itself be valid, or the room
+        // (and the next startup) could not read its marker again.
+        if !current.merged(&next).valid() {
+            return Err(bad("the merged room encryption marker would be invalid (too many server-readable choices)"));
         }
     }
     Ok(())
@@ -322,6 +330,87 @@ mod tests {
         }
         assert!(preflight(&[write(&record(RoomEncryptionMode::Enabled, 3))], &state).is_ok());
         assert!(preflight(&[write(&record(RoomEncryptionMode::Enabled, 4))], &state).is_ok());
+    }
+
+    /// Through the real engine: the sequencer runs the preflight, so each bad
+    /// marker command is refused before it is durable, and the engine keeps
+    /// serving, also after a restart. Covers the consent overflow (a merge
+    /// past MAX_CONSENTS) and the wiring of `preflight` into the sequencer.
+    #[tokio::test]
+    async fn the_engine_refuses_bad_marker_commands_and_keeps_serving() {
+        use crate::{
+            crypto::bootstrap::BootstrapSource,
+            engine::{WabiDbConfig, WabiDbEngine},
+            format::record::RecordKind,
+            sequencer::types::{CommandCommit, EventToWrite},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let config = || {
+            let mut c = WabiDbConfig::new(dir.path().to_path_buf(), BootstrapSource::Provided([0x5A; 32]));
+            c.allow_init = true;
+            c
+        };
+        let write = |r: &RoomEncryptionRecord| EventToWrite {
+            stream_id: STREAM.into(), stream_kind: 6, event_type: EVENT.into(),
+            record_kind: RecordKind::Event, plaintext: encode_record(r),
+        };
+        async fn run(engine: &WabiDbEngine, events: Vec<EventToWrite>) -> Result<()> {
+            for e in &events {
+                engine.get_or_create_stream_key(&e.stream_id).await?;
+            }
+            engine.run_command(CommandCommit {
+                room_owner_precondition: None, caller_user_id: 1, caller_device_id: "primary".into(),
+                command_name: EVENT.into(), idempotency_key: None, essential: true,
+                response_tx: tokio::sync::oneshot::channel().0, events,
+            }).await.map(|_| ())
+        }
+        let engine = WabiDbEngine::open(config()).await.unwrap();
+        let room = |mode, epoch| RoomEncryptionRecord { channel_id: "dm_1_2".into(), mode, epoch, consenting_user_ids: vec![] };
+        let many = |range: std::ops::RangeInclusive<u64>| RoomEncryptionRecord {
+            channel_id: "group-full".into(), mode: RoomEncryptionMode::ServerReadable, epoch: 0,
+            consenting_user_ids: range.collect(),
+        };
+
+        // Consent up to the bound is stored; one more choice is refused.
+        run(&engine, vec![write(&many(1..=MAX_CONSENTS as u64))]).await.unwrap();
+        assert!(run(&engine, vec![write(&many(5000..=5000))]).await.is_err(), "overflowing merge admitted");
+        assert_eq!(get(engine.projection_state(), "group-full").unwrap().unwrap().consenting_user_ids.len(), MAX_CONSENTS);
+
+        run(&engine, vec![write(&room(RoomEncryptionMode::Enabled, 3))]).await.unwrap();
+        let applied = engine.projection_state().applied_commit_seq();
+        let mut wrong_stream = write(&room(RoomEncryptionMode::Enabled, 4));
+        wrong_stream.stream_id = "room-encryption:other".into();
+        let mut invalid = write(&room(RoomEncryptionMode::Enabled, 4));
+        invalid.plaintext = encode_record(&room(RoomEncryptionMode::Enabled, 0));
+        let mut beside = write(&room(RoomEncryptionMode::Enabled, 4));
+        beside.event_type = "emote_upserted".into();
+        let bad: Vec<(&str, Vec<EventToWrite>)> = vec![
+            ("downgrade to pending", vec![write(&room(RoomEncryptionMode::Pending, 0))]),
+            ("lower epoch", vec![write(&room(RoomEncryptionMode::Enabled, 2))]),
+            ("two markers", vec![write(&room(RoomEncryptionMode::Enabled, 4)), write(&room(RoomEncryptionMode::Enabled, 5))]),
+            ("marker beside another event", vec![write(&room(RoomEncryptionMode::Enabled, 4)), beside]),
+            ("wrong stream", vec![wrong_stream]),
+            ("invalid payload", vec![invalid]),
+        ];
+        for (name, events) in bad {
+            assert!(run(&engine, events).await.is_err(), "{name} was admitted");
+            assert_eq!(get(engine.projection_state(), "dm_1_2").unwrap().unwrap(), room(RoomEncryptionMode::Enabled, 3), "{name}");
+        }
+        assert_eq!(engine.projection_state().applied_commit_seq(), applied, "a refused command was committed");
+        // Still serving: a valid next epoch commits.
+        run(&engine, vec![write(&room(RoomEncryptionMode::Enabled, 4))]).await.unwrap();
+        drop(engine);
+
+        // And it restarts with every marker readable.
+        let engine = loop {
+            match WabiDbEngine::open(config()).await {
+                Ok(engine) => break engine,
+                Err(WabiError::AlreadyRunning) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+                Err(error) => panic!("restart: {error}"),
+            }
+        };
+        assert_eq!(get(engine.projection_state(), "dm_1_2").unwrap().unwrap(), room(RoomEncryptionMode::Enabled, 4));
+        assert_eq!(get(engine.projection_state(), "group-full").unwrap().unwrap().consenting_user_ids.len(), MAX_CONSENTS);
     }
 
     #[test]
