@@ -214,6 +214,10 @@ impl UploadRegistry {
         kind: UploadKind,
         bytes: &[u8],
     ) -> io::Result<()> {
+        // Backstop for a caller that skipped `upload::refuse_hls_playlist`.
+        if crate::api::upload::is_hls_playlist(bytes) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, crate::api::upload::HLS_PLAYLIST_REFUSED));
+        }
         validate_room_guard(channel_id.as_deref(), room_owner_precondition.as_ref(), false)?;
         let mut components = Path::new(filename).components();
         if !matches!(components.next(), Some(std::path::Component::Normal(_)))
@@ -948,6 +952,23 @@ mod tests {
             WabiDbConfig::new(path.to_path_buf(), BootstrapSource::Provided([7_u8; 32]));
         config.allow_init = true;
         WabiDbEngine::open(config).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn publish_bytes_refuses_an_hls_playlist_a_caller_did_not_check() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let uploads = temp.path().join("uploads");
+        std::fs::create_dir(&data).unwrap();
+        let registry = UploadRegistry::new_persistent(&data).unwrap();
+        let engine = test_engine(&temp.path().join("wabidb")).await;
+        let error = registry
+            .publish_bytes(&uploads, &engine, "clip.mp4", "clip.mp4", None, None, Some(1), UploadKind::Attachment, b"#EXTM3U\nhttps://x.invalid/a.ts\n")
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(!uploads.join("clip.mp4").exists());
+        assert!(registry.get("clip.mp4").await.is_none());
     }
 
     #[tokio::test]

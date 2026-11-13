@@ -38,6 +38,7 @@ pub mod read_model;
 pub mod recovery_codes;
 pub mod rebuild_auth;
 pub mod registry;
+pub mod room_encryption;
 pub mod room_placement;
 pub mod room_writes;
 pub mod secondary_index;

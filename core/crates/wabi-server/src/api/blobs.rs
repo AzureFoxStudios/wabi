@@ -72,6 +72,9 @@ async fn upload_blob(
     if auth.is_guest {
         return Err(BlobApiError::Unauthorized);
     }
+    if crate::api::upload::is_hls_playlist(&body) {
+        return Err(BlobApiError::Playlist);
+    }
     let uploaded_by = Some(auth.user_id.to_string());
     let meta = state
         .blob_registry
@@ -224,6 +227,8 @@ pub enum BlobApiError {
     NotFound,
     Unauthorized,
     Io(String),
+    /// The bytes are an HLS playlist (see `upload::is_hls_playlist`).
+    Playlist,
 }
 
 impl From<BlobRegistryError> for BlobApiError {
@@ -251,6 +256,7 @@ impl IntoResponse for BlobApiError {
             BlobApiError::Unauthorized => {
                 return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
             }
+            BlobApiError::Playlist => (StatusCode::BAD_REQUEST, crate::api::upload::HLS_PLAYLIST_REFUSED),
         };
         (status, body).into_response()
     }

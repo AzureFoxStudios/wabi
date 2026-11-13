@@ -76,8 +76,9 @@ struct MessageResponse {
     files: Vec<serde_json::Value>,
 }
 
-fn message_to_response(m: wabidb::domain::Message, username: String) -> MessageResponse {
-    let encrypted = crate::api::e2ee::is_ciphertext(&m.content);
+fn message_to_response(m: wabidb::domain::Message, username: String, room_encrypted: bool) -> MessageResponse {
+    // The server's decision for the room, never the content prefix alone.
+    let encrypted = room_encrypted && crate::api::e2ee::is_envelope_shaped(&m.content);
     MessageResponse {
         id: m.message_id,
         channel_id: m.channel_id,
@@ -105,6 +106,7 @@ async fn get_messages(
     crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     let limit: u64 = 100;
     let wdb_messages = state.wdb.list_messages_typed(&channel_id, limit).await?;
+    let room_encrypted = crate::api::e2ee::room_lists_ciphertext(&state, &channel_id).await;
     let mut name_by_id: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
     let distinct_ids: Vec<u64> = {
         let seen: std::collections::HashSet<u64> =
@@ -123,7 +125,7 @@ async fn get_messages(
                 .get(&m.author_user_id)
                 .cloned()
                 .unwrap_or_default();
-            message_to_response(m, username)
+            message_to_response(m, username, room_encrypted)
         })
         .collect();
     let has_more = messages.len() as u64 >= limit;

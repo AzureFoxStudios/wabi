@@ -125,6 +125,123 @@ const UPLOAD_SECURITY_HEADERS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The refusal for an HLS playlist upload.
+pub const HLS_PLAYLIST_REFUSED: &str = "HLS playlists (#EXTM3U) cannot be uploaded: a browser playing one fetches media from whatever hosts the playlist names, whatever type the file is served as.";
+
+/// Streaming check for an HLS playlist: after an optional UTF-8 byte-order
+/// mark and any amount of ASCII whitespace (no length cap, so padding does
+/// not get past it), the bytes start with the tag `#EXTM3U` (any case, which
+/// only refuses more) as a whole token: followed by whitespace or the end of
+/// the data, so `#EXTM3U8 notes` is not one. Browsers that play HLS natively
+/// follow a playlist to segments on other hosts even when it is served as
+/// `video/mp4` with `nosniff`. UTF-16 text, a comment line before the tag,
+/// the tag after an `ftyp` box or inside gzip are not valid playlists
+/// (RFC 8216) and are not refused; that is not verified against a native player.
+#[derive(Default)]
+pub struct PlaylistSniffer {
+    bom: Vec<u8>,
+    past_bom: bool,
+    head: Vec<u8>,
+    decided: Option<bool>,
+}
+
+const HLS_TAG: &[u8] = b"#EXTM3U";
+const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+
+impl PlaylistSniffer {
+    /// Feed the next bytes; returns the answer once it is known.
+    pub fn feed(&mut self, bytes: &[u8]) -> Option<bool> {
+        for &byte in bytes {
+            if self.decided.is_some() {
+                break;
+            }
+            self.step(byte);
+        }
+        self.decided
+    }
+
+    fn step(&mut self, byte: u8) {
+        if !self.past_bom {
+            self.bom.push(byte);
+            if UTF8_BOM.starts_with(&self.bom) {
+                if self.bom.len() == UTF8_BOM.len() {
+                    self.past_bom = true;
+                }
+                return;
+            }
+            // Not a BOM after all: the bytes held back are ordinary content.
+            self.past_bom = true;
+            for held in std::mem::take(&mut self.bom) {
+                self.step(held);
+                if self.decided.is_some() {
+                    return;
+                }
+            }
+            return;
+        }
+        if self.head.is_empty() && byte.is_ascii_whitespace() {
+            return;
+        }
+        if self.head.len() == HLS_TAG.len() {
+            self.decided = Some(byte.is_ascii_whitespace());
+            return;
+        }
+        self.head.push(byte);
+        if !HLS_TAG[..self.head.len()].eq_ignore_ascii_case(&self.head) {
+            self.decided = Some(false);
+        }
+    }
+
+    /// The answer at the end of the data.
+    pub fn finish(mut self) -> bool {
+        if let Some(decided) = self.decided {
+            return decided;
+        }
+        if !self.past_bom {
+            // Fewer bytes than a BOM, all of them a BOM prefix: not a tag.
+            let held = std::mem::take(&mut self.bom);
+            self.past_bom = true;
+            if self.feed(&held).is_some() {
+                return self.decided == Some(true);
+            }
+        }
+        self.head.len() == HLS_TAG.len()
+    }
+}
+
+/// True when `bytes` (a whole upload) is an HLS playlist; see [`PlaylistSniffer`].
+pub fn is_hls_playlist(bytes: &[u8]) -> bool {
+    let mut sniffer = PlaylistSniffer::default();
+    sniffer.feed(bytes);
+    sniffer.finish()
+}
+
+/// Refuse an upload whose bytes are an HLS playlist, with a 400.
+pub fn refuse_hls_playlist(bytes: &[u8]) -> Result<()> {
+    if is_hls_playlist(bytes) {
+        return Err(crate::error::AppError::BadRequest(HLS_PLAYLIST_REFUSED.into()));
+    }
+    Ok(())
+}
+
+/// Refuse a staged upload file that is an HLS playlist, reading only as far
+/// as the answer needs (all of a file that is nothing but whitespace).
+pub async fn refuse_hls_playlist_file(path: &std::path::Path) -> Result<()> {
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut sniffer = PlaylistSniffer::default();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = tokio::io::AsyncReadExt::read(&mut file, &mut buffer).await?;
+        if read == 0 || sniffer.feed(&buffer[..read]).is_some() {
+            break;
+        }
+    }
+    if sniffer.finish() {
+        return Err(crate::error::AppError::BadRequest(HLS_PLAYLIST_REFUSED.into()));
+    }
+    Ok(())
+}
+
 /// Build the header map applied to uploaded-file responses.
 ///
 /// Pure function so it can be unit-tested without spinning up the server.
@@ -397,6 +514,22 @@ struct CompleteUploadResponse {
 }
 
 /// Finalize an upload — move temp file to final location
+/// A completion the room's encryption policy refused will never succeed:
+/// remove its staged plaintext and its session, so the bytes do not stay on
+/// disk and a retry does not repeat the sniff, fsync and hash. Unreadable
+/// encryption state keeps both (completion can be retried after a restore).
+async fn discard_refused_upload(state: &AppState, upload_id: &str, session: &UploadSession, error: &crate::error::AppError) {
+    if !crate::api::e2ee::upload_refusal_is_final(error) {
+        return;
+    }
+    state.upload_state.sessions.write().await.remove(upload_id);
+    match tokio::fs::remove_file(&session.temp_path).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!("[upload] could not remove a refused staged upload: {e}"),
+    }
+}
+
 async fn complete_upload(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -429,16 +562,6 @@ async fn complete_upload(
             .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?
             .clone()
     };
-    if !session.channel_id.is_empty() {
-        let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
-            .await?;
-        // The room may have become encrypted since init: re-check before the
-        // name is recorded or the bytes are published.
-        drop(
-            crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type)
-                .await?,
-        );
-    }
     if session.uploaded_bytes != session.file_size {
         return Err(anyhow::anyhow!("Upload is incomplete").into());
     }
@@ -456,7 +579,24 @@ async fn complete_upload(
     let final_name = format!("{}{}", session.upload_id, session.extension);
     let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
 
-    if tokio::fs::try_exists(&session.temp_path).await? {
+    // A cheap admission check before the expensive work: a room that is
+    // already encrypted or pending refuses at once. The decision that counts
+    // is the locked re-check below.
+    if !session.channel_id.is_empty() {
+        let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
+            .await?;
+        if let Err(error) = crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type).await {
+            discard_refused_upload(&state, &req.upload_id, &session, &error).await;
+            return Err(error);
+        }
+    }
+
+    // The slow part first, without the encryption-policy lock (it is global:
+    // holding it while hashing a large file would stall every conversation
+    // send). The session's write gate keeps the staged bytes unchanged.
+    let staged = tokio::fs::try_exists(&session.temp_path).await?;
+    let sha256 = if staged {
+        refuse_hls_playlist_file(&session.temp_path).await?;
         let file = OpenOptions::new()
             .write(true)
             .open(&session.temp_path)
@@ -477,7 +617,38 @@ async fn complete_upload(
                 .ok_or_else(|| anyhow::anyhow!("Upload staging path has no parent"))?,
         )
         .await?;
+        crate::upload_registry::sha256_file(&session.temp_path).await?
+    } else {
+        // A previous completion may have renamed the file but failed its
+        // directory sync. Keep the session so a retry can finish publication.
+        let meta = state.upload_registry.get(&final_name).await;
+        if !meta.is_some_and(|meta| meta.size == session.file_size) {
+            return Err(anyhow::anyhow!("Upload staging file is missing").into());
+        }
+        if tokio::fs::metadata(&final_path).await?.len() != session.file_size {
+            return Err(anyhow::anyhow!("Published upload size changed").into());
+        }
+        crate::upload_registry::sha256_file(&final_path).await?
+    };
 
+    // The room may have become encrypted or pending since init. Admission is
+    // decided under the encryption-policy lock, and that lock is held until
+    // the name is recorded, the publication committed and the bytes renamed,
+    // so the room cannot change state between the decision and publication.
+    let _encryption_policy = if session.channel_id.is_empty() {
+        None
+    } else {
+        let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
+            .await?;
+        match crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type).await {
+            Ok(guard) => guard,
+            Err(error) => {
+                discard_refused_upload(&state, &req.upload_id, &session, &error).await;
+                return Err(error);
+            }
+        }
+    };
+    if staged {
         // Persist ownership while the bytes remain in the private staging path.
         state
             .upload_registry
@@ -494,7 +665,6 @@ async fn complete_upload(
                 session.file_size,
             )
             .await?;
-        let sha256 = crate::upload_registry::sha256_file(&session.temp_path).await?;
         state
             .upload_registry
             .prepare_published(
@@ -506,16 +676,6 @@ async fn complete_upload(
             .await?;
         tokio::fs::rename(&session.temp_path, &final_path).await?;
     } else {
-        // A previous completion may have renamed the file but failed its
-        // directory sync. Keep the session so a retry can finish publication.
-        let meta = state.upload_registry.get(&final_name).await;
-        if !meta.is_some_and(|meta| meta.size == session.file_size) {
-            return Err(anyhow::anyhow!("Upload staging file is missing").into());
-        }
-        if tokio::fs::metadata(&final_path).await?.len() != session.file_size {
-            return Err(anyhow::anyhow!("Published upload size changed").into());
-        }
-        let sha256 = crate::upload_registry::sha256_file(&final_path).await?;
         state
             .upload_registry
             .prepare_published(
@@ -526,6 +686,7 @@ async fn complete_upload(
             )
             .await?;
     }
+    drop(_encryption_policy);
     crate::upload_registry::sync_upload_directory(&PathBuf::from(&state.config.uploads_dir))
         .await?;
     state
@@ -629,6 +790,7 @@ async fn upload_simple(
     tokio::fs::create_dir_all(&uploads_dir).await?;
 
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -713,6 +875,7 @@ pub async fn upload_background_image(
 
     // Sniff the actual content instead of trusting the client MIME string:
     // magic-byte check keeps a mislabeled script from landing as a "video".
+    refuse_hls_playlist(&file_data)?;
     let mime = sniff_background_mime(&file_data).ok_or_else(|| {
         anyhow::anyhow!(
             "Unsupported file type. Only PNG, JPG, GIF, WEBP, MP4, or WEBM are allowed."
@@ -726,6 +889,7 @@ pub async fn upload_background_image(
     tokio::fs::create_dir_all(&uploads_dir).await?;
 
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -843,12 +1007,14 @@ pub async fn upload_profile_media(
         return Err(anyhow::anyhow!("No file data provided").into());
     }
 
+    refuse_hls_playlist(&file_data)?;
     let ext = profile_media_extension(&file_data).map_err(crate::error::AppError::BadRequest)?;
 
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     tokio::fs::create_dir_all(&uploads_dir).await?;
 
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -929,6 +1095,7 @@ pub async fn upload_profile_picture(
 
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -1005,6 +1172,26 @@ mod tests {
         assert!(complete_size_matches(10, 10, 10));
         assert!(!complete_size_matches(9, 10, 10));
         assert!(!complete_size_matches(10, 10, 9));
+    }
+
+    #[test]
+    fn hls_playlist_detection_skips_bom_and_whitespace_only() {
+        let padded = |n: usize, pad: u8| { let mut v = vec![pad; n]; v.extend_from_slice(b"#EXTM3U\nx.ts"); v };
+        let mut yes: Vec<Vec<u8>> = [&b"#EXTM3U"[..], b"#EXTM3U\n#EXTINF:1,\nx.ts", b"#EXTM3U\r\n", b"#EXTM3U x", b"\xEF\xBB\xBF#EXTM3U", b" \r\n\t#EXTM3U", b"#extm3u\n"]
+            .iter().map(|b| b.to_vec()).collect();
+        yes.extend([padded(4089, b' '), padded(4093, b' '), padded(5000, b'\n'), padded(3 * 1024 * 1024, b'\t')]);
+        for bytes in &yes {
+            assert!(super::is_hls_playlist(bytes), "{:?}", &bytes[..bytes.len().min(16)]);
+            // Fed in small pieces, the streaming check agrees.
+            let mut sniffer = super::PlaylistSniffer::default();
+            for piece in bytes.chunks(3) { sniffer.feed(piece); }
+            assert!(sniffer.finish());
+        }
+        for no in [&b""[..], b"\xEF", b"\xEF\xBB\xBF", b"   ", b"#EXTM3", b"x#EXTM3U", b"\xEF\xBB#EXTM3U", b"\x00\x00\x00\x18ftypmp42", b"# EXTM3U", b"#EXTM3U8 notes", b"#EXTM3Ux"] {
+            assert!(!super::is_hls_playlist(no), "{no:?}");
+        }
+        assert!(super::refuse_hls_playlist(b"#EXTM3U").is_err());
+        assert!(super::refuse_hls_playlist(b"plain text").is_ok());
     }
 
     #[test]

@@ -1041,14 +1041,297 @@ async fn encrypted_room_cannot_be_downgraded_by_api_role_membership_or_restart()
     assert!(all_ciphertext(&contents), "{contents:?}");
 }
 
-/// FINDING (reported, not fixed): the stance treats a missing
-/// `e2ee_state.json` as a fresh install. If the WabiDB data says a room holds
-/// ciphertext but the registry file is gone (restored without sidecars,
-/// deleted by an operator), the room silently reverts to the earlier
-/// server-readable policy and plaintext is accepted. Run with `--ignored` to
-/// see it fail; it becomes an ordinary test when the boundary is fixed.
+// ---------------------------------------------------------------------------
+// Point 7, durable marker: a missing or older registry never reopens a room
+// ---------------------------------------------------------------------------
+//
+// WabiDB keeps a per-room encryption marker (`room_encryption` projection),
+// written before the registry entry. A registry that is missing, older (lower
+// epoch) or weaker (no entry, pending where the database says encrypted)
+// than the marker refuses readable content in that room. Restoring a copy of
+// `e2ee_state.json` into a stopped Authority is how these tests "lose" or
+// "roll back" the registry; an atomic rename means a crash between the two
+// writes leaves the file exactly as it was before the transition, so the
+// same restore also reproduces that crash.
+
+fn registry_file(dir: &Path) -> PathBuf {
+    dir.join("e2ee_state.json")
+}
+
+fn install_registry(dir: &Path, bytes: Option<&[u8]>) {
+    match bytes {
+        Some(bytes) => std::fs::write(registry_file(dir), bytes).unwrap(),
+        None => {
+            let _ = std::fs::remove_file(registry_file(dir));
+        }
+    }
+}
+
+fn read_model_file(dir: &Path) -> PathBuf {
+    dir.join("wabidb/projections/read-model.sqlite3")
+}
+
+fn snapshot_file(dir: &Path) -> PathBuf {
+    dir.join("wabidb/projections/snapshot.json")
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+/// A new group through the same order as the real create path: pending
+/// policy (marker, then registry) before the channel exists. HTTP-only tests
+/// cannot use the Socket.IO `create-group` event and still restart.
+async fn pending_group(state: &Arc<AppState>, id: &str, users: &[u64]) -> String {
+    let ch = format!("group-{id}");
+    wabi_server::api::e2ee::mark_new_room_pending(state, &ch).await.unwrap();
+    state.wdb.create_group(&ch, id, users[0], users).await.unwrap();
+    ch
+}
+
+fn room_marker(state: &AppState, ch: &str) -> Option<(room_encryption::RoomEncryptionMode, u64)> {
+    room_encryption::get(state.wdb.engine().projection_state(), ch)
+        .unwrap()
+        .map(|record| (record.mode, record.epoch))
+}
+
+use wabidb::projections::room_encryption::{self, RoomEncryptionMode as Mode};
+
+/// The refusal names the registry and what to restore: the operator-facing
+/// reason, not a generic one.
+fn assert_registry_reason(path: &str, body: &Value) {
+    assert!(body.to_string().contains("e2ee_state.json"), "{path}: refusal does not name the registry: {body}");
+}
+
+/// Every readable-content path that needs no Socket.IO connection, as `uid`.
+/// Returns the paths that ACCEPTED readable content.
+async fn http_entry_paths(
+    app: &Router,
+    state: &AppState,
+    uid: u64,
+    ch: &str,
+    m: &str,
+    bot_token: &str,
+    seeds: Option<&Seeds>,
+) -> Vec<String> {
+    let auth = bearer(state, uid);
+    let mut accepted = vec![];
+    let (status, body) = request(app, Method::POST, "/messages", &auth, json!({"channel_id":ch,"content":format!("{m} rest")})).await;
+    if status.is_success() {
+        accepted.push(format!("REST /api/messages ({body})"));
+    } else {
+        policy_refusal("REST /api/messages", status, &body);
+        assert_registry_reason("REST /api/messages", &body);
+    }
+    let (status, body) = request(
+        app,
+        Method::POST,
+        &format!("/conversation-notes/{ch}"),
+        &auth,
+        json!({"content": json!({"title":"note","text":format!("{m} note")}).to_string()}),
+    )
+    .await;
+    if status.is_success() {
+        accepted.push(format!("REST conversation note ({body})"));
+    } else {
+        policy_refusal("REST conversation note", status, &body);
+    }
+    let (status, body) = request(
+        app,
+        Method::POST,
+        &format!("/forum/{ch}/threads"),
+        &auth,
+        json!({"title":format!("{m} thread title"),"body":format!("{m} thread body")}),
+    )
+    .await;
+    if status.is_success() {
+        accepted.push(format!("REST forum thread ({body})"));
+    } else {
+        policy_refusal("REST forum thread", status, &body);
+        assert_registry_reason("REST forum thread", &body);
+    }
+    let (status, body) = request(
+        app,
+        Method::POST,
+        "/bot/send-message",
+        &format!("Bot {bot_token}"),
+        json!({"channel_id":ch,"content":format!("{m} bot")}),
+    )
+    .await;
+    if status.is_success() {
+        accepted.push(format!("bot post ({body})"));
+    } else {
+        policy_refusal("bot post", status, &body);
+        assert_registry_reason("bot post", &body);
+    }
+    accepted.extend(feature_text_paths(app, &auth, None, ch, m, seeds, true).await);
+    accepted
+}
+
+/// Rooms in every state the marker records, built over HTTP only.
+struct MarkerRooms {
+    a: u64,
+    b: u64,
+    bot_token: String,
+    /// Existing group, readable features seeded, encrypted at 1 then 2, with
+    /// a ciphertext message.
+    hist: String,
+    seeds: Seeds,
+    hist_message: String,
+    /// New group, pending, then encrypted at 1 then 2, no messages.
+    empty: String,
+    /// New group, still pending.
+    pending: String,
+    /// New group in which both members chose server-readable; a posted.
+    readable: String,
+    readable_message: String,
+    /// Registry before any room was encrypted.
+    before_encryption: Vec<u8>,
+    /// Registry with both encrypted rooms at epoch 1, the other two absent.
+    older_epoch: Vec<u8>,
+    current: Vec<u8>,
+}
+
+async fn marker_rooms(app: &Router, state: &Arc<AppState>, dir: &Path, id: &str) -> MarkerRooms {
+    // Room ids are per test: whiteboard versions are process-global.
+    let a = user(state, &format!("{id}-a")).await;
+    let b = user(state, &format!("{id}-b")).await;
+    let bot = user(state, &format!("{id}-bot")).await;
+    let (bot_token, _) = state.bot_registry.create(bot).await.unwrap();
+    let hist = format!("group-{id}-hist");
+    state.wdb.create_group(&hist, "hist", a, &[a, b]).await.unwrap();
+    let seeds = seed_readable_features(app, &bearer(state, a), &hist).await;
+    let empty = pending_group(state, &format!("{id}-empty"), &[a, b]).await;
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(app, state, a, &da).await;
+    register_device(app, state, b, &db).await;
+    let recipients = [(a, da.clone()), (b, db.clone())];
+    let before_encryption = std::fs::read(registry_file(dir)).unwrap();
+    for ch in [&hist, &empty] {
+        let (status, body) = set_room(app, state, (a, &da), ch, 1, &recipients, false).await;
+        assert_eq!(status, StatusCode::OK, "enable: {body}");
+    }
+    let older_epoch = std::fs::read(registry_file(dir)).unwrap();
+    for ch in [&hist, &empty] {
+        let (status, body) = set_room(app, state, (a, &da), ch, 2, &recipients, true).await;
+        assert_eq!(status, StatusCode::OK, "rekey: {body}");
+    }
+    let revision = current_revision(app, state, a, &hist).await;
+    let (status, body) = request(
+        app,
+        Method::POST,
+        "/messages",
+        &bearer(state, a),
+        json!({"channel_id":hist,"content":envelope(&hist, 2, &revision, &da)}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let hist_message = body["id"].as_str().unwrap().to_string();
+    let pending = pending_group(state, &format!("{id}-pending"), &[a, b]).await;
+    let readable = pending_group(state, &format!("{id}-readable"), &[a, b]).await;
+    for uid in [a, b] {
+        let (status, body) = request(
+            app,
+            Method::POST,
+            &format!("/e2ee/channels/{readable}/allow-server-readable"),
+            &bearer(state, uid),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let (status, body) = request(
+        app,
+        Method::POST,
+        "/messages",
+        &bearer(state, a),
+        json!({"channel_id":readable,"content":"readable before the registry was lost"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let readable_message = body["id"].as_str().unwrap().to_string();
+    // The bot joins every room. In the server-readable room it may post
+    // (every human chose server-readable): the positive control for the
+    // bot refusals below.
+    for ch in [&hist, &empty, &pending, &readable] {
+        state.wdb.add_channel_member(ch, bot, MemberRole::Member).await.unwrap();
+    }
+    let (status, body) = request(
+        app,
+        Method::POST,
+        "/bot/send-message",
+        &format!("Bot {bot_token}"),
+        json!({"channel_id":readable,"content":"bot before the registry was lost"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(room_marker(state, &hist), Some((Mode::Enabled, 2)));
+    assert_eq!(room_marker(state, &empty), Some((Mode::Enabled, 2)));
+    assert_eq!(room_marker(state, &pending), Some((Mode::Pending, 0)));
+    assert_eq!(room_marker(state, &readable), Some((Mode::ServerReadable, 0)));
+    MarkerRooms {
+        a,
+        b,
+        bot_token,
+        hist,
+        seeds,
+        hist_message,
+        empty,
+        pending,
+        readable,
+        readable_message,
+        before_encryption,
+        older_epoch,
+        current: std::fs::read(registry_file(dir)).unwrap(),
+    }
+}
+
+impl MarkerRooms {
+    fn all(&self) -> [&str; 4] {
+        [&self.hist, &self.empty, &self.pending, &self.readable]
+    }
+    fn markers(&self, state: &AppState) -> Vec<Option<(Mode, u64)>> {
+        self.all().iter().map(|ch| room_marker(state, ch)).collect()
+    }
+    fn variants(&self) -> [(&'static str, Option<Vec<u8>>); 3] {
+        [
+            ("missing registry", None),
+            ("registry from before encryption", Some(self.before_encryption.clone())),
+            ("registry at an older epoch", Some(self.older_epoch.clone())),
+        ]
+    }
+    async fn assert_status_follows_the_marker(&self, app: &Router, state: &AppState, variant: &str) {
+        for ch in [&self.hist, &self.empty] {
+            let (code, status) = room_status(app, state, self.a, ch).await;
+            assert_eq!(code, StatusCode::OK, "{variant}: {status}");
+            assert_eq!(status["enabled"], true, "{variant}: {ch} no longer reports encryption: {status}");
+            assert_eq!(status["epoch"], 2, "{variant}: {status}");
+            assert_eq!(status["needsRekey"], true, "{variant}: {status}");
+            assert_eq!(status["keyEnvelopes"], json!([]), "{variant}: old-epoch keys offered: {status}");
+            assert_eq!(status["downgradeAllowed"], false);
+            assert_registry_reason(variant, &status["registryBehind"]);
+        }
+        let (_, status) = room_status(app, state, self.a, &self.pending).await;
+        assert_eq!(status["pendingDefault"], true, "{variant}: {status}");
+        assert_eq!(status["enabled"], false, "{variant}: {status}");
+        let (_, status) = room_status(app, state, self.a, &self.readable).await;
+        assert_eq!(status["serverReadableSelected"], true, "{variant}: {status}");
+        assert_eq!(status["serverReadableAllowedByMe"], false, "{variant}: {status}");
+    }
+}
+
+/// The contract the ignored finding recorded: losing `e2ee_state.json` no
+/// longer reopens a room whose history is ciphertext.
 #[tokio::test]
-#[ignore = "FINDING: missing e2ee_state.json silently re-admits plaintext in a room whose stored messages are ciphertext"]
 async fn missing_registry_does_not_reopen_plaintext_in_a_room_with_ciphertext_history() {
     let dir = tempfile::tempdir().unwrap();
     let config = server_config(dir.path());
@@ -1069,6 +1352,8 @@ async fn missing_registry_does_not_reopen_plaintext_in_a_room_with_ciphertext_hi
     std::fs::remove_file(dir.path().join("e2ee_state.json")).unwrap();
     let state = open_server(config).await;
     let app = http(&state);
+    let (_, status) = room_status(&app, &state, room.users[0], &room.ch).await;
+    assert_eq!(status["enabled"], true, "{status}");
     let (status, body) = request(
         &app,
         Method::POST,
@@ -1078,47 +1363,798 @@ async fn missing_registry_does_not_reopen_plaintext_in_a_room_with_ciphertext_hi
     )
     .await;
     assert_ne!(status, StatusCode::OK, "plaintext accepted after registry loss: {body}");
+    assert_registry_reason("REST after registry loss", &body);
 }
 
-/// KNOWN GAP RECORD, not a desired behaviour. This test deliberately asserts
-/// the vulnerable behaviour that exists today (a missing registry re-admits
-/// plaintext), so the gap stays visible in every run. It is to be inverted by
-/// the follow-up that adds a durable per-room encryption marker in WabiDB, at
-/// which point the ignored test above becomes the real contract.
+/// Missing registry, a registry from before the rooms were encrypted, and a
+/// registry at an older epoch, for an encrypted room with history, an
+/// encrypted room without messages, a pending room and a room whose members
+/// chose server-readable. Every HTTP entry path, after a restart, after the
+/// SQLite read model is deleted, and after a full replay of the log; then
+/// every Socket.IO path with the registry swapped under a running server.
 #[tokio::test]
-async fn known_gap_missing_registry_currently_readmits_plaintext() {
+async fn missing_or_older_registry_refuses_readable_content_in_every_marked_room_on_every_path() {
     let dir = tempfile::tempdir().unwrap();
     let config = server_config(dir.path());
     let state = open_server(config.clone()).await;
     let app = http(&state);
-    let room = encrypted_group(&app, &state, "missing-observed", &["a", "b"]).await;
-    let (status, _) = request(
-        &app,
-        Method::POST,
-        "/messages",
-        &bearer(&state, room.users[0]),
-        json!({"channel_id":room.ch,"content":room.envelope(&app, &state, 0, 1).await}),
-    )
-    .await;
+    let rooms = marker_rooms(&app, &state, dir.path(), "marker-paths").await;
+    let markers = rooms.markers(&state);
+    let mut counts = vec![];
+    for ch in rooms.all() {
+        counts.push(stored(&state, ch).await.len());
+    }
+    drop(app);
+    drop(state);
+    let m = format!("MARKER-{}", uuid::Uuid::new_v4().simple());
+
+    for (round, (variant, bytes)) in rooms.variants().into_iter().enumerate() {
+        install_registry(dir.path(), bytes.as_deref());
+        // Round 1: plain restart. Round 2: the SQLite read model is deleted
+        // and rebuilt from the log. Round 3: the snapshot goes too, so every
+        // projection, the marker included, is replayed from the log.
+        if round >= 1 {
+            assert!(read_model_file(dir.path()).exists(), "fixture: read model path");
+            for suffix in ["", "-wal", "-shm"] {
+                let _ = std::fs::remove_file(format!("{}{suffix}", read_model_file(dir.path()).display()));
+            }
+        }
+        if round >= 2 {
+            // Without a snapshot every projection replays from the log.
+            let _ = std::fs::remove_file(snapshot_file(dir.path()));
+        }
+        let state = open_server(config.clone()).await;
+        let app = http(&state);
+        assert_eq!(rooms.markers(&state), markers, "{variant}: the marker changed across restart/rebuild");
+        rooms.assert_status_follows_the_marker(&app, &state, variant).await;
+        for ch in rooms.all() {
+            for uid in [rooms.a, rooms.b] {
+                let seeds = (ch == rooms.hist && uid == rooms.a).then_some(&rooms.seeds);
+                let accepted = http_entry_paths(&app, &state, uid, ch, &m, &rooms.bot_token, seeds).await;
+                assert!(accepted.is_empty(), "{variant}: {ch} accepted readable content via {accepted:#?}");
+            }
+        }
+        // A server-readable choice cannot reopen an encrypted room either.
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            &format!("/e2ee/channels/{}/allow-server-readable", rooms.hist),
+            &bearer(&state, rooms.a),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{variant}");
+        for (ch, count) in rooms.all().into_iter().zip(&counts) {
+            assert_eq!(stored(&state, ch).await.len(), *count, "{variant}: {ch} stored a message");
+        }
+        // The refusals left the registry as it was: no repair from the weaker side.
+        match &bytes {
+            Some(bytes) => assert_eq!(&std::fs::read(registry_file(dir.path())).unwrap(), bytes, "{variant}"),
+            None => assert!(!registry_file(dir.path()).exists(), "{variant}: a registry was invented"),
+        }
+        drop(app);
+        drop(state);
+    }
+
+    // Socket.IO paths (this server cannot be restarted in-process again). The
+    // registry is read on every decision, so a swap applies immediately.
+    install_registry(dir.path(), Some(&rooms.current));
+    let state = open_server(config.clone()).await;
+    let app = router(&state);
+    let mut sio_a = Client::connect(&app, &token(&state, rooms.a)).await;
+    let mut sio_b = Client::connect(&app, &token(&state, rooms.b)).await;
+    for (variant, bytes) in rooms.variants() {
+        install_registry(dir.path(), bytes.as_deref());
+        for ch in rooms.all() {
+            for (sio, uid) in [(&mut sio_a, rooms.a), (&mut sio_b, rooms.b)] {
+                let accepted = plaintext_entry_paths(&app, &state, sio, uid, ch, &m, &format!("{variant}-{ch}")).await;
+                assert!(accepted.is_empty(), "{variant}: {ch} accepted via {accepted:#?}");
+            }
+            let accepted = feature_text_paths(&app, &bearer(&state, rooms.a), Some(&mut sio_a), ch, &m, None, true).await;
+            assert!(accepted.is_empty(), "{variant}: {ch} accepted via {accepted:#?}");
+        }
+        for (ch, message) in [(&rooms.hist, &rooms.hist_message), (&rooms.readable, &rooms.readable_message)] {
+            sio_a
+                .emit("edit-message", json!({"channelId":ch,"messageId":message,"newText":format!("{m} edit")}))
+                .await;
+            let error = sio_a.event("edit-error").await;
+            assert!(error.to_string().contains("e2ee_state.json"), "{variant}: edit in {ch}: {error}");
+        }
+    }
+
+    // Positive control: the current registry admits what it admitted before.
+    install_registry(dir.path(), Some(&rooms.current));
+    let (event, body) = sio_a
+        .send(json!({"channelId":rooms.readable,"clientMessageId":"control","text":"readable after restore"}))
+        .await;
+    assert_eq!(event, "message-accepted", "{body}");
+    let (event, body) = sio_a
+        .send(json!({"channelId":rooms.hist,"clientMessageId":"control-hist","text":"plaintext after restore"}))
+        .await;
+    assert_eq!(event, "message-error", "{body}");
+    assert!(!body.to_string().contains("e2ee_state.json"), "the restored registry still reports a gap: {body}");
+
+    for ch in rooms.all() {
+        let contents = stored(&state, ch).await;
+        assert!(!contents.iter().any(|c| c.contains(&m)), "{ch} stored readable content: {contents:?}");
+        assert!(state.wdb.list_forum_threads(ch).await.unwrap().is_empty(), "{ch} stored a forum thread");
+    }
+    let hits: Vec<_> = files_containing(dir.path(), &m).into_iter().filter(|p| !p.ends_with("e2ee_state.json")).collect();
+    assert!(hits.is_empty(), "{m} written to {hits:?}");
+}
+
+/// With the registry genuinely lost there is nothing that restores the keys
+/// (the server never had them). Rooms stay closed to readable content;
+/// members' clients run setup again: an encrypted room is rekeyed above the
+/// highest epoch the database recorded, a pending room is enabled, and in a
+/// server-readable room each sender chooses again. Nothing reopens a room
+/// on the server's own initiative.
+#[tokio::test]
+async fn a_lost_registry_is_recovered_only_by_members_running_setup_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let rooms = marker_rooms(&app, &state, dir.path(), "marker-recover").await;
+    drop(app);
+    drop(state);
+    install_registry(dir.path(), None);
+    let state = open_server(config).await;
+    let app = http(&state);
+    let (a, b) = (rooms.a, rooms.b);
+    // Device registrations lived in the registry; members' clients register again.
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    // The bot member has no device; it leaves so the rooms can be rekeyed.
+    let bot = state.wdb.list_channel_members(&rooms.hist).await.unwrap().into_iter().map(|m| m.user_id).find(|id| *id != a && *id != b).unwrap();
+    let recipients = [(a, da.clone()), (b, db.clone())];
+
+    for ch in [&rooms.hist, &rooms.empty] {
+        state.wdb.remove_channel_member(ch, bot).await.unwrap();
+        // Re-enabling at epoch 1, or reusing an epoch the database saw, is refused.
+        let (status, body) = set_room(&app, &state, (a, &da), ch, 1, &recipients, false).await;
+        assert_eq!(status, StatusCode::CONFLICT, "re-enable: {body}");
+        let (status, body) = set_room(&app, &state, (a, &da), ch, 2, &recipients, true).await;
+        assert_eq!(status, StatusCode::CONFLICT, "reused epoch: {body}");
+        assert!(body.to_string().contains("must be 3"), "{body}");
+        let (status, body) = set_room(&app, &state, (a, &da), ch, 3, &recipients, true).await;
+        assert_eq!(status, StatusCode::OK, "rekey above the recorded epoch: {body}");
+        assert_eq!(room_marker(&state, ch), Some((Mode::Enabled, 3)));
+        let (_, status) = room_status(&app, &state, a, ch).await;
+        assert_eq!(status["registryBehind"], Value::Null, "{status}");
+        assert_eq!(status["needsRekey"], false, "{status}");
+        let revision = current_revision(&app, &state, a, ch).await;
+        let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":ch,"content":envelope(ch, 3, &revision, &da)})).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":ch,"content":"plaintext after recovery"})).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    }
+
+    state.wdb.remove_channel_member(&rooms.pending, bot).await.unwrap();
+    let (status, body) = set_room(&app, &state, (a, &da), &rooms.pending, 1, &recipients, false).await;
+    assert_eq!(status, StatusCode::OK, "pending room set up again: {body}");
+    assert_eq!(room_marker(&state, &rooms.pending), Some((Mode::Enabled, 1)));
+
+    // Server-readable room: earlier choices are not carried over. a chooses
+    // again; b has not, so b stays refused.
+    let send = |uid: u64, text: &'static str| {
+        let (app, auth, ch) = (app.clone(), bearer(&state, uid), rooms.readable.clone());
+        async move { request(&app, Method::POST, "/messages", &auth, json!({"channel_id":ch,"content":text})).await }
+    };
+    let (status, body) = send(a, "a before choosing again").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let (status, body) = request(&app, Method::POST, &format!("/e2ee/channels/{}/allow-server-readable", rooms.readable), &bearer(&state, a), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = send(a, "a after choosing again").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = send(b, "b without choosing").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.to_string().contains("your own device"), "{body}");
+    let (status, body) = request(&app, Method::POST, "/bot/send-message", &format!("Bot {}", rooms.bot_token), json!({"channel_id":rooms.readable,"content":"bot after loss"})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+/// Crash between the two writes, in both orders, and a registry ahead of the
+/// database. Marker ahead (registry write lost): the room refuses readable
+/// content until setup runs again. Registry ahead (a data directory restored
+/// older than its registry, or rooms from before markers existed): the
+/// registry is the stricter source, it decides, and the marker catches up at
+/// startup, once.
+#[tokio::test]
+async fn crash_between_marker_and_registry_writes_resolves_in_the_safe_direction() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let a = user(&state, "crash-a").await;
+    let b = user(&state, "crash-b").await;
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let recipients = [(a, da.clone()), (b, db.clone())];
+    let enabled = pending_group(&state, "crash-enable", &[a, b]).await;
+    let chosen = pending_group(&state, "crash-choose", &[a, b]).await;
+    let before = std::fs::read(registry_file(dir.path())).unwrap();
+    let (status, body) = set_room(&app, &state, (a, &da), &enabled, 1, &recipients, false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, _) = request(&app, Method::POST, &format!("/e2ee/channels/{chosen}/allow-server-readable"), &bearer(&state, a), Value::Null).await;
     assert_eq!(status, StatusCode::OK);
     drop(app);
     drop(state);
-    std::fs::remove_file(dir.path().join("e2ee_state.json")).unwrap();
+
+    // Marker committed, registry write lost (the file is as it was before).
+    install_registry(dir.path(), Some(&before));
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    assert_eq!(room_marker(&state, &enabled), Some((Mode::Enabled, 1)));
+    assert_eq!(room_marker(&state, &chosen), Some((Mode::ServerReadable, 0)));
+    let revision = current_revision(&app, &state, a, &enabled).await;
+    for content in ["plaintext after a lost registry write".to_string(), envelope(&enabled, 1, &revision, &da)] {
+        let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":enabled,"content":content})).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_registry_reason("marker ahead", &body);
+    }
+    let (_, status) = room_status(&app, &state, a, &enabled).await;
+    assert_eq!((status["enabled"].clone(), status["epoch"].clone(), status["needsRekey"].clone()), (json!(true), json!(1), json!(true)), "{status}");
+    let (status, body) = set_room(&app, &state, (a, &da), &enabled, 2, &recipients, true).await;
+    assert_eq!(status, StatusCode::OK, "setup again: {body}");
+    let revision = current_revision(&app, &state, a, &enabled).await;
+    let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":enabled,"content":envelope(&enabled, 2, &revision, &da)})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // The server-readable choice was lost: the registry says pending, which
+    // is stricter than the marker and decides. a chooses again.
+    let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":chosen,"content":"a before choosing again"})).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.to_string().contains("pending"), "{body}");
+    let (status, _) = request(&app, Method::POST, &format!("/e2ee/channels/{chosen}/allow-server-readable"), &bearer(&state, a), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":chosen,"content":"a after choosing again"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    drop(app);
+    drop(state);
+
+    // Registry ahead of the database: a stopped copy of the database is taken,
+    // then `enabled` is rekeyed to 3, a room without any marker or policy
+    // (as rooms were before markers existed) is encrypted, and a new pending
+    // room is created. The old database is then opened with today's registry.
+    let older = tempfile::tempdir().unwrap();
+    let late = "group-crash-late";
+    {
+        let state = open_server(config.clone()).await;
+        state.wdb.create_group(late, "late", a, &[a, b]).await.unwrap();
+        drop(state);
+        drop(open_server(config.clone()).await);
+        copy_tree(dir.path(), older.path());
+        let state = open_server(config.clone()).await;
+        let app = http(&state);
+        let (status, body) = set_room(&app, &state, (a, &da), late, 1, &recipients, false).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body) = set_room(&app, &state, (a, &da), &enabled, 3, &recipients, true).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        pending_group(&state, "crash-pending-late", &[a, b]).await;
+        drop(app);
+        drop(state);
+    }
+    std::fs::copy(registry_file(dir.path()), registry_file(older.path())).unwrap();
+    let older_config = server_config(older.path());
+    let state = open_server(older_config.clone()).await;
+    // Startup brought every marker up to the registry before any decision.
+    assert_eq!(room_marker(&state, &enabled), Some((Mode::Enabled, 3)));
+    assert_eq!(room_marker(&state, late), Some((Mode::Enabled, 1)));
+    // The pending group was created after the copy: in this database it does
+    // not exist, so its registry entry writes no marker (a create would).
+    assert_eq!(room_marker(&state, "group-crash-pending-late"), None);
+    let app = http(&state);
+    for (ch, epoch) in [(enabled.as_str(), 3), (late, 1)] {
+        let revision = current_revision(&app, &state, a, ch).await;
+        let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":ch,"content":envelope(ch, epoch, &revision, &da)})).await;
+        assert_eq!(status, StatusCode::OK, "registry ahead refused in {ch}: {body}");
+        let (status, body) = request(&app, Method::POST, "/messages", &bearer(&state, a), json!({"channel_id":ch,"content":"plaintext"})).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!body.to_string().contains("e2ee_state.json"), "{body}");
+    }
+    let applied = state.wdb.engine().projection_state().applied_commit_seq();
+    drop(app);
+    drop(state);
+    // Once: a second start of the same directory writes no marker.
+    let state = open_server(older_config).await;
+    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), applied, "a second start committed again");
+    assert_eq!(room_marker(&state, &enabled), Some((Mode::Enabled, 3)));
+}
+
+/// A new DM through the real create path's order (marker, registry, channel).
+async fn pending_dm(state: &Arc<AppState>, a: u64, b: u64) -> String {
+    let mut members = vec![format!("user-{a}"), format!("user-{b}")];
+    members.sort();
+    let ch = format!("dm-{}", members.join("-"));
+    wabi_server::api::e2ee::mark_new_room_pending(state, &ch).await.unwrap();
+    state.wdb.create_dm_channel(&ch, "DM", Some(&members), a as i64).await.unwrap();
+    ch
+}
+
+async fn choose_readable(app: &Router, state: &AppState, uid: u64, ch: &str) -> StatusCode {
+    request(app, Method::POST, &format!("/e2ee/channels/{ch}/allow-server-readable"), &bearer(state, uid), Value::Null).await.0
+}
+
+async fn send_rest(app: &Router, state: &AppState, uid: u64, ch: &str, text: &str) -> (StatusCode, Value) {
+    request(app, Method::POST, "/messages", &bearer(state, uid), json!({"channel_id":ch,"content":text})).await
+}
+
+fn registry_consents(dir: &Path, ch: &str) -> Vec<i64> {
+    let registry: Value = serde_json::from_slice(&std::fs::read(registry_file(dir)).unwrap()).unwrap();
+    serde_json::from_value(registry["newRoomPolicies"][ch]["consentingUserIds"].clone()).unwrap_or_default()
+}
+
+/// Per-sender server-readable consent is durable too. A registry that lists
+/// a consenting sender the database does not record (an older copy from a
+/// previous period of a recreated DM, or a copy from another data directory)
+/// is not trusted for that sender: they are refused and their client is told
+/// to ask again. Consent from before a return to pending is not carried over.
+#[tokio::test]
+async fn server_readable_consent_from_an_older_or_foreign_registry_is_not_trusted() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let a = user(&state, "consent-a").await;
+    let b = user(&state, "consent-b").await;
+    let dm = pending_dm(&state, a, b).await;
+    for uid in [a, b] {
+        assert_eq!(choose_readable(&app, &state, uid, &dm).await, StatusCode::OK);
+    }
+    assert_eq!(send_rest(&app, &state, b, &dm, "b in the first period").await.0, StatusCode::OK);
+    let both_chose = std::fs::read(registry_file(dir.path())).unwrap();
+
+    // Delete and recreate: the same stable id starts pending again.
+    state.wdb.delete_channel(&dm, a).await.unwrap();
+    assert_eq!(pending_dm(&state, a, b).await, dm);
+    assert_eq!(room_marker(&state, &dm), Some((Mode::Pending, 0)));
+
+    // (S2b) The older copy restored while the DM is still pending: it is
+    // weaker than the marker, so everyone is refused; a's choice then starts
+    // a fresh consent set in the registry that does not carry b over.
+    let recreated = std::fs::read(registry_file(dir.path())).unwrap();
+    std::fs::write(registry_file(dir.path()), &both_chose).unwrap();
+    for uid in [a, b] {
+        let (status, body) = send_rest(&app, &state, uid, &dm, "while pending").await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    }
+    assert_eq!(choose_readable(&app, &state, a, &dm).await, StatusCode::OK);
+    assert_eq!(registry_consents(dir.path(), &dm), vec![a as i64], "consent carried over from the earlier period");
+    let (status, body) = send_rest(&app, &state, b, &dm, "b without choosing").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.to_string().contains("your own device"), "{body}");
+    let _ = recreated;
+
+    // Scenario A: the older backup (a and b chose) restored over a restart.
+    drop(app);
+    drop(state);
+    std::fs::write(registry_file(dir.path()), &both_chose).unwrap();
     let state = open_server(config).await;
     let app = http(&state);
-    let (_, status) = room_status(&app, &state, room.users[0], &room.ch).await;
-    // The room status no longer reports encryption: clients can see it.
-    assert_eq!(status["enabled"], false, "{status}");
-    let (status, _) = request(
-        &app,
-        Method::POST,
-        "/messages",
-        &bearer(&state, room.users[0]),
-        json!({"channel_id":room.ch,"content":"plaintext after registry loss"}),
-    )
-    .await;
-    // KNOWN GAP: accepted as server-readable. Invert with the follow-up fix.
-    assert_eq!(status, StatusCode::OK);
+    let (status, body) = send_rest(&app, &state, b, &dm, "b via the older backup").await;
+    assert_ne!(status, StatusCode::OK, "older consent trusted: {body}");
+    assert!(body.to_string().contains("your own device"), "{body}");
+    let (_, status) = room_status(&app, &state, b, &dm).await;
+    assert_eq!(status["serverReadableAllowedByMe"], false, "{status}");
+    let (_, status) = room_status(&app, &state, a, &dm).await;
+    assert_eq!(status["serverReadableAllowedByMe"], true, "{status}");
+    assert_eq!(send_rest(&app, &state, a, &dm, "a chose in this period").await.0, StatusCode::OK);
+
+    // Scenario B: a registry from elsewhere naming this room with more consent.
+    let mut foreign: Value = serde_json::from_slice(&std::fs::read(registry_file(dir.path())).unwrap()).unwrap();
+    foreign["newRoomPolicies"][&dm]["consentingUserIds"] = json!([a, b, 999]);
+    std::fs::write(registry_file(dir.path()), serde_json::to_vec(&foreign).unwrap()).unwrap();
+    let (status, body) = send_rest(&app, &state, b, &dm, "b via a foreign registry").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    // b's own choice is what admits b.
+    assert_eq!(choose_readable(&app, &state, b, &dm).await, StatusCode::OK);
+    assert_eq!(send_rest(&app, &state, b, &dm, "b chose").await.0, StatusCode::OK);
+}
+
+/// (S2a) An older registry from a room's server-readable period, restored
+/// after the room was encrypted, is weaker than the marker: refused, and the
+/// marker stays encrypted.
+#[tokio::test]
+async fn a_server_readable_registry_restored_over_an_encrypted_room_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let a = user(&state, "sr-enc-a").await;
+    let b = user(&state, "sr-enc-b").await;
+    let ch = pending_group(&state, "sr-enc", &[a, b]).await;
+    for uid in [a, b] {
+        assert_eq!(choose_readable(&app, &state, uid, &ch).await, StatusCode::OK);
+    }
+    let readable_period = std::fs::read(registry_file(dir.path())).unwrap();
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    drop(app);
+    drop(state);
+    std::fs::write(registry_file(dir.path()), &readable_period).unwrap();
+    let state = open_server(config).await;
+    let app = http(&state);
+    let (status, body) = send_rest(&app, &state, a, &ch, "plaintext via the readable-period registry").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_registry_reason("readable-period registry", &body);
+    assert_eq!(room_marker(&state, &ch), Some((Mode::Enabled, 1)));
+}
+
+/// (M2, R4) Valid JSON that holds invalid entries (an encrypted room at
+/// epoch 0, a 300-byte or empty key) does not stop startup and never becomes
+/// an encrypted marker; the existing conversations are pinned pending and
+/// keep refusing plaintext.
+#[tokio::test]
+async fn invalid_registry_entries_neither_stop_startup_nor_become_markers() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let a = user(&state, "invalid-a").await;
+    let b = user(&state, "invalid-b").await;
+    let mut rooms = vec![];
+    for id in ["epoch0", "longkey", "emptykey"] {
+        let ch = format!("group-invalid-{id}");
+        state.wdb.create_group(&ch, id, a, &[a, b]).await.unwrap();
+        rooms.push(ch);
+    }
+    drop(state);
+    let device = |uid: u64, key: &str| json!({"userId":uid,"deviceId":device_id(uid, 1),"label":null,"encryptionPublicKey":key,"signingPublicKey":opaque_key(),"createdAt":"","lastSeenAt":"","revokedAt":null});
+    let envelope_to = |uid: u64| json!({"recipientUserId":uid,"recipientDeviceId":device_id(uid, 1),"ephemeralPublicKey":opaque_key(),"salt":"c2FsdA","iv":"aXY","ciphertext":"w","senderDeviceId":device_id(a, 1),"signature":"c2ln"});
+    let room = |ch: &str, epoch: u64| json!({"channelId":ch,"enabled":true,"epoch":epoch,"membershipRevision":0,"enabledByUserId":a,"enabledAt":"","rekeyedAt":"","envelopes":[envelope_to(a), envelope_to(b)]});
+    let registry = json!({
+        "devices": [device(a, &"A".repeat(300)), device(b, "")],
+        "rooms": { &rooms[0]: room(&rooms[0], 0), &rooms[1]: room(&rooms[1], 1), &rooms[2]: room(&rooms[2], 2) },
+        "newRoomPolicies": {},
+    });
+    std::fs::write(registry_file(dir.path()), serde_json::to_vec(&registry).unwrap()).unwrap();
+    let state = open_server(config).await;
+    let app = http(&state);
+    for ch in &rooms {
+        // Pinned pending (the conversations exist), never encrypted at the
+        // entry's epoch.
+        assert_eq!(room_marker(&state, ch), Some((Mode::Pending, 0)), "{ch}: invalid entry became a marker");
+        let (status, body) = send_rest(&app, &state, a, ch, "plaintext").await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{ch}: {body}");
+    }
+}
+
+/// (M6) After a lost registry a member who never comes back blocks the
+/// rekey ("Missing user IDs"); the group removes them and then rekeys.
+#[tokio::test]
+async fn a_member_who_never_returns_is_removed_and_the_room_rekeyed() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let room = encrypted_group(&app, &state, "never-returns", &["a", "b", "gone"]).await;
+    drop(app);
+    drop(state);
+    install_registry(dir.path(), None);
+    let state = open_server(config).await;
+    let app = http(&state);
+    let (a, b, gone) = (room.users[0], room.users[1], room.users[2]);
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let recipients = [(a, da.clone()), (b, db.clone())];
+    let (status, body) = set_room(&app, &state, (a, &da), &room.ch, 2, &recipients, true).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.to_string().contains("Missing user IDs"), "{body}");
+    state.wdb.remove_channel_member(&room.ch, gone).await.unwrap();
+    let (status, body) = set_room(&app, &state, (a, &da), &room.ch, 2, &recipients, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let revision = current_revision(&app, &state, a, &room.ch).await;
+    let (status, body) = send_rest(&app, &state, a, &room.ch, &envelope(&room.ch, 2, &revision, &da)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// An enable racing an upload completion: the completion's admission and its
+/// publication happen under one hold of the encryption-policy lock, so a
+/// plaintext upload is either published before the room's marker says
+/// encrypted, or refused. A watcher polls both; with admission released
+/// before hashing (the earlier code) it sees the room encrypted while the
+/// plaintext upload is still unpublished, and then published.
+#[tokio::test]
+async fn an_enable_racing_an_upload_completion_never_publishes_plaintext_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "race-a").await;
+    let b = user(&state, "race-b").await;
+    let ch = "group-upload-race".to_string();
+    state.wdb.create_group(&ch, "race", a, &[a, b]).await.unwrap();
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let auth = bearer(&state, a);
+    // Large enough that hashing it takes a while; sent in 1 MiB chunks.
+    const MIB: usize = 1024 * 1024;
+    let size = 48 * MIB;
+    let (status, init) = request(&app, Method::POST, "/upload/resumable/init", &auth,
+        json!({"fileName":"race-plan.txt","fileSize":size,"mimeType":"text/plain","channelId":ch})).await;
+    assert_eq!(status, StatusCode::OK, "{init}");
+    let upload_id = init["uploadId"].as_str().unwrap().to_string();
+    let upload_token = init["uploadToken"].as_str().unwrap().to_string();
+    let chunk = vec![b'r'; MIB];
+    for i in 0..48 {
+        let (status, body) = raw_request(&app, Method::PUT,
+            &format!("/upload/resumable/chunk?uploadId={upload_id}&offset={}", i * MIB), &auth,
+            &[("x-upload-token", upload_token.clone()), ("content-type", "application/octet-stream".into())],
+            chunk.clone()).await;
+        assert!(status.is_success(), "chunk {i}: {status} {body}");
+    }
+
+    // Published = the bytes are at their public path.
+    let final_path = Path::new(&state.config.uploads_dir).join(format!("{upload_id}.txt"));
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher = {
+        let (state, ch, done, final_path) = (state.clone(), ch.clone(), done.clone(), final_path.clone());
+        tokio::spawn(async move {
+            let mut encrypted_while_unpublished = false;
+            while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                let encrypted = room_marker(&state, &ch).is_some_and(|(mode, _)| mode == Mode::Enabled);
+                let published = final_path.exists();
+                encrypted_while_unpublished |= encrypted && !published;
+                tokio::task::yield_now().await;
+            }
+            encrypted_while_unpublished
+        })
+    };
+    let completion = {
+        let (app, auth) = (app.clone(), auth.clone());
+        let body = json!({"uploadId":upload_id,"uploadToken":upload_token});
+        tokio::spawn(async move { request(&app, Method::POST, "/upload/resumable/complete", &auth, body).await })
+    };
+    // Enable as soon as the completion has recorded the upload's name: it
+    // has been admitted by then, and the earlier code had not yet hashed.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while state.upload_registry.by_channel(&ch).await.is_empty() && !completion.is_finished() {
+        assert!(tokio::time::Instant::now() < deadline, "completion never recorded the upload");
+        tokio::task::yield_now().await;
+    }
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (completed, completion_body) = completion.await.unwrap();
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let encrypted_while_unpublished = watcher.await.unwrap();
+    let published = final_path.exists();
+    if completed.is_success() {
+        assert!(published);
+        assert!(!encrypted_while_unpublished, "a plaintext upload was published after the room became encrypted");
+    } else {
+        assert_eq!(completed, StatusCode::FORBIDDEN, "{completion_body}");
+        assert!(!published, "a refused completion published its bytes");
+    }
+}
+
+/// Init and chunk an upload into `ch` without completing it.
+async fn staged_upload(app: &Router, auth: &str, ch: &str, name: &str, mime: &str, bytes: &[u8]) -> (String, String) {
+    let (status, init) = request(app, Method::POST, "/upload/resumable/init", auth,
+        json!({"fileName":name,"fileSize":bytes.len(),"mimeType":mime,"channelId":ch})).await;
+    assert_eq!(status, StatusCode::OK, "{init}");
+    let id = init["uploadId"].as_str().unwrap().to_string();
+    let token = init["uploadToken"].as_str().unwrap().to_string();
+    for (i, chunk) in bytes.chunks(1024 * 1024).enumerate() {
+        let (status, body) = raw_request(app, Method::PUT, &format!("/upload/resumable/chunk?uploadId={id}&offset={}", i * 1024 * 1024), auth,
+            &[("x-upload-token", token.clone()), ("content-type", "application/octet-stream".into())], chunk.to_vec()).await;
+        assert!(status.is_success(), "chunk: {status} {body}");
+    }
+    (id, token)
+}
+
+/// A plaintext upload started while the room was readable and completed
+/// after it became encrypted is refused: nothing is recorded or published,
+/// and the staged plaintext and its session are removed. The refusal comes
+/// before the expensive checks (a staged playlist is refused for the room,
+/// not for being a playlist).
+#[tokio::test]
+async fn an_upload_completed_after_its_room_became_encrypted_is_refused_and_discarded() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "late-complete-a").await;
+    let b = user(&state, "late-complete-b").await;
+    let ch = "group-late-complete".to_string();
+    state.wdb.create_group(&ch, "late", a, &[a, b]).await.unwrap();
+    let auth = bearer(&state, a);
+    let m = format!("STAGED-{}", uuid::Uuid::new_v4().simple());
+    let plain = staged_upload(&app, &auth, &ch, "plan.txt", "text/plain", format!("{m} plaintext bytes").as_bytes()).await;
+    let playlist = staged_upload(&app, &auth, &ch, "clip.mp4", "video/mp4", format!("#EXTM3U\n{m}.ts\n").as_bytes()).await;
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for (id, token) in [&plain, &playlist] {
+        let (status, body) = request(&app, Method::POST, "/upload/resumable/complete", &auth, json!({"uploadId":id,"uploadToken":token})).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!body.to_string().contains("EXTM3U"), "refused for the playlist, not the room: {body}");
+        assert_policy_reason("late completion", &body);
+        // The session is gone: a retry fails without redoing any work. (The
+        // existing "session not found" error is answered as a 500.)
+        let (status, body) = request(&app, Method::POST, "/upload/resumable/complete", &auth, json!({"uploadId":id,"uploadToken":token})).await;
+        assert!(!status.is_success(), "{status} {body}");
+    }
+    assert!(state.upload_registry.by_channel(&ch).await.is_empty(), "a refused upload was recorded");
+    let left = files_containing(Path::new(&state.config.uploads_dir), &m);
+    assert!(left.is_empty(), "refused plaintext left on disk: {left:?}");
+}
+
+/// The encryption-policy lock is held from the moment the upload's name is
+/// recorded until its bytes are renamed into place. A watcher tries the lock
+/// whenever it sees the name recorded but the file not yet published.
+#[tokio::test]
+async fn the_policy_lock_is_held_from_recording_an_upload_to_publishing_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "lock-hold-a").await;
+    let b = user(&state, "lock-hold-b").await;
+    let ch = "group-lock-hold".to_string();
+    state.wdb.create_group(&ch, "lock", a, &[a, b]).await.unwrap();
+    let auth = bearer(&state, a);
+    let (mut observed, mut violations) = (0usize, 0usize);
+    for round in 0..8 {
+        let (id, token) = staged_upload(&app, &auth, &ch, "notes.txt", "text/plain", &vec![b'n'; 256 * 1024]).await;
+        let final_path = Path::new(&state.config.uploads_dir).join(format!("{id}.txt"));
+        let name = format!("{id}.txt");
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let watcher = {
+            let (state, done, final_path, name) = (state.clone(), done.clone(), final_path.clone(), name.clone());
+            tokio::spawn(async move {
+                let (mut seen, mut free) = (0usize, 0usize);
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    if state.upload_registry.get(&name).await.is_some() && !final_path.exists() {
+                        seen += 1;
+                        if state.retention_policy_lock.try_lock().is_ok() {
+                            free += 1;
+                        }
+                    }
+                    tokio::task::yield_now().await;
+                }
+                (seen, free)
+            })
+        };
+        let (status, body) = request(&app, Method::POST, "/upload/resumable/complete", &auth, json!({"uploadId":id,"uploadToken":token})).await;
+        assert_eq!(status, StatusCode::OK, "round {round}: {body}");
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let (seen, free) = watcher.await.unwrap();
+        observed += seen;
+        violations += free;
+    }
+    assert!(observed > 0, "the watcher never saw a recorded, unpublished upload");
+    assert_eq!(violations, 0, "the policy lock was free between recording and publishing ({violations} of {observed})");
+}
+
+/// History reports a room's messages by the server's decision: a readable
+/// message from before the room was encrypted stays not encrypted, the
+/// envelope after it is encrypted, and prefixed text that is not an envelope
+/// is not encrypted, on REST history, join history and load-history alike.
+#[tokio::test]
+async fn history_reports_readable_messages_from_before_encryption_as_not_encrypted() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let a = user(&state, "hist-shape-a").await;
+    let b = user(&state, "hist-shape-b").await;
+    let ch = "group-hist-shape".to_string();
+    state.wdb.create_group(&ch, "hist", a, &[a, b]).await.unwrap();
+    // Stored directly so that no session cache entry answers for it.
+    state.wdb.send_message(&ch, a, "readable before encryption", false, &[]).await.unwrap();
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let revision = current_revision(&app, &state, a, &ch).await;
+    let real = envelope(&ch, 1, &revision, &da);
+    state.wdb.send_message(&ch, a, &real, false, &[]).await.unwrap();
+    // Prefixed but not an envelope (stored directly, as an older build could
+    // have): not encrypted, even in an encrypted room.
+    state.wdb.send_message(&ch, a, &format!("{PREFIX}readable text behind the prefix"), false, &[]).await.unwrap();
+    let check = |path: &str, list: &[Value]| {
+        assert_eq!(list.len(), 3, "{path}: {list:?}");
+        for m in list {
+            let text = m["text"].as_str().or(m["content"].as_str()).unwrap_or_default();
+            assert_eq!(m["encrypted"], text == real, "{path}: {m}");
+        }
+    };
+    let (_, listed) = request(&app, Method::GET, &format!("/messages/{ch}"), &bearer(&state, b), Value::Null).await;
+    check("REST history", listed["messages"].as_array().unwrap());
+    let mut sio = Client::connect(&app, &token(&state, b)).await;
+    sio.emit("join-channel", json!(ch)).await;
+    let joined = sio.event("channel-messages").await;
+    check("join history", joined["messages"].as_array().unwrap());
+    sio.emit("load-history", json!({"channelId":ch,"limit":50})).await;
+    let loaded = sio.event("history-loaded").await;
+    check("load-history", loaded["messages"].as_array().unwrap());
+}
+
+/// "encrypted" on a relayed or listed message is the server's decision, not
+/// the sender's claim. A plaintext message sent with `encrypted: true` (and an
+/// `iv`) in a public channel is relayed, cached and listed as not encrypted;
+/// a valid envelope in an encrypted room is relayed as encrypted.
+#[tokio::test]
+async fn the_encrypted_flag_comes_from_the_server_not_the_sender() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let a = user(&state, "flag-a").await;
+    let b = user(&state, "flag-b").await;
+    let public = state.wdb.create_channel("flag-public", wabidb::domain::ChannelKind::Text, a, false).await.unwrap();
+    for uid in [a, b] {
+        state.wdb.add_channel_member(&public, uid, MemberRole::Member).await.unwrap();
+    }
+    let mut sio_a = Client::connect(&app, &token(&state, a)).await;
+    let mut sio_b = Client::connect(&app, &token(&state, b)).await;
+    sio_b.emit("join-channel", json!(public)).await;
+    sio_b.event("channel-messages").await;
+    let (event, body) = sio_a
+        .send(json!({"channelId":public,"clientMessageId":"claims-encrypted","text":"ordinary text","encrypted":true,"iv":"AAAAAAAAAAAAAAAA"}))
+        .await;
+    assert_eq!(event, "message-accepted", "{body}");
+    let relayed = sio_b.event("message").await;
+    assert_eq!(relayed["message"]["text"], "ordinary text", "{relayed}");
+    assert_eq!(relayed["message"]["encrypted"], false, "relayed with the sender's claim: {relayed}");
+    assert!(relayed["message"].get("iv").is_none_or(Value::is_null), "relayed the sender's iv: {relayed}");
+    let cached = serde_json::to_value(state.session_messages.read().await.get(&public)).unwrap();
+    assert_eq!(cached[0]["encrypted"], false, "{cached}");
+    let (status, listed) = request(&app, Method::GET, &format!("/messages/{public}"), &bearer(&state, b), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let listed = listed["messages"].as_array().cloned().unwrap_or_default();
+    assert!(listed.iter().all(|m| m["encrypted"] == false), "{listed:?}");
+
+    // A bot cannot post envelope-prefixed text: it is refused, as for people.
+    let bot = user(&state, "flag-bot").await;
+    let (bot_token, _) = state.bot_registry.create(bot).await.unwrap();
+    state.wdb.add_channel_member(&public, bot, MemberRole::Member).await.unwrap();
+    let fake = format!("{PREFIX}not an envelope at all, just readable text");
+    let (status, body) = request(&app, Method::POST, "/bot/send-message", &format!("Bot {bot_token}"), json!({"channel_id":public,"content":fake})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    // Prefixed text that reached storage anyway (an older build, a direct
+    // write), even a well-formed envelope, is listed as not encrypted
+    // outside an encrypted room: history follows the room, not the prefix.
+    let shaped = envelope(&public, 1, "1", "device-x-1");
+    for content in [fake.as_str(), shaped.as_str()] {
+        state.wdb.send_message(&public, a, content, false, &[]).await.unwrap();
+    }
+    let (_, listed) = request(&app, Method::GET, &format!("/messages/{public}"), &bearer(&state, b), Value::Null).await;
+    let listed = listed["messages"].as_array().cloned().unwrap_or_default();
+    assert_eq!(listed.len(), 3, "{listed:?}");
+    assert!(listed.iter().all(|m| m["encrypted"] == false), "REST history: {listed:?}");
+    let mut sio_late = Client::connect(&app, &token(&state, b)).await;
+    sio_late.emit("join-channel", json!(public)).await;
+    let history = sio_late.event("channel-messages").await;
+    let history = history["messages"].as_array().cloned().unwrap_or_default();
+    assert!(!history.is_empty(), "socket history empty");
+    assert!(history.iter().all(|m| m["encrypted"] != true), "socket history: {history:?}");
+    sio_late.emit("load-history", json!({"channelId":public,"limit":50})).await;
+    let older = sio_late.event_one_of(&["history-loaded", "history-error"]).await;
+    assert_eq!(older.0, "history-loaded", "{older:?}");
+    let older = older.1["messages"].as_array().cloned().unwrap_or_default();
+    assert_eq!(older.len(), 3, "{older:?}");
+    assert!(older.iter().all(|m| m["encrypted"] == false), "load-history: {older:?}");
+
+    // The server's own positive decision is still reported.
+    let room = encrypted_group(&app, &state, "flag-room", &["c", "d"]).await;
+    let mut sio_c = Client::connect(&app, &token(&state, room.users[0])).await;
+    let mut sio_d = Client::connect(&app, &token(&state, room.users[1])).await;
+    sio_d.emit("join-channel", json!(room.ch)).await;
+    sio_d.event("channel-messages").await;
+    let (event, body) = sio_c
+        .send(json!({"channelId":room.ch,"clientMessageId":"real","text":room.envelope(&app, &state, 0, 1).await,"encrypted":false}))
+        .await;
+    assert_eq!(event, "message-accepted", "{body}");
+    let relayed = sio_d.event("message").await;
+    assert_eq!(relayed["message"]["encrypted"], true, "{relayed}");
+    let (_, listed) = request(&app, Method::GET, &format!("/messages/{}", room.ch), &bearer(&state, room.users[1]), Value::Null).await;
+    let listed = listed["messages"].as_array().cloned().unwrap_or_default();
+    assert!(!listed.is_empty() && listed.iter().all(|m| m["encrypted"] == true), "{listed:?}");
 }
 
 // ---------------------------------------------------------------------------

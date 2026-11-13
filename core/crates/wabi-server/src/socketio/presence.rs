@@ -776,6 +776,7 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
             .filter_map(|message| message.get("id").and_then(Value::as_str)
                 .map(|id| (id.to_string(), message.clone())))
             .collect();
+        let room_encrypted = crate::api::e2ee::room_lists_ciphertext(&state.app, &channel_id).await;
         let mut name_by_id: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
         let distinct_ids: Vec<u64> = {
             let mut seen: std::collections::HashSet<u64> =
@@ -809,7 +810,7 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
                     "commitSeq": m.commit_seq,
                     "isDeleted": m.is_deleted,
                     "isSpoiler": m.is_spoiler,
-                    "encrypted": crate::api::e2ee::is_ciphertext(&m.content),
+                    "encrypted": room_encrypted && crate::api::e2ee::is_envelope_shaped(&m.content),
                     "files": m.files.iter().map(|f| json!({
                         "fileUrl": f.file_url, "fileName": f.file_name, "fileSize": f.file_size,
                     })).collect::<Vec<_>>(),

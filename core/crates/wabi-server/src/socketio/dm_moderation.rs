@@ -84,7 +84,7 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
     // Register the encrypted-by-default boundary before the new channel can
     // accept messages. Reopening an older DM preserves its existing policy.
     if !existing {
-        if let Err(error) = crate::api::e2ee::mark_new_room_pending(&state.app.config.data_dir, &channel_id) {
+        if let Err(error) = crate::api::e2ee::mark_new_room_pending(&state.app, &channel_id).await {
             warn!("[e2ee] failed to prepare new DM {}: {}", channel_id, error);
             let _ = socket.emit("dm-error", &json!({ "error": "Could not prepare private conversation", "channelId": channel_id }));
             return;

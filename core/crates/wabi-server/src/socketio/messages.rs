@@ -254,7 +254,10 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
             "id": message_id.clone(), "user": username, "userId": stable_id.clone(), "senderStableId": stable_id,
             "color": color, "text": text, "timestamp": timestamp, "bornAt": timestamp,
             "type": cmd.get("type").and_then(|v| v.as_str()).unwrap_or("text"),
-            "clientMessageId": client_message_id.clone(), "encrypted": cmd.get("encrypted"), "iv": cmd.get("iv"),
+            // `encrypted` is the server's decision (validate_outbound_message),
+            // never the client's claim: a sender must not be able to make an
+            // ordinary message look encrypted to its recipients.
+            "clientMessageId": client_message_id.clone(), "encrypted": false,
             "isSpoiler": is_spoiler, "replyTo": cmd.get("replyTo"), "gifUrl": cmd.get("gifUrl"),
             "emojiUrl": cmd.get("emojiUrl"), "emojiName": cmd.get("emojiName"), "fileUrl": cmd.get("fileUrl"),
             "fileName": cmd.get("fileName"), "fileSize": cmd.get("fileSize"), "files": cmd.get("files"),
@@ -405,6 +408,7 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
             .filter_map(|message| message.get("id").and_then(Value::as_str)
                 .map(|id| (id.to_string(), message.clone())))
             .collect();
+        let room_encrypted = crate::api::e2ee::room_lists_ciphertext(&state.app, &channel_id).await;
         let mut name_by_id: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
         let distinct_ids: Vec<u64> = {
             let seen: std::collections::HashSet<u64> = typed_msgs.iter().map(|m| m.author_user_id).collect();
@@ -417,7 +421,7 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
             if let Some(cached) = cache_by_id.get(&m.message_id) { return cached.clone(); }
             let uname = m.author_username.clone().filter(|s| !s.is_empty())
                 .or_else(|| name_by_id.get(&m.author_user_id).cloned()).unwrap_or_default();
-            let encrypted = crate::api::e2ee::is_ciphertext(&m.content);
+            let encrypted = room_encrypted && crate::api::e2ee::is_envelope_shaped(&m.content);
             json!({
                 "id": m.message_id, "userId": format!("user-{}", m.author_user_id), "user": uname,
                 "timestamp": m.created_at_micros / 1000, "text": m.content, "type": m.message_type,

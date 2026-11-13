@@ -1,0 +1,423 @@
+//! Durable per-room marker for the experimental conversation encryption.
+//!
+//! The server's encryption registry (`e2ee_state.json`, a JSON sidecar beside
+//! the data directory) holds device public keys and wrapped room keys. It is
+//! the only place those live. This projection holds one small record per
+//! conversation saying which encryption state the room has reached (waiting
+//! for encryption, server-readable chosen by a participant, or encrypted at a
+//! key epoch), so that the database itself knows when a restored or missing
+//! registry is behind it. The server writes the marker before the registry
+//! entry and refuses readable content when the registry does not cover it.
+//!
+//! The record holds no key material and no message content.
+//!
+//! Merging is monotonic in the one direction that matters: once a room is
+//! `Enabled`, no later event moves it back to `Pending` or `ServerReadable`,
+//! and its epoch never decreases. `Pending` and `ServerReadable` may replace
+//! each other (a participant's explicit server-readable choice, and a
+//! recreated conversation that starts pending again).
+
+use crate::{
+    engine::locks::ProjectionState,
+    error::{Result, WabiError},
+    format::versioned::{self, RecordFormat},
+    projections::handler::{DurableEvent, Projection},
+};
+use serde::{Deserialize, Serialize};
+
+pub const INDEX: &str = "room_encryption";
+pub const EVENT: &str = "room_encryption_marked";
+pub const STREAM: &str = "room-encryption:v1";
+/// Upper bound on a conversation id in a marker; channel ids are far shorter.
+const MAX_CHANNEL_ID: usize = 256;
+
+/// Versioned durable layout of [`RoomEncryptionRecord`]; see `format::versioned`.
+/// There was never an unversioned form of this record.
+const FORMAT: RecordFormat = RecordFormat::new(*b"RENC", "room encryption marker");
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoomEncryptionMode {
+    /// A new conversation waiting for participants' devices. No readable
+    /// content until encryption is enabled or a sender chooses server-readable.
+    Pending,
+    /// A participant explicitly chose server-readable messages in a new
+    /// conversation. Each sender still has to choose it for themselves.
+    ServerReadable,
+    /// Experimental encryption is enabled at `epoch` (at least 1).
+    Enabled,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomEncryptionRecord {
+    pub channel_id: String,
+    pub mode: RoomEncryptionMode,
+    /// The room-key epoch for `Enabled`; 0 otherwise.
+    pub epoch: u64,
+    /// For `ServerReadable` only: the members who chose server-readable
+    /// messages on their own device during the current server-readable
+    /// period, sorted and unique. Empty in every other mode. A registry that
+    /// lists a sender this set does not is not trusted for that sender.
+    pub consenting_user_ids: Vec<u64>,
+}
+
+/// Upper bound on the consents recorded for one server-readable period. A
+/// group has at most 256 members at a time; members can come and go during a
+/// period, so the bound is four times that. A choice that would pass it is
+/// refused before it is durable (`preflight`), never stored.
+pub const MAX_CONSENTS: usize = 1024;
+
+impl RoomEncryptionRecord {
+    pub fn valid(&self) -> bool {
+        !self.channel_id.is_empty()
+            && self.channel_id.len() <= MAX_CHANNEL_ID
+            && match self.mode {
+                RoomEncryptionMode::Enabled => self.epoch >= 1,
+                _ => self.epoch == 0,
+            }
+            && (self.mode == RoomEncryptionMode::ServerReadable || self.consenting_user_ids.is_empty())
+            && self.consenting_user_ids.len() <= MAX_CONSENTS
+            && self.consenting_user_ids.iter().all(|id| *id > 0)
+            && self.consenting_user_ids.windows(2).all(|w| w[0] < w[1])
+    }
+
+    /// The record that results from applying `next` on top of `self`.
+    /// Never leaves `Enabled`, never lowers an epoch. Within one
+    /// server-readable period consent only accumulates; a return to
+    /// `Pending` ends the period and its consent.
+    pub fn merged(&self, next: &RoomEncryptionRecord) -> RoomEncryptionRecord {
+        use RoomEncryptionMode::*;
+        match (self.mode, next.mode) {
+            (Enabled, Enabled) => RoomEncryptionRecord { epoch: self.epoch.max(next.epoch), ..self.clone() },
+            (Enabled, _) => self.clone(),
+            (ServerReadable, ServerReadable) => {
+                let mut ids: Vec<u64> = self.consenting_user_ids.iter().chain(&next.consenting_user_ids).copied().collect();
+                ids.sort_unstable();
+                ids.dedup();
+                RoomEncryptionRecord { consenting_user_ids: ids, ..self.clone() }
+            }
+            _ => next.clone(),
+        }
+    }
+
+    /// Whether committing `next` could change nothing but move the marker
+    /// down: out of `Enabled`, or to a lower epoch. The engine refuses such
+    /// an event before it is durable.
+    pub fn would_downgrade(&self, next: &RoomEncryptionRecord) -> bool {
+        self.mode == RoomEncryptionMode::Enabled
+            && (next.mode != RoomEncryptionMode::Enabled || next.epoch < self.epoch)
+    }
+}
+
+fn corrupt(detail: String) -> WabiError {
+    WabiError::Corrupt { location: FORMAT.location.into(), detail }
+}
+
+pub fn encode_record(record: &RoomEncryptionRecord) -> Vec<u8> {
+    versioned::encode_v1(&FORMAT, record)
+}
+
+pub fn decode_record(bytes: &[u8]) -> Result<RoomEncryptionRecord> {
+    let record: RoomEncryptionRecord = versioned::decode(
+        &FORMAT,
+        bytes,
+        |version, body| (version == 1).then(|| versioned::payload(&FORMAT, body)),
+        |_| Err(corrupt("room encryption marker without a version header".into())),
+    )?;
+    if !record.valid() {
+        return Err(corrupt("invalid room encryption marker".into()));
+    }
+    Ok(record)
+}
+
+/// The marker the database holds for `channel_id`, if any.
+pub fn get(state: &ProjectionState, channel_id: &str) -> Result<Option<RoomEncryptionRecord>> {
+    match state.get(INDEX, channel_id.as_bytes()) {
+        None => Ok(None),
+        Some(bytes) => {
+            let record = decode_record(&bytes)?;
+            if record.channel_id != channel_id {
+                return Err(corrupt("room encryption marker stored under another key".into()));
+            }
+            Ok(Some(record))
+        }
+    }
+}
+
+/// Refuse an invalid marker command before it is durable: one marker event,
+/// alone in its command, on its stream, decodable and valid, and never a move
+/// out of `Enabled` or to a lower epoch. Marker commands are isolated in the
+/// sequencer (`has_room_control_event`), so `state` holds every earlier commit.
+pub(crate) fn preflight(events: &[crate::sequencer::types::EventToWrite], state: &ProjectionState) -> Result<()> {
+    let bad = |reason: &str| WabiError::Validation { command: EVENT.into(), reason: reason.into() };
+    if !events.iter().any(|e| e.event_type == EVENT) {
+        return Ok(());
+    }
+    if events.len() != 1 {
+        return Err(bad("a room encryption marker must be a separate command"));
+    }
+    let event = &events[0];
+    if event.stream_id != STREAM || event.stream_kind != 6 || event.record_kind != crate::format::record::RecordKind::Event {
+        return Err(bad("invalid room encryption marker stream or record kind"));
+    }
+    let next = decode_record(&event.plaintext).map_err(|_| bad("invalid room encryption marker"))?;
+    if let Some(current) = get(state, &next.channel_id).map_err(|_| bad("stored room encryption marker unreadable"))? {
+        if current.would_downgrade(&next) {
+            return Err(bad("a room encryption marker never moves out of Enabled or to a lower epoch"));
+        }
+        // What the projection would store must itself be valid, or the room
+        // (and the next startup) could not read its marker again.
+        if !current.merged(&next).valid() {
+            return Err(bad("the merged room encryption marker would be invalid (too many server-readable choices)"));
+        }
+    }
+    Ok(())
+}
+
+pub struct RoomEncryptionProjection;
+
+impl Projection for RoomEncryptionProjection {
+    fn event_type(&self) -> &str {
+        EVENT
+    }
+
+    fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        if event.stream_id != STREAM {
+            return Err(WabiError::Corrupt {
+                location: INDEX.into(),
+                detail: "room encryption marker has wrong stream".into(),
+            });
+        }
+        let next = decode_record(&event.payload)?;
+        let merged = match get(state, &next.channel_id)? {
+            Some(existing) => existing.merged(&next),
+            None => next,
+        };
+        state.insert(
+            INDEX,
+            merged.channel_id.as_bytes().to_vec(),
+            encode_record(&merged),
+            event.commit_seq,
+        );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(mode: RoomEncryptionMode, epoch: u64) -> RoomEncryptionRecord {
+        RoomEncryptionRecord { channel_id: "dm_1_2".into(), mode, epoch, consenting_user_ids: vec![] }
+    }
+
+    fn readable(ids: &[u64]) -> RoomEncryptionRecord {
+        RoomEncryptionRecord { consenting_user_ids: ids.to_vec(), ..record(RoomEncryptionMode::ServerReadable, 0) }
+    }
+
+    fn event(seq: u64, r: &RoomEncryptionRecord) -> DurableEvent {
+        DurableEvent {
+            commit_seq: seq,
+            stream_id: STREAM.into(),
+            event_type: EVENT.into(),
+            payload: encode_record(r),
+        }
+    }
+
+    /// Golden bytes of version 1, the only layout. Captured from the encoder
+    /// before this record reached `main`; stored markers look like this, so
+    /// never regenerate these literals: a change needs a version 2.
+    #[test]
+    fn golden_version_1_bytes() {
+        let enabled = RoomEncryptionRecord {
+            channel_id: "group-ü".into(),
+            mode: RoomEncryptionMode::Enabled,
+            epoch: 300,
+            consenting_user_ids: vec![],
+        };
+        let golden = "ffffffffffffffffffff52454e43010867726f75702dc3bc02ac0200";
+        assert_eq!(hex::encode(encode_record(&enabled)), golden);
+        assert_eq!(decode_record(&hex::decode(golden).unwrap()).unwrap(), enabled);
+        let readable = RoomEncryptionRecord {
+            channel_id: "dm_3_7".into(),
+            mode: RoomEncryptionMode::ServerReadable,
+            epoch: 0,
+            consenting_user_ids: vec![3, 300],
+        };
+        let golden = "ffffffffffffffffffff52454e430106646d5f335f3701000203ac02";
+        assert_eq!(hex::encode(encode_record(&readable)), golden);
+        assert_eq!(decode_record(&hex::decode(golden).unwrap()).unwrap(), readable);
+    }
+
+    #[test]
+    fn unversioned_unknown_version_and_invalid_records_are_refused() {
+        let bytes = encode_record(&record(RoomEncryptionMode::Pending, 0));
+        assert!(decode_record(&bytes[versioned::HEADER_LEN..]).is_err(), "no legacy form");
+        let mut v2 = bytes.clone();
+        v2[versioned::HEADER_LEN - 1] = 2;
+        assert!(decode_record(&v2).is_err());
+        for bad in [
+            record(RoomEncryptionMode::Enabled, 0),
+            record(RoomEncryptionMode::Pending, 3),
+            RoomEncryptionRecord { channel_id: String::new(), ..record(RoomEncryptionMode::Pending, 0) },
+            RoomEncryptionRecord { channel_id: "x".repeat(257), ..record(RoomEncryptionMode::Pending, 0) },
+            RoomEncryptionRecord { consenting_user_ids: vec![1], ..record(RoomEncryptionMode::Pending, 0) },
+            readable(&[2, 1]),
+            readable(&[1, 1]),
+            readable(&[0]),
+        ] {
+            assert!(decode_record(&encode_record(&bad)).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn enabled_never_moves_back_and_epochs_never_decrease() {
+        let state = ProjectionState::new();
+        let p = RoomEncryptionProjection;
+        p.apply(&event(1, &record(RoomEncryptionMode::Pending, 0)), &state).unwrap();
+        p.apply(&event(2, &record(RoomEncryptionMode::ServerReadable, 0)), &state).unwrap();
+        assert_eq!(get(&state, "dm_1_2").unwrap().unwrap().mode, RoomEncryptionMode::ServerReadable);
+        // A recreated conversation starts pending again.
+        p.apply(&event(3, &record(RoomEncryptionMode::Pending, 0)), &state).unwrap();
+        assert_eq!(get(&state, "dm_1_2").unwrap().unwrap().mode, RoomEncryptionMode::Pending);
+        p.apply(&event(4, &record(RoomEncryptionMode::Enabled, 3)), &state).unwrap();
+        for (seq, r) in [
+            (5, record(RoomEncryptionMode::Pending, 0)),
+            (6, record(RoomEncryptionMode::ServerReadable, 0)),
+            (7, record(RoomEncryptionMode::Enabled, 2)),
+        ] {
+            p.apply(&event(seq, &r), &state).unwrap();
+            assert_eq!(get(&state, "dm_1_2").unwrap().unwrap(), record(RoomEncryptionMode::Enabled, 3));
+        }
+        p.apply(&event(8, &record(RoomEncryptionMode::Enabled, 4)), &state).unwrap();
+        assert_eq!(get(&state, "dm_1_2").unwrap().unwrap().epoch, 4);
+        assert!(get(&state, "other").unwrap().is_none());
+    }
+
+    #[test]
+    fn consent_accumulates_within_a_server_readable_period_and_resets_with_pending() {
+        let state = ProjectionState::new();
+        let p = RoomEncryptionProjection;
+        p.apply(&event(1, &record(RoomEncryptionMode::Pending, 0)), &state).unwrap();
+        p.apply(&event(2, &readable(&[5])), &state).unwrap();
+        p.apply(&event(3, &readable(&[2])), &state).unwrap();
+        assert_eq!(get(&state, "dm_1_2").unwrap().unwrap().consenting_user_ids, vec![2, 5]);
+        p.apply(&event(4, &record(RoomEncryptionMode::Pending, 0)), &state).unwrap();
+        p.apply(&event(5, &readable(&[2])), &state).unwrap();
+        assert_eq!(get(&state, "dm_1_2").unwrap().unwrap().consenting_user_ids, vec![2]);
+        p.apply(&event(6, &record(RoomEncryptionMode::Enabled, 1)), &state).unwrap();
+        assert_eq!(get(&state, "dm_1_2").unwrap().unwrap(), record(RoomEncryptionMode::Enabled, 1));
+    }
+
+    #[test]
+    fn preflight_refuses_invalid_and_downgrading_markers_before_durability() {
+        use crate::{format::record::RecordKind, sequencer::types::EventToWrite};
+        let state = ProjectionState::new();
+        let write = |r: &RoomEncryptionRecord| EventToWrite {
+            stream_id: STREAM.into(), stream_kind: 6, event_type: EVENT.into(),
+            record_kind: RecordKind::Event, plaintext: encode_record(r),
+        };
+        assert!(preflight(&[write(&record(RoomEncryptionMode::Pending, 0))], &state).is_ok());
+        let mut invalid = write(&record(RoomEncryptionMode::Pending, 0));
+        invalid.plaintext = encode_record(&record(RoomEncryptionMode::Enabled, 0));
+        assert!(preflight(&[invalid], &state).is_err(), "enabled at epoch 0");
+        let mut misrouted = write(&record(RoomEncryptionMode::Pending, 0));
+        misrouted.stream_id = "elsewhere".into();
+        assert!(preflight(&[misrouted], &state).is_err());
+        assert!(preflight(&[write(&record(RoomEncryptionMode::Pending, 0)), write(&readable(&[1]))], &state).is_err());
+        RoomEncryptionProjection.apply(&event(1, &record(RoomEncryptionMode::Enabled, 3)), &state).unwrap();
+        for down in [record(RoomEncryptionMode::Pending, 0), readable(&[1]), record(RoomEncryptionMode::Enabled, 2)] {
+            assert!(preflight(&[write(&down)], &state).is_err(), "{down:?}");
+        }
+        assert!(preflight(&[write(&record(RoomEncryptionMode::Enabled, 3))], &state).is_ok());
+        assert!(preflight(&[write(&record(RoomEncryptionMode::Enabled, 4))], &state).is_ok());
+    }
+
+    /// Through the real engine: the sequencer runs the preflight, so each bad
+    /// marker command is refused before it is durable, and the engine keeps
+    /// serving, also after a restart. Covers the consent overflow (a merge
+    /// past MAX_CONSENTS) and the wiring of `preflight` into the sequencer.
+    #[tokio::test]
+    async fn the_engine_refuses_bad_marker_commands_and_keeps_serving() {
+        use crate::{
+            crypto::bootstrap::BootstrapSource,
+            engine::{WabiDbConfig, WabiDbEngine},
+            format::record::RecordKind,
+            sequencer::types::{CommandCommit, EventToWrite},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let config = || {
+            let mut c = WabiDbConfig::new(dir.path().to_path_buf(), BootstrapSource::Provided([0x5A; 32]));
+            c.allow_init = true;
+            c
+        };
+        let write = |r: &RoomEncryptionRecord| EventToWrite {
+            stream_id: STREAM.into(), stream_kind: 6, event_type: EVENT.into(),
+            record_kind: RecordKind::Event, plaintext: encode_record(r),
+        };
+        async fn run(engine: &WabiDbEngine, events: Vec<EventToWrite>) -> Result<()> {
+            for e in &events {
+                engine.get_or_create_stream_key(&e.stream_id).await?;
+            }
+            engine.run_command(CommandCommit {
+                room_owner_precondition: None, caller_user_id: 1, caller_device_id: "primary".into(),
+                command_name: EVENT.into(), idempotency_key: None, essential: true,
+                response_tx: tokio::sync::oneshot::channel().0, events,
+            }).await.map(|_| ())
+        }
+        let engine = WabiDbEngine::open(config()).await.unwrap();
+        let room = |mode, epoch| RoomEncryptionRecord { channel_id: "dm_1_2".into(), mode, epoch, consenting_user_ids: vec![] };
+        let many = |range: std::ops::RangeInclusive<u64>| RoomEncryptionRecord {
+            channel_id: "group-full".into(), mode: RoomEncryptionMode::ServerReadable, epoch: 0,
+            consenting_user_ids: range.collect(),
+        };
+
+        // Consent up to the bound is stored; one more choice is refused.
+        run(&engine, vec![write(&many(1..=MAX_CONSENTS as u64))]).await.unwrap();
+        assert!(run(&engine, vec![write(&many(5000..=5000))]).await.is_err(), "overflowing merge admitted");
+        assert_eq!(get(engine.projection_state(), "group-full").unwrap().unwrap().consenting_user_ids.len(), MAX_CONSENTS);
+
+        run(&engine, vec![write(&room(RoomEncryptionMode::Enabled, 3))]).await.unwrap();
+        let applied = engine.projection_state().applied_commit_seq();
+        let mut wrong_stream = write(&room(RoomEncryptionMode::Enabled, 4));
+        wrong_stream.stream_id = "room-encryption:other".into();
+        let mut invalid = write(&room(RoomEncryptionMode::Enabled, 4));
+        invalid.plaintext = encode_record(&room(RoomEncryptionMode::Enabled, 0));
+        let mut beside = write(&room(RoomEncryptionMode::Enabled, 4));
+        beside.event_type = "emote_upserted".into();
+        let bad: Vec<(&str, Vec<EventToWrite>)> = vec![
+            ("downgrade to pending", vec![write(&room(RoomEncryptionMode::Pending, 0))]),
+            ("lower epoch", vec![write(&room(RoomEncryptionMode::Enabled, 2))]),
+            ("two markers", vec![write(&room(RoomEncryptionMode::Enabled, 4)), write(&room(RoomEncryptionMode::Enabled, 5))]),
+            ("marker beside another event", vec![write(&room(RoomEncryptionMode::Enabled, 4)), beside]),
+            ("wrong stream", vec![wrong_stream]),
+            ("invalid payload", vec![invalid]),
+        ];
+        for (name, events) in bad {
+            assert!(run(&engine, events).await.is_err(), "{name} was admitted");
+            assert_eq!(get(engine.projection_state(), "dm_1_2").unwrap().unwrap(), room(RoomEncryptionMode::Enabled, 3), "{name}");
+        }
+        assert_eq!(engine.projection_state().applied_commit_seq(), applied, "a refused command was committed");
+        // Still serving: a valid next epoch commits.
+        run(&engine, vec![write(&room(RoomEncryptionMode::Enabled, 4))]).await.unwrap();
+        drop(engine);
+
+        // And it restarts with every marker readable.
+        let engine = loop {
+            match WabiDbEngine::open(config()).await {
+                Ok(engine) => break engine,
+                Err(WabiError::AlreadyRunning) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+                Err(error) => panic!("restart: {error}"),
+            }
+        };
+        assert_eq!(get(engine.projection_state(), "dm_1_2").unwrap().unwrap(), room(RoomEncryptionMode::Enabled, 4));
+        assert_eq!(get(engine.projection_state(), "group-full").unwrap().unwrap().consenting_user_ids.len(), MAX_CONSENTS);
+    }
+
+    #[test]
+    fn wrong_stream_is_refused() {
+        let state = ProjectionState::new();
+        let mut e = event(1, &record(RoomEncryptionMode::Pending, 0));
+        e.stream_id = "elsewhere".into();
+        assert!(RoomEncryptionProjection.apply(&e, &state).is_err());
+    }
+}

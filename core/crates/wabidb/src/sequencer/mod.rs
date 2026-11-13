@@ -542,6 +542,13 @@ pub async fn run(
                 continue;
             }
 
+            if let Err(error) = crate::projections::room_encryption::preflight(
+                &command.events, &projection_state,
+            ) {
+                let _ = command.response_tx.send(Err(error));
+                continue;
+            }
+
             match prepare_command(
                 &key_registry,
                 &mut writers,
@@ -633,6 +640,7 @@ fn has_room_control_event(command: &CommandCommit) -> bool {
                 | "owner_claimed"
                 | crate::projections::auth_revocations::EVENT
                 | crate::projections::recovery_codes::EVENT
+                | crate::projections::room_encryption::EVENT
         )
     })
 }
