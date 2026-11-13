@@ -2028,6 +2028,9 @@ async fn bots_post_in_a_new_room_only_after_every_human_member_chose_server_read
 
     let (status, body) = post("bot while pending").await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "pending: {body}");
+    // The pending refusal itself, not only the every-member rule that would
+    // also refuse here (nobody has chosen server-readable yet).
+    assert!(body.to_string().contains("pending or enabled"), "pending: {body}");
     assert_eq!(consent(a).await, StatusCode::OK);
     let (status, body) = post("bot after one member chose").await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "b has not chosen server-readable: {body}");
