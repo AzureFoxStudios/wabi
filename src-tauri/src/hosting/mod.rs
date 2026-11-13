@@ -82,13 +82,24 @@ pub(crate) fn local_main_origin(label: &str, url: &url::Url, development: bool) 
 /// bridge. Every command that touches the disk, starts a process or opens something checks this
 /// itself (docs/audits/2026-11-hostile-server-audit.md, finding D1).
 pub(crate) fn bundled_origin(url: &url::Url, development: bool) -> bool {
+    bundled_origin_on(url, development, HTTP_SCHEME_PLATFORM)
+}
+
+/// Windows (WebView2) and Android serve the bundle as `http(s)://tauri.localhost`; Linux, macOS
+/// and iOS as `tauri://localhost`. Elsewhere `http://tauri.localhost` is an ordinary loopback
+/// name another local program could serve, so each form counts only where Tauri uses it.
+const HTTP_SCHEME_PLATFORM: bool = cfg!(any(windows, target_os = "android"));
+
+pub(crate) fn bundled_origin_on(url: &url::Url, development: bool, http_scheme_platform: bool) -> bool {
     if !url.username().is_empty() || url.password().is_some() {
         return false;
     }
     let packaged = url.port().is_none()
-        && ((url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-            || (matches!(url.scheme(), "http" | "https")
-                && url.host_str() == Some("tauri.localhost")));
+        && if http_scheme_platform {
+            matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost")
+        } else {
+            url.scheme() == "tauri" && url.host_str() == Some("localhost")
+        };
     let development = development
         && url.scheme() == "http"
         && url.host_str() == Some("localhost")
@@ -727,16 +738,17 @@ pub async fn shutdown(app: tauri::AppHandle) {
 mod tests {
     use super::local_main_origin;
 
+    const HTTP_FORMS: [&str; 2] = ["http://tauri.localhost/host", "https://tauri.localhost/host"];
+    const TAURI_FORM: &str = "tauri://localhost/host";
+
     #[test]
     fn native_controls_require_the_local_main_origin() {
-        for origin in [
-            "tauri://localhost/host",
-            "http://tauri.localhost/host",
-            "https://tauri.localhost/host",
-        ] {
+        // The form this build's platform uses is local; the main-window label is required.
+        let own: Vec<&str> = if super::HTTP_SCHEME_PLATFORM { HTTP_FORMS.to_vec() } else { vec![TAURI_FORM] };
+        for origin in own {
             let url = url::Url::parse(origin).unwrap();
-            assert!(local_main_origin("main", &url, false));
-            assert!(!local_main_origin("model-viewer", &url, true));
+            assert!(local_main_origin("main", &url, false), "{origin}");
+            assert!(!local_main_origin("model-viewer", &url, true), "{origin}");
         }
         for origin in [
             "https://example.com/host",
@@ -757,35 +769,39 @@ mod tests {
         assert!(!local_main_origin("main", &dev, false));
     }
 
-    // Hostile-server audit D1: a server page, wherever it loads, is never a bundled origin.
+    // Hostile-server audit D1/F2: a server page, wherever it loads, is never a bundled origin, and
+    // each platform accepts only the bundle form Tauri uses there.
     #[test]
     fn bundled_origin_accepts_only_the_app_frontend_in_any_window() {
-        use super::bundled_origin;
-        for origin in [
-            "tauri://localhost/",
-            "http://tauri.localhost/detached",
-            "https://tauri.localhost/chat",
-        ] {
-            assert!(bundled_origin(&url::Url::parse(origin).unwrap(), false), "{origin}");
+        use super::bundled_origin_on;
+        for http_platform in [false, true] {
+            for origin in HTTP_FORMS {
+                let url = url::Url::parse(origin).unwrap();
+                assert_eq!(bundled_origin_on(&url, false, http_platform), http_platform, "{origin} on http platform {http_platform}");
+            }
+            let tauri = url::Url::parse(TAURI_FORM).unwrap();
+            assert_eq!(bundled_origin_on(&tauri, false, http_platform), !http_platform, "tauri:// on http platform {http_platform}");
+            for origin in [
+                "https://wabi.example/",
+                "http://127.0.0.1:3001/",
+                "http://127.0.0.1:41234/",
+                "http://localhost/",
+                "http://localhost:5173/",
+                "https://tauri.localhost.wabi.example/",
+                "http://tauri.localhost:3001/",
+                "http://x@tauri.localhost/",
+                "tauri://evil/",
+                "tauri://x@localhost/",
+                "file:///tmp/index.html",
+                "data:text/html,hi",
+                "about:blank",
+                "blob:https://wabi.example/1",
+            ] {
+                assert!(!bundled_origin_on(&url::Url::parse(origin).unwrap(), false, http_platform), "{origin}");
+            }
+            let dev = url::Url::parse("http://localhost:5173/").unwrap();
+            assert!(bundled_origin_on(&dev, true, http_platform));
+            assert!(!bundled_origin_on(&dev, false, http_platform));
         }
-        for origin in [
-            "https://wabi.example/",
-            "http://127.0.0.1:3001/",
-            "http://127.0.0.1:41234/",
-            "http://localhost/",
-            "http://localhost:5173/",
-            "https://tauri.localhost.wabi.example/",
-            "http://tauri.localhost:3001/",
-            "http://x@tauri.localhost/",
-            "tauri://evil/",
-            "file:///tmp/index.html",
-            "data:text/html,hi",
-            "about:blank",
-        ] {
-            assert!(!bundled_origin(&url::Url::parse(origin).unwrap(), false), "{origin}");
-        }
-        let dev = url::Url::parse("http://localhost:5173/").unwrap();
-        assert!(bundled_origin(&dev, true));
-        assert!(!bundled_origin(&dev, false));
     }
 }

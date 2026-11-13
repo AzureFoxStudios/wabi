@@ -6,6 +6,8 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         desktop::show_main(app);
     }));
+    // First plugin after single-instance: no window may leave the bundled pages.
+    let builder = builder.plugin(navigation_guard::init());
     let builder = builder
         .manage(tailcat::TailcatState::default())
         .manage(hosting::HostState::default())
@@ -109,7 +111,7 @@ pub fn run() {
                         tauri::async_runtime::spawn(async move {
                             hosting::shutdown(app.clone()).await;
                             use tauri::Manager;
-                            if let Err(error) = tailcat::tailcat_disconnect(app.state()).await {
+                            if let Err(error) = tailcat::disconnect(app.state()).await {
                                 log::warn!("Tailcat shutdown failed: {error}");
                             }
                             EXIT.store(2, Ordering::SeqCst);
@@ -122,6 +124,7 @@ pub fn run() {
 }
 
 mod commands;
+mod navigation_guard;
 #[cfg(not(mobile))]
 mod desktop;
 #[cfg(not(mobile))]

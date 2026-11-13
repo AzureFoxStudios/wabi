@@ -34,7 +34,8 @@ fn trusted(window: &WebviewWindow)->Result<(),String> {
     let label=window.label();
     if label!="main" && !(label.starts_with("detached-") && current.path()=="/detached") { return Err("Native export is restricted to Wabi workspace windows.".into()); }
     if !current.username().is_empty() || current.password().is_some() { return Err("Remote content cannot use native workspace export.".into()); }
-    let bundled = current.port().is_none() && ((current.scheme()=="tauri" && current.host_str()==Some("localhost")) || (["http","https"].contains(&current.scheme()) && current.host_str()==Some("tauri.localhost")));
+    // The same per-platform bundle check as every other native command (hosting::bundled_origin).
+    let bundled = crate::hosting::bundled_origin(&current, false);
     // Development privileges match ONLY the configured dev-server origin and
     // are not compiled into a release's network-origin allowlist.
     #[cfg(debug_assertions)]

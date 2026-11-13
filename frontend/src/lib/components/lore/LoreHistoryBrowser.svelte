@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import { getLoreFileHistory, getLoreFileDiff, getSignedLoreUrl, type LoreRevision, type LoreFileInfo } from '$lib/api/lore';
+	import { saveSignedLoreFile } from '$lib/lore/linkSafety';
 	import { newestFirst, revisionSummary, formatRevisionTime, previewKind, SelectionEpoch } from '$lib/lore/workspacePresentation';
 	import LoreDiffViewer from './LoreDiffViewer.svelte';
 	import LoreImageCompare from './LoreImageCompare.svelte';
@@ -68,7 +69,7 @@
 		try {
 			const url = await getSignedLoreUrl(getToken(), channelId, requestedPath, revision);
 			if (!isActive() || path.trim() !== requestedPath) return;
-			const anchor = document.createElement('a'); anchor.href = url; anchor.download = requestedPath.split('/').pop() ?? 'revision'; anchor.rel = 'noopener'; anchor.click();
+			await saveSignedLoreFile(url, requestedPath.split('/').pop() ?? 'revision');
 		} catch (e) { if (isActive()) error = e instanceof Error ? e.message : 'Download failed.'; }
 	}
 </script>

@@ -107,12 +107,19 @@ test('every registered native command checks that the caller is the bundled fron
 	// Commands that may run from any page: they read nothing private and change nothing.
 	const harmless = new Map([
 		['greet', 'returns a greeting string'],
-		['get_platform', 'returns the OS name'],
-		['tailcat_status', 'reports whether the tunnel runs and its local ports'],
-		['tailcat_disconnect', 'stops the tunnel; also called by the app on quit']
+		['get_platform', 'returns the OS name']
 	]);
-	// A body counts as guarded if it calls one of the origin checks (directly or via grant()).
-	const GUARDS = /require_bundled_window\(|hosting::authorize\(|(?<![a-z_])authorize\(&window\)|local_main_origin\(|trusted\(&window\)|grant\(&state, &window/;
+	// A body counts as guarded only if an origin check is an uncommented statement whose result is
+	// used: `…?;` (or the explicit `if !local_main_origin(…) { return Err`). Discarding the result
+	// (`let _ = require_bundled_window(…)`) or commenting it out does not count.
+	const GUARDS = [
+		/^\s*(?:crate::hosting::)?(?:require_bundled_window|authorize)\(&window\)\?;/m,
+		/^\s*trusted\(&window\)\?;/m,
+		/^\s*(?:let g = )?grant\(&state, &window, &handle\)[^\n]*\?;/m,
+		/^\s*if !crate::hosting::local_main_origin\(window\.label\(\), &url, cfg!\(debug_assertions\)\) \{\s*return Err/m
+	];
+	const uncomment = (body) => body.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+	const guarded = (body) => GUARDS.some((guard) => guard.test(uncomment(body)));
 	const bodyOf = (name) => {
 		for (const source of sources.values()) {
 			const pattern = new RegExp(`#\\[tauri::command\\]\\s*pub (?:async )?fn ${name}\\s*[<(]`, 'g');
@@ -136,7 +143,7 @@ test('every registered native command checks that the caller is the bundled fron
 		if (harmless.has(name)) continue;
 		// Mobile stubs that only return an error are fine; every real body must be guarded.
 		const real = bodies.filter((body) => !/^\{\s*(?:\/\/[^\n]*\s*)*(?:let _ = [^;]+;\s*(?:\/\/[^\n]*\s*)*)?Err\(/.test(body));
-		if (real.some((body) => !GUARDS.test(body))) unguarded.push(name);
+		if (real.some((body) => !guarded(body))) unguarded.push(name);
 	}
 	assert.deepEqual(unguarded, [], 'native commands without an origin check');
 });
@@ -144,4 +151,34 @@ test('every registered native command checks that the caller is the bundled fron
 test('external links opened natively are http(s) only', () => {
 	const source = readFileSync(path.join(tauri, 'src', 'shell_commands.rs'), 'utf8');
 	assert.match(source, /"http" \| "https" => Ok\(\(\)\)/, 'open_external_url keeps its http(s)-only scheme check');
+});
+
+test('the origin checks themselves refuse a non-bundled page, and grant() runs one', () => {
+	const read = (file) => readFileSync(path.join(tauri, 'src', file), 'utf8').replace(/\/\/[^\n]*/g, '');
+	const fnBody = (source, signature) => {
+		const start = source.indexOf(signature);
+		assert.ok(start >= 0, `found ${signature}`);
+		const open = source.indexOf('{', start);
+		let depth = 0;
+		for (let index = open; index < source.length; index++) {
+			if (source[index] === '{') depth++;
+			else if (source[index] === '}' && --depth === 0) return source.slice(open, index + 1);
+		}
+		return '';
+	};
+	const hosting = read('hosting/mod.rs');
+	assert.match(fnBody(hosting, 'pub(crate) fn require_bundled_window('), /if !bundled_origin\(&url, cfg!\(debug_assertions\)\) \{\s*return Err/);
+	assert.match(fnBody(hosting, 'pub(crate) fn authorize('), /if !local_main_origin\(window\.label\(\), &url, cfg!\(debug_assertions\)\) \{\s*return Err/);
+	assert.match(fnBody(hosting, 'pub(crate) fn local_main_origin('), /label == "main" && bundled_origin\(url, development\)/);
+	assert.match(fnBody(read('secure_auth.rs'), 'fn authorize('), /if !crate::hosting::local_main_origin\(window\.label\(\), &url, cfg!\(debug_assertions\)\) \{\s*return Err/);
+	assert.match(fnBody(read('workspace_export.rs'), 'fn trusted('), /let bundled = crate::hosting::bundled_origin\(&current, false\);[\s\S]*if !bundled && !development \{ return Err/);
+	assert.match(fnBody(read('lore_local.rs'), 'fn grant('), /^\s*crate::hosting::require_bundled_window\(window\)\.map_err\(\|e\| anyhow!\(e\)\)\?;/m);
+});
+
+test('no window may navigate away from the bundled pages (navigation guard registered)', () => {
+	const lib = readFileSync(path.join(tauri, 'src', 'lib.rs'), 'utf8').replace(/\/\/[^\n]*/g, '');
+	assert.match(lib, /^\s*let builder = builder\.plugin\(navigation_guard::init\(\)\);/m, 'lib.rs registers the navigation guard for every webview');
+	const guard = readFileSync(path.join(tauri, 'src', 'navigation_guard.rs'), 'utf8').replace(/\/\/[^\n]*/g, '');
+	assert.match(guard, /\.on_navigation\(\|_webview, url\| \{\s*let allowed = allowed_navigation\(url, cfg!\(debug_assertions\)\);/);
+	assert.match(guard, /crate::hosting::bundled_origin\(url, development\)\s*\|\| \(url\.scheme\(\) == "about" && matches!\(url\.path\(\), "blank" \| "srcdoc"\)\)/);
 });

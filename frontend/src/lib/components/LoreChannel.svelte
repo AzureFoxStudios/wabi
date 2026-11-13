@@ -37,6 +37,7 @@
 		type LoreRevision,
 		type LoreBranch
 	} from '$lib/api/lore';
+	import { saveSignedLoreFile } from '$lib/lore/linkSafety';
 	import { getAuthToken } from '$lib/authSession';
 	import { layoutStore } from '$lib/layoutStore';
 	import { currentUser } from '$lib/socket';
@@ -383,17 +384,13 @@
 		try {
 			// L7: signed URL → direct web save (no Bearer header needed on the link)
 			const signedUrl = await getSignedLoreUrl(token, chId, file.path);
-			const a = document.createElement('a');
-			a.href = signedUrl;
-			a.download = file.path.split('/').pop() || file.path;
-			a.target = '_blank';
-			a.rel = 'noopener';
-			a.click();
+			await saveSignedLoreFile(signedUrl, file.path.split('/').pop() || file.path);
 		} catch (err) {
 			console.warn('[LoreChannel] signed URL failed, falling back to blob', err);
 			try {
 				const blob = await downloadLoreFile(token, chId, file.path);
-				const url = URL.createObjectURL(blob);
+				// Saved, never shown: the server's Content-Type is not kept (F4).
+				const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
 				const a = document.createElement('a');
 				a.href = url;
 				a.download = file.path.split('/').pop() || file.path;

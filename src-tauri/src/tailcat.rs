@@ -144,7 +144,7 @@ pub async fn tailcat_connect(
         return Err("not a tailcat address (must start with 'tc')".into());
     }
     // Replace any existing tunnel: one connection profile at a time.
-    let _ = tailcat_disconnect(state.clone()).await;
+    let _ = disconnect(state.clone()).await;
 
     let socks_port = free_port()?;
     // Keep the forwarder's port reserved from selection through startup.
@@ -202,11 +202,19 @@ pub async fn tailcat_connect(
     })
 }
 
-/// Kill the tunnel and the local forwarder (instant).
+/// Stop the tunnel when Wabi's own page asks (only Wabi's own pages may stop it).
 #[tauri::command]
 pub async fn tailcat_disconnect(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, TailcatState>,
 ) -> Result<(), String> {
+    crate::hosting::require_bundled_window(&window)?;
+    disconnect(state).await
+}
+
+/// Kill the tunnel and the local forwarder (instant). Used by the command above, by a new
+/// connection replacing an old one, and on quit.
+pub async fn disconnect(state: tauri::State<'_, TailcatState>) -> Result<(), String> {
     if let Some(tx) = state.shutdown.lock().map_err(|e| e.to_string())?.take() {
         let _ = tx.send(true);
     }
@@ -224,7 +232,16 @@ pub async fn tailcat_disconnect(
 }
 
 #[tauri::command]
-pub fn tailcat_status(state: tauri::State<TailcatState>) -> TailcatTunnelStatus {
+pub fn tailcat_status(
+    window: tauri::WebviewWindow,
+    state: tauri::State<TailcatState>,
+) -> Result<TailcatTunnelStatus, String> {
+    // Reveals the local forwarder port: only Wabi's own pages may ask.
+    crate::hosting::require_bundled_window(&window)?;
+    Ok(status(state))
+}
+
+fn status(state: tauri::State<TailcatState>) -> TailcatTunnelStatus {
     let forwarder_alive = state.forwarder.lock().ok()
         .and_then(|task| task.as_ref().map(|task| !task.is_finished()))
         .unwrap_or(false);

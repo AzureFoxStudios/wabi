@@ -12,6 +12,7 @@
 		reviewLoreBranch, updateLoreRepoSettings, parseLoreChannelId,
 		type LoreRepo, type LoreFileInfo, type LoreRevision, type LoreBranch
 	} from '$lib/api/lore';
+	import { saveSignedLoreFile } from '$lib/lore/linkSafety';
 	import { findReadmePath } from '$lib/lore/readmeDefault';
 	import { PROJECT_TABS, formatBytes, newestFirst, revisionTime, isMirror, previewKind, uploadPath, SelectionEpoch } from '$lib/lore/workspacePresentation';
 	import LoreIcon from './LoreIcon.svelte';
@@ -230,7 +231,7 @@
 	function closeFile() { previews.begin(); selectedPath = null; selectedContent = null; selectedMedia = null; fileDirty = false; fileLoading = false; fileError = ''; }
 	function comparePath(path: string) { historyPath = path; contextTarget = null; navigate('history'); }
 	async function download(path: string) {
-		try { const url = await getSignedLoreUrl(token(), channelId, path); if (!active()) return; const anchor = document.createElement('a'); anchor.href = url; anchor.download = path.split('/').pop() ?? 'file'; anchor.rel = 'noopener'; anchor.click(); }
+		try { const url = await getSignedLoreUrl(token(), channelId, path); if (!active()) return; await saveSignedLoreFile(url, path.split('/').pop() ?? 'file'); }
 		catch (e) { if (active()) error = e instanceof Error ? e.message : 'Download failed.'; }
 	}
 	function queueFiles(event: Event, folder: boolean) {

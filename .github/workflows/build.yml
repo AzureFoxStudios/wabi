@@ -166,6 +166,7 @@ jobs:
         shell: bash
         run: |
           cargo test --locked --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --lib hosting::
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --lib navigation_guard::
           TARGET=$(rustc -vV | sed -n 's/^host: //p')
           BINARY="$GITHUB_WORKSPACE/target/$TARGET/release/wabi-server"
           if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; fi

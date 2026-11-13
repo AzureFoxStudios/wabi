@@ -34,14 +34,15 @@ describe('L3: server-chosen external links are http(s) only', () => {
 	});
 });
 
-describe('L1: a Lore signed URL from the server is an http(s) link', () => {
+describe('L1/F2: a Lore signed URL from the server is a URL on that same server', () => {
 	const base = 'https://wabi.example';
 	test('accepts absolute http(s) and this server\'s paths', () => {
 		expect(checkedSignedLoreUrl('https://wabi.example/api/addons/lore/signed/abc', base)).toBe('https://wabi.example/api/addons/lore/signed/abc');
 		expect(checkedSignedLoreUrl('/api/addons/lore/signed/abc', base)).toBe('https://wabi.example/api/addons/lore/signed/abc');
 	});
-	test('refuses javascript:, data:, blob: and other schemes', () => {
-		for (const value of SCRIPT_OR_OS_SCHEMES.filter((v) => !v.startsWith('//'))) {
+	test('refuses javascript:, data:, blob:, other schemes and every other origin (F2)', () => {
+		for (const value of [...SCRIPT_OR_OS_SCHEMES, 'https://evil.example/x', '/\\evil.example/x', 'https:\\\\evil.example\\x',
+			'http://wabi.example/x', 'https://wabi.example:8443/x', 'https://wabi.example.evil.example/x']) {
 			expect(checkedSignedLoreUrl(value, base)).toBeNull();
 		}
 		expect(checkedSignedLoreUrl('https://u:p@evil.example/x', base)).toBeNull();

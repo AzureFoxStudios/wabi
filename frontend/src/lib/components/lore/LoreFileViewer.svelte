@@ -2,6 +2,7 @@
 	import { onDestroy, untrack, type Snippet } from 'svelte';
 	import type { LoreFileInfo } from '$lib/api/lore';
 	import { LoreConflictError, downloadLoreFileText, getSignedLoreUrl, saveLoreFileContent } from '$lib/api/lore';
+	import { saveSignedLoreFile } from '$lib/lore/linkSafety';
 	import { renderLoreDocument } from '$lib/lore/documentMarkdown';
 	import { formatBytes, SelectionEpoch } from '$lib/lore/workspacePresentation';
 	import { isMarkdownPath } from '$lib/lore/readmeDefault';
@@ -154,7 +155,7 @@
 		try {
 			const url = await getSignedLoreUrl(token, channelId, request);
 			if (request !== filePath) return;
-			const anchor = document.createElement('a'); anchor.href = url; anchor.download = filePath.split('/').pop() ?? 'file'; anchor.rel = 'noopener'; anchor.click();
+			await saveSignedLoreFile(url, filePath.split('/').pop() ?? 'file');
 		} catch (e) { error = e instanceof Error ? e.message : 'Download failed.'; }
 	}
 </script>
