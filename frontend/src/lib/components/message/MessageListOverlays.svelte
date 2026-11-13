@@ -20,6 +20,10 @@
 	export let reactionPickerX = 0;
 	export let reactionPickerY = 0;
 	export let contextMenuMessage: Message | null = null;
+	/** The menu's message is under experimental encryption (privacy/contentEgress.ts). */
+	export let contextMenuKeepsContent = false;
+	/** The room the message list shows; reports name it rather than the app's current channel. */
+	export let reportChannelId = '';
 	export let contextMenuVisible = false;
 	export let contextMenuX = 0;
 	export let contextMenuY = 0;
@@ -140,13 +144,14 @@
 		onAddReaction={handleAddReaction}
 		onTranslate={handleTranslate}
 		onReport={handleReport}
+		keepContentOnDevice={contextMenuKeepsContent}
 		quickMentionEnabled={quickMentionEnabled}
 		personalPinsEnabled={personalPinsEnabled}
 		isPersonalPinned={isPersonalPinnedMessage(contextMenuMessage.id)}
 	/>
 {/if}
 
-<ReportMessageDialog visible={showReportDialog} message={reportMessage} onClose={closeReport} />
+<ReportMessageDialog visible={showReportDialog} message={reportMessage} channelId={reportChannelId} onClose={closeReport} />
 <ForwardDialog bind:visible={showForwardDialog} bind:message={forwardMessage} />
 
 <ConfirmDialog

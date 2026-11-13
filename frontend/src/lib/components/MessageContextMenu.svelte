@@ -30,6 +30,8 @@
 	export let quickMentionEnabled = true;
 	export let personalPinsEnabled = true;
 	export let isPersonalPinned = false;
+	/** Under experimental encryption: server-readable actions are off (privacy/contentEgress.ts). */
+	export let keepContentOnDevice = false;
 	export let canManageOwnMessage: boolean | null = null;
 	export let canDeleteMessage: boolean | null = null;
 
@@ -74,6 +76,7 @@
 			canCopyText,
 			isPinned: !!message.isPinned,
 			isPersonalPinned,
+			keepContentOnDevice,
 			translatorEnabled: getTranslatorSettings().mode !== 'off',
 			quickMentionEnabled,
 			personalPinsEnabled,

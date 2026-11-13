@@ -12,6 +12,7 @@
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { fetchPromotesForMessage } from '$lib/lorePromoteCache';
 	import {
+		addMessageAttachmentsToAlbum,
 		countMessageAttachments,
 		getMessageAttachmentActionItems,
 		selectAttachmentActionItems,
@@ -80,6 +81,16 @@
 	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
 	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
 	import { decryptAttachmentBlob } from '$lib/e2ee';
+	import { cachedE2eeStatus, e2eeStatusRevision, ensureE2eeStatus } from '$lib/dm/dmE2eeState';
+	import {
+		ALBUMS_SERVER_READABLE_HINT,
+		BLEND_IMPORT_UNAVAILABLE,
+		FORWARD_UNAVAILABLE_HINT,
+		LORE_UNAVAILABLE_HINT,
+		contentStaysOnDevice,
+		mayTranslate,
+		roomKeepsContentOnDevice
+	} from '$lib/privacy/contentEgress';
 	import {
 		displayEnhancementSettingsStore,
 		formatTimestampForDisplay,
@@ -132,6 +143,18 @@
 		activeChannelId.startsWith('dm-') ||
 		activeChannelId.startsWith('dm_') ||
 		activeChannelId.startsWith('group-');
+	// Experimental encryption (privacy/contentEgress.ts): the room's status comes from the shared
+	// per-device cache other surfaces keep fresh; until it is known a DM or group fails closed.
+	function readRoomPolicy(channelId: string, privateConversation: boolean, _revision: number) {
+		return privateConversation && channelId ? cachedE2eeStatus(channelId) : null;
+	}
+	$: roomPolicy = readRoomPolicy(activeChannelId, activeChannelIsPrivateConversation, $e2eeStatusRevision);
+	$: roomContentOnDevice = roomKeepsContentOnDevice({
+		channelType: activeMessageChannel?.type ?? (activeChannelIsPrivateConversation ? 'dm' : null),
+		policy: roomPolicy
+	});
+	$: if (browser && activeChannelIsPrivateConversation && activeChannelId) ensureE2eeStatus(activeChannelId);
+	$: contextMenuKeepsContent = contextMenuMessage ? contentStaysOnDevice(contextMenuMessage, roomContentOnDevice) : false;
 	let messageRenderLimit = MESSAGE_RENDER_BATCH;
 	let lastChannelForRenderWindow: string | null = null;
 	let lastObservedMessageCount = 0;
@@ -709,6 +732,11 @@
 
 	function handlePromoteToLore(): void {
 		if (!contextMenuMessage) return;
+		if (contentStaysOnDevice(contextMenuMessage, roomContentOnDevice)) {
+			showToast(LORE_UNAVAILABLE_HINT, 'info');
+			contextMenuVisible = false;
+			return;
+		}
 		promoteModalMessage = contextMenuMessage;
 		showPromoteModal = true;
 		contextMenuVisible = false;
@@ -872,6 +900,13 @@
 
 	async function handleAddToAlbum(): Promise<void> {
 		if (!contextMenuMessage) return;
+		const targetMessage = contextMenuMessage;
+		// Albums are server-readable: the index keeps the file name and message id.
+		if (contentStaysOnDevice(targetMessage, roomContentOnDevice)) {
+			showToast(ALBUMS_SERVER_READABLE_HINT, 'info');
+			contextMenuVisible = false;
+			return;
+		}
 
 		const token = getAuthToken();
 		if (!token) {
@@ -880,7 +915,7 @@
 			return;
 		}
 
-		const attachmentItems = getMessageAttachmentActionItems(contextMenuMessage);
+		const attachmentItems = getMessageAttachmentActionItems(targetMessage);
 		if (attachmentItems.length === 0) {
 			contextMenuVisible = false;
 			return;
@@ -899,22 +934,17 @@
 		}
 
 		try {
-			const targetAlbum = await resolveTargetAlbum(token, scope.scopeType, scope.scopeId);
-			if (!targetAlbum) return;
-
-			let addedCount = 0;
-			for (const item of selectedItems) {
-				await addMediaAlbumItem(token, targetAlbum.id, {
-					attachmentUrl: item.fileUrl,
-					attachmentName: item.fileName,
-					attachmentSize: item.fileSize,
-					messageId: contextMenuMessage.id
-				});
-				addedCount += 1;
-			}
-
-			if (addedCount > 0) {
-				showToast(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`, 'info');
+			const outcome = await addMessageAttachmentsToAlbum({
+				keepOnDevice: contentStaysOnDevice(targetMessage, roomContentOnDevice),
+				messageId: targetMessage.id,
+				items: selectedItems,
+				resolveAlbum: () => resolveTargetAlbum(token, scope.scopeType, scope.scopeId),
+				addItem: (albumId, payload) => addMediaAlbumItem(token, albumId, payload)
+			});
+			if (outcome.status === 'blocked') {
+				showToast(ALBUMS_SERVER_READABLE_HINT, 'info');
+			} else if (outcome.status === 'added' && outcome.count > 0) {
+				showToast(`Added ${outcome.count} file${outcome.count === 1 ? '' : 's'} to "${outcome.albumName}".`, 'info');
 			}
 		} catch (error) {
 			console.error('Adding files to the album failed:', error);
@@ -1005,6 +1035,10 @@
 	}
 
 	function handleAlbumAnnouncementActivate(meta: AlbumAnnouncementMeta, hasFiles: boolean): void {
+		if (roomContentOnDevice) {
+			showToast(ALBUMS_SERVER_READABLE_HINT, 'info');
+			return;
+		}
 		if (!hasFiles && albumAnnouncementUploadName === meta.name) return;
 		if (hasFiles) {
 			openAlbumPanel();
@@ -1020,6 +1054,10 @@
 	}
 
 	function triggerAlbumAnnouncementUpload(meta: AlbumAnnouncementMeta): void {
+		if (roomContentOnDevice) {
+			showToast(ALBUMS_SERVER_READABLE_HINT, 'info');
+			return;
+		}
 		if (albumAnnouncementUploadName) return;
 		pendingAlbumUploadMeta = meta;
 		albumAnnouncementUploadInput?.click();
@@ -1069,6 +1107,10 @@
 	}
 
 	async function uploadFilesToAlbumAnnouncement(meta: AlbumAnnouncementMeta, fileList: FileList | File[]): Promise<void> {
+		if (roomContentOnDevice) {
+			showToast(ALBUMS_SERVER_READABLE_HINT, 'info');
+			return;
+		}
 		const token = getAuthToken();
 		if (!token) {
 			showToast('Login is required to upload into shared albums.', 'warning');
@@ -1200,6 +1242,11 @@
 	let forwardMessage: Message | null = null;
 	function handleForward() {
 		if (!contextMenuMessage) return;
+		if (contentStaysOnDevice(contextMenuMessage, roomContentOnDevice)) {
+			showToast(FORWARD_UNAVAILABLE_HINT, 'info');
+			contextMenuVisible = false;
+			return;
+		}
 		forwardMessage = contextMenuMessage;
 		showForwardDialog = true;
 		contextMenuVisible = false;
@@ -1207,6 +1254,10 @@
 	/** Hover-bar forward (2026-08-27: forward existed only in the context
 	 * menu — the report asked why it was missing from the react bar). */
 	function handleForwardFromBar(message: Message): void {
+		if (contentStaysOnDevice(message, roomContentOnDevice)) {
+			showToast(FORWARD_UNAVAILABLE_HINT, 'info');
+			return;
+		}
 		forwardMessage = message;
 		showForwardDialog = true;
 	}
@@ -1241,9 +1292,19 @@
 			return;
 		}
 
+		contextMenuVisible = false;
+		// Under experimental encryption the decrypted text goes to the member's translation
+		// service only after they agree, once per room per session.
+		const allowed = await mayTranslate({
+			roomKey: `${getServerUrl()}|${activeChannelId}`,
+			keepOnDevice: contentStaysOnDevice(targetMessage, roomContentOnDevice),
+			providerUrl: settings.providerUrl,
+			ask: (request) => confirmAction(request)
+		});
+		if (!allowed) return;
+
 		translatedMessages = { ...translatedMessages, [targetMessage.id]: '...' };
 		translatingMessageIds = new Set([...translatingMessageIds, targetMessage.id]);
-		contextMenuVisible = false;
 		try {
 			const translated = await requestTranslation(targetMessage.text, settings);
 			translatedMessages = { ...translatedMessages, [targetMessage.id]: translated };
@@ -1682,6 +1743,10 @@
 	}
 
 	function openBlendImportSettings(sourcePath: string, fileName: string): void {
+		if (roomContentOnDevice) {
+			showToast(BLEND_IMPORT_UNAVAILABLE, 'info');
+			return;
+		}
 		blendImportSourcePath = sourcePath;
 		blendImportFileName = fileName;
 		ensureBlendImportSettingsModalLoaded();
@@ -2175,6 +2240,7 @@
 			{gifCaptionStyleClass}
 			deletionCountdownMode={deletionCountdownMode}
 			currentChannel={activeChannelId}
+			contentOnDevice={contentStaysOnDevice(message, roomContentOnDevice)}
 			themeStore={$themeStore}
 			displayEnhancementSettingsStore={$displayEnhancementSettingsStore}
 			chatFilterStore={$chatFilterStore}
@@ -2280,6 +2346,8 @@
 	{EmojiPickerComponent}
 	{BlendImportSettingsModalComponent}
 	{contextMenuMessage}
+	{contextMenuKeepsContent}
+	reportChannelId={activeChannelId}
 	{contextMenuX}
 	{contextMenuY}
 	{messageToDelete}

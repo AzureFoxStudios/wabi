@@ -16,6 +16,7 @@
 		translationLoading = false,
 		ownMessage = false,
 		editText = '',
+		contentOnDevice = false,
 		...rest
 	} = $props<{
 		message: Message;
@@ -24,6 +25,8 @@
 		translationLoading?: boolean;
 		ownMessage?: boolean;
 		editText?: string;
+		/** Under experimental encryption (privacy/contentEgress.ts): nothing is auto-translated. */
+		contentOnDevice?: boolean;
 		[key: string]: unknown;
 	}>();
 
@@ -71,7 +74,15 @@
 		const manualTranslation = translatedText;
 		const isOwn = ownMessage;
 		const messageType = String(message.type || '');
+		const keepOnDevice = contentOnDevice;
 		if (!visible || manualTranslation || isOwn || settings.mode !== 'auto') return;
+		if (keepOnDevice) {
+			// A room that became encrypted after a translation started drops it.
+			requestGeneration += 1;
+			autoTranslatedText = undefined;
+			autoTranslationLoading = false;
+			return;
+		}
 		if (messageType !== 'text' && messageType !== 'gif') return;
 		if (message.localCard || message.userId === 'local-directions') return;
 		void runAutoTranslation(text, settings);
@@ -93,7 +104,7 @@
 		autoTranslationLoading = true;
 		try {
 			const { requestAutoTranslation } = await import('$lib/addons/translatorAuto');
-			const result = await requestAutoTranslation(message.id, text, settings);
+			const result = await requestAutoTranslation(message.id, text, settings, { keepOnDevice: contentOnDevice });
 			if (generation !== requestGeneration) return;
 			autoTranslatedText = result?.translatedText || undefined;
 		} catch {
@@ -111,6 +122,7 @@
 	{message}
 	{messageDomId}
 	{ownMessage}
+	{contentOnDevice}
 	translatedText={effectiveTranslatedText}
 	translationLoading={effectiveTranslationLoading}
 	{editText}

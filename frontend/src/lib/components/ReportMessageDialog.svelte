@@ -13,9 +13,12 @@
 	import BaseModal from './BaseModal.svelte';
 	import Icon from './ui/Icon.svelte';
 	import Notice from './ui/Notice.svelte';
+	import { planReportRequest, reportRequiresDisclosure } from './reportMessageRequest';
 
 	export let visible = false;
 	export let message: Message | null = null;
+	/** The room the message was shown in; falls back to the app's current channel. */
+	export let channelId = '';
 	export let onClose: () => void = () => {};
 
 	type Failure = { title: string; text: string; cause?: unknown };
@@ -27,10 +30,31 @@
 	let sent = false;
 	const reasons = ['Spam', 'Harassment', 'Hate / abusive behavior', 'Sexual content', 'Threats / dangerous behavior', 'Server rule violation', 'Something else'];
 
-	$: if (!visible) { failure = null; sent = false; comment = ''; reason = 'Server rule violation'; }
+	// Experimental encryption: the server holds only ciphertext, so a report carries the decrypted
+	// text only when the reporter explicitly agrees to disclose it (reportMessageRequest.ts).
+	let discloseConfirmed = false;
+	$: disclosureNeeded = reportRequiresDisclosure(message);
+	$: unreadable = disclosureNeeded && Boolean(message?.e2eeUnreadable);
+	$: nothingToDisclose = disclosureNeeded && !unreadable && !String(message?.text ?? '').trim();
+	$: canSend = !disclosureNeeded || (discloseConfirmed && !unreadable && !nothingToDisclose);
+
+	$: if (!visible) { failure = null; sent = false; comment = ''; reason = 'Server rule violation'; discloseConfirmed = false; }
+	let disclosureMessageId = '';
+	$: if ((message?.id ?? '') !== disclosureMessageId) {
+		disclosureMessageId = message?.id ?? '';
+		discloseConfirmed = false;
+	}
 
 	async function submit() {
-		if (!message || busy) return;
+		if (!message || busy || !canSend) return;
+		const plan = planReportRequest({
+			channelId: channelId || $currentChannel,
+			message,
+			reason,
+			comment,
+			disclosureConfirmed: discloseConfirmed
+		});
+		if (plan.kind !== 'send') return;
 		busy = true; failure = null;
 		try {
 			const token = getAuthToken($activeServerUrl);
@@ -40,7 +64,7 @@
 			}
 			const response = await fetch(`${$activeServerUrl}/api/server-center/reports`, {
 				method: 'POST', credentials: 'include', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-				body: JSON.stringify({ channelId: $currentChannel, messageId: message.id, reason, comment: comment.trim() || null })
+				body: JSON.stringify(plan.body)
 			});
 			const data = await response.json().catch(() => ({}));
 			if (!response.ok) {
@@ -87,11 +111,29 @@
 					<label class="w-label" for="report-comment">Anything staff should know? <span class="report-optional">Optional</span></label>
 					<textarea id="report-comment" class="w-field report-comment" bind:value={comment} maxlength="1000" rows="4" disabled={busy} placeholder="Add context without copying the message"></textarea>
 				</div>
-				<section class="report-evidence" aria-labelledby="report-evidence-title">
-					<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />This report preserves evidence</p>
-					<p>Even if this channel is ephemeral or the message is later deleted, sending stores this message snapshot in the server’s moderation case, so staff can review what you chose to report.</p>
-					<p class="report-quiet">The active snapshot remains until the server’s chosen expiry or the owner removes it; backups may last longer. Wabi does not send it to a central moderation service. Cancel if you do not want staff to see this message.</p>
-				</section>
+				{#if disclosureNeeded}
+					<section class="report-evidence" aria-labelledby="report-evidence-title">
+						<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />Reporting discloses this message</p>
+						{#if unreadable}
+							<p>This device could not decrypt this message, so there is no text to report from here. Ask someone who can read it to report it, or tell a moderator directly.</p>
+						{:else if nothingToDisclose}
+							<p>This message has no text to disclose. Attachments are not sent with a report. Tell a moderator directly if the files are the problem.</p>
+						{:else}
+							<p>This conversation uses experimental encryption, so the server cannot read this message. Sending this report gives the server’s moderators the decrypted text shown above, stored in the moderation case.</p>
+							<p class="report-quiet">The server records it as your disclosure; it cannot check it against the encrypted original. The snapshot remains until the server’s chosen expiry or the owner removes it; backups may last longer. Only this message is disclosed.</p>
+							<label class="report-disclose">
+								<input type="checkbox" class="w-check" bind:checked={discloseConfirmed} disabled={busy} />
+								<span>Disclose this message’s decrypted text to the moderators</span>
+							</label>
+						{/if}
+					</section>
+				{:else}
+					<section class="report-evidence" aria-labelledby="report-evidence-title">
+						<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />This report preserves evidence</p>
+						<p>Even if this channel is ephemeral or the message is later deleted, sending stores this message snapshot in the server’s moderation case, so staff can review what you chose to report.</p>
+						<p class="report-quiet">The active snapshot remains until the server’s chosen expiry or the owner removes it; backups may last longer. Wabi does not send it to a central moderation service. Cancel if you do not want staff to see this message.</p>
+					</section>
+				{/if}
 				{#if failure}<Notice title={failure.title} text={failure.text} error={failure.cause} />{/if}
 			</div>
 		{/if}
@@ -101,7 +143,7 @@
 			<button type="button" class="w-btn w-btn--primary" on:click={onClose}>Done</button>
 		{:else}
 			<button type="button" class="w-btn w-btn--quiet" on:click={onClose} disabled={busy}>Cancel</button>
-			<button type="button" class="w-btn w-btn--primary" on:click={submit} disabled={busy} aria-busy={busy}>{busy ? 'Sending…' : 'Preserve & send report'}</button>
+			<button type="button" class="w-btn w-btn--primary" on:click={submit} disabled={busy || !canSend} aria-busy={busy}>{busy ? 'Sending…' : disclosureNeeded ? 'Disclose & send report' : 'Preserve & send report'}</button>
 		{/if}
 	</div>
 </BaseModal>
@@ -169,6 +211,18 @@
 	}
 	.report-quiet {
 		color: var(--w-mute);
+	}
+	.report-disclose {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		color: var(--w-text);
+		font: var(--w-t-small);
+		cursor: pointer;
+	}
+	.report-disclose input {
+		flex: none;
+		margin-top: 2px;
 	}
 	.report-evidence .report-quiet {
 		color: var(--w-mute);
