@@ -72,7 +72,7 @@ async fn upload_blob(
     if auth.is_guest {
         return Err(BlobApiError::Unauthorized);
     }
-    if crate::api::upload::is_hls_playlist(&body[..body.len().min(crate::api::upload::HLS_SNIFF_LEN)]) {
+    if crate::api::upload::is_hls_playlist(&body) {
         return Err(BlobApiError::Playlist);
     }
     let uploaded_by = Some(auth.user_id.to_string());

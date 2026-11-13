@@ -137,6 +137,12 @@ and unrelated REST modules are not covered by this pass. Upload URLs retain
 their documented capability-URL behavior. Lore capabilities retain their
 separate, stricter opt-in boundary.
 
+
+### Uploaded media: HLS playlists
+
+A browser that plays HLS natively follows a playlist to media segments on the hosts it names, even when the playlist is served as `video/mp4` with `X-Content-Type-Options: nosniff`. Every upload path refuses bytes that, after an optional UTF-8 byte-order mark and any amount of ASCII whitespace, start with the tag `#EXTM3U` (any case) followed by whitespace or the end of the file, with a 400 that says why: resumable uploads (at completion, before the name is recorded), the simple, profile picture, profile media and background uploads, whiteboard images and fonts, emoji, blobs, and Lore file and recording uploads (`api/upload.rs` `PlaylistSniffer`; `UploadRegistry::publish_bytes` refuses them too). A file that only starts with a longer tag such as `#EXTM3U8` is accepted. UTF-16 text, a comment before the tag, the tag after an MP4 `ftyp` box and gzip-compressed playlists are accepted: RFC 8216 says they are not valid playlists, but that is not verified against a native player.
+
+No `media-src` restriction was added. The served app shell sets no `Content-Security-Policy` at all (only upload, blob, whiteboard-file and Steam responses set their own, and the Tauri shell has its own), and a first CSP for the shell is more than a media rule: it would also have to allow remote media the app plays today (GIF and video embeds from other hosts, LiveKit/SFU media) and the shell's inline scripts and boot brand injection, which need nonces or hashes and a browser pass. That remains open.
 ---
 
 ## 1. Threat model

@@ -708,3 +708,39 @@ async fn recording_over_the_blob_cap_is_413_regression() {
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{response}");
     assert!(!f.recordings_tree.join("recordings/cap.webm").exists());
 }
+
+/// An HLS playlist is refused on both Lore upload routes (raw files are
+/// served with nosniff, which does not stop native HLS playback), whatever
+/// name it carries; nothing reaches the tree and no private temporary stays.
+#[tokio::test]
+async fn hls_playlists_are_refused_on_lore_file_and_recording_uploads() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+    let before = temporary_files();
+    let mut padded = vec![b'\n'; 5000];
+    padded.extend_from_slice(b"#EXTM3U\nhttps://media.example.invalid/seg0.ts\n");
+    for (i, playlist) in [b"#EXTM3U\nhttps://media.example.invalid/seg0.ts\n".to_vec(), padded].into_iter().enumerate() {
+        let body = counted_body(playlist.clone(), Arc::new(AtomicUsize::new(0)), false);
+        let uri = file_uri(f.asset_channel, &format!("docs/clip{i}.mp4"));
+        let (status, response) = send(&f.app, upload_request(Method::PUT, &uri, &f.member_token, body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{response}");
+        assert!(response.to_string().contains("#EXTM3U"), "{response}");
+        assert!(!f.asset_tree.join(format!("docs/clip{i}.mp4")).exists());
+
+        let body = counted_body(playlist, Arc::new(AtomicUsize::new(0)), false);
+        let (status, response) = send(
+            &f.app,
+            upload_request(Method::POST, &format!("/addons/lore/recordings?filename=call{i}.webm"), &f.member_token, body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{response}");
+        assert!(!f.recordings_tree.join(format!("recordings/call{i}.webm")).exists());
+    }
+    // A text note that merely starts with a longer tag is not a playlist.
+    let body = counted_body(b"#EXTM3U8 notes".to_vec(), Arc::new(AtomicUsize::new(0)), false);
+    let (status, response) =
+        send(&f.app, upload_request(Method::PUT, &file_uri(f.asset_channel, "docs/notes.txt"), &f.member_token, body)).await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert_eq!(temporary_files(), before, "refused uploads left private temporaries behind");
+}

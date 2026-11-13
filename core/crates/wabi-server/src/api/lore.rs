@@ -68,6 +68,9 @@ async fn private_upload_source(
     let mut writer = tokio::fs::File::from_std(temporary.as_file().try_clone()?);
     let mut hasher = Sha256::new();
     let mut written = 0u64;
+    // Lore raw files are served with nosniff too, which does not stop a
+    // browser playing an HLS playlist (see `upload::PlaylistSniffer`).
+    let mut playlist = crate::api::upload::PlaylistSniffer::default();
     let mut stream = body.into_data_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
@@ -87,7 +90,11 @@ async fn private_upload_source(
             return Ok(None);
         }
         hasher.update(&chunk);
+        playlist.feed(&chunk);
         writer.write_all(&chunk).await?;
+    }
+    if playlist.finish() {
+        return Err(AppError::BadRequest(crate::api::upload::HLS_PLAYLIST_REFUSED.into()));
     }
     writer.flush().await?;
     Ok(Some((temporary, hex::encode(hasher.finalize()))))

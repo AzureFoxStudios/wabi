@@ -128,27 +128,119 @@ const UPLOAD_SECURITY_HEADERS: &[(&str, &str)] = &[
 /// The refusal for an HLS playlist upload.
 pub const HLS_PLAYLIST_REFUSED: &str = "HLS playlists (#EXTM3U) cannot be uploaded: a browser playing one fetches media from whatever hosts the playlist names, whatever type the file is served as.";
 
-/// True when `prefix`, the first bytes of an upload, is an HLS playlist: after
-/// an optional UTF-8 byte-order mark and ASCII whitespace it starts with
-/// `#EXTM3U` (compared without case, which only refuses more). Browsers that
-/// play HLS natively follow such a playlist to segments on other hosts even
-/// when it is served as `video/mp4` with `nosniff`.
-pub fn is_hls_playlist(prefix: &[u8]) -> bool {
-    let rest = prefix.strip_prefix(b"\xEF\xBB\xBF".as_slice()).unwrap_or(prefix);
-    let start = rest.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(rest.len());
-    rest[start..].len() >= 7 && rest[start..start + 7].eq_ignore_ascii_case(b"#EXTM3U")
+/// Streaming check for an HLS playlist: after an optional UTF-8 byte-order
+/// mark and any amount of ASCII whitespace (no length cap, so padding does
+/// not get past it), the bytes start with the tag `#EXTM3U` (any case, which
+/// only refuses more) as a whole token: followed by whitespace or the end of
+/// the data, so `#EXTM3U8 notes` is not one. Browsers that play HLS natively
+/// follow a playlist to segments on other hosts even when it is served as
+/// `video/mp4` with `nosniff`. UTF-16 text, a comment line before the tag,
+/// the tag after an `ftyp` box or inside gzip are not valid playlists
+/// (RFC 8216) and are not refused; that is not verified against a native player.
+#[derive(Default)]
+pub struct PlaylistSniffer {
+    bom: Vec<u8>,
+    past_bom: bool,
+    head: Vec<u8>,
+    decided: Option<bool>,
+}
+
+const HLS_TAG: &[u8] = b"#EXTM3U";
+const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+
+impl PlaylistSniffer {
+    /// Feed the next bytes; returns the answer once it is known.
+    pub fn feed(&mut self, bytes: &[u8]) -> Option<bool> {
+        for &byte in bytes {
+            if self.decided.is_some() {
+                break;
+            }
+            self.step(byte);
+        }
+        self.decided
+    }
+
+    fn step(&mut self, byte: u8) {
+        if !self.past_bom {
+            self.bom.push(byte);
+            if UTF8_BOM.starts_with(&self.bom) {
+                if self.bom.len() == UTF8_BOM.len() {
+                    self.past_bom = true;
+                }
+                return;
+            }
+            // Not a BOM after all: the bytes held back are ordinary content.
+            self.past_bom = true;
+            for held in std::mem::take(&mut self.bom) {
+                self.step(held);
+                if self.decided.is_some() {
+                    return;
+                }
+            }
+            return;
+        }
+        if self.head.is_empty() && byte.is_ascii_whitespace() {
+            return;
+        }
+        if self.head.len() == HLS_TAG.len() {
+            self.decided = Some(byte.is_ascii_whitespace());
+            return;
+        }
+        self.head.push(byte);
+        if !HLS_TAG[..self.head.len()].eq_ignore_ascii_case(&self.head) {
+            self.decided = Some(false);
+        }
+    }
+
+    /// The answer at the end of the data.
+    pub fn finish(mut self) -> bool {
+        if let Some(decided) = self.decided {
+            return decided;
+        }
+        if !self.past_bom {
+            // Fewer bytes than a BOM, all of them a BOM prefix: not a tag.
+            let held = std::mem::take(&mut self.bom);
+            self.past_bom = true;
+            if self.feed(&held).is_some() {
+                return self.decided == Some(true);
+            }
+        }
+        self.head.len() == HLS_TAG.len()
+    }
+}
+
+/// True when `bytes` (a whole upload) is an HLS playlist; see [`PlaylistSniffer`].
+pub fn is_hls_playlist(bytes: &[u8]) -> bool {
+    let mut sniffer = PlaylistSniffer::default();
+    sniffer.feed(bytes);
+    sniffer.finish()
 }
 
 /// Refuse an upload whose bytes are an HLS playlist, with a 400.
 pub fn refuse_hls_playlist(bytes: &[u8]) -> Result<()> {
-    if is_hls_playlist(&bytes[..bytes.len().min(HLS_SNIFF_LEN)]) {
+    if is_hls_playlist(bytes) {
         return Err(crate::error::AppError::BadRequest(HLS_PLAYLIST_REFUSED.into()));
     }
     Ok(())
 }
 
-/// How many leading bytes the playlist check reads.
-pub const HLS_SNIFF_LEN: usize = 4096;
+/// Refuse a staged upload file that is an HLS playlist, reading only as far
+/// as the answer needs (all of a file that is nothing but whitespace).
+pub async fn refuse_hls_playlist_file(path: &std::path::Path) -> Result<()> {
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut sniffer = PlaylistSniffer::default();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = tokio::io::AsyncReadExt::read(&mut file, &mut buffer).await?;
+        if read == 0 || sniffer.feed(&buffer[..read]).is_some() {
+            break;
+        }
+    }
+    if sniffer.finish() {
+        return Err(crate::error::AppError::BadRequest(HLS_PLAYLIST_REFUSED.into()));
+    }
+    Ok(())
+}
 
 /// Build the header map applied to uploaded-file responses.
 ///
@@ -483,17 +575,7 @@ async fn complete_upload(
 
     if tokio::fs::try_exists(&session.temp_path).await? {
         // Before the name is recorded or the bytes are published.
-        let mut prefix = vec![0u8; HLS_SNIFF_LEN];
-        let mut staged = tokio::fs::File::open(&session.temp_path).await?;
-        let mut read = 0;
-        while read < prefix.len() {
-            match tokio::io::AsyncReadExt::read(&mut staged, &mut prefix[read..]).await? {
-                0 => break,
-                n => read += n,
-            }
-        }
-        drop(staged);
-        refuse_hls_playlist(&prefix[..read])?;
+        refuse_hls_playlist_file(&session.temp_path).await?;
         let file = OpenOptions::new()
             .write(true)
             .open(&session.temp_path)
@@ -1052,10 +1134,18 @@ mod tests {
 
     #[test]
     fn hls_playlist_detection_skips_bom_and_whitespace_only() {
-        for yes in [&b"#EXTM3U"[..], b"#EXTM3U\n#EXTINF:1,\nx.ts", b"\xEF\xBB\xBF#EXTM3U", b" \r\n\t#EXTM3U", b"#extm3u\n"] {
-            assert!(super::is_hls_playlist(yes), "{yes:?}");
+        let padded = |n: usize, pad: u8| { let mut v = vec![pad; n]; v.extend_from_slice(b"#EXTM3U\nx.ts"); v };
+        let mut yes: Vec<Vec<u8>> = [&b"#EXTM3U"[..], b"#EXTM3U\n#EXTINF:1,\nx.ts", b"#EXTM3U\r\n", b"#EXTM3U x", b"\xEF\xBB\xBF#EXTM3U", b" \r\n\t#EXTM3U", b"#extm3u\n"]
+            .iter().map(|b| b.to_vec()).collect();
+        yes.extend([padded(4089, b' '), padded(4093, b' '), padded(5000, b'\n'), padded(3 * 1024 * 1024, b'\t')]);
+        for bytes in &yes {
+            assert!(super::is_hls_playlist(bytes), "{:?}", &bytes[..bytes.len().min(16)]);
+            // Fed in small pieces, the streaming check agrees.
+            let mut sniffer = super::PlaylistSniffer::default();
+            for piece in bytes.chunks(3) { sniffer.feed(piece); }
+            assert!(sniffer.finish());
         }
-        for no in [&b""[..], b"#EXTM3", b"x#EXTM3U", b"\xEF\xBB#EXTM3U", b"\x00\x00\x00\x18ftypmp42", b"# EXTM3U"] {
+        for no in [&b""[..], b"\xEF", b"\xEF\xBB\xBF", b"   ", b"#EXTM3", b"x#EXTM3U", b"\xEF\xBB#EXTM3U", b"\x00\x00\x00\x18ftypmp42", b"# EXTM3U", b"#EXTM3U8 notes", b"#EXTM3Ux"] {
             assert!(!super::is_hls_playlist(no), "{no:?}");
         }
         assert!(super::refuse_hls_playlist(b"#EXTM3U").is_err());

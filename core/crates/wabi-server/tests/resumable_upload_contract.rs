@@ -283,13 +283,22 @@ async fn hls_playlists_are_refused_on_every_upload_path() {
         .await
         .unwrap();
     let app = create_api_router(state.clone()).with_state(state.clone());
-    let playlists: [&[u8]; 3] = [
-        b"#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nhttps://media.example.invalid/seg0.ts\n",
-        b"\xEF\xBB\xBF \r\n\t#EXTM3U\nhttps://media.example.invalid/seg0.ts\n",
-        b"#extm3u\nhttps://media.example.invalid/seg0.ts\n",
+    // Padding of any length does not get past the check (a 4 KiB window did).
+    let padded = |n: usize, pad: u8| {
+        let mut v = vec![pad; n];
+        v.extend_from_slice(b"#EXTM3U\nhttps://media.example.invalid/seg0.ts\n");
+        v
+    };
+    let playlists: Vec<Vec<u8>> = vec![
+        b"#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nhttps://media.example.invalid/seg0.ts\n".to_vec(),
+        b"\xEF\xBB\xBF \r\n\t#EXTM3U\nhttps://media.example.invalid/seg0.ts\n".to_vec(),
+        b"#extm3u\nhttps://media.example.invalid/seg0.ts\n".to_vec(),
+        padded(4093, b' '),
+        padded(5000, b'\n'),
     ];
     let mut outcomes = vec![];
     for (i, bytes) in playlists.iter().enumerate() {
+        let bytes = bytes.as_slice();
         let (status, init) = json_call(
             &app,
             "/upload/resumable/init",
@@ -357,6 +366,11 @@ async fn hls_playlists_are_refused_on_every_upload_path() {
     let hits = files_containing(temp.path(), b"seg0.ts");
     let published: Vec<_> = hits.iter().filter(|p| !p.to_string_lossy().contains("/.tmp/")).collect();
     assert!(published.is_empty(), "playlist bytes published at {published:?}");
+
+    // A note that starts with a longer tag is not a playlist.
+    let (content_type, body) = multipart("file", "notes.txt", "text/plain", b"#EXTM3U8 notes");
+    let (status, body) = raw_post(&app, "/upload", &bearer, &content_type, body).await;
+    assert!(status.is_success(), "{status} {body}");
 
     // Positive control: ordinary bytes under the same name still upload.
     let (content_type, body) = multipart("file", "clip.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42 not a playlist");

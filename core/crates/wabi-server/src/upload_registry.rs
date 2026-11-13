@@ -215,7 +215,7 @@ impl UploadRegistry {
         bytes: &[u8],
     ) -> io::Result<()> {
         // Backstop for a caller that skipped `upload::refuse_hls_playlist`.
-        if crate::api::upload::is_hls_playlist(&bytes[..bytes.len().min(crate::api::upload::HLS_SNIFF_LEN)]) {
+        if crate::api::upload::is_hls_playlist(bytes) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, crate::api::upload::HLS_PLAYLIST_REFUSED));
         }
         validate_room_guard(channel_id.as_deref(), room_owner_precondition.as_ref(), false)?;
