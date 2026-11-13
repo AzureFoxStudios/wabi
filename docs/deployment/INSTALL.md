@@ -1,6 +1,8 @@
 # Wabi install / deploy
 
-**Updated:** 2026-09-15
+**Updated:** 2026-11-13
+
+For a first install, [FRESH_INSTALL.md](FRESH_INSTALL.md) is the shorter step-by-step page; this page covers both paths in more detail. What following these pages from a blank machine actually takes, step by step, is measured in [docs/testing/INSTALL_FROM_NOTHING.md](../testing/INSTALL_FROM_NOTHING.md), and `core/crates/wabi-server/tests/install_from_nothing_contract.rs` checks the same journey in CI.
 
 ## Mental model
 
@@ -18,7 +20,13 @@ No SpacetimeDB. No separate frontend/backend services. Default calling is same T
 
 ## Preferred: Rust / cargo path
 
+Before you start you need Git, Node.js 22 with npm, Rust through [rustup](https://rustup.rs) (the repository selects its pinned toolchain itself) and a C compiler/linker for your platform (on Debian/Ubuntu, `build-essential` and `pkg-config`). This page does not list exact packages for every platform.
+
 ```bash
+# 0) Source
+git clone https://github.com/AzureFoxStudios/wabi.git
+cd wabi
+
 # 1) Frontend for rust_embed (must be static SPA)
 cd frontend
 npm ci --no-audit --no-fund
@@ -28,22 +36,23 @@ cd ../
 # 2) Binary
 cargo build --locked --release -p wabi-server
 
-# 3) Data dirs (secrets auto-generate into the data dir on first boot)
-mkdir -p data/wabi-server uploads plugins
-
-# 4) Run
+# 3) Run. The server creates ./data/wabi-server itself; nothing to create first.
 ./target/release/wabi-server --data-dir ./data/wabi-server --host 0.0.0.0 --port 3000
 ```
+
+The server keeps running in that terminal and **prints nothing there**. Its log goes to `./logs/wabi-server.log.<date>` (set `WABI_LOG_DIR` to move it). Stop it with Ctrl+C. Run the checks below from a second terminal. Keeping it running after you log out (a systemd unit or similar) is not covered here yet.
 
 Secrets: first boot generates `<data_dir>/jwt_secret` and `<data_dir>/wabidb/root_key` (mode 0600) if no env var provides them. To manage secrets externally instead, export `WABI_JWT_KEY` (JWT_SECRET is a legacy alias) and `WABIDB_ROOT_KEY` (64 hex chars) — env always wins over the files. **Back the data dir up**: the root key is not recoverable, and losing it loses the data.
 
 **Check:**
 ```bash
-curl -s http://127.0.0.1:3000/health
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/   # expect 200 + HTML
+curl -s http://127.0.0.1:3000/readyz
+curl -s http://127.0.0.1:3000/ | grep -qi '<!doctype html' && echo "frontend OK" || echo "frontend MISSING"
 ```
 
-If `/` is 404, rebuild frontend with `STATIC_BUILD=1` then rebuild the binary (embed is compile-time).
+`/readyz` should answer `{"engine":"ready","status":"ok"}`. If the second check prints `frontend MISSING`, rebuild the frontend with `STATIC_BUILD=1` and then rebuild the binary (the embed is compile-time). Checking only the status code of `/` is not enough: without a frontend build the server still answers `200` with an empty page.
+
+**Create the owner:** open `http://localhost:3000` (or `http://<this machine's address>:3000` from another computer on your network) in a browser. The first account created becomes the server owner; the setup screens then ask for starter rooms and whether anyone may register (**Open**) or nobody (**Closed**). See [Inviting someone](#inviting-someone) for what that choice means.
 
 **Prod front:** point Caddy (or cloudflared) at `127.0.0.1:3000`. Edit Caddyfile + `.env` only — no STDB, no node backend.
 
@@ -76,6 +85,30 @@ docker run --rm -p 3001:3000 \
   --data-dir /data --host 0.0.0.0 --port 3000
 ```
 (The contract is: one process, one data dir, zero required secrets.)
+
+---
+
+## Inviting someone
+
+What exists today, plainly:
+
+- **The default is open registration.** With no admission policy saved (or **Open** chosen on the setup screen), anyone who can reach the server's address can create an account without an invitation. Send them the address; they choose **Create account**.
+- **Invitation links are created only in the desktop app's hosting screen** (`/host`, Tauri builds). The browser app served by this server has no button for creating an invitation.
+- **Invite-only admission** (`auth_policy` mode `invite`) is not offered on the browser setup screen. **Closed** refuses every registration, invitations included.
+- **An invitation link only opens over HTTPS**, or over plain HTTP on `localhost` or a private LAN address (`10.x`, `172.16–31.x`, `192.168.x`). A friend on the internet therefore needs the server behind HTTPS (see *Prod front* above and [NETWORKING.md](../NETWORKING.md)).
+
+To make a one-use invitation without the desktop app, from a terminal on the server (the password ends up in your shell history; clear it afterwards):
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:3000/api/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"OWNER_NAME","password":"OWNER_PASSWORD"}' | sed -E 's/.*"accessToken":"([^"]+)".*/\1/')
+curl -s -X POST http://127.0.0.1:3000/api/invites \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"expiresInHours":24}'
+```
+
+The answer contains `"token":"<64 hex characters>"`. The link to send is `https://<your server>/join#invite=<token>` (or `http://<LAN address>:3000/join#invite=<token>` on a LAN). It works once and expires after the hours you chose (1–168).
 
 ---
 
@@ -132,11 +165,11 @@ Also standard: run behind HTTPS (Caddy/cloudflared profile), keep
 
 ## Common pitfalls
 
-1. **`STATIC_BUILD=1` is required for the frontend build.** If you run `npm run build` without it, SvelteKit uses `adapter-node` and emits `handler.js`/`server/` — **no `index.html`**. The Rust binary embeds the frontend via `rust_embed` at compile time, so it needs the static `index.html`. `/health` will return 200 but every page route 404. Fix: `cd frontend && STATIC_BUILD=1 npm run build`, then rebuild the binary.
+1. **`STATIC_BUILD=1` is required for the frontend build.** If you run `npm run build` without it, SvelteKit uses `adapter-node` and emits `handler.js`/`server/` — **no `index.html`**. The Rust binary embeds the frontend via `rust_embed` at compile time, so it needs the static `index.html`. `/health` and `/` still return 200, but `/` is an empty page with no HTML. Fix: `cd frontend && STATIC_BUILD=1 npm run build`, then rebuild the binary.
 
 2. **First account is the owner.** The first user registered becomes the server admin/owner. Use a strong password. Don't create throwaway accounts first.
 
-3. **Investigate an engine-lock error before removing locks.** Stop the service and confirm that no other Wabi process or container is using the same data directory. Only then remove locks confirmed stale, including both `data/wabi-server/.lock` and `data/wabi-server/wabidb/.lock` if present. Follow [Backup and Recovery](BACKUP_AND_RECOVERY.md#restore-onto-a-clean-authority); never remove a lock merely to force a second writer to start.
+3. **Investigate an engine-lock error before touching locks.** Stop the service and confirm that no other Wabi process or container is using the same data directory. **Never delete `data/wabi-server/wabidb/.lock`**: the engine holds an OS lock on that file, so a leftover file is not a stale lock and the next start reacquires it; deleting it can let a second writer in. Only a legacy root `data/wabi-server/.lock` may be removed, and only after confirming every old Wabi process is stopped. Follow [Backup and Recovery](BACKUP_AND_RECOVERY.md#restore-onto-a-clean-authority).
 
 4. **Investigate repeated login/session-expired redirects.** Stale credentials are one possible cause; verify server readiness and the sign-in response before assuming the cause. Use the app's sign-out/re-authentication path when available. Avoid clearing all site data as a first step: browser-local notes and other local documents may have no server backup. Preserve/export local work before any browser-storage reset.
 
