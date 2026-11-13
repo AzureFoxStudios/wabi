@@ -157,6 +157,108 @@ async fn upload_response(
 #[exclude = "*.gitkeep"]
 struct StaticAssets;
 
+/// True when this build embeds the web app. `frontend/build` may be empty at
+/// compile time (the server still builds), and then there is no page to serve.
+/// Debug builds read the folder at run time; release builds embed it.
+pub(crate) fn embedded_frontend_present() -> bool {
+    StaticAssets::get("index.html").is_some()
+}
+
+/// The page answered for every page route when the web app was not built.
+/// Self-contained: no scripts, fonts, images or links to other origins.
+const MISSING_FRONTEND_HTML: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wabi: web app not included</title>
+<style>
+:root { color-scheme: light dark; }
+body { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+pre { padding: 0.75rem 1rem; border: 1px solid #8884; border-radius: 6px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>The Wabi server is running, but its web app is missing</h1>
+<p>This copy of <code>wabi-server</code> was built without its web app, so there is no page to show here. The server itself is working: its API and health checks answer normally.</p>
+<p>To fix it, build the web app, then build the server again:</p>
+<pre><code>cd frontend &amp;&amp; STATIC_BUILD=1 npm run build
+cd .. &amp;&amp; cargo build --release -p wabi-server</code></pre>
+<p>Run <code>npm ci</code> in <code>frontend</code> first if its dependencies are not installed. The full steps are in <code>docs/deployment/INSTALL.md</code> in the Wabi source.</p>
+</body>
+</html>
+"#;
+
+fn missing_frontend_response() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [
+            (CONTENT_TYPE, "text/html; charset=utf-8"),
+            (CACHE_CONTROL, "no-store"),
+        ],
+        MISSING_FRONTEND_HTML,
+    )
+        .into_response()
+}
+
+/// What the static fallback answers for a path with no embedded file.
+#[derive(Debug, PartialEq, Eq)]
+enum Fallback {
+    /// A missing API route: JSON 404 the frontend's optional-endpoint guards understand.
+    ApiNotFound,
+    /// A page route on a build without the web app: honest 503 page.
+    MissingFrontend,
+    /// A page route: the SPA shell, which routes on the client.
+    SpaShell,
+}
+
+fn fallback_for(path: &str, frontend_present: bool) -> Fallback {
+    if path == "api" || path.starts_with("api/") {
+        Fallback::ApiNotFound
+    } else if !frontend_present {
+        Fallback::MissingFrontend
+    } else {
+        Fallback::SpaShell
+    }
+}
+
+#[cfg(test)]
+mod missing_frontend_tests {
+    use super::*;
+
+    #[test]
+    fn page_routes_without_a_web_app_are_503_and_api_routes_stay_json_404() {
+        assert_eq!(fallback_for("index.html", false), Fallback::MissingFrontend);
+        assert_eq!(fallback_for("channels/general", false), Fallback::MissingFrontend);
+        assert_eq!(fallback_for("api/nope", false), Fallback::ApiNotFound);
+        assert_eq!(fallback_for("api", false), Fallback::ApiNotFound);
+        assert_eq!(fallback_for("index.html", true), Fallback::SpaShell);
+        assert_eq!(fallback_for("api/nope", true), Fallback::ApiNotFound);
+    }
+
+    #[tokio::test]
+    async fn missing_frontend_page_is_self_contained_and_gives_the_fix() {
+        let response = missing_frontend_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers()[CONTENT_TYPE],
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = std::str::from_utf8(&body).unwrap();
+        assert!(body.starts_with("<!doctype html>"));
+        assert!(body.contains("web app is missing"));
+        assert!(body.contains("cd frontend &amp;&amp; STATIC_BUILD=1 npm run build"));
+        assert!(body.contains("docs/deployment/INSTALL.md"));
+        for external in ["<script", "<link", "<img", "src=", "href=", "http://", "https://", "url("] {
+            assert!(!body.contains(external), "{external} in missing-frontend page");
+        }
+    }
+}
+
 /// Serve only build-versioned public assets at an Anchor. The Authority owns
 /// index.html and its injected community branding; a missing asset must be
 /// fetched from the Authority so differing binary builds remain usable.
@@ -747,13 +849,19 @@ async fn serve_static(
             // routes. Return 404 JSON so the frontend's optional-endpoint
             // guards (isEndpointUnsupported) can degrade gracefully instead
             // of crashing on HTML.
-            if path == "api" || path.starts_with("api/") {
-                return (
-                    StatusCode::NOT_FOUND,
-                    [(CONTENT_TYPE, "application/json")],
-                    axum::Json(serde_json::json!({ "error": "not_found" })),
-                )
-                    .into_response();
+            match fallback_for(path, embedded_frontend_present()) {
+                Fallback::ApiNotFound => {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        [(CONTENT_TYPE, "application/json")],
+                        axum::Json(serde_json::json!({ "error": "not_found" })),
+                    )
+                        .into_response();
+                }
+                // Without the web app the shell is empty; an empty 200 made
+                // health checks on `/` pass on a broken install.
+                Fallback::MissingFrontend => return missing_frontend_response(),
+                Fallback::SpaShell => {}
             }
             // SPA fallback — deep links (e.g. /channels/x) get the SAME
             // composed shell as "/", so branding never flickers on

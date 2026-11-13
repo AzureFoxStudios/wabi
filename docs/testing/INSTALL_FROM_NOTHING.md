@@ -35,6 +35,18 @@ The guide text quoted below is the text **before** this change. Where this chang
 
 **Required environment variables: 0. Required files before first start: 0.** Both are now a budget in the automated test.
 
+### After product item 4 (startup block and missing-web-app page): done
+
+Product friction item 4 below is now built. The server prints a ready block on its terminal (browser address, this machine's network address when it can find it, data directory, log file, and "No owner yet: the first account created becomes the owner." until an owner exists), explains fatal startup errors on stderr (port in use, another server holding the data directory's lock, a data directory it cannot open), and answers page routes with `503` and an explanation instead of an empty `200` when the web app was not built. `core/crates/wabi-server/tests/startup_terminal_contract.rs` checks all of it against the real binary. The measurement above is left as it was taken; what changes on the binary path:
+
+| Stage | Before | After |
+|---|---|---|
+| 1 Running | 11 commands, 4 decisions (4 guesses) | 9 commands needed (the guide's two checks from a second terminal are still shown but now optional: the block says the same), 2 decisions (2 guesses: build dependencies, Node install method) |
+| 2 Owner | 0 commands, 6 decisions (1 guess) | 0 commands, 6 decisions (0 guesses): the block names the address to open |
+| **Path 1 total** | **28 commands, 27 decisions (14 guesses)** | **26 commands, 24 decisions (11 guesses)** |
+
+The Docker Compose counts do not change: its stage 1 guess is how to install Docker, and FRESH_INSTALL.md already named the address. `docker compose logs wabi-server` now shows the block, which marks paths as inside the container and points at the published host port; that path was checked by unit test only (no Docker daemon here). Environment and file budgets stay at 0.
+
 What the numbers mean in plain terms: the server itself is close to "one command and done" — no configuration file, no secrets to generate, no database to set up. Almost all the effort is around it: building it (no prebuilt download), **inviting someone (impossible from the browser)**, putting it on the internet with HTTPS (not described), and backup/restore (described for Docker only, restore as prose only).
 
 ## Path 1: binary built from source
@@ -149,7 +161,7 @@ A risk read from the code, **not run**: the container runs as UID 1000 and the g
 | INSTALL.md cargo path had no prerequisites and no `git clone`. | Yes: prerequisites paragraph and step 0. |
 | `mkdir -p data/wabi-server uploads plugins` is unnecessary. | Yes: removed; the test proves the server starts in an empty directory. |
 | The `/` check prints only a status code; an install without a frontend answers `200`. Pitfall 1 said 404. | Yes: the check greps for HTML; pitfall 1 corrected. |
-| The server prints nothing to its terminal and logs to `./logs`; the guide did not say so. | Yes: documented. (Printing a startup line is listed below as a product change.) |
+| The server prints nothing to its terminal and logs to `./logs`; the guide did not say so. | Yes: documented. Follow-up: the server now prints a ready block and explains startup failures (product item 4, done). |
 | INSTALL.md never told the person to open a browser and create the owner. | Yes: "Create the owner" paragraph. |
 | No invitation instructions anywhere in the install guides; no browser UI for them. | Guide: yes, "Inviting someone" with the facts and a tested curl recipe. Product: listed below. |
 | **INSTALL.md pitfall 3 told people to remove `data/wabi-server/wabidb/.lock`.** That contradicts AGENTS.md rule 9 and BACKUP_AND_RECOVERY.md: the engine holds an OS lock on that inode, and deleting it can admit a second writer. | Yes: pitfall 3 now says never delete it, and only a legacy root `.lock` may go after every old process is stopped. |
@@ -159,12 +171,12 @@ A risk read from the code, **not run**: the container runs as UID 1000 and the g
 
 ## Product friction: proposed, not changed
 
-None of these were changed in this PR. Items marked *owner* touch security or data-location defaults and need the owner's decision.
+None of these were changed in the PR that took the measurement; item 4 has since been built (see "After product item 4" above). Items marked *owner* touch security or data-location defaults and need the owner's decision.
 
 1. **No invitation button in the browser app, and no "invite only" on the setup screen.** Add "Create invitation" to the owner's settings (the API, `POST /api/invites`, already exists and is owner-only) and an "Invite only" choice to the setup screen (the `invite` mode already exists in `auth_policy`).
 2. **Registration is open by default** (*owner*). With no policy saved, anyone who can reach the server registers. Once (1) exists, consider making the setup screen's default "Invite only". Not changed: it is an admission/security default.
 3. **No prebuilt server.** Every path compiles Rust and the frontend (≥10 minutes, a toolchain, and an npm dependency fetched from `cdn.sheetjs.com`). Publish the container image to a registry so Compose pulls instead of builds, and/or attach `wabi-server` binaries to releases, and say so in the guide.
-4. **Silent terminal, misleading empty page.** Print one line at startup with the address to open, the data directory, the log file and "the first account becomes the owner". Answer `503` with a plain message instead of an empty `200` when the frontend was not built.
+4. **Done (follow-up change).** ~~**Silent terminal, misleading empty page.**~~ Print one line at startup with the address to open, the data directory, the log file and "the first account becomes the owner". Answer `503` with a plain message instead of an empty `200` when the frontend was not built.
 5. **Backup and restore are 8 and 7 hand-typed commands.** A `wabi-server backup <dir>` / `wabi-server restore <backup> <new-dir>` pair that takes the engine lock, refuses a running server and copies the whole data directory would make each one command. (`wabi-instance-snapshot export/restore` exists but needs an age key pair and the uploads path; it is not a beginner's path.)
 6. **Logs land in `./logs` relative to wherever the server was started** (*owner*, data location), outside the data directory. Defaulting to `<data-dir>/logs` would keep one directory per server.
 7. **Public HTTPS has no recipe.** A Compose profile that runs Caddy with automatic certificates from one `WABI_DOMAIN` value would turn an undocumented stage into one command (at the cost of one optional variable).
@@ -179,7 +191,7 @@ Ranked by steps removed from the journey above (commands + decisions, guesses we
 2. **A prebuilt server: registry image and release binaries** — removes the prerequisite installs (≥4), `git clone`, the frontend build (4 commands and the CDN dependency) and the Rust build: about 8 commands and 4 guesses on the binary path; on Compose it removes the 10-minute `--build` and the re-clone on restore. (Item 3.)
 3. **`wabi-server backup` / `restore` commands** — 15 commands become about 2, and removes 5 guesses (how to stop, which pieces, ownership, ports). (Item 5.)
 4. **One-command public HTTPS** (Compose Caddy profile with `WABI_DOMAIN`) — replaces an undocumented stage (a Caddyfile, DNS, certificates, firewall) with one command and one value; without it a friend on the internet cannot use an invitation link at all. (Item 7.)
-5. **A startup line and an honest missing-frontend page** — removes 3 guesses (is it running, where is it, did the check pass) and the second terminal. (Item 4.)
+5. **Done (follow-up change).** **A startup line and an honest missing-frontend page** — removes 3 guesses (is it running, where is it, did the check pass) and the second terminal. (Item 4.)
 
 ## The automated test
 
