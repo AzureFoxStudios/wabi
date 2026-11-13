@@ -1,6 +1,6 @@
 # Tailscale Desktop Archive Handoff
 
-Use this when the user asks to send the Wabi project archive/zip to Ironin or <host>'s Desktop instead of doing a live deploy or destructive repo sync.
+Use this when the user asks to send the Wabi project archive/zip to <dev-host> or <host>'s Desktop instead of doing a live deploy or destructive repo sync.
 
 ## Rules
 

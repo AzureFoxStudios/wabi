@@ -1,4 +1,4 @@
-# Ironin Local Restore / Local Server Notes
+# <dev-host> Local Restore / Local Server Notes
 
 Use when Ronin asks to restore/update <dev-host>'s `<wabi-root>` from Ronin so Wabi can be run locally on <dev-host> for frontend/design review.
 
