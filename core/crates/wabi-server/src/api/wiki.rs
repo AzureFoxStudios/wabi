@@ -76,10 +76,12 @@ async fn create_page(
     Json(payload): Json<CreatePagePayload>,
 ) -> Result<Json<Value>, AppError> {
     let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
-    crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+    let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
     let operation_state = state.clone();
     authorization
         .run(&operation_state, async move {
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Wiki pages").await?;
             let page_id = state
                 .wdb
                 .create_wiki_page(
@@ -125,10 +127,12 @@ async fn update_page(
     Json(payload): Json<UpdatePagePayload>,
 ) -> Result<Json<Value>, AppError> {
     let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
-    crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+    let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
     let operation_state = state.clone();
     authorization
         .run(&operation_state, async move {
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Wiki pages").await?;
             state
                 .wdb
                 .update_wiki_page_checked(

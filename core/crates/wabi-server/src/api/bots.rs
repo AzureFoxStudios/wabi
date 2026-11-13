@@ -225,11 +225,7 @@ async fn handle_send_message(
             "Bot is timed out in this channel".into(),
         ));
     }
-    if crate::api::e2ee::room_blocks_server_content(&state.config.data_dir, &req.channel_id)? {
-        return Err(AppError::BadRequest(
-            "Bot sends are unavailable while private-room encryption is pending or enabled".into(),
-        ));
-    }
+    crate::api::e2ee::require_bot_post_allowed(&state, &req.channel_id).await?;
     if state
         .channel_auto_delete_label
         .read()
