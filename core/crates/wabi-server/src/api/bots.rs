@@ -226,6 +226,14 @@ async fn handle_send_message(
         ));
     }
     crate::api::e2ee::require_bot_post_allowed(&state, &req.channel_id).await?;
+    // A bot never holds room keys, and bot posts are refused in every
+    // encrypted room: an envelope-shaped post could only make readable text
+    // look encrypted to recipients.
+    if crate::api::e2ee::is_ciphertext(&req.content) {
+        return Err(AppError::BadRequest(
+            "E2EE envelopes are only accepted in an E2EE conversation".into(),
+        ));
+    }
     if state
         .channel_auto_delete_label
         .read()

@@ -1010,6 +1010,20 @@ async fn rekey_room(
 
 pub fn is_ciphertext(content: &str) -> bool { content.starts_with(MESSAGE_PREFIX) }
 
+/// Whether listed messages of `channel_id` can be encrypted at all: the room
+/// has experimental encryption per the registry or the database marker. An
+/// unreadable registry or marker counts as yes, so a valid envelope is never
+/// presented as readable text. Combine with [`is_envelope_shaped`]; the
+/// content prefix alone never makes a message "encrypted".
+pub async fn room_lists_ciphertext(state: &AppState, channel_id: &str) -> bool {
+    room_is_enabled(state, channel_id).await.unwrap_or(true)
+}
+
+/// Whether `content` is a well-formed envelope in the client's shape.
+pub fn is_envelope_shaped(content: &str) -> bool {
+    parse_message(content).is_some()
+}
+
 fn parse_message(content: &str) -> Option<MessageEnvelope> {
     let raw = content.strip_prefix(MESSAGE_PREFIX)?;
     if raw.len() > 2 * 1024 * 1024 { return None; }

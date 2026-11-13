@@ -408,6 +408,7 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
             .filter_map(|message| message.get("id").and_then(Value::as_str)
                 .map(|id| (id.to_string(), message.clone())))
             .collect();
+        let room_encrypted = crate::api::e2ee::room_lists_ciphertext(&state.app, &channel_id).await;
         let mut name_by_id: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
         let distinct_ids: Vec<u64> = {
             let seen: std::collections::HashSet<u64> = typed_msgs.iter().map(|m| m.author_user_id).collect();
@@ -420,7 +421,7 @@ async fn on_load_history(socket: SocketRef, req: Value, state: SioState) {
             if let Some(cached) = cache_by_id.get(&m.message_id) { return cached.clone(); }
             let uname = m.author_username.clone().filter(|s| !s.is_empty())
                 .or_else(|| name_by_id.get(&m.author_user_id).cloned()).unwrap_or_default();
-            let encrypted = crate::api::e2ee::is_ciphertext(&m.content);
+            let encrypted = room_encrypted && crate::api::e2ee::is_envelope_shaped(&m.content);
             json!({
                 "id": m.message_id, "userId": format!("user-{}", m.author_user_id), "user": uname,
                 "timestamp": m.created_at_micros / 1000, "text": m.content, "type": m.message_type,

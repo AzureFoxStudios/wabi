@@ -1884,6 +1884,37 @@ async fn the_encrypted_flag_comes_from_the_server_not_the_sender() {
     let listed = listed["messages"].as_array().cloned().unwrap_or_default();
     assert!(listed.iter().all(|m| m["encrypted"] == false), "{listed:?}");
 
+    // A bot cannot post envelope-prefixed text: it is refused, as for people.
+    let bot = user(&state, "flag-bot").await;
+    let (bot_token, _) = state.bot_registry.create(bot).await.unwrap();
+    state.wdb.add_channel_member(&public, bot, MemberRole::Member).await.unwrap();
+    let fake = format!("{PREFIX}not an envelope at all, just readable text");
+    let (status, body) = request(&app, Method::POST, "/bot/send-message", &format!("Bot {bot_token}"), json!({"channel_id":public,"content":fake})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    // Prefixed text that reached storage anyway (an older build, a direct
+    // write), even a well-formed envelope, is listed as not encrypted
+    // outside an encrypted room: history follows the room, not the prefix.
+    let shaped = envelope(&public, 1, "1", "device-x-1");
+    for content in [fake.as_str(), shaped.as_str()] {
+        state.wdb.send_message(&public, a, content, false, &[]).await.unwrap();
+    }
+    let (_, listed) = request(&app, Method::GET, &format!("/messages/{public}"), &bearer(&state, b), Value::Null).await;
+    let listed = listed["messages"].as_array().cloned().unwrap_or_default();
+    assert_eq!(listed.len(), 3, "{listed:?}");
+    assert!(listed.iter().all(|m| m["encrypted"] == false), "REST history: {listed:?}");
+    let mut sio_late = Client::connect(&app, &token(&state, b)).await;
+    sio_late.emit("join-channel", json!(public)).await;
+    let history = sio_late.event("channel-messages").await;
+    let history = history["messages"].as_array().cloned().unwrap_or_default();
+    assert!(!history.is_empty(), "socket history empty");
+    assert!(history.iter().all(|m| m["encrypted"] != true), "socket history: {history:?}");
+    sio_late.emit("load-history", json!({"channelId":public,"limit":50})).await;
+    let older = sio_late.event_one_of(&["history-loaded", "history-error"]).await;
+    assert_eq!(older.0, "history-loaded", "{older:?}");
+    let older = older.1["messages"].as_array().cloned().unwrap_or_default();
+    assert_eq!(older.len(), 3, "{older:?}");
+    assert!(older.iter().all(|m| m["encrypted"] == false), "load-history: {older:?}");
+
     // The server's own positive decision is still reported.
     let room = encrypted_group(&app, &state, "flag-room", &["c", "d"]).await;
     let mut sio_c = Client::connect(&app, &token(&state, room.users[0])).await;
@@ -1896,6 +1927,9 @@ async fn the_encrypted_flag_comes_from_the_server_not_the_sender() {
     assert_eq!(event, "message-accepted", "{body}");
     let relayed = sio_d.event("message").await;
     assert_eq!(relayed["message"]["encrypted"], true, "{relayed}");
+    let (_, listed) = request(&app, Method::GET, &format!("/messages/{}", room.ch), &bearer(&state, room.users[1]), Value::Null).await;
+    let listed = listed["messages"].as_array().cloned().unwrap_or_default();
+    assert!(!listed.is_empty() && listed.iter().all(|m| m["encrypted"] == true), "{listed:?}");
 }
 
 // ---------------------------------------------------------------------------
