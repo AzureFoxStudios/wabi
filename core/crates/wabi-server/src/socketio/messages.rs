@@ -191,6 +191,21 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         }
     }
     if e2ee {
+        // Outside the envelope only a reference to an upload the server issued
+        // for this conversation may ride along: never a free-text URL.
+        for file in &files {
+            let issued = match file.file_url.strip_prefix("/uploads/") {
+                Some(name) if !name.is_empty() && !name.contains('/') && !name.contains("..") => {
+                    state.app.upload_registry.get(name).await.is_some_and(|meta| meta.channel_id.as_deref() == Some(channel_id.as_str()))
+                        && !state.app.upload_registry.is_revoked(name).await
+                }
+                _ => false,
+            };
+            if !issued {
+                fail("e2ee_attachment_invalid", "rejected", "Encrypted messages can only reference files uploaded to this conversation.");
+                return;
+            }
+        }
         for file in &mut files {
             file.file_name = "encrypted.bin".into();
             file.file_size = 0;

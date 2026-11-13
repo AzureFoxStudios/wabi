@@ -371,7 +371,10 @@ async fn upload_whiteboard_image(
     admission
         .run(&operation_state, async move {
             let _board = crate::api::whiteboard_policy::write_gate(&state, &board_id).lock().await;
-            crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            // Board gate, then the encryption-policy lock (no path takes them in the other order).
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, user_id, "Whiteboards").await?;
             crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, None).await?;
 
             // Create uploads dir if needed
@@ -528,7 +531,10 @@ async fn upload_whiteboard_font(
     admission
         .run(&operation_state, async move {
             let _board = crate::api::whiteboard_policy::write_gate(&state, &board_id).lock().await;
-            crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            // Board gate, then the encryption-policy lock (no path takes them in the other order).
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, user_id, "Whiteboards").await?;
             crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, None).await?;
 
             let uploads_dir = &state.config.uploads_dir;
@@ -891,7 +897,9 @@ async fn put_board_document(
             if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
                 return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
             }
-            crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, user_id, "Whiteboards").await?;
             crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, Some(&parsed)).await?;
 
             // Version check: in-memory map first (shared with socket snapshot),
