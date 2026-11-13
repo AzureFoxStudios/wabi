@@ -444,7 +444,7 @@ export function parseMessage(text: string, entities: MessageEntity[] = [], optio
 
 	// Content kept on the device: on the parsed, sanitized DOM, anything that would fetch from
 	// another host becomes a link (a regex before sanitizing can be bypassed by the parser).
-	const kept = remoteImages ? clean : neutralizeRemoteMediaHtml(clean);
+	const kept = remoteImages ? clean : neutralizeRemoteMediaHtml(clean, { noAudioVideo: true });
 
 	// 4) Inject trusted KaTeX HTML AFTER sanitize (keeps styles; no FORBID_ATTR widen)
 	const withMath = renderMathSlots(kept, mathSlots);

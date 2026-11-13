@@ -106,17 +106,22 @@ clear a problem; damaged registry state blocks sends and key changes.
 
 ### Client-side handling of decrypted content
 
-The browser decrypts an experimental-encryption message into an ordinary message object. For a
-message that arrived encrypted, and for any message in a DM or group whose encryption is enabled,
-pending or not yet known to the client, the web client (`frontend/src/lib/privacy/contentEgress.ts`)
-keeps that content on the device unless the member chooses otherwise:
+The browser decrypts an experimental-encryption message into an ordinary message object. The web
+client (`frontend/src/lib/privacy/contentEgress.ts`) treats content as kept on the device when the
+message is one this client itself decrypted, failed to decrypt or sent with experimental
+encryption (a marker set locally; message fields from the server are not trusted for this), or
+when it is in a DM or group whose encryption is enabled, pending, or not yet known. For kept
+content the web client enforces, and tests in a real browser (`scripts/kept-content-browser-smoke.mjs`):
 
 - no server link previews (`/api/url-preview`, `/api/image-proxy`);
-- nothing in the message loads from a host other than this Wabi server until the member clicks
-  "Load from <host>" (`privacy/remoteMedia.ts`, decided by parsing the URL): linked images,
-  video, audio, 3D models and Spotify players, GIFs, sender-chosen emoji images, attachments
-  stored elsewhere, and images or media written into the message text, in chat and in the Reader.
-  Server endpoints under `/api/` count as another host, since they fetch on the caller's behalf;
+- images and Spotify or watch-queue players hosted elsewhere load only after the member clicks
+  "Load from <host>", which names every host the click contacts. Images written into the message
+  text become links. Whether a URL is "elsewhere" comes from parsing it; attachment URLs are built
+  by one function, and the gate decides on exactly the URL that is rendered. A URL on this server
+  under `/api/` counts as elsewhere, because those endpoints fetch on the caller's behalf;
+- audio, video and 3D models are not played or loaded inline from any URL, this server's
+  included: a file on the server can be a playlist or model that pulls from other hosts. They are
+  shown as links. The Reader does the same for kept long messages;
 - no auto-translation; manual translation asks once per conversation per session before sending
   text to the configured service;
 - album, Lore, Blender-import and forward actions are off, because those features are
@@ -124,16 +129,17 @@ keeps that content on the device unless the member chooses otherwise:
 - reporting discloses the message's decrypted text to the server's moderators only after the
   reporter ticks an explicit disclosure box.
 
-Explanations name the actual reason: a conversation whose status is still being checked is told
-so, not that it is encrypted. A DM this device has seen before uses its last stored status while
-the server is asked again.
+Explanations name the actual reason (experimental encryption, which is not independently
+verified; pending; still checking; or the server did not answer). A DM this device has seen before
+uses its last stored status while the server is asked again.
 
-Still not gated: custom emoji and emotes served by this Wabi server render as before (the server
-can see that a viewer rendered them, though usually from the browser cache); a long message
-opened in the Reader stays in this device's local storage; after a "Load from" click, video and
-audio elements send the browser's default referrer (the Wabi origin; HTML has no per-element
-referrer setting for them); the YouTube watch-queue embed, which only exists in shared channels,
-loads YouTube's player script as before.
+Still not covered: custom emoji and emotes served by this Wabi server render as before; a long
+message opened in the Reader stays in this device's local storage; the YouTube watch-queue embed,
+which only exists in shared channels, loads YouTube's player script as before. In the embedded
+build the app page is served with `Referrer-Policy: no-referrer`, so media requests carry no
+referrer; a development server or another host of the frontend may use the browser default.
+Defence in depth that needs the server (a `media-src` Content Security Policy, refusing HLS
+playlist bodies at `/uploads`) is future work.
 
 These are client behaviors in this web client; they do not change the experimental status above,
 and a modified client is not bound by them.

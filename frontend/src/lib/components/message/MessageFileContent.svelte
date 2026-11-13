@@ -6,8 +6,7 @@
 	import { parseMessage } from '$lib/markdown';
 	import ModelViewerLauncher from '../ModelViewerLauncher.svelte';
 	import ZipPreviewPanel from '../ZipPreviewPanel.svelte';
-	import { getServerUrl } from '$lib/serverUrl';
-	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { resolveAttachmentUrl } from '$lib/privacy/remoteMedia';
 	import { activeServerSpoilAll, activeServerUnspoilAll } from '$lib/serverSettings';
 	import { deletedAlbumNames, isAlbumDeletedByNameSet } from '$lib/albumLifecycle';
 	import { promoteCacheStore } from '$lib/lorePromoteCache';
@@ -61,28 +60,16 @@
 	export let onOpenBlendImportSettings: (sourcePath: string, fileName: string, message?: Message) => void;
 	export let onDownloadAttachment: (fileUrl: string, fileName: string, encryption?: any) => void;
 	export let onImageContextMenu: (event: MouseEvent, message: Message) => void;
-	/** Why this message's content stays on the device (privacy/contentEgress.ts), or null. */
+	/**
+	 * Why this message's content stays on the device (privacy/contentEgress.ts), or null. Kept
+	 * content shows audio, video and 3D models as file links, never as players: a file on this
+	 * server can still be a playlist or model that pulls from other hosts.
+	 */
 	export let keepReason: KeepReason | null = null;
 
+	/** The one attachment URL builder (privacy/remoteMedia.ts): what is rendered is what is gated. */
 	function getFileUrl(fileUrl?: string): string {
-		if (!fileUrl) return '';
-		if (fileUrl.startsWith('data:')) return fileUrl;
-		if (fileUrl.startsWith('http:') || fileUrl.startsWith('https:')) {
-			try {
-				const absoluteUrl = new URL(fileUrl);
-				const isLocalUpload =
-					(absoluteUrl.hostname === 'localhost' || absoluteUrl.hostname === '127.0.0.1') &&
-					absoluteUrl.pathname.startsWith('/uploads/');
-				if (isLocalUpload) {
-					const normalizedPath = `${absoluteUrl.pathname}${absoluteUrl.search}${absoluteUrl.hash}`;
-					return $relayEnabled ? getRelayFileUrl(normalizedPath) : `${getServerUrl()}${normalizedPath}`;
-				}
-			} catch {
-				// Keep original URL when parsing fails.
-			}
-			return fileUrl;
-		}
-		return $relayEnabled ? getRelayFileUrl(fileUrl) : `${getServerUrl()}${fileUrl}`;
+		return resolveAttachmentUrl(fileUrl).url;
 	}
 
 	/** One metadata format for every attachment: "PDF · 277.6 KB" (or "name · PNG · 890.6 KB"). */
@@ -116,7 +103,8 @@
 							.filter((fileAttachment) => {
 								if (!fileAttachment?.fileUrl || !fileAttachment?.fileName) return false;
 								if (isEncryptedAttachment(fileAttachment)) return false;
-								return isImage(fileAttachment.fileName) || isVideo(fileAttachment.fileName);
+								// Kept content plays no audio/video from a URL (privacy/remoteMedia.ts rule 3).
+								return isImage(fileAttachment.fileName) || (!keepReason && isVideo(fileAttachment.fileName));
 							})
 							.slice(0, 4)}
 						<div
@@ -250,7 +238,7 @@
 											</div>
 										{/if}
 									</div>
-								{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+								{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment) && !keepReason}
 									<!-- svelte-ignore a11y-media-has-caption -->
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
 									<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -277,7 +265,7 @@
 											</div>
 										{/if}
 									</div>
-								{:else if isAudio(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+								{:else if isAudio(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment) && !keepReason}
 									<!-- svelte-ignore a11y-media-has-caption -->
 									<div class="gallery-file-item audio-item" class:last-item={index === 3 && message.files.length > 4}>
 										<audio
@@ -294,7 +282,7 @@
 											</div>
 										{/if}
 									</div>
-								{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+								{:else if isModelFile(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment) && !keepReason}
 									<div class="gallery-file-item model-item" class:last-item={index === 3 && message.files.length > 4}>
 										<ModelViewerLauncher src={getFileUrl(fileAttachment.fileUrl)} fileName={fileAttachment.fileName || $_('messages.media.model_fallback_name')} height={220} />
 										<button
@@ -375,7 +363,7 @@
 								{singlePromote.pendingReview ? 'Staged for review' : 'In Lore'}
 							</span>
 						{/if}
-						{#if isModelFile(message.fileName) && !isEncryptedAttachment(message)}
+						{#if isModelFile(message.fileName) && !isEncryptedAttachment(message) && !keepReason}
 						<div class="model-container">
 							<ModelViewerLauncher src={getFileUrl(message.fileUrl)} fileName={message.fileName || $_('messages.media.model_fallback_name')} />
 							<button
@@ -441,7 +429,7 @@
 								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)} <span class="file-sealed">{$_('messages.encrypted')}</span>
 							</a>
 						</div>
-					{:else if isVideo(message.fileName) && !isEncryptedAttachment(message)}
+					{:else if isVideo(message.fileName) && !isEncryptedAttachment(message) && !keepReason}
 						<!-- Display video with player -->
 						<div class="video-container">
 							<!-- svelte-ignore a11y-media-has-caption -->
@@ -467,7 +455,7 @@
 								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)}
 							</a>
 						</div>
-					{:else if isAudio(message.fileName) && !isEncryptedAttachment(message)}
+					{:else if isAudio(message.fileName) && !isEncryptedAttachment(message) && !keepReason}
 						<!-- Display audio with player -->
 						<div class="audio-container">
 							<!-- svelte-ignore a11y-media-has-caption -->

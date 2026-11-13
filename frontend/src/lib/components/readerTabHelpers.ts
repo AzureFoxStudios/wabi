@@ -43,7 +43,8 @@ export function renderReaderCode(content: string): string {
 export type ReaderRenderOptions = {
 	/**
 	 * false for a document opened from content that stays on the device (a long message under
-	 * experimental encryption): media from other hosts become links (privacy/remoteMedia.ts).
+	 * experimental encryption): images from other hosts and every audio/video element (any origin)
+	 * become links (privacy/remoteMedia.ts).
 	 */
 	remoteMedia?: boolean;
 };
@@ -56,7 +57,7 @@ export function renderReaderHtml(content: string, format: ReaderDocumentFormat, 
 	if (typeof DOMPurify.sanitize !== 'function') return renderReaderPlainText(content);
 	const html = format === 'markdown' ? readerMarkdown.parse(content, { async: false }) : content;
 	const clean = DOMPurify.sanitize(html, SANITIZE_CONFIG);
-	return options.remoteMedia === false ? neutralizeRemoteMediaHtml(clean) : clean;
+	return options.remoteMedia === false ? neutralizeRemoteMediaHtml(clean, { noAudioVideo: true }) : clean;
 }
 
 export function countWords(value: string): number {

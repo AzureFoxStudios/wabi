@@ -29,6 +29,8 @@ import { clearAutoTranslationState, requestAutoTranslation } from '../addons/tra
 import { autoTranslationSkip } from '../addons/translatorAutoPolicy';
 import { addMediaAlbumItem, listMediaAlbums } from '../api/albums';
 import type { Message } from '../socket-types';
+import { markE2eeObserved } from '../e2eeEnvelope';
+import { proxiedTarget, resolveAttachmentUrl } from './remoteMedia';
 
 const requests: string[] = [];
 const originalFetch = globalThis.fetch;
@@ -51,9 +53,9 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
 
-/** What prepareIncomingE2eeMessage (e2ee.ts) returns for a decrypted envelope. */
+/** What prepareIncomingE2eeMessage (e2ee.ts) returns for a decrypted envelope (marked observed). */
 function decrypted(patch: Partial<Message> = {}): Message {
-	return {
+	return markE2eeObserved({
 		id: 'm-1',
 		channelId: 'dm-1',
 		user: 'iris',
@@ -65,7 +67,7 @@ function decrypted(patch: Partial<Message> = {}): Message {
 		e2ee: true,
 		e2eeVerified: true,
 		...patch
-	} as Message;
+	} as Message);
 }
 
 const encryptedRoom = { channelType: 'dm', policy: { enabled: true } };
@@ -74,12 +76,20 @@ const olderReadableDm = { channelType: 'dm', policy: { enabled: false, pendingDe
 const communityChannel = { channelType: 'text', policy: null };
 
 describe('one source of truth, with its reason', () => {
-	test('decrypted and undecryptable envelopes, and own encrypted sends, count as encrypted', () => {
+	test('only envelopes this client decrypted, failed to decrypt or sent count as encrypted', () => {
 		expect(messageUnderExperimentalEncryption(decrypted())).toBe(true);
-		expect(messageUnderExperimentalEncryption({ text: 'Unable to decrypt', e2ee: true, e2eeUnreadable: 'no-key' } as Message)).toBe(true);
-		expect(messageUnderExperimentalEncryption({ text: 'hi', encrypted: true })).toBe(true);
+		expect(messageUnderExperimentalEncryption(markE2eeObserved({ text: 'Unable to decrypt', e2eeUnreadable: 'no-key' } as Message))).toBe(true);
 		expect(messageUnderExperimentalEncryption({ text: 'wabi-e2ee-v1:{"v":1}' })).toBe(true);
 		expect(messageUnderExperimentalEncryption({ text: 'plain' })).toBe(false);
+		// A spread keeps the marker (store updates patch messages this way).
+		expect(messageUnderExperimentalEncryption({ ...decrypted(), isEdited: true } as Message)).toBe(true);
+	});
+
+	test('wire fields are not trusted: a plaintext message claiming encryption is ordinary', () => {
+		// The server echoes a sender's `encrypted` field on plaintext sends (socketio/messages.rs).
+		const spoofed = JSON.parse(JSON.stringify({ text: 'see https://example.org', encrypted: true, e2ee: true, e2eeVerified: true, attachmentEncryption: { scheme: 'dm-e2ee-v1', iv: 'x' } }));
+		expect(messageUnderExperimentalEncryption(spoofed)).toBe(false);
+		expect(keepReasonFor(spoofed, roomKeepReason(communityChannel))).toBeNull();
 	});
 
 	test('rooms answer with what is actually true about them', () => {
@@ -102,7 +112,7 @@ describe('one source of truth, with its reason', () => {
 });
 
 describe('wording never claims more than the reason', () => {
-	const reasons: KeepReason[] = ['experimental-encryption', 'encryption-pending', 'checking', 'encrypted-message'];
+	const reasons: KeepReason[] = ['experimental-encryption', 'encryption-pending', 'checking', 'status-unavailable', 'encrypted-message'];
 	const words = (reason: KeepReason) => [
 		albumsHint(reason),
 		forwardHint(reason),
@@ -121,9 +131,17 @@ describe('wording never claims more than the reason', () => {
 		expect(albumsHint('encryption-pending')).toContain('waiting for encryption');
 	});
 
+	test('"experimental encryption" always comes with "not independently verified"', () => {
+		for (const reason of reasons) {
+			for (const text of words(reason)) {
+				if (/experimental encryption/i.test(text)) expect(text).toMatch(/not independently verified/i);
+			}
+		}
+	});
+
 	test('no surface says secure, verified or end-to-end', () => {
 		for (const reason of reasons) {
-			for (const text of words(reason)) expect(text).not.toMatch(/\b(secure|verified|end-to-end|E2EE)\b/i);
+			for (const text of words(reason)) expect(text.replace(/not independently verified/gi, '')).not.toMatch(/\b(secure|verified|end-to-end|E2EE)\b/i);
 		}
 	});
 });
@@ -142,12 +160,43 @@ describe('the locality rule for media', () => {
 		expect(isWabiServerMediaUrl('blob:https://wabi.example.org/1234', origins)).toBe(true);
 		expect(isWabiServerMediaUrl('javascript:alert(1)', origins)).toBe(false);
 		expect(isWabiServerMediaUrl('https://wabi.example.org.evil.net/a.png', origins)).toBe(false);
+		// A decoding reverse proxy could route these to the proxy endpoint.
+		expect(isWabiServerMediaUrl('/api%2Fimage-proxy?url=https://t.example.net/x', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/%61pi/image-proxy?url=https://t.example.net/x', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/uploads/../api/image-proxy?url=x', origins)).toBe(false);
+		expect(isWabiServerMediaUrl('/uploads/api-notes.png', origins)).toBe(true);
 	});
 
-	test('remote attachments are found among a message’s files', () => {
-		const message = { fileUrl: '/uploads/a.wabi', files: [{ fileUrl: 'https://cdn.example.net/b.png' }, { fileUrl: '//cdn.example.net/c.mp4' }] };
-		expect(remoteAttachmentUrls(message, origins)).toEqual(['https://cdn.example.net/b.png', '//cdn.example.net/c.mp4']);
-		expect(remoteAttachmentUrls({ fileUrl: '/uploads/a.wabi' }, origins)).toEqual([]);
+	test('a proxied URL is named by the outside host it fetches', () => {
+		expect(proxiedTarget('/api/image-proxy?url=https%3A%2F%2Ft.example.net%2Fx.gif', origins)).toBe('https://t.example.net/x.gif');
+		expect(proxiedTarget('/uploads/x.gif', origins)).toBeNull();
+	});
+
+	test('attachments: one builder; the gate decides on exactly the URL that renders', () => {
+		const server = { serverUrl: 'http://wabi.test', origins: ['http://wabi.test'] };
+		// Reviewer payloads: concatenating server + path changed the host. Now each stays on it.
+		for (const value of ['.evil.test/pixel.png', '.file-dot-host.evil.test/pixel.png', 'file-bare-suffix.evil.test/pixel.png', '-file-dash-suffix.evil.test/pixel.png', ':8443/pixel.png', '@evil.test/x.png', '\\\\evil.test/x.png', '//evil.test/x.png', '\t//evil.test/x.png']) {
+			const resolved = resolveAttachmentUrl(value, server);
+			expect([value, new URL(resolved.url).origin]).toEqual([value, 'http://wabi.test']);
+			expect(resolved.local).toBe(true);
+		}
+		expect(resolveAttachmentUrl('/uploads/a.png', server)).toEqual({ url: 'http://wabi.test/uploads/a.png', local: true, inline: false });
+		expect(resolveAttachmentUrl('/uploads/a b.png', server).url).toBe('http://wabi.test/uploads/a%20b.png');
+		expect(resolveAttachmentUrl('https://evil.test/x.png', server)).toEqual({ url: 'https://evil.test/x.png', local: false, inline: false });
+		expect(resolveAttachmentUrl('HTTPS://evil.test/x.png', server).local).toBe(false);
+		expect(resolveAttachmentUrl('http://localhost:3000/uploads/a.png', server).url).toBe('http://wabi.test/uploads/a.png');
+		expect(resolveAttachmentUrl('/api/image-proxy?url=https://evil.test/x', server).local).toBe(false);
+		expect(resolveAttachmentUrl('javascript:alert(1)', server).url).toBe('');
+		expect(resolveAttachmentUrl('blob:http://wabi.test/123', server)).toEqual({ url: 'blob:http://wabi.test/123', local: true, inline: true });
+		// A server URL with a path prefix keeps it, as before.
+		expect(resolveAttachmentUrl('/uploads/a.png', { serverUrl: 'https://host.example/wabi', origins: ['https://host.example'] }).url).toBe('https://host.example/wabi/uploads/a.png');
+	});
+
+	test('remote attachments are found among a message’s files, as rendered', () => {
+		const opts = { serverUrl: 'https://wabi.example.org', origins };
+		const message = { fileUrl: '/uploads/a.wabi', files: [{ fileUrl: 'https://cdn.example.net/b.png' }, { fileUrl: 'https://other.example.net/c.mp4' }, { fileUrl: '//cdn.example.net/d.png' }] };
+		expect(remoteAttachmentUrls(message, opts)).toEqual(['https://cdn.example.net/b.png', 'https://other.example.net/c.mp4']);
+		expect(remoteAttachmentUrls({ fileUrl: '/uploads/a.wabi' }, opts)).toEqual([]);
 	});
 });
 
@@ -163,10 +212,14 @@ describe('link plans', () => {
 
 	test('media hosted elsewhere waits for a click in kept content, and loads as before elsewhere', () => {
 		const text = 'https://cdn.example.net/photo.png https://open.spotify.com/track/abc https://cdn.example.net/clip.mp4';
-		expect(planLinkEmbeds(text, context(true)).map((plan) => [plan.direct, plan.directNeedsClick])).toEqual([
+		// Video, audio and models are not embedded at all in kept content (a player can follow a
+		// playlist to other hosts): the link in the text is what remains.
+		expect(planLinkEmbeds(`${text} https://cdn.example.net/a.mp3 https://cdn.example.net/m.glb`, context(true)).map((plan) => [plan.direct, plan.directNeedsClick])).toEqual([
 			['image', true],
 			['spotify', true],
-			['video', true]
+			[null, false],
+			[null, false],
+			[null, false]
 		]);
 		expect(planLinkEmbeds(`${text} https://example.org/a`, context(false)).map((plan) => [plan.direct, plan.directNeedsClick, plan.preview])).toEqual([
 			['image', false, false],
@@ -228,7 +281,7 @@ describe('translation', () => {
 describe('server-readable actions', () => {
 	test('albums, forward, Lore and Blender import are blocked for kept content with the right reason', () => {
 		for (const action of ['album', 'forward', 'lore', 'blend'] as const) {
-			expect(serverReadableActionBlock(action, decrypted(), null)).toContain('this message arrived with experimental encryption');
+			expect(serverReadableActionBlock(action, decrypted(), null)).toContain('Wabi sent or received this message with experimental encryption (not independently verified)');
 			expect(serverReadableActionBlock(action, { text: 'plain' }, 'checking')).toContain('still checking');
 			expect(serverReadableActionBlock(action, { text: 'plain' }, null)).toBeNull();
 		}
@@ -266,7 +319,7 @@ describe('server-readable actions', () => {
 	});
 
 	test('a server-readable message still reaches the album index', async () => {
-		const plain = { ...withFile, encrypted: false, e2ee: false, attachmentEncryption: undefined } as Message;
+		const plain = JSON.parse(JSON.stringify({ ...withFile, attachmentEncryption: undefined })) as Message;
 		const outcome = await addMessageAttachmentsToAlbum({
 			keepOnDevice: serverReadableActionBlock('album', plain, null) !== null,
 			messageId: plain.id,
@@ -292,7 +345,8 @@ describe('report', () => {
 		});
 	});
 
-	test('a server-readable message never sends a disclosed snapshot', () => {
+	test('a server-readable message never sends a disclosed snapshot, whatever its wire flags say', () => {
+		expect(planReportRequest({ ...base, message: { id: 'm-9', text: 'plain', encrypted: true, e2ee: true }, disclosureConfirmed: true }).kind).toBe('send');
 		const plan = planReportRequest({ ...base, message: { id: 'm-9', text: 'plain' }, disclosureConfirmed: true });
 		expect(plan).toEqual({ kind: 'send', truncated: false, body: { channelId: 'dm-1', messageId: 'm-9', reason: 'Harassment', comment: null } });
 	});
@@ -308,7 +362,7 @@ describe('report', () => {
 	test('a long disclosure is cut on a code-point boundary at the server’s limit, and says so', () => {
 		// Reviewer probe: never end on a lone surrogate.
 		const text = 'a'.repeat(11_999) + '😀' + 'tail';
-		const plan = planReportRequest({ channelId: 'dm-1', message: { id: 'm', text, e2ee: true }, reason: 'Spam', comment: '', disclosureConfirmed: true });
+		const plan = planReportRequest({ channelId: 'dm-1', message: markE2eeObserved({ id: 'm', text }), reason: 'Spam', comment: '', disclosureConfirmed: true });
 		expect(plan.kind).toBe('send');
 		const snapshot = plan.kind === 'send' ? plan.body.disclosedSnapshot ?? '' : '';
 		expect(/[\uD800-\uDBFF]$/.test(snapshot)).toBe(false);

@@ -53,7 +53,17 @@ function renderMessage(message: Record<string, unknown>, channel: { id: string; 
 	}).body;
 }
 
-const encrypted = { encrypted: true, e2ee: true, e2eeVerified: true };
+const { markE2eeObserved } = await import('$lib/e2eeEnvelope');
+const { getServerUrl } = await import('$lib/serverUrl');
+/** What e2ee.ts returns for a decrypted envelope: the wire flags plus the local marker. */
+const encrypted = markE2eeObserved({ encrypted: true, e2ee: true, e2eeVerified: true });
+const SERVER_ORIGIN = new URL(getServerUrl()).origin;
+
+/** Every URL the markup would load or link to, resolved the way the browser would. */
+function urlsIn(html: string): string[] {
+	return [...html.matchAll(/\s(?:src|href|poster|srcset)="([^"]*)"/g)].map((match) => match[1].replace(/&amp;/g, '&')).filter(Boolean);
+}
+const loads = (html: string) => [...html.matchAll(/\s(?:src|poster|srcset)="([^"]*)"/g)].map((match) => match[1].replace(/&amp;/g, '&'));
 const remoteSrc = (html: string, host: string) => new RegExp(`\\s(src|poster|srcset)="(https?:)?//${host.replace(/\./g, '\\.')}`).test(html);
 
 beforeEach(() => {
@@ -206,8 +216,9 @@ describe('report dialog', () => {
 
 	test('an encrypted message asks for explicit disclosure and cannot be sent before it', async () => {
 		const html = await renderReport({ text: 'the decrypted words', ...encrypted });
-		expect(html).toContain('holds it only in encrypted form');
+		expect(html).toContain('Wabi sent or received this message with experimental encryption (not independently verified)');
 		expect(html).not.toContain('cannot read');
+		expect(html).not.toContain('only in encrypted form');
 		expect(html).toMatch(/<input type="checkbox" class="w-check[^"]*"(?![^>]*checked)[^>]*>/);
 		expect(sendButton(html)).toContain('disabled');
 		expect(sendButton(html)).toContain('Disclose');
@@ -242,7 +253,7 @@ describe('message menu', () => {
 
 	test('an encrypted message gets disabled album and forward rows with the reason, and no Lore row', async () => {
 		const html = await renderMenu(encrypted);
-		expect(html).toContain('this message arrived with experimental encryption');
+		expect(html).toContain('Wabi sent or received this message with experimental encryption (not independently verified)');
 		expect(html).not.toContain('Promote to Lore');
 	});
 
@@ -256,5 +267,92 @@ describe('message menu', () => {
 		const html = await renderMenu({});
 		expect(html).toContain('Promote to Lore');
 		expect(html).not.toContain('Off because');
+	});
+});
+
+describe('BLOCKER 1: the gate decides on exactly the URL that renders', () => {
+	// '//evil.test/…' and '\\\\evil.test/…' are where the raw value and the rendered URL differ: the gate
+	// must follow the rendered URL (on the server), not the raw value (another host).
+	const payloads = ['.evil.test/pixel.png', '.file-dot-host.evil.test/pixel.png', 'file-bare-suffix.evil.test/pixel.png', '-file-dash-suffix.evil.test/pixel.png', ':8443/pixel.png', '@evil.test/x.png', '//evil.test/x.png', '\\\\evil.test/x.png'];
+
+	for (const fileUrl of payloads) {
+		test(`fileUrl "${fileUrl}" never renders a URL on another host, kept or not`, () => {
+			for (const [message, channel] of [
+				[{ type: 'file', text: 'Shared: a.png', fileUrl, fileName: 'a.png', fileSize: 1, ...encrypted }, DM],
+				[{ type: 'file', text: 'Shared 2 files', files: [{ fileUrl, fileName: 'a.png', fileSize: 1 }, { fileUrl, fileName: 'b.png', fileSize: 1 }], ...encrypted }, DM],
+				[{ type: 'file', text: 'Shared: a.png', fileUrl, fileName: 'a.png', fileSize: 1 }, TEXT]
+			] as const) {
+				const html = renderMessage(message as Record<string, unknown>, channel);
+				for (const url of urlsIn(html)) {
+					if (url.startsWith('#')) continue;
+					expect([fileUrl, new URL(url, SERVER_ORIGIN).origin]).toEqual([fileUrl, SERVER_ORIGIN]);
+				}
+				expect(html).not.toContain('Load from');
+			}
+		});
+	}
+
+	test('a real outside attachment is behind a gate that names every host it would load', () => {
+		const html = renderMessage({
+			type: 'file', text: 'Shared 2 files',
+			files: [{ fileUrl: 'https://a.example/x.png', fileName: 'x.png', fileSize: 1 }, { fileUrl: 'https://b.example/y.png', fileName: 'y.png', fileSize: 1 }],
+			...encrypted
+		}, DM);
+		expect(loads(html).some((url) => /a\.example|b\.example/.test(url))).toBe(false);
+		expect(html).toContain('Load from a.example, b.example');
+	});
+});
+
+describe('BLOCKER 2: kept content never plays audio or video from a URL', () => {
+	test('a same-origin .mp4 or .mp3 attachment is a file link, not a player', () => {
+		for (const [fileUrl, fileName] of [['/uploads/0d1f.mp4', 'clip.mp4'], ['/uploads/0d1f.mp3', 'song.mp3'], ['/uploads/0d1f.glb', 'model.glb']]) {
+			const kept = renderMessage({ type: 'file', text: `Shared: ${fileName}`, fileUrl, fileName, fileSize: 5, ...encrypted }, DM);
+			expect([fileName, /<(video|audio|source|track)\b/.test(kept)]).toEqual([fileName, false]);
+			expect(kept).toContain(`href="${SERVER_ORIGIN}${fileUrl}"`);
+		}
+		const gallery = renderMessage({
+			type: 'file', text: 'Shared 2 files',
+			files: [{ fileUrl: '/uploads/a.mp4', fileName: 'a.mp4', fileSize: 1 }, { fileUrl: '/uploads/b.mp3', fileName: 'b.mp3', fileSize: 1 }],
+			...encrypted
+		}, DM);
+		expect(/<(video|audio|source)\b/.test(gallery)).toBe(false);
+	});
+
+	test('an album post keeps same-origin images but drops its video tiles', () => {
+		const html = renderMessage({
+			type: 'file', text: 'Shared 2 photos in album "Trip"',
+			files: [{ fileUrl: '/uploads/a.png', fileName: 'a.png', fileSize: 1 }, { fileUrl: '/uploads/b.mp4', fileName: 'b.mp4', fileSize: 1 }],
+			...encrypted
+		}, DM);
+		expect(/<video\b/.test(html)).toBe(false);
+		expect(html).toContain(`src="${SERVER_ORIGIN}/uploads/a.png"`);
+	});
+
+	test('a shared channel still plays them', () => {
+		const html = renderMessage({ type: 'file', text: 'Shared: clip.mp4', fileUrl: '/uploads/0d1f.mp4', fileName: 'clip.mp4', fileSize: 5 }, TEXT);
+		expect(/<video\b/.test(html)).toBe(true);
+	});
+
+	test('video and audio links in kept text get no player, even behind a click', () => {
+		const html = renderMessage({ text: 'https://cdn.example.net/clip.mp4 https://cdn.example.net/a.mp3', ...encrypted }, DM);
+		expect(/<(video|audio)\b/.test(html)).toBe(false);
+		expect(html).not.toContain('Load from');
+	});
+});
+
+describe('the per-message flag comes from this client, not the wire', () => {
+	test('a plaintext message claiming encrypted:true in a shared channel is ordinary', () => {
+		const spoofed = JSON.parse(JSON.stringify({ text: 'see https://example.org/a', encrypted: true, e2ee: true, e2eeVerified: true }));
+		const html = renderMessage(spoofed, TEXT);
+		expect(html).toContain('data-link-preview="https://example.org/a"');
+		expect(html).not.toContain('experimental encryption');
+	});
+});
+
+describe('gate labels', () => {
+	test('a GIF fetched through this server’s image proxy is labelled with the outside host', () => {
+		const html = renderMessage({ type: 'gif', gifUrl: '/api/image-proxy?url=https%3A%2F%2Fgifs.example.net%2Fx.gif', text: '', ...encrypted }, DM);
+		expect(html).toContain('Load from gifs.example.net (via this Wabi server)');
+		expect(loads(html).some((url) => url.includes('/api/'))).toBe(false);
 	});
 });

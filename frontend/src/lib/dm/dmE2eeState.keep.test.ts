@@ -76,7 +76,9 @@ describe('ensureE2eeStatus', () => {
 		expect(get(state.e2eeStatusRevision)).toBeGreaterThan(before);
 	});
 
-	test('after the last retry it stops until the window regains focus', async () => {
+	test('after the last retry it stops until the window regains focus, and says the server did not answer', async () => {
+		expect(state.roomContentKeepReason('dm-5', 'dm')).toBe('checking');
+		const before = get(state.e2eeStatusRevision);
 		state.ensureE2eeStatus('dm-5');
 		await Bun.sleep(80);
 		const attempts = statusRequests.length;
@@ -84,6 +86,8 @@ describe('ensureE2eeStatus', () => {
 		state.ensureE2eeStatus('dm-5');
 		await Bun.sleep(20);
 		expect(statusRequests.length).toBe(attempts);
-		expect(state.roomContentKeepReason('dm-5', 'dm')).toBe('checking');
+		// Still kept, but no longer "still checking" for good.
+		expect(state.roomContentKeepReason('dm-5', 'dm')).toBe('status-unavailable');
+		expect(get(state.e2eeStatusRevision)).toBeGreaterThan(before);
 	});
 });
