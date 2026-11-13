@@ -61,7 +61,13 @@ interface AddonCapabilityRecord {
 	description?: string;
 	enabled?: boolean;
 	backendRuntime?: string;
+	/** Always compiled into the server binary (no cargo feature to detach it). */
+	compiled?: boolean;
 	cargoFeature?: string | null;
+	/** Env var that switches this add-on on/off at runtime, when one exists. */
+	runtimeEnv?: string | null;
+	/** True when the owner can flip this add-on in-app (Settings → Add-ons). */
+	runtimeSwitch?: boolean;
 	permissions?: string[];
 	frontend?: {
 		bundled?: boolean;
@@ -142,6 +148,17 @@ function capabilityToPluginRecord(cap: AddonCapabilityRecord): PluginApiRecord {
 		version: cap.version,
 		description: cap.description,
 		enabled: cap.enabled !== false,
+		// How the add-on is attached, and whether the owner can flip it here.
+		// `pluginBackendAddons` reads these four fields straight back out; when
+		// they were dropped in this mapper every server add-on rendered with
+		// `runtimeSwitch: false`, so Settings → Add-ons showed every row as
+		// "Part of this server, fixed when the server was set up" and the
+		// in-app switch documented in docs/addons/ATTACH_DETACH.md could never
+		// be used.
+		compiled: cap.compiled !== false,
+		cargoFeature: cap.cargoFeature ?? null,
+		runtimeEnv: cap.runtimeEnv ?? null,
+		runtimeSwitch: cap.runtimeSwitch === true,
 		hasFrontend: bundled,
 		hasBackend,
 		frontendEntry: bundled ? `bundled:${cap.id}` : null,

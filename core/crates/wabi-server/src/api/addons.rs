@@ -306,8 +306,11 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
 async fn enabled_addons(state: &AppState) -> Vec<AddonCapability> {
     enabled_addons_with(AddonRuntimeFlags {
         // Runtime truth, not compile-time optimism: an add-on is only "enabled"
-        // when this process can actually serve it right now.
-        tailcat_enabled: state.tailcat.status().await.enabled,
+        // when this process can actually serve it right now. `is_enabled` reads
+        // the switch without `status()`'s one-time `tailcat version` probe: this
+        // endpoint is unauthenticated, so listing add-ons must never spawn a
+        // subprocess for an add-on that is switched off.
+        tailcat_enabled: state.tailcat.is_enabled().await,
         #[cfg(feature = "wabi-lore")]
         lore_enabled: state.lore_service.read().await.is_some(),
         #[cfg(not(feature = "wabi-lore"))]
@@ -400,6 +403,22 @@ async fn switch_addon(
     if !crate::addon_switches::AddonSwitches::is_switchable(&id) {
         return Err(AppError::NotFound(format!(
             "addon is not switchable at runtime: {id}"
+        )));
+    }
+
+    // A switch only means something for an add-on this binary actually
+    // contains. `SWITCHABLE_ADDONS` is a compile-time-independent list, so
+    // without this check a lean core build (`default = []`) happily persisted
+    // `{"switches":{"lore":true}}` for an add-on it cannot serve — and
+    // instance_checkpoint/instance_archive then refuse to checkpoint or
+    // restore the server because they read that switch as "Lore is in use".
+    if !enabled_addons(&state)
+        .await
+        .iter()
+        .any(|addon| addon.id == id)
+    {
+        return Err(AppError::NotFound(format!(
+            "addon is not available in this build: {id}"
         )));
     }
 

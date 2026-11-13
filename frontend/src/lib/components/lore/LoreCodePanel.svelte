@@ -4,6 +4,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { loreRepo, loreFiles, loadLoreRepo } from '$lib/loreStore';
 	import { getSignedLoreUrl, parseLoreChannelId, type LoreFileInfo } from '$lib/api/lore';
+	import { hasAddonCapability } from '$lib/addonInventory';
 	import LoreFileTree from './LoreFileTree.svelte';
 	import LoreFileViewer from './LoreFileViewer.svelte';
 
@@ -12,11 +13,18 @@
 	let fileInfo = $state<LoreFileInfo | null>(null);
 	let loading = $state(false);
 	let loadingFile = $state(false);
+	// null = not asked yet. MainLayout withdraws this panel when the server
+	// does not report Lore, but a restored layout or a direct open can still
+	// mount it, so the panel checks for itself rather than calling a route
+	// that is not there and showing an empty tree.
+	let loreAvailable = $state<boolean | null>(null);
 
 	let channelId = $derived(parseLoreChannelId($currentChannel));
 
 	async function refresh() {
 		if (!channelId) return;
+		if (loreAvailable === null) loreAvailable = await hasAddonCapability('lore');
+		if (!loreAvailable) return;
 		loading = true;
 		try {
 			await loadLoreRepo();
@@ -71,7 +79,11 @@
 			{/if}
 			<button type="button" class="refresh-btn" on:click={refresh} title="Refresh repo">↻</button>
 		</div>
-		{#if loading}
+		{#if loreAvailable === false}
+			<div class="panel-empty">
+				Project files come from the Lore add-on, which is not enabled on this server.
+			</div>
+		{:else if loading}
 			<div class="panel-empty">Loading repo…</div>
 		{:else if !$loreRepo}
 			<div class="panel-empty">Open a Project channel to browse its repo.</div>

@@ -3,6 +3,7 @@ import { getAuthToken } from '$lib/authSession';
 import { parseApiJson } from './api/utils';
 import { getServerUrl } from '$lib/serverUrl';
 import { isEndpointUnsupported, markEndpointUnsupported } from './optionalEndpoints';
+import { bundledPluginComponentPaths } from '$lib/addons/bundledPluginModules';
 
 /**
  * Canonical addon capability from GET /api/addons (A2/A3).
@@ -64,28 +65,29 @@ export interface PluginApiRecord {
 	permissions?: string[];
 }
 
-// ModelViewer3D (three.js) is intentionally excluded: on desktop Tauri builds it
-// is NOT bundled (native wgpu viewer is the default) and is only loaded at runtime
-// when a server-provided `model-viewer` addon is present. On web it is imported
-// directly by ModelViewerLauncher.
-const frontendAddonModules = import.meta.glob([
-	'./components/plugins/*.svelte',
-	'!./components/plugins/ModelViewer3D.svelte'
-]);
-
-/** Bundled frontend allowlist IDs (must match loader.ts BUNDLED_ADDON_LOADERS). */
+/**
+ * Client-only bundled add-ons: they ship inside this build and need nothing
+ * from the server, so they are available whatever the server inventory says.
+ *
+ * Backend-backed add-ons must NOT be listed here, even when their UI is
+ * bundled. `steam` and `game-sync` were, which short-circuited
+ * `hasAddonCapability()` to `true` on every server — including one built
+ * without them or with their runtime switch off — and contradicted
+ * docs/addons/ATTACH_DETACH.md ("backend-backed entries (steam) follow the
+ * server inventory"). They now fall through to GET /api/addons like Lore.
+ *
+ * (must match the client-only half of loader.ts BUNDLED_ADDON_LOADERS)
+ */
 const BUNDLED_FRONTEND_IDS = new Set([
 	'name-styles',
 	'youtube-sync',
 	'spotify-sync',
-	'steam',
-	'game-sync',
 	'translator-assist'
 ]);
 
 function detectBuiltinFrontendAddonIds(): Set<string> {
 	const ids = new Set<string>(BUNDLED_FRONTEND_IDS);
-	for (const path of Object.keys(frontendAddonModules)) {
+	for (const path of bundledPluginComponentPaths()) {
 		const fileName = path.split('/').pop()?.replace('.svelte', '') || path;
 		ids.add(
 			fileName

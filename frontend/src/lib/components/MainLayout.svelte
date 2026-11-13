@@ -12,7 +12,11 @@
 	import { armPeekDismiss, cancelPeekDismiss, peekAnimationGate, setPeekPointerInside } from '$lib/rightPeekGestures';
 	import { dockCanPin, endPeek, peekHeld, peekRequested } from '$lib/layoutStoreRightPanel';
 	import { DOCK_DEFAULT_PANEL, DOCK_MIN_PANEL, dockWidthFor, resizeKeyWidth } from '$lib/dockClamp';
-	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
+	import {
+		LORE_CODE_PANEL_ID,
+		registerPluginWorkspacePanels,
+		unregisterWorkspacePanel
+	} from '$lib/workspacePanels';
 	import { fetchPluginInventory } from '$lib/addonInventory';
 	import Chat from '$lib/components/Chat.svelte';
 import DmConversationView from '$lib/components/DmConversationView.svelte';
@@ -950,6 +954,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		void fetchPluginInventory().then((plugins) => {
 			if (!plugins) return;
 			registerPluginWorkspacePanels(plugins);
+			// The "Project" companion panel browses a Lore repository and can do
+			// nothing else, but it is declared as a core panel, so every server
+			// listed it in "Add panels" — on a server built without the Lore
+			// add-on it opened, called GET /api/addons/lore/repos/… for the
+			// current channel, got 404 and sat there empty. A tool may not
+			// advertise itself where it cannot work (docs/VISION.md), so it is
+			// withdrawn unless the server reports Lore as enabled.
+			const loreEnabled = plugins.some((plugin) => plugin.id === 'lore' && plugin.enabled !== false);
+			if (!loreEnabled) unregisterWorkspacePanel(LORE_CODE_PANEL_ID);
 		});
 
 		// Optional deep-link: #admin opens the full dashboard for staff.

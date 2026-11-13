@@ -124,6 +124,15 @@ export interface WorkspacePanelPluginRecord {
 	permissions?: string[];
 }
 
+/**
+ * The "Project" companion panel. It is listed among the built-ins, but
+ * everything it shows comes from the Lore add-on's routes
+ * (`/api/addons/lore/…`), which only exist on a server built with
+ * `--features lore`. MainLayout withdraws it when GET /api/addons does not
+ * report Lore as enabled, so it is never offered where it cannot work.
+ */
+export const LORE_CODE_PANEL_ID = 'code';
+
 export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'model-viewport',
@@ -267,7 +276,7 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		sortOrder: 55
 	},
 	{
-		id: 'code',
+		id: LORE_CODE_PANEL_ID,
 		label: 'Project',
 		icon: 'code',
 		description: 'Browse the project repository',
