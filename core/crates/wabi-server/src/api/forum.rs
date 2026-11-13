@@ -98,6 +98,10 @@ async fn create_thread(
     admission
         .run(&operation_state, async move {
             crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            // Forum text has no encrypted form: same boundary as a plaintext
+            // message, ordered with encryption changes like a send.
+            let _encryption_policy = state.retention_policy_lock.lock().await;
+            crate::api::e2ee::require_server_readable_text(&state, &channel_id, auth.user_id)?;
             let post_id = state
                 .wdb
                 .create_forum_thread(
@@ -147,6 +151,8 @@ async fn create_post(
     admission
         .run(&operation_state, async move {
             crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy = state.retention_policy_lock.lock().await;
+            crate::api::e2ee::require_server_readable_text(&state, &channel_id, auth.user_id)?;
             let _thread = thread_locks()
                 .lock(&format!("{channel_id}:{thread_id}"))
                 .await;
@@ -198,6 +204,9 @@ async fn update_post(
     admission
         .run(&operation_state, async move {
             crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            // An update writes the post's text again, so it is new readable text.
+            let _encryption_policy = state.retention_policy_lock.lock().await;
+            crate::api::e2ee::require_server_readable_text(&state, &channel_id, auth.user_id)?;
             let _thread = thread_locks()
                 .lock(&format!("{channel_id}:{thread_id}"))
                 .await;

@@ -24,8 +24,16 @@ async fn on_create_thread(socket: SocketRef, data: Value, state: SioState, io: S
         let _ = socket.emit("create-thread-error", &json!({"error": error.to_string()}));
         return;
     }
+    // A thread title is server-readable text: same boundary as a plaintext send.
+    let encryption_policy = state.app.retention_policy_lock.lock().await;
+    if let Err(error) = crate::api::e2ee::require_server_readable_text(&state.app, &channel_id, user_id) {
+        let _ = socket.emit("create-thread-error", &json!({"channelId": channel_id, "error": error.to_string()}));
+        return;
+    }
+    let created = state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64, None, None, None).await;
+    drop(encryption_policy);
 
-    match state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64, None, None, None).await {
+    match created {
         Ok(thread_id) => {
             let _ = socket.emit("thread-created", &json!({
                 "channelId": channel_id,
