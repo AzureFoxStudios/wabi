@@ -111,8 +111,11 @@ struct SetRoomInput {
     envelopes: Vec<WrappedRoomKey>,
 }
 
+/// Exactly the fields the shipped client signs (`frontend/src/lib/e2ee.ts`).
+/// Extra fields (a readable "preview", "plaintext", ...) are refused, never
+/// stored beside the ciphertext.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MessageEnvelope {
     pub v: u8,
     pub room: String,
@@ -646,6 +649,32 @@ pub async fn admit_readable_text<'a>(
     Ok(Some(guard))
 }
 
+/// A bot cannot confirm server-readable mode on a device of its own, and the
+/// server does not record who added it to a conversation. So in a new room
+/// that a participant switched to server-readable, a bot may post only once
+/// every current human member has made that choice themselves; while the room
+/// is pending or encrypted, never. Call under `retention_policy_lock`.
+pub async fn require_bot_post_allowed(state: &AppState, channel_id: &str) -> Result<()> {
+    let data = read_data(&state.config.data_dir)?;
+    if data.rooms.get(channel_id).is_some_and(|room| room.enabled)
+        || data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption)
+    {
+        return Err(AppError::BadRequest(
+            "Bot sends are unavailable while private-room encryption is pending or enabled".into(),
+        ));
+    }
+    let Some(policy) = data.new_room_policies.get(channel_id) else { return Ok(()) };
+    for member in state.wdb.list_channel_members(channel_id).await? {
+        let Ok(user_id) = i64::try_from(member.user_id) else { continue };
+        if !state.bot_registry.is_bot(member.user_id).await && !policy.consenting_user_ids.contains(&user_id) {
+            return Err(AppError::BadRequest(
+                "Bots can post in this conversation only after every member has confirmed server-readable messages on their own device.".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The shape of a file the shipped client encrypted before upload
 /// (`frontend/src/lib/e2ee.ts`): a random `e2ee-<uuid>.wabi` name and
 /// `application/octet-stream`. Nothing about the original file is in it.
@@ -719,6 +748,19 @@ pub async fn validate_outbound_message(
     let registered_sender = data.devices.iter().any(|d| d.user_id == user_id && d.device_id == envelope.sender_device_id && d.revoked_at.is_none());
     if !registered_sender { return Err("Encrypted message came from an unregistered or revoked device".into()); }
     if envelope.iv.is_empty() || envelope.iv.len() > MAX_KEY_FIELD || envelope.ciphertext.is_empty() || envelope.signature.is_empty() || envelope.signature.len() > MAX_KEY_FIELD {
+        return Err("Malformed encrypted message envelope".into());
+    }
+    // The client's AES-GCM/ECDSA-P256 output: a 12-byte IV, ciphertext with
+    // at least its 16-byte tag, a 64-byte signature, all standard base64. A
+    // readable value in any of these fields does not decode to that shape.
+    let decoded_len = |value: &str| {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.decode(value).ok().map(|bytes| bytes.len())
+    };
+    if decoded_len(&envelope.iv) != Some(12)
+        || decoded_len(&envelope.ciphertext).is_none_or(|len| len < 16)
+        || decoded_len(&envelope.signature) != Some(64)
+    {
         return Err("Malformed encrypted message envelope".into());
     }
     Ok(true)
