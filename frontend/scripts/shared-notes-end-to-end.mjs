@@ -8,6 +8,7 @@ import net from 'node:net';
 import { io } from 'socket.io-client';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { openDmConversation, waitForAppShell } from './smoke-shell.mjs';
 
 const frontendRoot = fileURLToPath(new URL('../', import.meta.url));
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -106,6 +107,18 @@ try {
 	const app = `http://127.0.0.1:${vite.httpServer.address().port}`;
 	browser = await chromium.launch({ headless: false, ...(process.env.WABI_SMOKE_CHROMIUM_PATH ? { executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH } : {}) });
 
+	// Desktop has a "Shared notes" button in the conversation bar; phones moved it into the
+	// "Conversation actions" menu in wave 1b (7bbba4ed). Either way it opens the same panel.
+	async function openSharedNotes(page) {
+		const button = page.locator('.dm-conversation .dm-notes-action');
+		if (await button.isVisible()) await button.click();
+		else {
+			await page.locator('.dm-conversation').getByRole('button', { name: 'Conversation actions', exact: true }).click();
+			await page.getByRole('menuitem', { name: 'Shared notes', exact: true }).click();
+		}
+		await page.locator('.shared-notes').waitFor({ state: 'visible' });
+	}
+
 	async function openApp(account, mobile = false) {
 		const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1360, height: 860 }, isMobile: mobile, hasTouch: mobile });
 		await context.addInitScript(({ serverUrl, login }) => {
@@ -118,25 +131,21 @@ try {
 		const page = await context.newPage();
 		page.setDefaultTimeout(30000);
 		await page.goto(app, { waitUntil: 'domcontentloaded' });
-		await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+		await waitForAppShell(page);
 		await page.waitForFunction(async (id) => {
 			const { channels } = await import('/src/lib/channelStore.ts');
 			let state; channels.subscribe((value) => { state = value; })();
 			return state?.some((channel) => channel.id === id);
 		}, channelId);
-		await page.evaluate(async (id) => {
-			const { layoutStore } = await import('/src/lib/layoutStore.ts');
-			layoutStore.openCenterDm(id, null);
-		}, channelId);
-		await page.locator('.dm-conversation').waitFor({ state: 'visible' });
+		await openDmConversation(page, channelId);
 		return page;
 	}
 
 	const alicePage = await openApp(alice);
 	const bobPage = await openApp(bob, true);
-	for (const page of [alicePage, bobPage]) await page.locator('.dm-conversation .dm-header-pill-secure').waitFor({ state: 'visible', timeout: 45000 });
-	await alicePage.locator('.dm-notes-action').click();
-	await bobPage.locator('.dm-notes-action').click();
+	for (const page of [alicePage, bobPage]) await page.locator('.dm-conversation .dm-header-seal[data-state="experimental-encryption"]').waitFor({ state: 'visible', timeout: 45000 });
+	await openSharedNotes(alicePage);
+	await openSharedNotes(bobPage);
 	await alicePage.getByRole('button', { name: 'New note' }).click();
 	await alicePage.getByRole('textbox', { name: 'Shared note title' }).fill('Our special note');
 	await alicePage.getByRole('textbox', { name: 'Shared note text' }).fill('The recipient should see this after the save and after reload.');
@@ -156,12 +165,9 @@ try {
 	await bobPage.screenshot({ path: `${scratch}/shared-note-recipient-phone.png` });
 
 	await bobPage.reload({ waitUntil: 'domcontentloaded' });
-	await bobPage.locator('.workspace-trigger').waitFor({ timeout: 60000 });
-	await bobPage.evaluate(async (id) => {
-		const { layoutStore } = await import('/src/lib/layoutStore.ts');
-		layoutStore.openCenterDm(id, null);
-	}, channelId);
-	await bobPage.locator('.dm-notes-action').click();
+	await waitForAppShell(bobPage);
+	await openDmConversation(bobPage, channelId);
+	await openSharedNotes(bobPage);
 	await bobPage.locator('.shared-notes .note-row').getByText('Our special note').waitFor({ state: 'visible' });
 	await bobPage.locator('.shared-notes .note-row').getByText('Our special note').click();
 	assert.equal(await bobPage.getByRole('textbox', { name: 'Shared note text' }).inputValue(), 'The recipient should see this after the save and after reload.', 'recipient sees shared note after reload');
@@ -174,17 +180,11 @@ try {
 	const secondCreated = event(creator, 'dm-created', (row) => row.otherUser?.id === `user-${outsider.user.id}`);
 	creator.emit('create-dm', { targetUserId: `user-${outsider.user.id}` });
 	const secondDm = await secondCreated;
-	await alicePage.evaluate(async (id) => {
-		const { layoutStore } = await import('/src/lib/layoutStore.ts');
-		layoutStore.openCenterDm(id, null);
-	}, secondDm.channelId);
+	await openDmConversation(alicePage, secondDm.channelId);
 	await alicePage.locator('.dm-header-name').getByText('notes_outsider', { exact: true }).waitFor();
-	await alicePage.evaluate(async (id) => {
-		const { layoutStore } = await import('/src/lib/layoutStore.ts');
-		layoutStore.openCenterDm(id, null);
-	}, channelId);
+	await openDmConversation(alicePage, channelId);
 	await alicePage.locator('.dm-header-name').getByText('notes_bob', { exact: true }).waitFor();
-	await alicePage.locator('.dm-notes-action').click();
+	await openSharedNotes(alicePage);
 	assert.equal(await alicePage.getByRole('textbox', { name: 'Shared note title' }).inputValue(), 'Unsent draft', 'unsaved draft survives conversation switch');
 	assert.equal(await alicePage.getByRole('textbox', { name: 'Shared note text' }).inputValue(), 'Still only on this device');
 	await alicePage.locator('.shared-notes .save-state').getByText('Unsaved changes').waitFor();
