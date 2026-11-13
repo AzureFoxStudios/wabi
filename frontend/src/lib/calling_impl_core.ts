@@ -1,6 +1,5 @@
 import { get } from 'svelte/store';
 import { releasePeerMicrophones, replacePeerMicrophone } from './peerMicrophone';
-import { waitForPeerConnection } from './peerConnectionReady';
 import { requestVoiceAdmission, requestGroupCallAnswer, requestGroupCallStart, requestGroupCallReadmission } from './voiceAdmission';
 import { registerCallSocketOwner } from './callSocketLifecycle';
 import { OutgoingRingDeadline, noAnswerNotice } from './callRinging';
@@ -10,7 +9,6 @@ import type { Socket } from 'socket.io-client';
 import { brandName } from './branding';
 import { showToast } from './toast';
 import { disconnectWabidbCall, disconnectWabidbChannel, connectWabidbCall, syncWabidbCapture, wabidbTransportLive, wabidbVideoTransportLive, wabidbStartVideo, setWabidbSpatialPosition, wabidbStopRemoteVideo } from './callingWabidb';
-import { transportWatchdog } from './callingWatchdog';
 import { addStub, peekPanel } from './layoutStoreRightPanel';
 import { rightPanelMode } from './layoutStoreStates';
 import {
@@ -35,7 +33,7 @@ export {
 	rejectScreenShare
 } from './callingScreenShare';
 import { initScreenShareDeps, cancelChannelScreenShare } from './callingScreenShare';
-import { connectWithFallback, MESH_MAX_PARTICIPANTS, type CallSurface } from './callingFallback';
+import { connectWithFallback, refuseEmptyChain, COMMUNITY_VOICE_P2P_REFUSAL, type CallSurface } from './callingFallback';
 import { voiceChannelMembers, _updateVoiceChannelMember, _removeVoiceChannelMember } from './presenceStore';
 import { getStoredDbUserId, getStoredUsername } from './authSession';
 import { clearActiveAudioCaptureSession,
@@ -1459,7 +1457,7 @@ function readmitVoiceSession(socket: Socket, id: string, previous: VoiceRecovery
 					check();
 					if (candidate === 'wabidb') await connectWabidbCall(socket, id, `${brandName} User`, undefined, undefined, listenOnly);
 					else if (candidate === 'sfu') await connectLivekitSfu(id, `${brandName} User`, run.controller.signal);
-					else await reEstablishChannelP2P(socket, id, { stillWanted: wanted });
+					else throw new Error(COMMUNITY_VOICE_P2P_REFUSAL); // effectiveChain never offers it
 				}
 			});
 			check();
@@ -1564,6 +1562,9 @@ async function joinVoiceChannelAttempt(socket: Socket, channelId: string, signal
 		signal.throwIfAborted();
 		const activeTransport = await resolveActiveTransport(channelId, 'channel', wanted);
 		signal.throwIfAborted();
+		// Refuse an impossible chain (P2P-only on community voice) before the
+		// microphone prompt and before the session is registered.
+		refuseEmptyChain(activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(), 'channel');
 		const stream = await ensureLocalAudioStream();
 		signal.throwIfAborted();
 		const listenOnly = alreadyInCall || hasPrimaryVoiceChannel;
@@ -1626,13 +1627,10 @@ async function joinVoiceChannelAttempt(socket: Socket, channelId: string, signal
 				} else if (transport === 'wabidb') {
 					await connectWabidbCall(socket, channelId, `${brandName} User`, undefined, undefined, listenOnly);
 				} else {
-					// p2p tail for channels: build the mesh for real. This branch
-					// used to be a bare console.warn — the chain then stamped
-					// Transport: P2P with zero peers, no offers, no relay: a
-					// call that LOOKS connected and is completely deaf
-					// (2026-09-03 "nada" report). Same mesh path the watchdog
-					// demote uses; forceTransport: 'p2p' bypasses the resolver.
-					await reEstablishChannelP2P(socket, channelId, { stillWanted: wanted });
+					// Community voice never uses direct P2P: server mute, deafen and
+					// listen-only cannot be enforced on browser-to-browser RTP.
+					// effectiveChain already drops it; this is the backstop.
+					throw new Error(COMMUNITY_VOICE_P2P_REFUSAL);
 				}
 			}
 		});
@@ -3127,107 +3125,19 @@ function summonCallsStubOnJoin(): void {
 }
 
 /**
- * Re-establish ONE channel call over p2p mesh offers. Used by the transport
- * swap AND by the watchdog's demote path (callingWabidb arms the watchdog
- * with wabidb as the active transport; before this helper its p2p branch
- * just threw "watchdog cannot re-establish p2p from here", so a dead relay
- * = dead call — the wabi.chat wss outage, 2026-08-27).
- *
- * 2026-09-03 fix: offers are now created with forceTransport: 'p2p'. Without
- * it createCallOffer consulted resolveActiveTransport() — still 'wabidb'
- * under mode 'auto' — and quietly reconnected the relay the watchdog had just
- * declared dead, then stamped the session 'p2p' anyway. markConnected now
- * only fires when a real offer went out, and the old "no peers answered the
- * offer path yet" warning (which actually meant "zero offers created") is
- * split into its two real cases: empty roster vs offer failure per peer.
+ * True when a group call has a live mesh peer. Community voice channels have
+ * no P2P path (the mesh builder was removed with the manual P2P switch): server
+ * mute/deafen/listen-only only hold on the relay or SFU.
  */
 function hasConnectedChannelPeer(channelId: string): boolean {
 	return [...peerConnections.values()].some(state => state.type === 'call' && state.channelId === channelId && state.pc.connectionState === 'connected');
 }
 
-export async function reEstablishChannelP2P(
-	socket: Socket,
-	channelId: string,
-	options: { requireAllPeers?: boolean; stillWanted?: () => boolean } = {}
-): Promise<void> {
-	const initialSession = callSessionManager.get(channelId);
-	const stillWanted = () => Boolean(initialSession && callSessionManager.get(channelId)?.joinedAt === initialSession.joinedAt && (options.stillWanted?.() ?? true));
-	const assertWanted = () => {
-		if (!stillWanted()) throw new DOMException('Call ended during transport preparation', 'AbortError');
-	};
-	assertWanted();
-	let roster = get(voiceChannelMembers)[channelId] ?? [];
-	const selfStable = (() => {
-		const dbId = getStoredDbUserId();
-		return dbId != null ? `user-${dbId}` : null;
-	})();
-	let peers = roster.filter((member) => !selfStable || member.userId !== selfStable);
-	if (peers.length === 0) {
-		// Presence may still be repopulating after a socket.io reconnect
-		// (voice-channel-state 0 → 1 → 2 arrives 100-300ms later) — the last
-		// field report showed exactly this race, so retry once before giving up.
-		await new Promise<void>((resolve) => setTimeout(resolve, 700));
-		assertWanted();
-		roster = get(voiceChannelMembers)[channelId] ?? [];
-		peers = roster.filter((member) => !selfStable || member.userId !== selfStable);
-		if (peers.length === 0) {
-			console.warn(
-				`[Calling] p2p re-establish for ${channelId}: roster has no other members yet — nothing to offer (presence may still be repopulating after a reconnect)`
-			);
-			return;
-		}
-	}
-	let offers = 0;
-	for (const member of peers) {
-		assertWanted();
-		try {
-			const existing = peerConnections.get(getConnectionKey(member.userId, 'call'));
-			if (existing && existing.channelId !== channelId && existing.pc.connectionState !== 'closed') {
-				throw new Error('Peer already belongs to another call; cannot replace that call during handover');
-			}
-			const pc = existing?.channelId === channelId && existing.pc.connectionState === 'connected'
-				? existing.pc : await createCallOffer(socket, member.userId, member.username ?? '', {
-				channelId,
-				forceTransport: 'p2p',
-				stillWanted
-			});
-			if (!pc) throw new Error('P2P offer did not create a peer connection');
-			try { await waitForPeerConnection(pc); }
-			catch (error) {
-				// An incoming offer can supersede this PC while negotiation is
-				// pending. Judge the current owner, not a deliberately closed PC.
-				const replacement = peerConnections.get(getConnectionKey(member.userId, 'call'));
-				if (!replacement || replacement.pc === pc || replacement.channelId !== channelId) throw error;
-				await waitForPeerConnection(replacement.pc);
-			}
-			offers++;
-		} catch (err) {
-			console.warn(`[Calling] p2p re-establish offer failed for ${member.userId}:`, err);
-		}
-	}
-	assertWanted();
-	if (offers === 0 || (options.requireAllPeers && offers !== peers.length)) {
-		// Every per-peer failure is logged above; the session keeps its current
-		// transport state rather than being mislabeled 'p2p' with no mesh.
-		throw new Error(`P2P connected to ${offers}/${peers.length} peers`);
-	}
-	if (options.requireAllPeers) return; // the switch publishes after every channel is ready
-	callSessionManager.markConnected(channelId, 'p2p');
-	callTransportState.update((state) => ({
-		...state,
-		activeTransport: 'p2p' as const,
-		isFallback: true,
-		reason: 'watchdog_p2p_reestablish',
-		checkedAt: Date.now()
-	}));
-}
-
 /**
- * Make-before-break voice-channel handover. P2P must connect every roster
- * peer before relay teardown; relay receive proof is per peer. Failed
- * preparation retains the existing transport and restores the preference.
- * DM/group switching and cross-channel ownership of one P2P peer are not
- * supported by the current peer-key contract.
+ * Manual route switch for voice-channel calls. Only the relay is a valid
+ * target: community voice never moves to direct P2P (see effectiveChain).
+ * The relay branch remains so a session left on another route can return.
+ * DM/group switching is not supported by the current peer-key contract.
  */
 let transportSwitchInFlight = false;
 export async function switchCallTransport(socket: Socket, target: 'wabidb' | 'p2p'): Promise<void> {
@@ -3253,97 +3163,25 @@ async function performCallTransportSwitch(socket: Socket, target: 'wabidb' | 'p2
 		pushVoiceChannelNotice('Manual transport switching is available for voice-channel calls');
 		return;
 	}
-	const rosterCounts = channelSessions.map(
-		(session) => (session.channelId ? (get(voiceChannelMembers)[session.channelId]?.length ?? 1) : 1)
-	);
-	const largestRoster = Math.max(1, ...rosterCounts);
+	if (target === 'p2p') {
+		// Every session here is community voice (kind === 'channel'). Moving it
+		// onto browser-to-browser RTP would bypass server mute, deafen and
+		// listen-only, so the switch is refused; the server also refuses
+		// call-* signalling scoped to a voice channel.
+		pushVoiceChannelNotice(COMMUNITY_VOICE_P2P_REFUSAL);
+		throw new Error(COMMUNITY_VOICE_P2P_REFUSAL);
+	}
 	let cancelled = false;
 	const unsubscribe = callSessions.subscribe(sessions => {
 		if (channelSessions.some(session => !sessions.has(session.id))) cancelled = true;
 	});
 	const stillWanted = () => !cancelled && get(isInCall);
 	try {
-
-		if (target === 'p2p') {
-			// Full-mesh guard (same law as effectiveChain): a big channel over p2p
-			// is an outage, not a swap.
-			if (largestRoster > MESH_MAX_PARTICIPANTS) {
-				pushVoiceChannelNotice(`P2P mesh is capped at ${MESH_MAX_PARTICIPANTS} — this call is too large`);
-				return;
-			}
-			// Preference first, so offer routing agrees with the swap.
-			const previousMode = getStoredCallTransportMode();
-			const previousState = get(callTransportState);
-			const previousPeers = new Map(peerConnections);
-			setCallTransportMode('p2p-only');
-			// Prepare and verify candidates while the relay remains usable.
-			try {
-				// Settle every preparation before rollback: Promise.all's early
-				// rejection allowed a late channel to overwrite the restored state.
-				const results = await Promise.allSettled(channelSessions.map(session => reEstablishChannelP2P(socket, session.channelId ?? session.id, { requireAllPeers: true, stillWanted })));
-				const failure = results.find(result => result.status === 'rejected');
-				if (failure?.status === 'rejected') throw failure.reason;
-				if (!stillWanted()) throw new DOMException('Call ended during transport switch', 'AbortError');
-			} catch (error) {
-				setCallTransportMode(previousMode);
-				for (const [key, peer] of peerConnections) {
-					if (peer.type === 'call' && channelSessions.some(session => session.id === peer.channelId) && previousPeers.get(key) !== peer) cleanupPeerConnection(key);
-				}
-				if (stillWanted()) {
-					callTransportState.set(previousState);
-					for (const session of channelSessions) {
-						if (session.transport && session.lifecycle === 'connected') callSessionManager.markConnected(session.id, session.transport);
-						else callSessionManager.markReconnecting(session.id);
-					}
-				}
-				pushVoiceChannelNotice('P2P switch failed — existing relay retained');
-				throw error;
-			}
-
-			// Count verified channel peers for the user-visible result.
-			let offers = 0;
-			const selfStable = (() => {
-				const dbId = getStoredDbUserId();
-				return dbId != null ? `user-${dbId}` : null;
-			})();
-			for (const session of channelSessions) {
-				const channelId = session.channelId ?? session.id;
-				const members = get(voiceChannelMembers)[channelId] ?? [];
-				for (const member of members) {
-					if (selfStable && member.userId === selfStable) continue;
-					const peer = peerConnections.get(getConnectionKey(member.userId, 'call'));
-					if (peer?.channelId === channelId && peer.pc.connectionState === 'connected') offers++;
-				}
-			}
-			transportWatchdog.stop();
-			for (const session of channelSessions) {
-				if (!stillWanted()) return;
-				await disconnectWabidbChannel(session.channelId ?? session.id);
-			}
-			if (!stillWanted()) return;
-			// Unrelated DM/group relays are not owned by this channel switch.
-			callTransportState.update((state) => ({
-				...state,
-				activeTransport: 'p2p' as const,
-				isFallback: false,
-				reason: 'user_switch',
-				checkedAt: Date.now()
-			}));
-			for (const session of channelSessions) {
-				if (hasConnectedChannelPeer(session.channelId ?? session.id)) callSessionManager.markConnected(session.channelId ?? session.id, 'p2p');
-			}
-			pushVoiceChannelNotice(
-				offers > 0
-					? `Switched to P2P (${offers} peer connection${offers === 1 ? '' : 's'})`
-					: 'P2P selected — waiting for peers'
-			);
-		} else {
-			// Back to the wabidb-first chain (auto keeps the p2p tail as fallback).
+		{
+			// Back to the relay-first chain (community voice never uses P2P).
 			const previousMode = getStoredCallTransportMode();
 			const previousState = get(callTransportState);
 			setCallTransportMode('auto');
-			// Relay render evidence selects reception per peer; bidirectional
-			// P2P connections remain available for outgoing audio and recovery.
 			let joined = 0;
 
 			for (const session of channelSessions) {
@@ -3361,7 +3199,7 @@ async function performCallTransportSwitch(socket: Socket, target: 'wabidb' | 'p2
 			if (joined === 0) {
 				setCallTransportMode(previousMode);
 				if (stillWanted()) callTransportState.set(previousState);
-				pushVoiceChannelNotice('Relay switch failed — existing P2P connections retained');
+				pushVoiceChannelNotice('Relay switch failed — the current route was kept');
 				throw new Error('No channel relay could be established');
 			}
 			syncWabidbCapture((cid) => shouldSendAudioToChannel(cid));
@@ -3373,8 +3211,8 @@ async function performCallTransportSwitch(socket: Socket, target: 'wabidb' | 'p2
 				checkedAt: Date.now()
 			}));
 			pushVoiceChannelNotice(joined === channelSessions.length
-				? 'Relay joined — playback switches as audio arrives; P2P kept as backup'
-				: `Relay joined for ${joined}/${channelSessions.length} channels — other calls retained on P2P`);
+				? 'Relay joined — playback switches as audio arrives'
+				: `Relay joined for ${joined}/${channelSessions.length} channels`);
 		}
 		syncSpatialAudioGraph();
 	} finally { unsubscribe(); }

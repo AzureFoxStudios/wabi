@@ -55,7 +55,8 @@ BASE=http://127.0.0.1:3001
 curl $BASE/health     # {"status":"ok",...}
 curl $BASE/livez      # liveness (process up)
 curl $BASE/readyz     # engine canary — proves WabiDB readable (503 if degraded)
-curl $BASE/metrics    # Prometheus text; served without auth (app_router.rs), keep it off public ingress
+curl $BASE/metrics    # 401 without auth; admin bearer or WABI_METRICS_TOKEN gets Prometheus text
+                      # (200 to anyone only if WABI_METRICS_PUBLIC=1, which logs a startup warning)
 # admin gate check — MUST be 401 unauthenticated:
 curl -o /dev/null -w "%{http_code}" $BASE/api/admin/jobs/dead-lettered
 ```
