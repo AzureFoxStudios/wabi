@@ -8,7 +8,7 @@ import { get } from 'svelte/store';
 import type { SavedServerEntry } from './savedServers';
 import { getLaunchPageConfigFrom, getPublicFrontendAppMetadata } from './api';
 import { authSessionGeneration, getAuthToken, getGuestSessionId, getStoredDbUserId, getStoredUsername, setAuthToken, setStoredDbUserId, setStoredUsername } from './authSession';
-import { canCarrySessionTo, getPinnedCommunityRoster } from './communityRoster';
+import { canCarrySessionTo, getPinnedCommunityRoster, prepareSessionCarry } from './communityRoster';
 import { getConfiguredServerRememberPreference, normalizeServerUrl, resolveServerUrl, setConfiguredServerUrl } from './serverUrl';
 import { setPendingChannelNavigation } from './pendingServerNavigation';
 import { updateEntry, withMutableState, moveEntryInOrderedList, savedServersState, currentSavedServer, buildStateRailItems } from './savedServerStore';
@@ -262,16 +262,18 @@ export function switchToSavedServer(url: string): void {
 		if (fromUrl && fromUrl !== normalizedUrl && accountId && token) {
 			const roster = await getPinnedCommunityRoster(fromUrl, accountId);
 			if (request !== switchRequest) return;
-			if (roster && canCarrySessionTo(roster, normalizedUrl) &&
-				normalizeServerUrl(resolveServerUrl().url) === fromUrl &&
+			// prepareSessionCarry refuses a destination with an identity of its own or saved as a
+			// separate server (findings R2/F3); a switch to such a server keeps its own login.
+			const carry = roster && canCarrySessionTo(roster, normalizedUrl)
+				? await prepareSessionCarry(roster, fromUrl, normalizedUrl, accountId, token)
+				: false;
+			if (request !== switchRequest) return;
+			if (carry && normalizeServerUrl(resolveServerUrl().url) === fromUrl &&
 				getAuthToken(fromUrl) === token && getStoredDbUserId(fromUrl) === accountId &&
 				authSessionGeneration(fromUrl) === generation) {
-				const destinationToken = getAuthToken(normalizedUrl);
-				if (!destinationToken || destinationToken === token) {
-					setAuthToken(token, normalizedUrl);
-					setStoredUsername(getStoredUsername(fromUrl), normalizedUrl);
-					setStoredDbUserId(accountId, normalizedUrl);
-				}
+				setAuthToken(token, normalizedUrl);
+				setStoredUsername(getStoredUsername(fromUrl), normalizedUrl);
+				setStoredDbUserId(accountId, normalizedUrl);
 			}
 		}
 		if (request !== switchRequest) return;

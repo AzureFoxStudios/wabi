@@ -1,6 +1,7 @@
 /** Signed entry points for one authenticated community. This is not a leader election. */
 import { normalizeServerUrl } from './serverUrl';
-import { authSessionGeneration, getAuthToken, getStoredDbUserId } from './authSession';
+import { authSessionGeneration, getAuthToken, getStoredDbUserId, getStoredUsername } from './authSession';
+import { loadState } from './savedServerStore';
 
 const PIN_KEY = 'wabi.communityRosterPins.v1';
 
@@ -28,6 +29,10 @@ export interface SignedCommunityRoster {
 interface Pin {
 	/** The address this roster was fetched from. Only that address's own answer is pinned. */
 	source?: string;
+	/** Set when a session was carried here from another address of the same community. */
+	carriedFrom?: string;
+	/** SHA-256 of the token that was carried; the pin is valid only while that session is here. */
+	carriedTokenHash?: string;
 	publicKey: string;
 	version: number;
 	roster: SignedCommunityRoster;
@@ -139,7 +144,8 @@ export function pinCommunityRoster(roster: SignedCommunityRoster, sourceUrl: str
 	const pins = readPins();
 	const scope = pinScope(source, accountId);
 	const existing = pins[scope];
-	if (existing && existing.source === source &&
+	// A carried pin never blocks the address's own answer.
+	if (existing && existing.source === source && !existing.carriedFrom &&
 		(existing.publicKey !== roster.publicKey || existing.version > roster.body.version)) return false;
 	pins[scope] = { source, publicKey: roster.publicKey, version: roster.body.version, roster };
 	try {
@@ -173,13 +179,42 @@ export async function refreshCommunityRoster(sourceUrl: string): Promise<SignedC
 	}
 }
 
+/** What session carry needs to know about the addresses involved (injectable for tests). */
+export type CarryEnvironment = {
+	getAuthToken: (url: string) => string | null;
+	getStoredDbUserId: (url: string) => number | null;
+	getStoredUsername: (url: string) => string | null;
+	isSavedServer: (url: string) => boolean;
+};
+
+export const defaultCarryEnvironment: CarryEnvironment = {
+	getAuthToken: (url) => getAuthToken(url),
+	getStoredDbUserId: (url) => getStoredDbUserId(url),
+	getStoredUsername: (url) => getStoredUsername(url),
+	isSavedServer: (url) => loadState().entries.some((entry) => normalizeServerUrl(entry.url) === url)
+};
+
+async function tokenHash(token: string): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 /** Cached roster remains useful when its original Authority cannot answer. */
-export async function getPinnedCommunityRoster(sourceUrl: string, accountId: number): Promise<SignedCommunityRoster | null> {
+export async function getPinnedCommunityRoster(
+	sourceUrl: string,
+	accountId: number,
+	env: CarryEnvironment = defaultCarryEnvironment
+): Promise<SignedCommunityRoster | null> {
 	const source = normalizeServerUrl(sourceUrl);
 	if (!source) return null;
 	const pin = readPins()[pinScope(source, accountId)];
 	// A pin written by another address's roster (before R1 was fixed) is not this address's answer.
 	if (!pin || pin.source !== source || pin.publicKey !== pin.roster?.publicKey) return null;
+	if (pin.carriedFrom) {
+		// A carried pin speaks only for the exact session that was carried here.
+		const token = env.getAuthToken(source);
+		if (!token || !pin.carriedTokenHash || pin.carriedTokenHash !== await tokenHash(token)) return null;
+	}
 	const roster = await verifyCommunityRoster(pin.roster);
 	if (!roster || roster.body.version !== pin.version ||
 		!roster.body.entries.some((entry) => entry.url === source)) return null;
@@ -189,4 +224,49 @@ export async function getPinnedCommunityRoster(sourceUrl: string, accountId: num
 /** Automatic credential reuse requires a signed exact URL and HTTPS. */
 export function canCarrySessionTo(roster: SignedCommunityRoster, url: string): boolean {
 	return url.startsWith('https://') && roster.body.entries.some((entry) => entry.url === url);
+}
+
+/**
+ * Decide whether the session at `fromUrl` may be carried to `toUrl` (failover or a switch inside
+ * one community), and if so carry the roster pin with it so the next hop works offline
+ * (review finding F3). Refused when the destination:
+ * - is not a signed HTTPS entry of the roster the source pinned;
+ * - holds a different token, or (with no token, e.g. after a desktop restart) has an identity of
+ *   its own: a stored account id or username (finding R2);
+ * - is saved as a separate server, unless it already holds this very session.
+ * The carried pin is bound to the carried token, so a later, different login there ignores it.
+ */
+export async function prepareSessionCarry(
+	roster: SignedCommunityRoster,
+	fromUrl: string,
+	toUrl: string,
+	accountId: number,
+	token: string,
+	env: CarryEnvironment = defaultCarryEnvironment
+): Promise<boolean> {
+	const from = normalizeServerUrl(fromUrl);
+	const to = normalizeServerUrl(toUrl);
+	if (!from || !to || from === to || !canCarrySessionTo(roster, to)) return false;
+	const existingToken = env.getAuthToken(to);
+	const sameSession = existingToken === token;
+	if (existingToken && !sameSession) return false;
+	if (!sameSession && (env.getStoredDbUserId(to) !== null || env.getStoredUsername(to) !== null)) return false;
+	if (!sameSession && env.isSavedServer(to)) return false;
+	const pins = readPins();
+	const scope = pinScope(to, accountId);
+	const existing = pins[scope];
+	if (existing && existing.source === to && !existing.carriedFrom &&
+		(existing.publicKey !== roster.publicKey || existing.version > roster.body.version)) return false;
+	if (!existing || existing.carriedFrom || existing.version < roster.body.version) {
+		pins[scope] = {
+			source: to, carriedFrom: from, carriedTokenHash: await tokenHash(token),
+			publicKey: roster.publicKey, version: roster.body.version, roster
+		};
+		try {
+			localStorage.setItem(PIN_KEY, JSON.stringify(pins));
+		} catch {
+			return false;
+		}
+	}
+	return true;
 }

@@ -59,6 +59,12 @@ const dependencies: ReconnectDependencies = {
 		return rosterAvailable ? roster : null;
 	},
 	refreshCommunityRoster: async () => roster,
+	// The identity, saved-server and pin rules are tested with the real pin store in
+	// communityFailover.test.ts; here only the destination-token rule is modelled.
+	prepareSessionCarry: async (_roster, _from, to, _accountId, token) => {
+		const existing = tokens.get(to);
+		return !existing || existing === token;
+	},
 	canCarrySessionTo: (value, url) =>
 		url.startsWith('https://') && value.body.entries.some((entry) => entry.url === url)
 };

@@ -5,7 +5,7 @@
 
 import { normalizeServerUrl, getServerUrl, setConfiguredServerUrl, getConfiguredServerRememberPreference } from './serverUrl';
 import { authSessionGeneration, getAuthToken, getStoredDbUserId, getStoredUsername, setAuthToken, setStoredDbUserId, setStoredUsername } from './authSession';
-import { canCarrySessionTo, getPinnedCommunityRoster, refreshCommunityRoster } from './communityRoster';
+import { canCarrySessionTo, getPinnedCommunityRoster, prepareSessionCarry, refreshCommunityRoster } from './communityRoster';
 
 const defaultDependencies = {
 	getServerUrl,
@@ -20,6 +20,7 @@ const defaultDependencies = {
 	setStoredUsername,
 	canCarrySessionTo,
 	getPinnedCommunityRoster,
+	prepareSessionCarry,
 	refreshCommunityRoster
 };
 
@@ -153,8 +154,13 @@ export class SocketReconnectionManager {
 			const nextIndex = (baseIndex + offset) % this.failoverCandidates.length;
 			const nextUrl = this.failoverCandidates[nextIndex];
 			if (!nextUrl || nextUrl === currentUrl || !this.dependencies.canCarrySessionTo(roster, nextUrl)) continue;
-			const existingToken = this.dependencies.getAuthToken(nextUrl);
-			if (existingToken && existingToken !== token) continue;
+			// Refuses a destination with its own identity or saved as a separate server, and carries
+			// the pin (bound to this token) so the next hop works offline (communityRoster.ts).
+			if (!(await this.dependencies.prepareSessionCarry(roster, currentUrl, nextUrl, accountId, token))) continue;
+			if (this.dependencies.getAuthToken(currentUrl) !== token || this.dependencies.getStoredDbUserId(currentUrl) !== accountId ||
+				this.dependencies.authSessionGeneration(currentUrl) !== generation || normalizeServerUrl(this.dependencies.getServerUrl()) !== currentUrl) {
+				return { rotated: false, nextUrl: null };
+			}
 
 			this.dependencies.setAuthToken(token, nextUrl);
 			this.dependencies.setStoredUsername(this.dependencies.getStoredUsername(currentUrl), nextUrl);
