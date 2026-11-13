@@ -1513,3 +1513,327 @@ async fn removed_or_deleted_members_force_rekey_and_lose_access_to_new_wrapped_k
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(all_ciphertext(&stored(&state, &room.ch).await));
 }
+
+// ---------------------------------------------------------------------------
+// Round 2: feature surfaces that store readable text against a conversation
+// ---------------------------------------------------------------------------
+
+fn multipart(field: &str, file_name: &str, mime: &str, bytes: &[u8]) -> (String, Vec<u8>) {
+    let boundary = format!("wabi-contract-{}", uuid::Uuid::new_v4().simple());
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{file_name}\"\r\nContent-Type: {mime}\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
+async fn raw_request(
+    app: &Router,
+    method: Method,
+    path: &str,
+    authorization: &str,
+    headers: &[(&str, String)],
+    body: Vec<u8>,
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder().method(method).uri(path).header("authorization", authorization);
+    for (name, value) in headers {
+        builder = builder.header(*name, value);
+    }
+    let response = app.clone().oneshot(builder.body(Body::from(body)).unwrap()).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+    let value = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)));
+    (status, value)
+}
+
+/// Resumable upload bound to `ch`: init, one chunk, complete. Returns the
+/// first non-success step, or the final response.
+async fn resumable_upload(
+    app: &Router,
+    auth: &str,
+    ch: &str,
+    file_name: &str,
+    mime: &str,
+    bytes: &[u8],
+) -> (StatusCode, Value) {
+    let (status, init) = request(
+        app,
+        Method::POST,
+        "/upload/resumable/init",
+        auth,
+        json!({"fileName":file_name,"fileSize":bytes.len(),"mimeType":mime,"channelId":ch}),
+    )
+    .await;
+    if !status.is_success() {
+        return (status, init);
+    }
+    let upload_id = init["uploadId"].as_str().unwrap().to_string();
+    let upload_token = init["uploadToken"].as_str().unwrap().to_string();
+    let (status, chunk) = raw_request(
+        app,
+        Method::PUT,
+        &format!("/upload/resumable/chunk?uploadId={upload_id}&offset=0"),
+        auth,
+        &[("x-upload-token", upload_token.clone()), ("content-type", "application/octet-stream".into())],
+        bytes.to_vec(),
+    )
+    .await;
+    if !status.is_success() {
+        return (status, chunk);
+    }
+    request(
+        app,
+        Method::POST,
+        "/upload/resumable/complete",
+        auth,
+        json!({"uploadId":upload_id,"uploadToken":upload_token}),
+    )
+    .await
+}
+
+/// Objects created while a room is still server-readable, so that the update
+/// paths can be probed after encryption is enabled.
+struct Seeds {
+    page: String,
+    album: String,
+    work: String,
+    incident: String,
+}
+
+async fn seed_readable_features(app: &Router, auth: &str, ch: &str) -> Seeds {
+    let ok = |what: &str, status: StatusCode, body: &Value| {
+        assert!(status.is_success(), "seed {what} in a server-readable room: {status} {body}");
+    };
+    let (s, page) = request(app, Method::POST, &format!("/wiki/{ch}/pages"), auth, json!({"title":"seed","body":"seed"})).await;
+    ok("wiki page", s, &page);
+    let (s, album) = request(app, Method::POST, "/albums", auth, json!({"scopeType":"dm","scopeId":ch,"name":"seed"})).await;
+    ok("album", s, &album);
+    let (s, work) = request(
+        app,
+        Method::POST,
+        &format!("/gallery/{ch}/works"),
+        auth,
+        json!({"title":"seed","caption":"seed","attachmentUrl":"/uploads/x.png","mimeType":"image/png","category":"art","isWip":false}),
+    )
+    .await;
+    ok("gallery work", s, &work);
+    let (s, incident) = request(app, Method::POST, &format!("/incidents/{ch}"), auth, json!({"title":"seed","description":"seed","severity":"low"})).await;
+    ok("incident", s, &incident);
+    let seeds = Seeds {
+        page: page["page_id"].as_str().or(page["pageId"].as_str()).unwrap().to_string(),
+        album: album["album"]["id"].as_str().or(album["album"]["album_id"].as_str()).unwrap().to_string(),
+        work: work["work_id"].as_str().or(work["workId"].as_str()).unwrap().to_string(),
+        incident: incident["incident_id"].as_str().or(incident["incidentId"].as_str()).unwrap().to_string(),
+    };
+    // Every update probe is valid in the readable room too.
+    let accepted = feature_text_paths(app, auth, None, ch, "seed-probe", Some(&seeds), false).await;
+    assert_eq!(accepted.len(), feature_path_count(true), "readable room must accept every probe: {accepted:#?}");
+    seeds
+}
+
+fn feature_path_count(with_seeds: bool) -> usize {
+    // wiki, album, gallery work, incident, whiteboard doc, image, font, upload
+    8 + if with_seeds { 5 } else { 0 }
+}
+
+/// Probe every feature path that stores readable text against `ch`. With
+/// `expect_refusal`, each refusal must name the encryption policy.
+async fn feature_text_paths(
+    app: &Router,
+    auth: &str,
+    mut sio: Option<&mut Client>,
+    ch: &str,
+    m: &str,
+    seeds: Option<&Seeds>,
+    expect_refusal: bool,
+) -> Vec<String> {
+    let mut accepted = vec![];
+    let mut check = |path: &str, status: StatusCode, body: &Value| {
+        if status.is_success() {
+            accepted.push(format!("{path} ({status})"));
+        } else if expect_refusal {
+            policy_refusal(path, status, body);
+        } else {
+            panic!("{path} refused in a readable room: {status} {body}");
+        }
+    };
+    let (s, b) = request(app, Method::POST, &format!("/wiki/{ch}/pages"), auth, json!({"title":format!("{m} wiki title"),"body":format!("{m} wiki body")})).await;
+    check("POST wiki page", s, &b);
+    let (s, b) = request(app, Method::POST, "/albums", auth, json!({"scopeType":"dm","scopeId":ch,"name":format!("{m} album name")})).await;
+    check("POST album", s, &b);
+    let (s, b) = request(
+        app,
+        Method::POST,
+        &format!("/gallery/{ch}/works"),
+        auth,
+        json!({"title":format!("{m} work title"),"caption":format!("{m} work caption"),"attachmentUrl":"/uploads/x.png","mimeType":"image/png","category":"art","isWip":false}),
+    )
+    .await;
+    check("POST gallery work", s, &b);
+    let (s, b) = request(app, Method::POST, &format!("/incidents/{ch}"), auth, json!({"title":format!("{m} incident"),"description":format!("{m} incident body"),"severity":"low"})).await;
+    check("POST incident", s, &b);
+    let (_, doc) = request(app, Method::GET, &format!("/whiteboard/boards/{ch}/document"), auth, Value::Null).await;
+    let version = doc["document"]["version"].as_u64().or(doc["version"].as_u64()).unwrap_or(0);
+    let (s, b) = request(
+        app,
+        Method::PUT,
+        &format!("/whiteboard/boards/{ch}/document"),
+        auth,
+        json!({"version":version,"elements":[{"id":"t1","type":"text","text":format!("{m} whiteboard text")}]}),
+    )
+    .await;
+    check("PUT whiteboard document", s, &b);
+    let (content_type, body) = multipart("file", &format!("{m}-sketch.png"), "image/png", format!("\u{89}PNG {m} image bytes").as_bytes());
+    let (s, b) = raw_request(app, Method::POST, &format!("/whiteboard/boards/{ch}/images"), auth, &[("content-type", content_type)], body).await;
+    check("POST whiteboard image", s, &b);
+    let (content_type, body) = multipart("file", &format!("{m}-font.woff2"), "font/woff2", format!("wOF2 {m} font bytes").as_bytes());
+    let (s, b) = raw_request(app, Method::POST, &format!("/whiteboard/boards/{ch}/fonts"), auth, &[("content-type", content_type)], body).await;
+    check("POST whiteboard font", s, &b);
+    let (s, b) = resumable_upload(app, auth, ch, &format!("{m}-secret-plan.txt"), "text/plain", format!("{m} upload bytes").as_bytes()).await;
+    check("resumable upload (plaintext name and bytes)", s, &b);
+
+    if let Some(seeds) = seeds {
+        let (_, page) = request(app, Method::GET, &format!("/wiki/{ch}/pages/{}", seeds.page), auth, Value::Null).await;
+        let updated = page["updated_at_micros"].as_i64().or(page["updatedAtMicros"].as_i64()).unwrap_or_else(|| panic!("wiki page: {page}"));
+        let (s, b) = request(
+            app,
+            Method::PUT,
+            &format!("/wiki/{ch}/pages/{}", seeds.page),
+            auth,
+            json!({"expectedUpdatedAtMicros":updated,"title":format!("{m} wiki edit"),"body":format!("{m} wiki edit body")}),
+        )
+        .await;
+        check("PUT wiki page", s, &b);
+        let (s, b) = request(
+            app,
+            Method::POST,
+            &format!("/albums/{}/items", seeds.album),
+            auth,
+            json!({"attachmentUrl":"/uploads/x.png","attachmentName":format!("{m}-holiday.png"),"caption":format!("{m} album caption")}),
+        )
+        .await;
+        check("POST album item", s, &b);
+        let (s, b) = request(
+            app,
+            Method::PUT,
+            &format!("/gallery/{ch}/works/{}", seeds.work),
+            auth,
+            json!({"title":format!("{m} work edit"),"caption":format!("{m} caption edit"),"category":"art","isWip":false}),
+        )
+        .await;
+        check("PUT gallery work", s, &b);
+        let (s, b) = request(
+            app,
+            Method::POST,
+            &format!("/gallery/{ch}/works/{}/feedback", seeds.work),
+            auth,
+            json!({"comment":format!("{m} feedback"),"xPercent":1.0,"yPercent":1.0}),
+        )
+        .await;
+        check("POST gallery feedback", s, &b);
+        let (s, b) = request(
+            app,
+            Method::PUT,
+            &format!("/incidents/{ch}/{}", seeds.incident),
+            auth,
+            json!({"title":format!("{m} incident edit"),"description":format!("{m} incident edit body")}),
+        )
+        .await;
+        check("PUT incident", s, &b);
+    }
+
+    if let Some(sio) = sio.as_deref_mut() {
+        let (_, doc) = request(app, Method::GET, &format!("/whiteboard/boards/{ch}/document"), auth, Value::Null).await;
+        let version = doc["document"]["version"].as_u64().or(doc["version"].as_u64()).unwrap_or(0);
+        sio.emit("whiteboard:join", json!({"boardId":ch})).await;
+        let _ = sio.event_one_of(&["whiteboard:joined", "whiteboard:error"]).await;
+        sio.emit(
+            "whiteboard:snapshot",
+            json!({"boardId":ch,"document":{"version":version,"elements":[{"id":"s1","type":"text","text":format!("{m} socket snapshot")}]}}),
+        )
+        .await;
+        let (event, body) = sio.event_one_of(&["whiteboard:ack", "whiteboard:error"]).await;
+        if event == "whiteboard:ack" {
+            accepted.push("socket.io whiteboard:snapshot".into());
+        } else if expect_refusal {
+            assert_policy_reason("socket.io whiteboard:snapshot", &body);
+        }
+        sio.emit(
+            "whiteboard:patch",
+            json!({"boardId":ch,"patch":{"op":"create","patchId":"p1","element":{"id":"p1","type":"text","text":format!("{m} socket patch")}}}),
+        )
+        .await;
+        let (event, body) = sio.event_one_of(&["whiteboard:ack", "whiteboard:error"]).await;
+        if event == "whiteboard:ack" {
+            accepted.push("socket.io whiteboard:patch".into());
+        } else if expect_refusal {
+            assert_policy_reason("socket.io whiteboard:patch", &body);
+        }
+    }
+    accepted
+}
+
+#[tokio::test]
+async fn feature_surfaces_refuse_readable_text_in_encrypted_and_pending_conversations() {
+    let logs = captured_logs();
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let m = format!("FEATURE-{}", uuid::Uuid::new_v4().simple());
+    let a = user(&state, "feature-a").await;
+    let b = user(&state, "feature-b").await;
+    let auth = bearer(&state, a);
+    let mut sio_a = Client::connect(&app, &token(&state, a)).await;
+
+    // Existing group: every probe is accepted while server-readable...
+    let group = "group-feature-surfaces".to_string();
+    state.wdb.create_group(&group, "features", a, &[a, b]).await.unwrap();
+    let seeds = seed_readable_features(&app, &auth, &group).await;
+    // ...and refused once experimental encryption is enabled.
+    for (uid, device) in [(a, device_id(a, 1)), (b, device_id(b, 1))] {
+        register_device(&app, &state, uid, &device).await;
+    }
+    let (status, body) = set_room(&app, &state, (a, &device_id(a, 1)), &group, 1, &[(a, device_id(a, 1)), (b, device_id(b, 1))], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let accepted = feature_text_paths(&app, &auth, Some(&mut sio_a), &group, &m, Some(&seeds), true).await;
+    let mut failures = vec![format!("encrypted group: {accepted:?}")];
+    let mut any = !accepted.is_empty();
+
+    // New group and new DM, created pending through the real paths.
+    sio_a.emit("create-group", json!({"requestId":uuid::Uuid::new_v4().to_string(),"groupName":"pending","userIds":[format!("user-{b}")]})).await;
+    let pending_group = sio_a.event("group-created").await["channelId"].as_str().unwrap().to_string();
+    let c = user(&state, "feature-c").await;
+    sio_a.emit("create-dm", json!({"targetUserId":format!("user-{c}")})).await;
+    let pending_dm = sio_a.event("dm-created").await["channelId"].as_str().unwrap().to_string();
+    for (name, ch) in [("pending group", &pending_group), ("pending DM", &pending_dm)] {
+        let accepted = feature_text_paths(&app, &auth, Some(&mut sio_a), ch, &m, None, true).await;
+        any |= !accepted.is_empty();
+        failures.push(format!("{name}: {accepted:?}"));
+    }
+    assert!(!any, "readable text accepted:\n{}", failures.join("\n"));
+
+    // The opaque upload shape the shipped client sends is still accepted in
+    // the encrypted room; nothing names the original file.
+    let opaque = format!("e2ee-{}.wabi", uuid::Uuid::new_v4());
+    let (status, body) = resumable_upload(&app, &auth, &group, &opaque, "application/octet-stream", b"opaque-ciphertext-bytes").await;
+    assert!(status.is_success(), "opaque encrypted upload refused: {status} {body}");
+
+    // Per-sender consent: after a chooses server-readable in the pending
+    // group, a's feature writes are admitted and b's are still refused.
+    let (status, _) = request(&app, Method::POST, &format!("/e2ee/channels/{pending_group}/allow-server-readable"), &auth, Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = request(&app, Method::POST, &format!("/wiki/{pending_group}/pages"), &auth, json!({"title":"a consented","body":"a consented"})).await;
+    assert_eq!(status, StatusCode::OK, "consenting sender: {body}");
+    let accepted = feature_text_paths(&app, &bearer(&state, b), None, &pending_group, &m, None, true).await;
+    assert!(accepted.is_empty(), "a's consent admitted b's readable text: {accepted:?}");
+
+    let hits: Vec<_> = files_containing(dir.path(), &m)
+        .into_iter()
+        .chain(files_containing(Path::new(&state.config.uploads_dir), &m))
+        .collect();
+    assert!(hits.is_empty(), "{m} written to {hits:?}");
+    let logs = String::from_utf8_lossy(&logs.lock().unwrap()).into_owned();
+    assert!(!logs.contains(&m), "{m} in tracing output");
+}
