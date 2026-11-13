@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { waitForAppShell } from './smoke-shell.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-forum-ui-');
@@ -58,7 +59,7 @@ try {
 	}, { backend, account });
 	await page.goto(origin, { waitUntil: 'networkidle' });
 
-    await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
+    await waitForAppShell(page);
     const created = await fetch(`${backend}/api/channels`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${account.accessToken}` },
         body: JSON.stringify({ name: 'forum_journey', channel_type: 'forum' })
