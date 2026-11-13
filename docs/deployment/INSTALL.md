@@ -113,7 +113,16 @@ Wabi to the public internet, review these env vars first (all optional, see
 | `WABI_MAX_BODY_SIZE` | 50 GiB | File/transport ceiling in bytes. Ordinary API JSON, auth POST and whiteboard document PUT have a separate 2 MiB ceiling; a smaller operator limit still wins. Lower the file ceiling for public instances; 50 GiB suits trusted LAN media backups. |
 | `WABI_HTTP_TIMEOUT_SECS` | 30 | API request timeout. Uploads/static are exempt. 30s is fine publicly; raise only if long API operations matter to you. |
 | `WABI_RATE_LIMIT_RPS` / `WABI_RATE_LIMIT_BURST` | see `.env.example` | Keep enabled behind a trusted proxy; set `WABI_TRUSTED_PROXIES` so rate limiting sees real client IPs. |
-| `WABI_METRICS_PUBLIC` | false (admin-gated) | Leave false on public instances — `/metrics` is for your scrape stack, not the open web. |
+| `WABI_METRICS_PUBLIC` | false (admin-gated) | Leave false on public instances. When false, `/metrics` answers only a server admin's bearer token or `WABI_METRICS_TOKEN`; anyone else gets 401/403. `1`/`true`/`yes` serves it to anyone without auth and logs a warning at startup. |
+| `WABI_METRICS_TOKEN` | unset | Scrape secret for Prometheus: send it as `Authorization: Bearer <token>` (in Prometheus, `authorization: { credentials: <token> }` on the scrape job). It opens `/metrics` only, no other route. Use a long random value, e.g. `openssl rand -hex 32`. |
+
+`/health`, `/livez` and `/readyz` stay public for load balancers and the compose
+health check. They return only status, service name, role, version and a
+timestamp (`/health`), or a status and engine-ready flag (`/livez`, `/readyz`;
+a 503 from `/readyz` also carries the engine's error text). No user, channel or
+message data. `/metrics` itself carries only server-wide
+counters (request count, request latency histogram, socket gauge, uptime),
+labelled by `service` and `le`, with nothing per user or per conversation.
 
 Also standard: run behind HTTPS (Caddy/cloudflared profile), keep
 `PLUGINS_ENABLED=false` unless you need plugins, and back up `data/`
