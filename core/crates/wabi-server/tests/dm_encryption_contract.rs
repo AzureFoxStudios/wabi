@@ -1850,6 +1850,85 @@ async fn a_member_who_never_returns_is_removed_and_the_room_rekeyed() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
+/// An enable racing an upload completion: the completion's admission and its
+/// publication happen under one hold of the encryption-policy lock, so a
+/// plaintext upload is either published before the room's marker says
+/// encrypted, or refused. A watcher polls both; with admission released
+/// before hashing (the earlier code) it sees the room encrypted while the
+/// plaintext upload is still unpublished, and then published.
+#[tokio::test]
+async fn an_enable_racing_an_upload_completion_never_publishes_plaintext_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "race-a").await;
+    let b = user(&state, "race-b").await;
+    let ch = "group-upload-race".to_string();
+    state.wdb.create_group(&ch, "race", a, &[a, b]).await.unwrap();
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let auth = bearer(&state, a);
+    // Large enough that hashing it takes a while; sent in 1 MiB chunks.
+    const MIB: usize = 1024 * 1024;
+    let size = 48 * MIB;
+    let (status, init) = request(&app, Method::POST, "/upload/resumable/init", &auth,
+        json!({"fileName":"race-plan.txt","fileSize":size,"mimeType":"text/plain","channelId":ch})).await;
+    assert_eq!(status, StatusCode::OK, "{init}");
+    let upload_id = init["uploadId"].as_str().unwrap().to_string();
+    let upload_token = init["uploadToken"].as_str().unwrap().to_string();
+    let chunk = vec![b'r'; MIB];
+    for i in 0..48 {
+        let (status, body) = raw_request(&app, Method::PUT,
+            &format!("/upload/resumable/chunk?uploadId={upload_id}&offset={}", i * MIB), &auth,
+            &[("x-upload-token", upload_token.clone()), ("content-type", "application/octet-stream".into())],
+            chunk.clone()).await;
+        assert!(status.is_success(), "chunk {i}: {status} {body}");
+    }
+
+    // Published = the bytes are at their public path.
+    let final_path = Path::new(&state.config.uploads_dir).join(format!("{upload_id}.txt"));
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher = {
+        let (state, ch, done, final_path) = (state.clone(), ch.clone(), done.clone(), final_path.clone());
+        tokio::spawn(async move {
+            let mut encrypted_while_unpublished = false;
+            while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                let encrypted = room_marker(&state, &ch).is_some_and(|(mode, _)| mode == Mode::Enabled);
+                let published = final_path.exists();
+                encrypted_while_unpublished |= encrypted && !published;
+                tokio::task::yield_now().await;
+            }
+            encrypted_while_unpublished
+        })
+    };
+    let completion = {
+        let (app, auth) = (app.clone(), auth.clone());
+        let body = json!({"uploadId":upload_id,"uploadToken":upload_token});
+        tokio::spawn(async move { request(&app, Method::POST, "/upload/resumable/complete", &auth, body).await })
+    };
+    // Enable as soon as the completion has recorded the upload's name: it
+    // has been admitted by then, and the earlier code had not yet hashed.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while state.upload_registry.by_channel(&ch).await.is_empty() && !completion.is_finished() {
+        assert!(tokio::time::Instant::now() < deadline, "completion never recorded the upload");
+        tokio::task::yield_now().await;
+    }
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (completed, completion_body) = completion.await.unwrap();
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let encrypted_while_unpublished = watcher.await.unwrap();
+    let published = final_path.exists();
+    if completed.is_success() {
+        assert!(published);
+        assert!(!encrypted_while_unpublished, "a plaintext upload was published after the room became encrypted");
+    } else {
+        assert_eq!(completed, StatusCode::FORBIDDEN, "{completion_body}");
+        assert!(!published, "a refused completion published its bytes");
+    }
+}
+
 /// "encrypted" on a relayed or listed message is the server's decision, not
 /// the sender's claim. A plaintext message sent with `encrypted: true` (and an
 /// `iv`) in a public channel is relayed, cached and listed as not encrypted;

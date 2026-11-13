@@ -546,16 +546,6 @@ async fn complete_upload(
             .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?
             .clone()
     };
-    if !session.channel_id.is_empty() {
-        let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
-            .await?;
-        // The room may have become encrypted since init: re-check before the
-        // name is recorded or the bytes are published.
-        drop(
-            crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type)
-                .await?,
-        );
-    }
     if session.uploaded_bytes != session.file_size {
         return Err(anyhow::anyhow!("Upload is incomplete").into());
     }
@@ -573,8 +563,11 @@ async fn complete_upload(
     let final_name = format!("{}{}", session.upload_id, session.extension);
     let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
 
-    if tokio::fs::try_exists(&session.temp_path).await? {
-        // Before the name is recorded or the bytes are published.
+    // The slow part first, without the encryption-policy lock (it is global:
+    // holding it while hashing a large file would stall every conversation
+    // send). The session's write gate keeps the staged bytes unchanged.
+    let staged = tokio::fs::try_exists(&session.temp_path).await?;
+    let sha256 = if staged {
         refuse_hls_playlist_file(&session.temp_path).await?;
         let file = OpenOptions::new()
             .write(true)
@@ -596,7 +589,33 @@ async fn complete_upload(
                 .ok_or_else(|| anyhow::anyhow!("Upload staging path has no parent"))?,
         )
         .await?;
+        crate::upload_registry::sha256_file(&session.temp_path).await?
+    } else {
+        // A previous completion may have renamed the file but failed its
+        // directory sync. Keep the session so a retry can finish publication.
+        let meta = state.upload_registry.get(&final_name).await;
+        if !meta.is_some_and(|meta| meta.size == session.file_size) {
+            return Err(anyhow::anyhow!("Upload staging file is missing").into());
+        }
+        if tokio::fs::metadata(&final_path).await?.len() != session.file_size {
+            return Err(anyhow::anyhow!("Published upload size changed").into());
+        }
+        crate::upload_registry::sha256_file(&final_path).await?
+    };
 
+    // The room may have become encrypted or pending since init. Admission is
+    // decided under the encryption-policy lock, and that lock is held until
+    // the name is recorded, the publication committed and the bytes renamed,
+    // so the room cannot change state between the decision and publication.
+    let _encryption_policy = if session.channel_id.is_empty() {
+        None
+    } else {
+        let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
+            .await?;
+        crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type)
+            .await?
+    };
+    if staged {
         // Persist ownership while the bytes remain in the private staging path.
         state
             .upload_registry
@@ -613,7 +632,6 @@ async fn complete_upload(
                 session.file_size,
             )
             .await?;
-        let sha256 = crate::upload_registry::sha256_file(&session.temp_path).await?;
         state
             .upload_registry
             .prepare_published(
@@ -625,16 +643,6 @@ async fn complete_upload(
             .await?;
         tokio::fs::rename(&session.temp_path, &final_path).await?;
     } else {
-        // A previous completion may have renamed the file but failed its
-        // directory sync. Keep the session so a retry can finish publication.
-        let meta = state.upload_registry.get(&final_name).await;
-        if !meta.is_some_and(|meta| meta.size == session.file_size) {
-            return Err(anyhow::anyhow!("Upload staging file is missing").into());
-        }
-        if tokio::fs::metadata(&final_path).await?.len() != session.file_size {
-            return Err(anyhow::anyhow!("Published upload size changed").into());
-        }
-        let sha256 = crate::upload_registry::sha256_file(&final_path).await?;
         state
             .upload_registry
             .prepare_published(
@@ -645,6 +653,7 @@ async fn complete_upload(
             )
             .await?;
     }
+    drop(_encryption_policy);
     crate::upload_registry::sync_upload_directory(&PathBuf::from(&state.config.uploads_dir))
         .await?;
     state
