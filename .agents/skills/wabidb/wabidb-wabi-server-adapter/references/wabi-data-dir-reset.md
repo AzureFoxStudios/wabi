@@ -25,7 +25,7 @@ tar czf backups/wabi-data-pre-reset-$(date +%Y%m%d-%H%M%S).tar.gz data/
 # 3. Nuclear reset of durable state (keep uploads + blacklist)
 cd data
 rm -rf wabidb server_owner.json
-rm -f wabidb/.lock 2>/dev/null || true   # stale lock can block restart
+# (do not delete lock files on their own; AGENTS.md rule 9)
 
 # 4. Verify what's left
 ls -la   # should now show only blacklist.txt + uploads/
@@ -79,7 +79,7 @@ Expected after clean start + first register:
 ## Pitfalls
 - Do not delete the entire `data/` if you want to keep uploads or blacklist.
 - Always set `WABIDB_ROOT_KEY` — the binary will exit immediately without it.
-- Stale `.lock` in wabidb/ will prevent startup.
+- `engine already running` means another process holds the data tree. Stop it; never unlink `wabidb/.lock` to admit a writer (`AGENTS.md` rule 9).
 - **Client state is the most common cause of "still spinning after reset"** — backend may be perfect but browser still holds old token.
 - 404 on theme/places/plugins is normal on fresh DB; 500s usually mean the server didn't start or a handler assumed existing data.
 - Frontend dev server (5173) and backend (3001) are independent processes. Restarting one does not restart the other.

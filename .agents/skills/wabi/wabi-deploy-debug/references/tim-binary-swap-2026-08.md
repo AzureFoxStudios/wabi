@@ -49,13 +49,12 @@ scp target/release/wabi-server root@100.96.11.45:/home/tim/Desktop/Wabi/target/r
 ssh root@100.96.11.45 'cd /home/tim/Desktop/Wabi && \
   test "$(sha256sum target/release/wabi-server.new | awk "{print \$1}")" = "'"$LOCAL_SHA"'" && \
   docker compose stop wabi-server && \
-  rm -f data/wabi-server/.lock data/wabi-server/wabidb/.lock && \
   mv -f target/release/wabi-server.new target/release/wabi-server && \
   chmod +x target/release/wabi-server && \
   docker compose up -d wabi-server'
 ```
 
-Both locks required. Deeper `wabidb/.lock` is the engine lock.
+Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped." On `Error: engine already running`, find and stop the process that actually holds the lock (check every container and process on the host); do not unlink the file to force a start. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 ## Proof
 

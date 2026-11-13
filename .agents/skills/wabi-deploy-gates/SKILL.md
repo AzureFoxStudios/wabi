@@ -65,27 +65,16 @@ curl -o /dev/null -w "%{http_code}" $BASE/api/admin/jobs/dead-lettered
 
 A 200 on an admin endpoint without a token means the auth gate broke.
 
-## Pitfall — WabiDB `.lock` restart deadlock (kanban t_22c8e654)
+## Pitfall — `engine already running` (superseded lock guidance corrected)
 
-WabiDB `open()` (`core/crates/wabidb/src/engine/mod.rs`) writes
-`data/wabi-server/wabidb/.lock` PID-stamped, then refuses boot if it exists.
-**Nothing ever removes it** — not graceful shutdown, not crash paths. Any
-container restart policy self-deadlocks: dying run leaves pid-1 lock → next
-boot exits `Error: engine already running` in a loop forever.
+Older text here (2026-08-22) described a PID-file lock that nothing removed and
+told you to delete it. That predates the OS advisory-lock engine.
 
-Recovery sequence (verified live 2026-08-22):
+Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped."
 
-```bash
-docker compose stop wabi-server   # FULL stop first, not just rm
-rm -f data/wabi-server/wabidb/.lock data/wabi-server/.lock
-docker compose up -d wabi-server
-```
+On `Error: engine already running`, find and stop the process that actually holds the lock (check every container and process on the host); do not unlink the file to force a start. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
-Removing the lock while the container is still restart-looping does NOT work —
-each crashed boot rewrites it. Stop → clear → start.
-
-Proper fix (open card): remove own lock on shutdown + treat stale-PID locks as
-takeable instead of fatal. Existence alone is not liveness.
+(The old "remove own lock on shutdown" card is superseded by the advisory-lock engine; existence alone is not liveness.)
 
 ## Pitfall — partial string verification gives false confidence
 

@@ -304,7 +304,7 @@ When the server returns 500s (auth, user, theme, places) or `server_owner.json` 
 - **Ports are separate by design**: 5173 = frontend Vite (`bun run dev`). 3001 = backend `wabi-server`. `serverUrl.ts` rewrites all backend URLs to :3001 when the page is on 5173 (source: 'dev_vite'). This is why users ask "why the swap" — there is no swap; they are two processes.
 - After DB reset the most common cause of "infinite spinning on 5173" is stale browser localStorage holding an old "wabi" token/session. Clear storage or use incognito.
 - Server **requires** `WABIDB_ROOT_KEY` (or equivalent from_passphrase). Missing it produces: `validation failed for load_bootstrap_key: env var WABIDB_ROOT_KEY not set`.
-- Clean up stale `wabidb/.lock` before restart.
+- Do not delete `wabidb/.lock` before restart: it is a persistent OS advisory lock and its presence does not mean a live writer (`AGENTS.md` rule 9). On `engine already running`, stop the process that holds it.
 
 See `references/wabi-data-dir-reset.md` for the exact backup + `rm -rf wabidb server_owner.json` + restart steps using the active `--data-dir`.
 

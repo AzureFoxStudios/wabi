@@ -142,15 +142,12 @@ Binary swap must:
 
 ```bash
 docker compose stop wabi-server
-rm -f data/wabi-server/.lock
+# confirm the process exited; leave wabidb/.lock in place (AGENTS.md rule 9)
 # replace binary
 docker compose up -d wabi-server
 ```
 
-Stale `.lock` → crash-loop `Error: engine already running` even when previous process exited cleanly.
-(Verified 2026-07-19: the live lock is `data/wabi-server/.lock`, NOT
-`data/wabi-server/wabidb/.lock`. There is no `wabidb/` subdir lock in the
-current tree. See SKILL.md pitfall 6.)
+Superseded (2026-07-19 notes described a root PID lock). Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped." See SKILL.md pitfall 6.
 
 ## Recovery shape
 
@@ -175,7 +172,7 @@ holds the correct record; the gap is only that the event isn't in the replay log
    - **Safe:** leave it orphaned (harmless unused account), only re-emit id 1.
    - **Clean:** trim the id-2 `user_registered` event from the log (delicate —
      verify the log format/seq first; confirm the server replays cleanly after).
-4. Restart with lock clear (`rm -f data/wabi-server/.lock`). Verify
+4. Restart (do not delete `wabidb/.lock`; a legacy root `.lock` only after every old process is confirmed stopped). Verify
    `POST /api/auth/login {wabi, Please1}` → 200 + token, and that the owner's
    channels/messages are owned by user_id 1.
 
@@ -184,7 +181,7 @@ log, future restarts keep the owner. Diagnose the source of the original
 out-of-band creation so it does not recur on the next binary swap.
 
 If the postcard-schema variant (replay errors in logs) is the cause instead:
-ship the dual-decode binary first, restart with lock clear, verify no postcard
+ship the dual-decode binary first, restart (leave `wabidb/.lock` in place), verify no postcard
 errors. Historical events may still be on disk under
 `streams/other/users/events/`; recover offline or rebuild projections with the
 fixed decoder. Snapshot watermark skips already-applied seqs; full rebuild needs
@@ -237,12 +234,12 @@ Projection must apply non-empty `password_hash` on `user_updated` or change-pass
 | WabiDB engine root | `/data/wabidb` (= `data/wabi-server/wabidb`) |
 | Streams | `.../wabidb/streams/` |
 | Snapshot | `.../wabidb/projections/snapshot.json` |
-| Lock | `data/wabi-server/.lock` (NOT `data/wabi-server/wabidb/.lock`) |
+| Lock | `data/wabi-server/wabidb/.lock` (persistent OS advisory lock, never delete); legacy root `data/wabi-server/.lock` on old installs |
 | Bind-mounted binary | `target/release/wabi-server` → `/wabi-server` |
 
 ## Related
 
-- `references/tim-update-runbook.md` — ship sequence + lock clear
+- `references/tim-update-runbook.md` — ship sequence (lock left in place)
 - `references/pre-deploy-live-stack-audit.md` — audit before swap
 - `references/user-schema-and-account-safety.md` — condensed checklist
 - `references/chat-retention-default-ephemeral.md` — chat TTL default 24h (separate from auth/schema)

@@ -91,11 +91,10 @@ For fixture-only changes, Git + Lore commit is complete; rebuilding the Wabi bin
 
 ### Binary/frontend delivery
 
-For code/frontend changes, use the static build and `--features addons`. Ship the bind-mounted binary to `~/Desktop/Wabi/target/release/wabi-server.new`, then stop, clear both locks, replace, and recreate:
+For code/frontend changes, use the static build and `--features addons`. Ship the bind-mounted binary to `~/Desktop/Wabi/target/release/wabi-server.new`, then stop, confirm the process exited, replace, and recreate. Do not delete `data/wabi-server/wabidb/.lock` (`AGENTS.md` rule 9: it is a persistent OS advisory lock; a legacy root `data/wabi-server/.lock` may be removed only after confirming every old process is stopped):
 
 ```bash
 docker compose stop wabi-server
-rm -f data/wabi-server/.lock data/wabi-server/wabidb/.lock
 mv target/release/wabi-server.new target/release/wabi-server
 chmod +x target/release/wabi-server
 docker rm -f wabi-server || true

@@ -98,16 +98,11 @@ This is distinct from "disabled" — when the feature flag is absent, the `lore`
 Error: engine already running
 ```
 
-Container restart-loops after `docker compose up -d`. This is a stale WabiDB lock from a prior unclean shutdown. There are **TWO** lock files that BOTH must be removed:
-- `data/wabi-server/.lock`
-- `data/wabi-server/wabidb/.lock`
+Container restart-loops after `docker compose up -d`. Older text here said to delete both lock files; that predates the OS advisory-lock engine.
 
-Fix:
-```bash
-ssh tim@100.96.11.45 "docker rm -f wabi-server && find ~/Desktop/Wabi/data -name '*.lock' -delete && docker compose -f ~/Desktop/Wabi/docker-compose.yml up -d wabi-server"
-```
+Do **not** delete `data/wabi-server/wabidb/.lock`. `AGENTS.md` rule 9: "Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped."
 
-Only clearing the top-level lock leaves the deeper engine lock, causing an immediate restart loop. After cleanup, the container should become `healthy` within seconds.
+On `Error: engine already running`, find and stop the process that actually holds the lock (check every container and process on the host); do not unlink the file to force a start. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 ---
 

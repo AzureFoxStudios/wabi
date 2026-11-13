@@ -57,7 +57,7 @@ Session-proven sequence. Re-probe before repeating; live state drifts.
 
 9. **If crash-loop**  
    - `WABIDB_ROOT_KEY not set` → add key + recreate container  
-   - `engine already running` → `docker compose stop wabi-server` then delete `data/wabi-server/**/.lock`  
+   - `engine already running` → `docker compose stop wabi-server` then find and stop whatever still holds the data tree; never delete `wabidb/.lock` (`AGENTS.md` rule 9)  
    - `TURN_HMAC_KEY missing` → stub in `.env` (compose evaluates all services)
 
 10. **Verify origin (authoritative)**  

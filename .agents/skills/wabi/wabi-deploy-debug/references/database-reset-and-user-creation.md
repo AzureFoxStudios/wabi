@@ -23,10 +23,7 @@ When you need to start fresh with a clean database:
    mkdir -p /home/Ronin/wabi/data/wabidb
    ```
 
-3. **Remove lock files (if any):**
-   ```bash
-   rm -f /home/Ronin/wabi/data/wabidb/.lock
-   ```
+3. **Do not delete lock files.** The `rm -rf` in step 2 is a deliberate full data wipe of a dev tree. Never unlink `wabidb/.lock` on its own to get past `engine already running`: find and stop the process that holds it (`AGENTS.md` rule 9, `docs/deployment/BACKUP_AND_RECOVERY.md`).
 
 4. **Clean old JWT secret:**
    ```bash
