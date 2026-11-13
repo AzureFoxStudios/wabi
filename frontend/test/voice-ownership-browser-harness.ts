@@ -3,20 +3,21 @@
 import { get } from 'svelte/store';
 import { startGroupCall, joinVoiceChannel, leaveVoiceChannel, revokeGroupCall,
   handleForcedVoiceMove, handleForcedVoiceLeave, cleanupAllConnections,
-  startScreenShare } from '../src/lib/calling_impl_core';
+  startScreenShare, switchCallTransport } from '../src/lib/calling_impl_core';
 import { callSocketDisconnected, callSocketInitialized } from '../src/lib/callSocketLifecycle';
 import { getWabidbRelayDiagnostics, disconnectWabidbCall } from '../src/lib/callingWabidb';
 import { localStream, localScreenStream, isSharing, activeGroupCall, activeVoiceChannel, isInCall, isMuted, voiceChannelNotice, callOfflineNotice } from '../src/lib/callingStateStores';
 import { groupMembership } from '../src/lib/groupAccess';
 import { setConfiguredServerUrl } from '../src/lib/serverUrl';
 import { setAuthToken, setStoredDbUserId } from '../src/lib/authSession';
-import { setAudioProcessingMode, setCallTransportMode } from '../src/lib/mediaRuntime';
+import { setAudioProcessingMode, setCallTransportMode, getStoredCallTransportMode } from '../src/lib/mediaRuntime';
+import { transportWatchdog } from '../src/lib/callingWatchdog';
 import { callSessionManager } from '../src/lib/callSessionManager';
 import { voiceChannelMembers } from '../src/lib/presenceStore';
 
 function assert(value: unknown, label: string) { if (!value) throw new Error(label); }
-async function until(check: () => boolean, label: string) {
-  for (let i = 0; i < 250; i++) { if (check()) return; await new Promise(r => setTimeout(r, 20)); }
+async function until(check: () => boolean, label: string, timeoutMs = 5000) {
+  for (let i = 0; i < timeoutMs / 20; i++) { if (check()) return; await new Promise(r => setTimeout(r, 20)); }
   throw new Error(`Timed out: ${label}`);
 }
 class RawSocket {
@@ -201,13 +202,15 @@ async function run() {
     voiceChannelMembers.update(roster => ({ ...roster, 'p2p-refused': [{ userId: 'mesh-peer', username: 'Mesh',
       isSpeaking: false, isMuted: false, isDeafened: false }] }));
     setCallTransportMode('p2p-only');
+    const capturesBeforeRefusal = captures;
     const refusal = await joinVoiceChannel(current as any, 'p2p-refused').then(() => '', error => String(error?.message ?? error));
     setCallTransportMode('wabidb');
     RTCPeerConnection.prototype.createOffer = originalOffer;
     assert(refusal.includes('Direct P2P is unavailable for community voice') && get(callOfflineNotice)?.includes('mute/deafen'), 'P2P-only community voice join is refused with its reason');
     assert(offers === 0 && relays().length === 0 && !callSessionManager.get('p2p-refused') && !get(activeVoiceChannel) && !get(isInCall) && !get(localStream),
       'refused P2P join creates no peer offer, relay or session and releases the microphone');
-    results.push('P2P-only community voice: refused before any peer offer, leaves no session, relay or microphone');
+    assert(captures === capturesBeforeRefusal, 'refused P2P join is refused before the microphone permission prompt');
+    results.push('P2P-only community voice: refused before any peer offer or microphone prompt, leaves no session, relay or microphone');
 
     setCallTransportMode('wabidb'); failCapture = true;
     assert(await joinVoiceChannel(current as any, 'failed-source').then(() => false, () => true), 'initial microphone denial rejects join');
@@ -235,6 +238,55 @@ async function run() {
     await leaveVoiceChannel(current as any, 'failure-canary');
     setCallTransportMode('wabidb');
     results.push('denied relay join: failure surfaces, no P2P fallback, its relay/session retired, unrelated relay/capture preserved');
+
+    // The route control in VoiceView calls switchCallTransport. Community voice
+    // must never be moved onto browser-to-browser RTP by it: server mute,
+    // deafen and listen-only only hold on the relay/SFU.
+    const roster = (channel: string) => voiceChannelMembers.update(rosters => ({ ...rosters, [channel]: [{ userId: 'mesh-peer', username: 'Mesh',
+      isSpeaking: false, isMuted: false, isDeafened: false }] }));
+    const callSignals = (from: number) => current.sent.slice(from).filter(([event]) => event.startsWith('call-'));
+    setCallTransportMode('wabidb');
+    await joinVoiceChannel(current as any, 'switch-voice');
+    roster('switch-voice');
+    assert(relays().includes('switch-voice') && callSessionManager.get('switch-voice')?.transport === 'wabidb', 'switch canary rides a real relay');
+    let switchOffers = 0;
+    RTCPeerConnection.prototype.createOffer = function(...args: any[]): any { switchOffers++; return originalOffer.apply(this, args as any); };
+    const beforeSwitch = current.sent.length;
+    const switchRefusal = await switchCallTransport(current as any, 'p2p').then(() => '', error => String(error?.message ?? error));
+    RTCPeerConnection.prototype.createOffer = originalOffer;
+    assert(switchOffers === 0 && callSignals(beforeSwitch).length === 0, 'manual switch makes no P2P offer or call signalling for community voice');
+    assert(switchRefusal.includes('Direct P2P is unavailable for community voice'), 'manual switch is refused with its reason');
+    assert(getStoredCallTransportMode() === 'wabidb' && relays().includes('switch-voice') && callSessionManager.get('switch-voice')?.transport === 'wabidb',
+      'refused switch keeps the relay, session transport and stored mode');
+    await leaveVoiceChannel(current as any, 'switch-voice');
+    results.push('manual switch to P2P in community voice: refused with its reason, no offer or call-* signalling, relay and mode kept');
+
+    // Relay trouble mid-call: the watchdog may reconnect the relay or give up
+    // with a visible reason. It must never demote community voice to P2P.
+    setCallTransportMode('auto'); callOfflineNotice.set(null);
+    await joinVoiceChannel(current as any, 'watchdog-voice');
+    roster('watchdog-voice');
+    assert(relays().includes('watchdog-voice'), 'watchdog canary rides a real relay');
+    const relayJoin = current.sent.findLast(([event, data]) => event === 'join-wabidb-call' && data.channelId === 'watchdog-voice')?.[1];
+    let demoteOffers = 0;
+    RTCPeerConnection.prototype.createOffer = function(...args: any[]): any { demoteOffers++; return originalOffer.apply(this, args as any); };
+    const beforeLoss = current.sent.length;
+    current.relayDenied.add('watchdog-voice'); // the relay stays unavailable
+    const realProbe = (globalThis as any).__wabidbProbePrimary;
+    (globalThis as any).__wabidbProbePrimary = () => false; // fixture: no relay health evidence after the loss
+    current.receive('wabidb-call-denied', { sessionId: relayJoin?.sessionId, reason: 'Fixture relay lost' });
+    await until(() => transportWatchdog.status === 'stopped' || transportWatchdog.status === 'demoted', 'watchdog settles after relay loss', 30000);
+    await new Promise(r => setTimeout(r, 200));
+    (globalThis as any).__wabidbProbePrimary = realProbe;
+    RTCPeerConnection.prototype.createOffer = originalOffer;
+    assert(demoteOffers === 0 && callSignals(beforeLoss).length === 0, 'watchdog never demotes community voice to P2P');
+    assert(transportWatchdog.riding !== 'p2p' && callSessionManager.get('watchdog-voice')?.transport !== 'p2p', 'session is never labelled P2P');
+    assert(current.sent.slice(beforeLoss).some(([event, data]) => event === 'join-wabidb-call' && data.channelId === 'watchdog-voice'), 'watchdog retries the relay');
+    assert(get(callOfflineNotice)?.includes('relay'), 'unrecoverable relay loss surfaces a clear message');
+    current.relayDenied.delete('watchdog-voice');
+    await leaveVoiceChannel(current as any, 'watchdog-voice');
+    setCallTransportMode('wabidb');
+    results.push('watchdog in community voice: relay loss retries the relay, then reports; never a P2P offer');
     return results;
   } finally {
     holdLeave = false; heldLeaves.splice(0).forEach(resolve => resolve()); clearInterval(painter);

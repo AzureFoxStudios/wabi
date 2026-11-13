@@ -66,14 +66,12 @@
 		speakingUsers,
 		callTransportState,
 		callConnectionDiagnostics,
-		switchCallTransport,
 		localScreenStream,
 		screenShares,
 		channelCallPanelOpen
 	} from '$lib/calling';
 	import { callRecordingState, startCallRecording, stopCallRecording, formatRecordingElapsedForUi } from '$lib/callRecording';
 	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
-	import { getSocket } from '$lib/socketConnection';
 	import { setStageHeader, clearStageHeader, type StageHeaderAction } from '$lib/stageHeader';
 	import { isMobile } from '$lib/layoutStoreStates';
 	import { inkFor } from '$lib/theme/identity';
@@ -82,7 +80,6 @@
 	import Icon from './ui/Icon.svelte';
 	import Notice from './ui/Notice.svelte';
 	import Menu from './ui/Menu.svelte';
-	import Segmented from './ui/Segmented.svelte';
 	import type { MenuEntry } from './context-menu/ContextMenu.svelte';
 
 	const uid = $props.id();
@@ -273,37 +270,11 @@
 
 	// ---------- route (transport) ----------
 
-	type Route = 'wabidb' | 'p2p';
 	const currentTransport = $derived($callTransportState.activeTransport);
-	let routeBusy = $state(false);
-	let routeFailure = $state<'offline' | 'failed' | null>(null);
-	let routeError = $state<unknown>(null);
-	/** Re-keys the route control after an attempt so it always shows the route in use. */
-	let routeAttempt = $state(0);
 
 	const routeWord = $derived(
 		currentTransport === 'wabidb' ? t('calls.route_server') : currentTransport === 'p2p' ? t('calls.route_direct') : 'Through a media server'
 	);
-
-	async function switchRoute(target: Route): Promise<void> {
-		if (routeBusy || target === currentTransport) return;
-		routeBusy = true;
-		routeFailure = null;
-		try {
-			const socket = getSocket();
-			if (!socket || !socket.connected) {
-				routeFailure = 'offline';
-				return;
-			}
-			await switchCallTransport(socket, target);
-		} catch (err) {
-			routeError = err;
-			routeFailure = 'failed';
-		} finally {
-			routeBusy = false;
-			routeAttempt++;
-		}
-	}
 
 	function measure(value: number | null | undefined, unit: string): string {
 		if (value == null || Number.isNaN(value)) return 'Not measured yet';
@@ -494,36 +465,9 @@
 				<dt>Rate</dt>
 				<dd>{pair($callConnectionDiagnostics.inboundKbps, $callConnectionDiagnostics.outboundKbps, ' kbps')}</dd>
 			</dl>
-			{#if currentTransport === 'wabidb' || currentTransport === 'p2p'}
-				<div class="calls-conn__route">
-					<span class="calls-conn__label" id={`${uid}-route`}>Route for every call</span>
-					{#key routeAttempt}
-						<Segmented
-							labelledby={`${uid}-route`}
-							value={currentTransport}
-							disabled={routeBusy}
-							options={[
-								{ value: 'wabidb', label: t('calls.route_server') },
-								{ value: 'p2p', label: t('calls.route_direct') }
-							]}
-							onchange={(value) => void switchRoute(value as Route)}
-						/>
-					{/key}
-					<p class="calls-conn__hint" aria-live="polite">
-						{routeBusy
-							? 'Changing the route…'
-							: 'Through this server: your Wabi server relays the audio. Direct: devices connect to each other when the network allows; a relay may still carry the audio.'}
-					</p>
-				</div>
-			{/if}
-			{#if routeFailure}
-				<Notice
-					title="Couldn't change the route"
-					text={routeFailure === 'offline' ? joinFailureText('offline', true) : 'Your calls stay on the route they were using.'}
-					error={routeError}
-					ondismiss={() => (routeFailure = null)}
-				/>
-			{/if}
+			<p class="calls-conn__hint">
+				Voice channels always go through this server, so a moderator's mute, deafen and listen-only apply. Direct device-to-device audio can only be used in direct and group calls.
+			</p>
 		</section>
 	{/if}
 
