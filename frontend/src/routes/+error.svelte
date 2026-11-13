@@ -1,6 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
+	import { initializeTheme } from '$lib/theme/initTheme';
 	import '../styles/public-pages.css';
+
+	// Like /privacy and /terms (885b3712): the public pages' colours come from the theme tokens,
+	// so without this the error page painted the default black text on the dark ground.
+	onMount(() => void initializeTheme(false));
 
 	$: status = $page.status;
 	$: notFound = status === 404;
