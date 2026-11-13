@@ -18,6 +18,8 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 - Never skip or weaken a test to get green. Never rewrite history on a task branch; merge `main` in.
 - Usage limits pause sessions for hours. A stalled session shows `status_bucket: failed` with "hit your limit"; send it a message to continue once the limit resets.
 
+Last updated 2026-11-13.
+
 ## Merged since 2026-11-11
 
 | PR | Task | What |
@@ -42,6 +44,12 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 | 350 | (fix) | A user deletion is announced to the user's groups like a removal (both deletion paths: final disconnect and idle guest sweep), and the user is dropped from calls. |
 | 351 | 2.7b | `rusqlite` 0.41.1 (bundled SQLite 3.54.1) for RUSTSEC-2026-0459; a test asserts the linked SQLite is at least 3.54.0. |
 | 354 | (DM) | Server-side DM encryption boundary: `core/crates/wabi-server/tests/dm_encryption_contract.rs` (19 tests). Readable text is refused in conversations with experimental encryption enabled or pending on every path found: chat (all transports, edits), notes, forum, wiki, albums, gallery, incidents, whiteboard (REST and socket), bots, and uploads that are not the opaque encrypted shape. File refs beside an envelope must be registry-issued; reaction ids and envelopes are shape-checked. |
+| 355 | (DM) | Client: decrypted content of a conversation with experimental encryption does not go back to the server or to other hosts (`frontend/src/lib/privacy/`): no link previews, no remote media without a click, no audio/video/3D from a URL, no auto-translate; albums, forward, Lore and Blender are off there; a report needs an explicit disclosure. Four review rounds. Browser smoke `kept-content-browser.yml` in CI. The owner's browser checklist in the PR has not been run. |
+| 356 | (docs) | `docs/VISION.md` (what Wabi is for; three questions for any change), the game overlay plan, this note. |
+| 358 | (DM) | `docs/architecture/ADR-0002-dm-encryption-direction.md`, status Proposed. Recommends device verification that does not depend on the server (safety numbers, loud key-change warnings) and MLS (RFC 9420) after a spike. Nine questions for the owner are at the end of it; nothing is built until they are answered. |
+| 359 | 2.7 | cargo-deny: dated notes on the unmaintained-crate ignores (re-check by 2027-05-13); in-workspace path dependencies allowed (`publish = false` on ten crates). |
+| 360 | (skills) | `.agents/skills/`: lock guidance corrected, private details removed, three new skills (`wabi-run-tests`, `wabi-read-model-projection`, `wabi-durable-record-change`), Wabi skills linked into `.claude/skills/`. 26 stale skills are unlinked and left for the owner to delete or rewrite. |
+| 361 | (CI) | Voice browser smoke repaired (it still expected direct P2P in community voice, refused on purpose since 22e1fa59); it now runs on `main` and weekly. |
 | 340 | 4.8g | `wabi-sync` state records whose folder it is (server + channel) and refuses a mismatch; `link` moves old state aside; mass-delete guard (`--allow-mass-delete`); refusals (400/403/413/422) remembered per file, 5xx retried; one sync per folder (OS lock). |
 
 ## Open PRs
@@ -50,8 +58,9 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 |---|---|---|---|
 | 348 | 3.5.4 | Users to the read model (schema 4, generation 5; case-folded login column with the Unicode version recorded; `secure_delete`; 729-pair restart matrix). Green; independent review done and fixed. **On hold:** CodeQL reports 5 new alerts (1 critical, 4 high) that no available tool can list; the visible one is a test fixture (`rust/hard-coded-cryptographic-value`, `auth_revocations.rs`). | Owner looks at the alert list on GitHub; if all are test fixtures or the intended `password_hash` storage, dismiss and merge. Trying to satisfy the scanner with generated test values made it worse (6 alerts); that attempt was reverted. |
 | 353 | 2.7c | `p256` 0.14 / `ecdsa` 0.17: Wabi's own P-256 code leaves the affected `crypto-bigint`; golden tests for signatures and key files added first. Green. **On hold:** one CodeQL alert, a fixed key in a golden test (`community_roster.rs`), for the owner to dismiss. RUSTSEC-2026-0387 stays reported through `age` 0.12 (Wabi uses only its x25519 part). | Owner dismisses the alert; merge. |
-| 355 | (DM) | Client: decrypted content does not go back to the server or to other hosts (`frontend/src/lib/privacy/`): no link previews, no remote media without a click, no audio/video/3D from a URL, no auto-translate, albums/forward/Lore/Blender off, report needs an explicit disclosure. Three review rounds; the coordinator re-ran the browser smoke and a 273-payload probe on the last head. | Merge on green CI. Owner runs the browser checklist in the PR. |
-| (soon) | (DM) | Durable per-room encryption marker in WabiDB so a missing or rolled-back `e2ee_state.json` cannot reopen readable sends; the server sets `encrypted` itself; `#EXTM3U` uploads refused (session `session_012VCxQLQKEp9pfEBxcSnvNc`, branch `claude/encryption-durable-room-marker`). | Independent review, then merge. |
+| 357 | (DM) | Durable per-room encryption marker in WabiDB (projection `room_encryption`, record tag `RENC` v1) so a missing or rolled-back `e2ee_state.json` cannot reopen readable sends; the server sets `encrypted` itself; `#EXTM3U` uploads refused. Independent review found four should-fix items (a rolled-back registry could still drop the recorded consent to a server-readable fallback; eleven mutations no test caught; bots and history did not get the server-owned flag; gaps in the playlist refusal). Round 2 in progress in session `session_012VCxQLQKEp9pfEBxcSnvNc`. | Coordinator re-checks the fixes with its own mutation run, then merges. |
+| 362 | (voice) | Community voice could reach direct P2P, where server mute, deafen and listen-only do not apply: by the manual route switch, and by a modified client, because the server relayed `call-offer` / `call-answer-sdp` / `call-ice-candidate` for voice channels. Both are refused now (server: `scoped_call_p2p_consent`). **Owner decision open:** screen share over `webrtc-*` in voice channels on webviews without WebCodecs still goes direct. | Merge on green CI. |
+| 363 | (ops) | `/metrics` was public although `INSTALL.md` said it was admin-gated. Now: server admin, or `WABI_METRICS_TOKEN`, or `WABI_METRICS_PUBLIC=1` (warns at startup). The metrics carry no per-user labels. | Merge on green CI. |
 | 329 | 4.8b | Green. **On hold.** | Needs the owner's result for `q1` from the real-`lore` checks (does a review-branch upload leave the mainline's files alone). If yes: merge `main` in, re-check CI, merge. If no: do Task 4.9 first. |
 
 ## Remaining tasks, in order
@@ -62,19 +71,31 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 4. **4.11** Server-side repository identity: a repository deleted and recreated under the same channel looks the same to `wabi-sync` today (the mass-delete guard in 340 is the only defence). Give each repository an id the client can compare.
 5. **3.5.5 to 3.5.n**: the remaining projections, one per PR, reusing the same schema, generation and startup rules (see 343 and 345 for cross-projection reads during replay and the replay-floor mutation test). Independent review at least for users (3.5.4) and anything an in-memory projection reads during apply.
 6. **3.5 follow-up**: batch the startup rebuild and keep progress (ADR-0001 asked for it); move SQLite I/O off async tasks.
-7. **Dependency upgrades** from Task 2.7: `zip` (346) and `rusqlite` (351) are done. Still to do: `p256`/`crypto-bigint` (RUSTSEC-2026-0387) (a RustCrypto major bump; `wabi-consensus` pins `p256`). **Owner decisions:** accept the six unmaintained notices with a written expiry or not; the `bans` wildcard rule for four in-workspace path dependencies.
+7. **Dependency upgrades** from Task 2.7: `zip` (346), `rusqlite` (351) and the cargo-deny notes and path rule (359) are done. `p256`/`crypto-bigint` is PR 353. After 353 merges, add a dated cargo-deny note for RUSTSEC-2026-0387, which stays reported through `age` (kept on purpose: it encrypts backups and standby in a published format). `src-tauri/Cargo.lock` is not checked by cargo-deny yet.
 8. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
+
+Smaller tasks found along the way, each its own PR:
+
+- Encrypted attachments: fix the `files[]` casing (see the DM gaps below), make retention and deletion see those files, stop the client echoing `attachmentEncryption` / `attachmentStorage`, and check end to end what a recipient gets.
+- Upload sessions leave `.tmp` files that nothing cleans up.
+- Every send parses the whole `e2ee_state.json` under one global lock.
+- The CVE register generator would drop manual edits on its next run.
+- `wabi_ws_sockets_connected` always reports 0.
+- `docs/audits/2026-11-authorization-matrix.md` has drifted from the routes.
+- `docs/` and `scripts/` still contain private addresses and host names (about 66 hits in 17 files). Scrub them before the repository is shown publicly. Two passwords were in the history of the skill files: the owner rotates them.
+- Browser smokes other than voice and kept-content: triage in session `session_012VCxQPhiLo5dXCeZnRp4GJ` (branch `claude/browser-smokes-triage`).
+- An acceptance test for an install from nothing (see "Things nobody has verified").
 
 Phase 5 is new features, not hardening; stop and ask the owner before starting it. The owner has asked for one: a game overlay, planned in `2026-11-13-game-overlay-plan.md` (nothing built; the owner is starting it from a desktop session on a real machine, because it cannot be verified in a cloud sandbox).
 
 ## DM encryption: known gaps after 354 and 355
 
-- Registry loss or rollback reopens readable sends until the marker PR lands.
+- Registry loss or rollback reopens readable sends until PR 357 lands.
 - Attachments in encrypted messages: the server's `FileAttachmentRecord` reads snake_case and the client sends camelCase `files[]`, so the list is dropped server-side. What recipients actually get has not been checked end to end.
 - Upload completion re-check is not under the policy lock (init, enable, complete window).
 - No media-src CSP; a blob: HLS playlist is followed by Chromium, so no inline player for decrypted audio/video may be added without refusing `#EXTM3U`.
 - Client: a same-origin path such as `/api;x/image-proxy` passes the `/api/` check as written (it misses the proxy on a bare Authority). Strip `;params` before the check.
-- Not started: key verification that does not depend on the server, and the choice of a published protocol. These need an owner decision and a design note first.
+- Not started: key verification that does not depend on the server, and the choice of a published protocol. The design note is ADR-0002 (358); it waits for the owner's answers to its nine questions. It also records three things the current code does: three client paths accept whatever devices the server lists without telling the user, the key-wrapping secret sits in `localStorage` beside the keys, and an old envelope can be replayed.
 - After these land: one pass over docs and UI strings so they say exactly what is enforced.
 
 ## For a session on the owner's desktop
