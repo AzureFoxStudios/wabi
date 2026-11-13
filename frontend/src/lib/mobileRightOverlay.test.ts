@@ -35,6 +35,14 @@ describe('phone side-panel sheet (.mobile-right-overlay)', () => {
 		expect(open).toContain('visibility: visible');
 	});
 
+	test('the sheet shows a loading state while its panel loads, never an empty sheet', () => {
+		const overlay = mainLayout.slice(mainLayout.indexOf('<div class="mobile-right-overlay"'));
+		const body = overlay.slice(0, overlay.indexOf('{/if}\n\t\t</div>'));
+		expect(body).toContain('{#if RightPanelCmp}');
+		expect(body).toContain('class="companion-loading" aria-busy="true"');
+		expect(body).toContain('role="progressbar"');
+	});
+
 	test('every way out is wired: scrim tap, Back and Escape all close the right panel', () => {
 		// The scrim over the stage closes the sheet on tap.
 		expect(mainLayout).toContain(
