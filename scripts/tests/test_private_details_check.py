@@ -102,8 +102,23 @@ class PrivateDetailsCheck(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("needs a reason", p.stdout + p.stderr)
 
+    def test_self_exclusion_is_exact_paths_only(self) -> None:
+        self.tree.write("scripts/security/private_details_check.py", "10.9.9.9\n")
+        self.tree.write("scripts/tests/test_private_details_check.py", "10.9.9.9\n")
+        self.tree.write("scripts/tests/test_other.py", "10.9.9.9\n")
+        self.tree.write("scripts/security/other_check.py", "10.9.9.9\n")
+        p = run(self.tree.root)
+        self.assertEqual(p.returncode, 1)
+        self.assertNotIn("private_details_check.py:", p.stdout)
+        self.assertNotIn("test_private_details_check.py:", p.stdout)
+        self.assertIn("scripts/tests/test_other.py:1:", p.stdout)
+        self.assertIn("scripts/security/other_check.py:1:", p.stdout)
+
     def test_repository_tree_is_clean(self) -> None:
-        p = run(ROOT)
+        # Exactly the CI invocation: no --root, from the repository root, so
+        # it scans the committed/tracked tree the same way the supply-chain job does.
+        p = subprocess.run([sys.executable, "scripts/security/private_details_check.py"],
+                           cwd=ROOT, capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 

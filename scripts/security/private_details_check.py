@@ -39,6 +39,13 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 ALLOWLIST = "scripts/security/private-details-allowlist.json"
+# Exact files never scanned, each with its reason. Keep this list to exact
+# paths: a directory skip would hide real leaks added next to them.
+SELF_EXCLUDED = {
+    ALLOWLIST: "lists the allowed example values themselves",
+    "scripts/security/private_details_check.py": "defines the ranges it detects and shows examples in its help text",
+    "scripts/tests/test_private_details_check.py": "synthetic fixtures that must trigger the check in a throwaway tree",
+}
 SCAN_PREFIXES = ("docs/", "scripts/", "frontend/scripts/", ".github/")
 MAX_BYTES = 8 * 1024 * 1024
 PRIVATE_V4 = [ipaddress.ip_network(n) for n in
@@ -122,7 +129,7 @@ def scan(root: pathlib.Path, files: list[str] | None = None) -> tuple[list[dict]
     allowed = load_allowlist(root)
     hits, used = [], set()
     for rel in files if files is not None else tracked(root):
-        if not in_scope(rel) or rel == ALLOWLIST:
+        if not in_scope(rel) or rel in SELF_EXCLUDED:
             continue
         text = read_text(root / rel)
         if text is None:
