@@ -1,6 +1,6 @@
 # Desktop shell alpha audit — 2026-09-21
 
-Scope: `/var/home/Ronin/wabi`, branch `crash-harness-hardening`, base HEAD `dcfa8a3b986eba964929cac10f94d9994744aef8`, including existing uncommitted hosting/Tailcat/UI work. This task did not commit, push, deploy, or replace distributed installers. No CSS redesign.
+Scope: `/var/home/operator/wabi`, branch `crash-harness-hardening`, base HEAD `dcfa8a3b986eba964929cac10f94d9994744aef8`, including existing uncommitted hosting/Tailcat/UI work. This task did not commit, push, deploy, or replace distributed installers. No CSS redesign.
 
 **Verdict: core shell defects repaired; not an unconditional cross-platform alpha sign-off.** The existing Tailcat report still labels direct reconnect unresolved. Windows/macOS installation/runtime, physical suspend/network changes, native menu/tray interaction and active media/transfer acceptance remain open. These are not implied by a compiling Linux candidate.
 
@@ -79,7 +79,7 @@ API behavior was checked against the installed locked Rust sources and official 
 
 ### Final native result
 
-**PASS** — `dbus-run-session -- node scripts/desktop-shell-native-smoke.mjs /var/home/Ronin/wabi/src-tauri/target/debug/wabi-desktop` exited 0. Verified native decorations, notification IPC permission, maximize/restore, 480px window, close-to-minimize with Authority still ready, second launch restoring the same instance, window-manager fullscreen/restore, and explicit Quit stopping both desktop and Authority. Evidence profile: `/tmp/wabi-native-host-NPkW8S`. Menu/accelerator/tray clicks remain manual checks; no physical media call was made.
+**PASS** — `dbus-run-session -- node scripts/desktop-shell-native-smoke.mjs /var/home/operator/wabi/src-tauri/target/debug/wabi-desktop` exited 0. Verified native decorations, notification IPC permission, maximize/restore, 480px window, close-to-minimize with Authority still ready, second launch restoring the same instance, window-manager fullscreen/restore, and explicit Quit stopping both desktop and Authority. Evidence profile: `/tmp/wabi-native-host-NPkW8S`. Menu/accelerator/tray clicks remain manual checks; no physical media call was made.
 
 Tool versions: Rust repository-pinned 1.93; available Bun 1.3.12 and Node 22.22.2. CI specifies Bun 1.3.14, so the local frontend result is not a certification of that CI toolchain or clean-machine packaging.
 

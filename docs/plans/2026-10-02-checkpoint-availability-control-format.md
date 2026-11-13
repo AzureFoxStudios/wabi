@@ -1,11 +1,11 @@
 # Durable checkpoint observation: implementation slice
 
-**Status:** development candidate integrated into `/home/ironin/wabi` at
+**Status:** development candidate integrated into `/home/operator/wabi` at
 `0b82cec796061d274b22655d16f24ca29720c7c3`; current-root consensus, preserved-reader
 and genuine-producer acceptance pass; affected enabled-state acceptance and
 production recovery wiring remain pending.
 The accepted isolated source remains preserved in
-`/home/ironin/.codex/worktrees/geographic-checkpoint-control/wabi`, based on
+`/home/operator/.codex/worktrees/geographic-checkpoint-control/wabi`, based on
 `361437d4778b4f4a863fa37c00b40f0449d0eace`. New V2 command, storage, snapshot and collector
 submission code passed its focused consensus package on October 2: **95 passed,
 zero failed, nine ignored** across six result groups. The separate preserved

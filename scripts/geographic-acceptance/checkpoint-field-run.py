@@ -19,9 +19,10 @@ import time
 
 HERE = Path(__file__).resolve().parent
 PURPOSE = "wabi-disposable-checkpoint-ciphertext-v1"
-ROWS = [(1, "dotRonin", "100.80.172.12", None),
-        (2, "Ronin", "100.87.255.66", "Ronin@100.87.255.66"),
-        (3, "Iyoku", "100.104.166.42", "Iyoku@100.104.166.42")]
+# (node id, label, RPC bind address, ssh target or None for the local node).
+# Filled from the required --node1-address/--node2/--node3 arguments in main();
+# no host is hard-coded in the repository.
+ROWS = []
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
 
 
@@ -193,7 +194,19 @@ def main():
     parser.add_argument("--artifact", required=True)
     parser.add_argument("--export-stage-record", required=True)
     parser.add_argument("--receipt", required=True)
+    parser.add_argument("--node1-address", required=True,
+                        help="private address of this (local) node, e.g. 192.0.2.40")
+    parser.add_argument("--node2", required=True, metavar="USER@ADDRESS",
+                        help="ssh target of node 2, e.g. operator@192.0.2.30")
+    parser.add_argument("--node3", required=True, metavar="USER@ADDRESS",
+                        help="ssh target of node 3, e.g. operator@192.0.2.20")
     args = parser.parse_args()
+    for flag, target in (("--node2", args.node2), ("--node3", args.node3)):
+        if "@" not in target or not target.split("@", 1)[1]:
+            parser.error(f"{flag} must look like USER@ADDRESS")
+    ROWS[:] = [(1, "dotRonin", args.node1_address, None),
+               (2, "Ronin", args.node2.split("@", 1)[1], args.node2),
+               (3, "Iyoku", args.node3.split("@", 1)[1], args.node3)]
     stage = json.loads(Path(args.export_stage_record).read_text())
     export = Path(stage["root"])
     manifest = json.loads((export / "manifest.json").read_bytes())

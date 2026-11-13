@@ -507,7 +507,7 @@ theme = "dark"
 
 ```bash
 # Build
-cd /home/Ronin/Desktop/Wabi/dotronin-worktree/wabi
+cd /home/operator/Desktop/Wabi/dotronin-worktree/wabi
 cargo build -p wabi-tui --release
 
 # Run

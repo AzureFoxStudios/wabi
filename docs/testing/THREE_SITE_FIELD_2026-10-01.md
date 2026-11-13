@@ -6,7 +6,7 @@ certification. Gates A–D remain open.
 
 ## Build and network qualification
 
-Execution computer: dotRonin, `/home/ironin/wabi`, branch
+Execution computer: dotRonin, `/home/operator/wabi`, branch
 `codex/security-boundary-hardening-20260930`, base HEAD
 `138abe39e08e400188d1812ed3bfd378df435315` with shared uncommitted changes.
 After dotRonin's interruption, the September 30 frozen `field-embed` binary

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "recordedAtUtc": "2026-10-01T12:14:11.588889+00:00",
   "executionComputer": "dotRonin",
-  "checkout": "/home/ironin/wabi",
+  "checkout": "/home/operator/wabi",
   "branch": "codex/security-boundary-hardening-20260930",
   "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
   "scope": "Local experimental encrypted recovery coordination; no Authority wiring or writer permit",

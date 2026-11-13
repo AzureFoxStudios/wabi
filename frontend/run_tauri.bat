@@ -1,3 +1,3 @@
 @echo off
-set PATH=%PATH%;C:\Users\Willp\.cargo\bin
+set PATH=%PATH%;%USERPROFILE%\.cargo\bin
 npm run tauri:build

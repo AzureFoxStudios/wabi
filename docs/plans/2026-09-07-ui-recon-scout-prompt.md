@@ -1,8 +1,8 @@
 # Read-only Wabi UI/UX source scout
 
-Repo: /var/home/Ronin/wabi. User wants INFORMATION GATHERING AND A PLAN ONLY. Another Astra session owns security. Parent Hermes walks the actual website. Your task is a bounded SOURCE audit of shared shell/icon/placement behavior, not a code fix or a security audit.
+Repo: /var/home/operator/wabi. User wants INFORMATION GATHERING AND A PLAN ONLY. Another Astra session owns security. Parent Hermes walks the actual website. Your task is a bounded SOURCE audit of shared shell/icon/placement behavior, not a code fix or a security audit.
 
-Output ONE compact report to /var/home/Ronin/wabi/docs/plans/2026-09-07-ui-recon-source-scout.md (maximum roughly 120 lines). This report is the ONLY file you may create or modify. Do not change source, tests, config, skills, generated files, other docs, git index/history, or data. No installs, builds, servers, git checkout/reset/stash/commit/push, browser, network, credentials, or mutations. Reading git status/diff is allowed. Do not read .env, data, auth stores or secrets. Existing plan and peer work must remain untouched. Read-only reconnaissance, not implementation.
+Output ONE compact report to /var/home/operator/wabi/docs/plans/2026-09-07-ui-recon-source-scout.md (maximum roughly 120 lines). This report is the ONLY file you may create or modify. Do not change source, tests, config, skills, generated files, other docs, git index/history, or data. No installs, builds, servers, git checkout/reset/stash/commit/push, browser, network, credentials, or mutations. Reading git status/diff is allowed. Do not read .env, data, auth stores or secrets. Existing plan and peer work must remain untouched. Read-only reconnaissance, not implementation.
 
 Keep discovery bounded: at most 18 source reads; search narrow regions rather than whole giant files. Finish with the evidence you have, not an exhaustive speculative audit. Repo AGENTS has dated assumptions; verify against actual source rather than repeating historical bugs.
 

@@ -1205,8 +1205,8 @@ mod publication_operator_tests {
         let pause = state.instance_operations.quiesce().await.unwrap();
         for (method, peer, secret) in [("GET", "127.0.0.1:33031", None),
             ("POST", "127.0.0.1:33032", None),
-            ("GET", "100.87.255.66:33033", Some("fixture-denial")),
-            ("POST", "100.87.255.66:33034", Some("fixture-denial")),
+            ("GET", "100.64.0.30:33033", Some("fixture-denial")),
+            ("POST", "100.64.0.30:33034", Some("fixture-denial")),
             ("POST", "[::1]:33035", None)] {
             let mut request = Request::builder().method(method)
                 .uri("/api/operator/checkpoints/publications")

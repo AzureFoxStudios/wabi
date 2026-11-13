@@ -1,11 +1,14 @@
 #!/bin/bash
-# Deploy wabi-node to Iyoku (staging server)
-# Usage: ./scripts/deploy-iyoku.sh
+# Deploy wabi-node to the staging server ("Iyoku")
+# Usage: WABI_DEPLOY_HOST=192.0.2.20 WABI_DEPLOY_USER=operator ./scripts/deploy-iyoku.sh
+# Required environment (no host is hard-coded in the repository):
+#   WABI_DEPLOY_HOST  staging host name or IP (e.g. 192.0.2.20)
+#   WABI_DEPLOY_USER  ssh user on that host  (e.g. operator)
 
 set -e
 
-SERVER="100.104.166.42"
-USER="ronin"
+SERVER="${WABI_DEPLOY_HOST:?set WABI_DEPLOY_HOST to the staging host (see the header of this script)}"
+USER="${WABI_DEPLOY_USER:?set WABI_DEPLOY_USER to the ssh user on the staging host}"
 PROJECT="wabi"
 BINARY="wabi-node"
 PORT="3001"
