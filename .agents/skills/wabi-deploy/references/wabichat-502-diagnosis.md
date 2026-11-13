@@ -1,14 +1,14 @@
 # wabi.chat 502 diagnosis (origin-alive + edge-routing patterns)
 
-Updated 2026-07-17 after a live dual-path failure (Tim public 200 while Ronin public 502).
+Updated 2026-07-17 after a live dual-path failure (<host> public 200 while Ronin public 502).
 
 Cloudflare browser page text often says **Bad gateway / Error code 502 / Host Error**. That is CF edge language — not proof the origin process is down.
 
 ## Hard rules
 
-1. **Origin healthy ≠ public healthy.** Always separate Tim local health from public CF.
-2. **Agent curl from one machine is not enough.** Prove from the *user’s* path (Ronin, Zen/Firefox) and from Tim. Paths can disagree.
-3. **If `:3001` and `:8088` are 200 on Tim, do NOT scp a binary or restart `wabi-server` to “fix CF 502”.** Fix tunnel/edge first.
+1. **Origin healthy ≠ public healthy.** Always separate <host> local health from public CF.
+2. **Agent curl from one machine is not enough.** Prove from the *user’s* path (Ronin, Zen/Firefox) and from <host>. Paths can disagree.
+3. **If `:3001` and `:8088` are 200 on <host>, do NOT scp a binary or restart `wabi-server` to “fix CF 502”.** Fix tunnel/edge first.
 4. **Compose service names ≠ container names:**
    - services: `caddy-tunnel`, `cloudflared-named`, `cloudflared-named-2`
    - containers: `wabi-tunnel-caddy`, `wabi-cloudflared-named`, `wabi-cloudflared-named-2`
@@ -17,7 +17,7 @@ Cloudflare browser page text often says **Bad gateway / Error code 502 / Host Er
 
 ## Decision table
 
-| Public (user path) | Tim :3001 | Tim :8088 | Request appears in cloudflared logs? | Meaning | Fix priority |
+| Public (user path) | <host> :3001 | <host> :8088 | Request appears in cloudflared logs? | Meaning | Fix priority |
 |--------------------|-----------|-----------|--------------------------------------|---------|--------------|
 | 502 Host Error | 200 | 200 | **No** (~4s, `server-timing: cfOrigin;dur≈4000`) | CF edge never reached a live connector for that client/colo path | Dual connectors / re-register tunnel; not origin |
 | 502 | 200 | 200 | **Yes**, then origin error | Tunnel up; cloudflared→Caddy/server hop broken | Docker network, `caddy-tunnel:8088`, Caddyfile |
@@ -27,9 +27,9 @@ Cloudflare browser page text often says **Bad gateway / Error code 502 / Host Er
 
 ## Diagnostic sequence
 
-SSH: `tim@100.96.11.45`. Tailscale may need browser auth (`references/tailscale-ssh-auth.md`).
+SSH: `<user>@<host>`. Tailscale may need browser auth (`references/tailscale-ssh-auth.md`).
 
-### A. Origin + Caddy on Tim
+### A. Origin + Caddy on <host>
 
 ```bash
 curl -sS -m 5 -o /dev/null -w "3001/health:%{http_code}\n" http://127.0.0.1:3001/health
@@ -54,14 +54,14 @@ docker run --rm --network wabi_default curlimages/curl:8.5.0 -sS -m 5 -w "server
 curl -sS -4 -o /dev/null -w "ronin:%{http_code} t=%{time_total}\n" --max-time 15 https://wabi.chat/
 curl -sS -4 -D- -o /dev/null --max-time 15 https://wabi.chat/ | grep -iE 'HTTP/|cf-ray|server-timing'
 
-# From Tim
-ssh tim@100.96.11.45 'curl -sS -4 -o /dev/null -w "tim:%{http_code} t=%{time_total}\n" --max-time 15 https://wabi.chat/'
+# From <host>
+ssh <user>@<host> 'curl -sS -4 -o /dev/null -w "<host>:%{http_code} t=%{time_total}\n" --max-time 15 https://wabi.chat/'
 ```
 
-**Client-IP split test** (Ronin traffic via Tim egress):
+**Client-IP split test** (Ronin traffic via <host> egress):
 
 ```bash
-ssh -f -N -D 127.0.0.1:18080 -o ExitOnForwardFailure=yes tim@100.96.11.45
+ssh -f -N -D 127.0.0.1:18080 -o ExitOnForwardFailure=yes <user>@<host>
 curl -sS -4 --socks5-hostname 127.0.0.1:18080 -o /dev/null -w "via_tim:%{http_code}\n" --max-time 15 https://wabi.chat/
 curl -sS -4 -o /dev/null -w "direct:%{http_code}\n" --max-time 15 https://wabi.chat/
 # cleanup: pkill -f 'ssh -f -N -D 127.0.0.1:18080'
@@ -75,7 +75,7 @@ If `via_tim=200` and `direct=502` → tunnel/origin fine; CF routing broken for 
 # Note your public IP first
 curl -4 -sS --max-time 8 ifconfig.me; echo
 
-# On Tim, after a failing public hit from that IP:
+# On <host>, after a failing public hit from that IP:
 docker logs --since 2m wabi-cloudflared-named 2>&1 | grep -c 'YOUR.PUBLIC.IP'
 docker logs --since 2m wabi-cloudflared-named-2 2>&1 | grep -c 'YOUR.PUBLIC.IP' || true
 ```
@@ -102,13 +102,13 @@ Curl ≠ browser. After network looks green:
 
 - Prefer browser-harness / real load: login shell, `/_app/immutable/*` 200, socket.io handshake.
 - User on Zen: hard refresh / private window / clear site data if SW cached a bad page.
-- Bypass CF while debugging: `http://100.96.11.45:3001` (Tailscale).
+- Bypass CF while debugging: `http://<host>:3001` (Tailscale).
 
 ## Fix priority (CF-layer, origin already 200)
 
 ### 1. Preferred durable fix (verified 2026-07-17)
 
-**Two cloudflared connectors + QUIC** fixed Ronin-only 502 after single HTTP/2 connector left user path dead while Tim hairpin worked.
+**Two cloudflared connectors + QUIC** fixed Ronin-only 502 after single HTTP/2 connector left user path dead while <host> hairpin worked.
 
 Compose (`tunnel` / `tunnel-named` profiles) should keep:
 
@@ -116,12 +116,12 @@ Compose (`tunnel` / `tunnel-named` profiles) should keep:
 - `cloudflared-named-2` — same command, distinct `container_name`
 
 ```bash
-cd ~/Desktop/Wabi
+cd <wabi-root>
 docker compose --profile tunnel --profile tunnel-named up -d caddy-tunnel cloudflared-named cloudflared-named-2
 # verify BOTH registered
 docker logs --since 1m wabi-cloudflared-named 2>&1 | grep Registered
 docker logs --since 1m wabi-cloudflared-named-2 2>&1 | grep Registered
-# prove USER path, not only Tim
+# prove USER path, not only <host>
 ```
 
 Do not leave only one connector if you just saw client-IP split 502s.
@@ -134,7 +134,7 @@ docker restart wabi-cloudflared-named
 docker restart wabi-cloudflared-named wabi-cloudflared-named-2
 ```
 
-Brief public blip. Re-check **user** path, not only Tim `curl`.
+Brief public blip. Re-check **user** path, not only <host> `curl`.
 
 ### 3. CF dashboard (agent cannot click)
 
@@ -157,15 +157,15 @@ Unknown paths return SPA index (~8317 bytes, 200). Gambling/WordPress probes and
 | Signal | Wrong conclusion | Right reading |
 |--------|------------------|---------------|
 | Agent curl https://wabi.chat → 200 | “Site works for user” | Only *this* egress works; retest user IP / Zen |
-| Tim curl public → 502 while logs clean | “Origin down” | Can be hairpin/path split; check local :3001 |
+| <host> curl public → 502 while logs clean | “Origin down” | Can be hairpin/path split; check local :3001 |
 | All junk paths 200 len=8317 | “Caddy misconfig” | SPA fallback on wabi-server |
 | cloudflared DBG 200 for some IPs | “Tunnel fine for everyone” | Grep for the failing client IP |
 | Single `docker restart cloudflared` | “Always enough” | May need 2nd connector + quic |
 
 ## Bypass while CF is broken
 
-- Local on Tim: `http://127.0.0.1:3001`
-- Mesh: `http://100.96.11.45:3001`
+- Local on <host>: `http://127.0.0.1:3001`
+- Mesh: `http://<host>:3001`
 - Do not claim product down if origin is up and only public CF is sick.
 
 ## Related

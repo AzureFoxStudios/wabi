@@ -37,7 +37,7 @@ pkill -f "wabi-server.*--port 3001"
 pgrep -af wabi-server   # must print nothing before you start a new one
 
 # Start on correct port
-cd /home/Ronin/wabi
+cd <wabi-root>
 WABIDB_ROOT_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   ./target/release/wabi-server \
   --port 3000 --host 127.0.0.1 --data-dir ./data \

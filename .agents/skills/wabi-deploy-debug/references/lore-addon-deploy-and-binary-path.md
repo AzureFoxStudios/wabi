@@ -1,33 +1,33 @@
-# Binary path trap + Lore addon enablement on Tim (verified 2026-08-08)
+# Binary path trap + Lore addon enablement on <host> (verified 2026-08-08)
 
 ## The wrong-binary-path trap (silent no-op deploy)
 
-Tim's `docker-compose.yml` bind-mounts `./target/release/wabi-server` → container `/wabi-server`.
-The RUNNING binary is `~/Desktop/Wabi/target/release/wabi-server`. There is also a stale-looking
-`~/Desktop/Wabi/wabi-server` file that the container NEVER reads.
+<host>'s `docker-compose.yml` bind-mounts `./target/release/wabi-server` → container `/wabi-server`.
+The RUNNING binary is `<wabi-root>/target/release/wabi-server`. There is also a stale-looking
+`<wabi-root>/wabi-server` file that the container NEVER reads.
 
-Shipping to the wrong path (e.g. `scp ... tim@host:wabi-server.new` then
-`mv ~/wabi-server.new ~/Desktop/Wabi/wabi-server`) looks successful:
+Shipping to the wrong path (e.g. `scp ... <user>@<host>:wabi-server.new` then
+`mv ~/wabi-server.new <wabi-root>/wabi-server`) looks successful:
 - SHA matches local
 - `/health` stays 200
 - container keeps running the OLD binary
 
 …but the new routes/features silently never appear. Classic symptom found 2026-08-08:
-`cargo build --features addons` produced a binary with the Lore routes, SHA matched on Tim,
+`cargo build --features addons` produced a binary with the Lore routes, SHA matched on <host>,
 yet `/api/addons` listed only `mesh` — because the shipped file was not the mounted one.
 
 ### Verify the mount target before shipping
 ```bash
-ssh tim@100.96.11.45 "docker inspect \$(docker ps -q -f name=wabi-server) \
+ssh <user>@<host> "docker inspect \$(docker ps -q -f name=wabi-server) \
   --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{end}}'"
-# expect a line like: /home/tim/Desktop/Wabi/target/release/wabi-server -> /wabi-server
+# expect a line like: <wabi-root>/target/release/wabi-server -> /wabi-server
 ```
 
 ### Correct ship sequence
 ```bash
-# scp to the project dir's target/release, NOT to ~/ or ~/Desktop/Wabi root
-scp target/release/wabi-server tim@100.96.11.45:~/Desktop/Wabi/target/release/wabi-server.new
-ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && \
+# scp to the project dir's target/release, NOT to ~/ or <wabi-root> root
+scp target/release/wabi-server <user>@<host>:<wabi-root>/target/release/wabi-server.new
+ssh <user>@<host> 'cd <wabi-root> && \
   test "$(sha256sum target/release/wabi-server.new | awk "{print \$1}")" = "<LOCAL_SHA>" && \
   docker compose stop wabi-server && \
   mv -f target/release/wabi-server.new target/release/wabi-server && \
@@ -42,7 +42,7 @@ Do not delete `data/wabi-server/wabidb/.lock` in this sequence (`AGENTS.md` rule
 The Lore addon compiles in with `--features addons` but stays **disabled at runtime**
 until the container gets env vars + the host lore CLI mounted.
 
-### `.env` additions on Tim
+### `.env` additions on <host>
 ```
 WABI_LORE_ENABLED=true
 WABI_LORE_MODE=sidecar
@@ -56,7 +56,7 @@ WABI_LORE_AUTO_CREATE=true
 ```yaml
     volumes:
       # ...existing mounts...
-      - /home/tim/.local/bin:/usr/local/lorebin:ro,Z   # host lore CLI
+      - /home/<user>/.local/bin:/usr/local/lorebin:ro,Z   # host lore CLI
       - ./lore-data:/var/wabi/lore:Z,U                 # working trees
     extra_hosts:
       - "host.docker.internal:host-gateway"

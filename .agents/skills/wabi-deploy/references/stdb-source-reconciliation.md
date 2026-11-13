@@ -1,6 +1,6 @@
 # Wabi STDB Source Reconciliation
 
-Use this when localdev or deploy work touches `spacetimedb/wabi_state_bridge`, generated STDB bindings, or Tim's live `wabi.chat` database.
+Use this when localdev or deploy work touches `spacetimedb/wabi_state_bridge`, generated STDB bindings, or <host>'s live `wabi.chat` database.
 
 ## Key lesson
 
@@ -28,15 +28,15 @@ Important localdev mismatch found in June 2026:
 - `scripts/local-dev.sh` built debug Rust with `cargo build -p wabi-server`.
 - `docker-compose.yml` mounted `./target/release/wabi-server:/wabi-server:ro`.
 
-Fix localdev by either building release or using a dev override/mount for `target/debug/wabi-server`. Prefer debug for localdev speed; keep release for Tim deploys.
+Fix localdev by either building release or using a dev override/mount for `target/debug/wabi-server`. Prefer debug for localdev speed; keep release for <host> deploys.
 
-### Tim live runtime
+### <host> live runtime
 
-Tim SSH:
+<host> SSH:
 
 ```bash
-ssh tim@100.96.11.45
-cd ~/Desktop/Wabi
+ssh <user>@<host>
+cd <wabi-root>
 ```
 
 Read-only checks:
@@ -60,7 +60,7 @@ Use `.env` keys only, redact values containing token/secret/key.
 
 ### Query live STDB counts
 
-Use Tim's configured DB name (`WABI_STDB_BRIDGE_DATABASE` or `WABI_STDB_DATABASE`) and token (`WABI_STDB_AUTH_TOKEN` or `WABI_STDB_TOKEN`). Query via proxy:
+Use <host>'s configured DB name (`WABI_STDB_BRIDGE_DATABASE` or `WABI_STDB_DATABASE`) and token (`WABI_STDB_AUTH_TOKEN` or `WABI_STDB_TOKEN`). Query via proxy:
 
 ```bash
 curl -fsS -X POST "http://127.0.0.1:3100/v1/database/$DB/sql" \
@@ -86,7 +86,7 @@ If normal tables query successfully but call tables return SQL 400, the live mod
 Search for source copies without using destructive git operations:
 
 ```bash
-find /home/tim /var/home/Ronin /home/Ronin \
+find /home/<user> /home/<user> /home/<user> \
   -path '*/target' -prune -o \
   -path '*/node_modules' -prune -o \
   -path '*/.git' -prune -o \
@@ -105,13 +105,13 @@ grep -c '^#\[spacetimedb::reducer' "$d/src/lib.rs"
 
 Known candidate classes from the June 2026 audit:
 
-- Tim live-like source: `/home/tim/wabi/spacetimedb/wabi_state_bridge`
+- <host> live-like source: `<wabi-root>/spacetimedb/wabi_state_bridge`
   - 36 tables, 2 reducers (`set_ingest_key`, `ingest_wabi_event`), no call tables.
-  - Closest to Tim's live published schema.
-- Tim call-enabled source: `/home/tim/wabi-merged/wabi/spacetimedb/wabi_state_bridge`
+  - Closest to <host>'s live published schema.
+- <host> call-enabled source: `/home/<user>/wabi-merged/wabi/spacetimedb/wabi_state_bridge`
   - 39 tables, 7 reducers, includes `StateCallSession`, `StateCallParticipant`, `StateCallSignal` and call reducers.
   - Treat as a source artifact only; do not trust or sync the whole `wabi-merged` worktree.
-- Ronin local backups under `/var/home/Ronin/Desktop/Wabi/backups/.../spacetimedb/wabi_state_bridge`
+- Ronin local backups under `<wabi-root>/backups/.../spacetimedb/wabi_state_bridge`
   - Older source candidates; compare before restoring.
 
 ## Restoration rule
@@ -120,9 +120,9 @@ Before copying any candidate into the active repo:
 
 1. Compare against generated bindings and Rust server SQL expectations.
 2. Prefer source that matches current generated bindings if localdev is the target.
-3. Prefer source matching Tim live only if the goal is to reproduce current production behavior exactly.
+3. Prefer source matching <host> live only if the goal is to reproduce current production behavior exactly.
 4. Copy only the `spacetimedb/wabi_state_bridge` folder, not whole old/broken worktrees.
-5. Publish to a fresh local STDB first; do not migrate Tim live while the user is distracted/sleepy.
+5. Publish to a fresh local STDB first; do not migrate <host> live while the user is distracted/sleepy.
 
 ## Dev seed/bot direction
 

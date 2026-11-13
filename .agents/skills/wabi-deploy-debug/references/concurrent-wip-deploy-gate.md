@@ -19,7 +19,7 @@ git stash push -u -m "pre-deploy-concurrent-wip"
 cargo check -p wabi-server --release
 cd frontend && STATIC_BUILD=1 bun run build
 cd .. && cargo build --release -p wabi-server
-# Tim swap per tim-binary-swap-2026-08.md
+# <host> swap per host-binary-swap-2026-08.md
 git stash pop   # restore peer WIP intentionally after ship
 ```
 

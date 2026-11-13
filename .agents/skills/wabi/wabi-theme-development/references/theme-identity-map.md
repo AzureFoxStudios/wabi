@@ -1,7 +1,7 @@
 # Theme identity map (disk truth)
 
 Regenerate from `palettes.ts` + `AmbientBackground.svelte` when adding themes.
-Repo root: `/var/home/Ronin/wabi` (or `$WABI_ROOT`).
+Repo root: `<wabi-root>` (or `$WABI_ROOT`).
 
 ## 16 presets
 
@@ -70,4 +70,4 @@ Fail if two dark themes share both a similar accent *and* a similar ambient.
 
 ## Pending vs live
 
-Code may be ahead of Tim binary. Skill encodes **repo contracts**. Do not claim “live on wabi.chat” without bake+deploy proof. Deploy is out of scope for this skill.
+Code may be ahead of <host> binary. Skill encodes **repo contracts**. Do not claim “live on wabi.chat” without bake+deploy proof. Deploy is out of scope for this skill.

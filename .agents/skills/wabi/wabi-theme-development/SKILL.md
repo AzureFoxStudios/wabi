@@ -24,7 +24,7 @@ Add, tune, or audit **Wabi frontend** themes (not Hermes CLI skins in `~/.hermes
 
 | Need | Go to |
 |------|--------|
-| Tim/binary deploy | `wabi-deploy` / `wabi-deploy-debug` |
+| <host>/binary deploy | `wabi-deploy` / `wabi-deploy-debug` |
 | Global CSS token refactor | `wabi-frontend-polish` + `tokens.css` |
 | Extract colors from external HTML | `aoe4-theme-extraction` |
 | Hermes TUI/desktop skins | hermes theme skills / `~/.hermes/skins/` |
@@ -43,7 +43,7 @@ Add, tune, or audit **Wabi frontend** themes (not Hermes CLI skins in `~/.hermes
 | Appearance UI | `…/settings/AppearanceSettingsTab.svelte` + `settings-appearance.css` |
 | Login ambient | `frontend/src/lib/components/Login.svelte` (full theme from `ALL_PALETTES`) |
 
-Repo: `/var/home/Ronin/wabi` (or `$WABI_ROOT`).
+Repo: `<wabi-root>` (or `$WABI_ROOT`).
 
 ## Decision tree
 
@@ -76,7 +76,7 @@ Need to…?
 6. **Settings:** theme grid primary; Custom in grid; effects/customizer/font under progressive disclosure.
 7. **Perf:** particle caps; prefer sprite cache over per-frame gradients; destroy clears canvas; host pauses when tab hidden.
 8. **Visual verify:** real browser only. Headless Chromium cannot paint Wabi.
-9. **Deploy:** not this skill. Code-ready ≠ live on Tim.
+9. **Deploy:** not this skill. Code-ready ≠ live on <host>.
 
 ## Token recolor gotcha (short)
 

@@ -61,7 +61,7 @@ account (`POST /api/addons/tailcat/keys`); the listener allow-lists them. Tauri 
   is allowlisted in `serverUrl.ts`) and restores the prior URL on disconnect.
 - Self-hosted DERP: set `WABI_TAILCAT_DERPMAP_URL` server-side (passed as `--derpmap-url`).
 
-## Measured cross-NAT baseline (2026-09-02, ironin→Tim)
+## Measured cross-NAT baseline (2026-09-02, <dev-host>→<host>)
 
 Relay floor ALWAYS works (~390 KB/s via DERP(tok), ~0.8s cold connect); direct punch happened
 1/10 within the 10s `--until-direct` budget from a containerized-NAT client to a public-IP

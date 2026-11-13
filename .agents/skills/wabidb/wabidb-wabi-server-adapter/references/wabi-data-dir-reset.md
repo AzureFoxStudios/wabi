@@ -18,7 +18,7 @@ pkill -f "wabi-server --port 3001" || true
 sleep 1
 
 # 2. Backup first (mandatory)
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 mkdir -p backups
 tar czf backups/wabi-data-pre-reset-$(date +%Y%m%d-%H%M%S).tar.gz data/
 
@@ -31,9 +31,9 @@ rm -rf wabidb server_owner.json
 ls -la   # should now show only blacklist.txt + uploads/
 
 # 5. Restart with required bootstrap key (dev zero-key example)
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 WABIDB_ROOT_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
-target/debug/wabi-server --port 3001 --data-dir /var/home/Ronin/wabi/data > /tmp/wabi-server-current.log 2>&1 &
+target/debug/wabi-server --port 3001 --data-dir <wabi-root>/data > /tmp/wabi-server-current.log 2>&1 &
 ```
 
 **Missing the key produces:**

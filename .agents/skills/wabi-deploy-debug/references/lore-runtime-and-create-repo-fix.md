@@ -8,7 +8,7 @@ WARN ... Lore command failed: [Error] loading global config: Permission denied (
 ```
 
 **Why it happens:** The Lore CLI runs as uid 1000 (`wabi`) inside the container. If `HOME` resolves to a path the container user can’t write, `lore` fails trying to create `$HOME/.config/lore/` for global config. Two common triggers:
-- Host home dir lacks world-execute, so a bind-mounted path under `/home/tim` is untraversable from uid 1000.
+- Host home dir lacks world-execute, so a bind-mounted path under `/home/<user>` is untraversable from uid 1000.
 - `HOME=/home/wabi` but `/home/wabi` does not exist in the image/container, so `mkdir -p /home/wabi/.config/lore` fails with EACCES before the CLI even starts.
 
 **Preferred fix (general self-hosting):** In the Lore backend, set `HOME` to an already-writable bind-mounted path when spawning the CLI:
@@ -24,18 +24,18 @@ This avoids any host home-dir chmod and requires no compose changes. `/var/wabi/
 
 **Ephemeral manual fix (existing container only):**
 ```bash
-ssh tim@100.96.11.45 "docker exec -u root wabi-server mkdir -p /home/wabi/.config/lore /var/wabi/.config/lore && docker exec -u root wabi-server chown -R 1000:1000 /home/wabi /var/wabi/.config/lore"
+ssh <user>@<host> "docker exec -u root wabi-server mkdir -p /home/wabi/.config/lore /var/wabi/.config/lore && docker exec -u root wabi-server chown -R 1000:1000 /home/wabi /var/wabi/.config/lore"
 ```
 
 **Host chmod fallback (legacy):**
 ```bash
-ssh tim@100.96.11.45 "chmod o+rx /home/tim"
+ssh <user>@<host> "chmod o+rx /home/<user>"
 ```
-Only use this if you cannot change the spawn `HOME`. Changing `/home/tim` owner to uid 1000 breaks Tim's own login and desktop. Adding `o+rx` is the minimal correct fix when required.
+Only use this if you cannot change the spawn `HOME`. Changing `/home/<user>` owner to uid 1000 breaks <host>'s own login and desktop. Adding `o+rx` is the minimal correct fix when required.
 
 **Verify:**
 ```bash
-ssh tim@100.96.11.45 "docker exec wabi-server /usr/local/lorebin/lore --version"
+ssh <user>@<host> "docker exec wabi-server /usr/local/lorebin/lore --version"
 # → lore 0.8.6+373
 ```
 

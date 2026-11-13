@@ -16,8 +16,8 @@ Investigated a reported 502 Bad Gateway error on wabi.chat. Through systematic c
 
 ### 2. Environment Verification
 - Confirmed wabi-server running locally on port 3001 (via `ps aux | grep wabi`)
-- Binary built and available: `/home/Ronin/wabi/target/release/wabi-server`
-- Frontend build present: `/home/Ronin/wabi/frontend/build/index.html`
+- Binary built and available: `<wabi-root>/target/release/wabi-server`
+- Frontend build present: `<wabi-root>/frontend/build/index.html`
 
 ### 3. Repository State Check
 - 73 uncommitted changes in repository (mostly frontend/components and server changes)
@@ -57,7 +57,7 @@ If experiencing 502:
 2. Try from different network/location to isolate geographic issue
 3. Check Cloudflare status page for known incidents
 4. If persistent, verify production server status:
-   - SSH to production: `ssh tim@100.104.166.42`
+   - SSH to production: `ssh <user>@<staging-host>`
    - Check service: `systemctl --user status wabi-server`
    - Check logs: `journalctl --user -u wabi-server -n 50`
    - Restart if needed: `systemctl --user restart wabi-server`
