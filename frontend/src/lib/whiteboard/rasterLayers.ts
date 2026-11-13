@@ -3,6 +3,7 @@ import { boardStore } from './boardStore';
 import { uploadWhiteboardImage } from './imageImports';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { serverAssetHeaders } from './sameServerAuth';
 
 // Bitmap ceiling for a raster (Paint) layer, in device px.
 // Dropped from 4096 to 2048: 4x less RAM per layer (2048*2048*4 = 16MB vs
@@ -244,12 +245,10 @@ export function hydrateRasterLayer(layerId: string, assetUrl: string): Promise<v
 	const existing = hydratingLayers.get(layerId);
 	if (existing) return existing;
 	const task = (async () => {
-		const headers: HeadersInit = {};
+		const serverUrl = getServerUrl();
 		const token = getAuthToken();
-		const sessionId = token ? null : getGuestSessionId();
-		if (token) headers.Authorization = `Bearer ${token}`;
-		if (!token && sessionId) headers['X-Session-Id'] = sessionId;
-		const response = await fetch(new URL(assetUrl, getServerUrl()), { headers });
+		const headers = serverAssetHeaders(assetUrl, serverUrl, token, token ? null : getGuestSessionId());
+		const response = await fetch(new URL(assetUrl, serverUrl), { headers });
 		if (!response.ok) throw new Error(`Raster layer asset load failed (${response.status})`);
 		const blob = await response.blob();
 		const objectUrl = URL.createObjectURL(blob);

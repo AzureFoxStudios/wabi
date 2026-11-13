@@ -195,6 +195,37 @@ pub fn render(frame: &mut Frame, app: &App) {
     if let Some(error) = &app.error {
         render_error_popup(frame, error);
     }
+
+    // Last step, after every widget: nothing a server sent may reach the terminal as a control
+    // sequence (see `scrub_terminal_controls`).
+    scrub_terminal_controls(frame.buffer_mut());
+}
+
+/// Server text (messages, names, channel names, server name, errors, Lore previews) is drawn as
+/// ordinary cells, and ratatui writes each cell's symbol to the terminal verbatim. A control
+/// character inside a symbol would reach the terminal as a real escape sequence: OSC 52 writes
+/// the clipboard, OSC 0 sets the window title, OSC 8 makes hyperlinks, CSI moves the cursor or
+/// rewrites the screen. This pass runs on the finished frame, so it covers every widget, including
+/// ones added later (docs/audits/2026-11-hostile-server-audit.md, finding T1).
+///
+/// A tab becomes a space; any other control (C0, DEL, C1) becomes U+FFFD so the reader can see
+/// that something was removed. A control that was appended to another cell's symbol is dropped.
+pub(crate) fn scrub_terminal_controls(buffer: &mut ratatui::buffer::Buffer) {
+    for cell in buffer.content.iter_mut() {
+        let symbol = cell.symbol();
+        if !symbol.chars().any(char::is_control) {
+            continue;
+        }
+        let kept: String = symbol.chars().filter(|c| !c.is_control()).collect();
+        let replacement = if !kept.is_empty() {
+            kept
+        } else if symbol.chars().all(|c| c == '\t') {
+            " ".to_string()
+        } else {
+            "\u{FFFD}".to_string()
+        };
+        cell.set_symbol(&replacement);
+    }
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
@@ -1392,5 +1423,69 @@ fn c_border() -> Color {
             Color::Rgb(mix(pr, br), mix(pg, bg_), mix(pb, bb))
         }
         _ => p.panel,
+    }
+}
+
+#[cfg(test)]
+mod terminal_control_tests {
+    use super::scrub_terminal_controls;
+    use ratatui::{
+        backend::TestBackend,
+        text::{Line, Span},
+        widgets::{List, ListItem, Paragraph},
+        Terminal,
+    };
+
+    const HOSTILE: &[&str] = &[
+        "\x1b]52;c;cHduZWQ=\x07",              // OSC 52: write the clipboard
+        "\x1b]0;totally your bank\x07",        // OSC 0: window title
+        "\x1b]8;;https://evil.example\x1b\\click\x1b]8;;\x1b\\", // OSC 8 hyperlink
+        "\x1b[2J\x1b[H",                       // clear screen, cursor home
+        "\u{9b}31m",                             // C1 CSI
+        "a\x07b\x7fc\x08d",                     // BEL, DEL, backspace
+    ];
+
+    fn draw(text: &str, scrub: bool) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(80, 6)).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                let mut top = area;
+                top.height = 3;
+                frame.render_widget(Paragraph::new(Line::from(vec![Span::raw("msg: "), Span::raw(text)])), top);
+                let mut bottom = area;
+                bottom.y = 3;
+                bottom.height = 3;
+                frame.render_widget(List::new(vec![ListItem::new(format!("#{text}"))]), bottom);
+                if scrub {
+                    scrub_terminal_controls(frame.buffer_mut());
+                }
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn has_control(buffer: &ratatui::buffer::Buffer) -> bool {
+        buffer.content.iter().any(|cell| cell.symbol().chars().any(char::is_control))
+    }
+
+    #[test]
+    fn control_sequences_in_server_text_reach_the_buffer_without_the_scrub() {
+        // Control for the test below: ratatui itself passes these through to the cells it writes.
+        assert!(HOSTILE.iter().any(|text| has_control(&draw(text, false))));
+    }
+
+    #[test]
+    fn no_control_character_survives_the_frame_scrub() {
+        for text in HOSTILE {
+            let buffer = draw(text, true);
+            assert!(!has_control(&buffer), "control survived for {text:?}");
+        }
+        // Ordinary text, tabs and wide characters are left readable.
+        let buffer = draw("héllo\tworld 漢字 🙂", true);
+        let row: String = (0..80).map(|x| buffer[(x, 0)].symbol().to_string()).collect();
+        assert!(row.contains("héllo"), "{row}");
+        assert!(row.contains("world"), "{row}");
+        assert!(row.contains('漢'), "{row}");
     }
 }

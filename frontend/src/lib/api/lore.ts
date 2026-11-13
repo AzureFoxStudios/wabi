@@ -1,5 +1,8 @@
 import { getApiBase, fetchWithTimeout } from './utils';
 import { getSocket } from '$lib/socketConnection';
+import { checkedSignedLoreUrl } from '$lib/lore/linkSafety';
+
+export { pdfPreviewBlob } from '$lib/lore/linkSafety';
 
 export interface LoreRepo {
 	channelId: number;
@@ -410,8 +413,11 @@ export async function getSignedLoreUrl(
 	}
 	const payload = (await res.json()) as { url?: string; expiresAt?: number };
 	if (!payload.url) throw new Error('Signed URL response missing url');
-	return payload.url;
+	const safe = checkedSignedLoreUrl(payload.url, getApiBase());
+	if (!safe) throw new Error('Signed URL response was not an http(s) link');
+	return safe;
 }
+
 
 export async function deleteLoreFile(
 	token: string,

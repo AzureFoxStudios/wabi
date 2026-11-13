@@ -87,7 +87,12 @@ pub struct TailcatConnectResult {
 /// Generate (once) this device's tailcat client key and return its public
 /// key — the value the member registers with their Wabi account.
 #[tauri::command]
-pub fn tailcat_register_key(app: tauri::AppHandle) -> Result<String, String> {
+pub fn tailcat_register_key(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<String, String> {
+    // Runs the bundled tailcat binary: only Wabi's own pages may ask.
+    crate::hosting::require_bundled_window(&window)?;
     let bin = resolve_binary(&app);
     // Generate idempotently: genkey keeps an existing key rather than
     // rotating; printpub then prints the client-default public key.
@@ -129,8 +134,11 @@ pub async fn tailcat_connect(
     address: String,
     pipe_port: u16,
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, TailcatState>,
 ) -> Result<TailcatConnectResult, String> {
+    // Starts a tunnel process and a local forwarder: only Wabi's own pages may ask.
+    crate::hosting::require_bundled_window(&window)?;
     let addr = address.trim().to_string();
     if !addr.starts_with("tc") {
         return Err("not a tailcat address (must start with 'tc')".into());

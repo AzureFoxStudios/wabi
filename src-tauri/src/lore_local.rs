@@ -55,6 +55,8 @@ fn internal(path: &str) -> bool {
         || p.starts_with(".env") || p.contains(".wabi-conflict-"))
 }
 fn grant(state: &LocalWorkspaceState, window: &WebviewWindow, handle: &str) -> Result<Grant> {
+    // A handle is bound to a window label; the page in that window must also be Wabi's own.
+    crate::hosting::require_bundled_window(window).map_err(|e| anyhow!(e))?;
     let grants = state.0.lock().map_err(|_| anyhow!("Workspace registry unavailable"))?;
     let g = grants.get(handle).context("Reconnect this local folder")?;
     if g.window != window.label() { bail!("This window has no access to that local folder"); }
@@ -185,6 +187,7 @@ pub(crate) const LOCAL_FOLDER_MOBILE_UNSUPPORTED: &str =
 #[cfg(not(mobile))]
 #[tauri::command]
 pub async fn lore_local_choose(app: tauri::AppHandle, window: WebviewWindow, state: State<'_, LocalWorkspaceState>, server_url: String, channel_id: i64, account_id: String) -> Result<Option<Connection>, String> {
+    crate::hosting::require_bundled_window(&window)?;
     let mut server = Url::parse(&server_url).map_err(|_| "Invalid server URL")?;
     if !["http", "https"].contains(&server.scheme()) || server.host_str().is_none() || !server.username().is_empty() || server.password().is_some() || server.query().is_some() || server.fragment().is_some() || channel_id <= 0 || account_id.is_empty() {
         return Err("A signed-in account and an HTTP(S) Wabi server are required".into());

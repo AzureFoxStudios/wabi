@@ -208,25 +208,71 @@ function extractMathPlaceholders(text: string): { text: string; slots: MathSlot[
 	return { text: out, slots };
 }
 
+function renderMathSlot(slot: MathSlot): string {
+	try {
+		return katex.renderToString(slot.tex, {
+			throwOnError: false,
+			displayMode: slot.displayMode,
+			output: 'html',
+			strict: 'ignore'
+		});
+	} catch {
+		return `<code class="katex-error">${escapeHtml(slot.tex)}</code>`;
+	}
+}
+
+const MATH_TOKEN = /WABIMATH\d+X/g;
+/** Attributes where the TeX source may stand in for a placeholder; it is plain text there. */
+const MATH_TEXT_ATTRS = new Set(['title', 'alt']);
+
+/**
+ * KaTeX HTML is injected AFTER DOMPurify so its inline styles survive, so it must only ever land
+ * where markup belongs. A placeholder can end up inside an attribute (a link title, an href, an
+ * image alt); string-replacing it there let KaTeX's quotes break out of the attribute
+ * (docs/audits/2026-11-hostile-server-audit.md, finding M1). Placeholders are therefore replaced in
+ * text nodes only. In title/alt the TeX source is set as plain text; in every other attribute the
+ * placeholder is removed, so restoring TeX can never turn a vetted URL into an unvetted one.
+ */
 function renderMathSlots(html: string, slots: MathSlot[]): string {
 	if (!slots.length) return html;
-	let out = html;
-	for (const slot of slots) {
-		let rendered: string;
-		try {
-			rendered = katex.renderToString(slot.tex, {
-				throwOnError: false,
-				displayMode: slot.displayMode,
-				output: 'html',
-				strict: 'ignore'
-			});
-		} catch {
-			rendered = `<code class="katex-error">${escapeHtml(slot.tex)}</code>`;
-		}
-		// KaTeX injects AFTER DOMPurify so inline styles/spans are not stripped
-		out = out.split(slot.token).join(rendered);
+	const byToken = new Map(slots.map((slot) => [slot.token, slot]));
+	if (typeof document === 'undefined') {
+		return html.replace(MATH_TOKEN, (token) => escapeHtml(byToken.get(token)?.tex ?? ''));
 	}
-	return out;
+	const template = document.createElement('template');
+	template.innerHTML = html;
+	for (const element of template.content.querySelectorAll('*')) {
+		for (const attribute of [...element.attributes]) {
+			if (!attribute.value.includes('WABIMATH')) continue;
+			const keepText = MATH_TEXT_ATTRS.has(attribute.name.toLowerCase());
+			element.setAttribute(
+				attribute.name,
+				attribute.value.replace(MATH_TOKEN, (token) => (keepText ? byToken.get(token)?.tex ?? '' : ''))
+			);
+		}
+	}
+	const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+	const textNodes: Text[] = [];
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		if ((node.nodeValue ?? '').includes('WABIMATH')) textNodes.push(node as Text);
+	}
+	for (const node of textNodes) {
+		const value = node.nodeValue ?? '';
+		const fragment = document.createDocumentFragment();
+		let cursor = 0;
+		for (const match of value.matchAll(MATH_TOKEN)) {
+			const slot = byToken.get(match[0]);
+			if (!slot) continue;
+			fragment.append(value.slice(cursor, match.index));
+			const rendered = document.createElement('template');
+			rendered.innerHTML = renderMathSlot(slot);
+			fragment.append(rendered.content);
+			cursor = (match.index ?? 0) + match[0].length;
+		}
+		fragment.append(value.slice(cursor));
+		node.replaceWith(fragment);
+	}
+	return template.innerHTML;
 }
 
 function injectMessageEntityPlaceholders(

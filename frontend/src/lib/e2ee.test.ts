@@ -247,3 +247,18 @@ test('the prepared message keeps the id and clientMessageId it came in with', as
 	expect(prepared.id).toBe('m1');
 	expect(prepared.clientMessageId).toBe('c-1');
 });
+
+// Hostile-server audit (docs/audits/2026-11-hostile-server-audit.md, question 5): once this device
+// has seen a conversation encrypted, a server answer of "not encrypted" is ignored, so the client
+// keeps encrypting and keeps the content on the device.
+test('a server cannot switch a room this device has seen encrypted back to readable', async () => {
+	const { getE2eeRoomStatus, storedE2eeRoomStatus } = await import('./e2ee');
+	setStatus({ enabled: true });
+	expect((await getE2eeRoomStatus(channel, false)).enabled).toBe(true);
+	setStatus({ enabled: false, pending: false, downgradeAllowed: true, devices: [], keyEnvelopes: [] });
+	expect((await getE2eeRoomStatus(channel, false)).enabled).toBe(true);
+	expect(storedE2eeRoomStatus(channel)?.enabled).toBe(true);
+	// Control: a room never seen encrypted on this device takes the server's word.
+	const fresh = `${channel}-fresh`;
+	expect((await getE2eeRoomStatus(fresh, false)).enabled).toBe(false);
+});

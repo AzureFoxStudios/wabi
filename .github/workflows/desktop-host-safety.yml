@@ -10,6 +10,7 @@ on:
       - 'scripts/*desktop-host*'
       - 'scripts/host-safety/**'
       - 'scripts/tests/desktop-host-*.test.mjs'
+      - 'scripts/tests/desktop-shell-contract.test.mjs'
       - 'frontend/src/lib/*host*'
       - 'frontend/src/lib/*Hosting*'
       - 'frontend/src/routes/host/**'
@@ -40,4 +41,5 @@ jobs:
       - name: Package and invitation regression tests
         run: |
           node --test scripts/tests/desktop-host-foundation.test.mjs
+          node --test scripts/tests/desktop-shell-contract.test.mjs
           node --experimental-strip-types --test scripts/tests/desktop-host-invites.test.mjs
