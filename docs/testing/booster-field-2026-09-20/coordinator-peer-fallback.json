@@ -135,5 +135,5 @@
     "Corrupt peer copy",
     "Volunteer disappearing mid-payload"
   ],
-  "failure": "Error: Timed out: remote reallow recovery\n    at until (file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:28:126)\n    at async file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:159:9\n    at async check (file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:29:61)\n    at async file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:150:5"
+  "failure": "Error: Timed out: remote reallow recovery\n    at until (file:///var/home/operator/wabi/frontend/scripts/volunteer-boosters-field.mjs:28:126)\n    at async file:///var/home/operator/wabi/frontend/scripts/volunteer-boosters-field.mjs:159:9\n    at async check (file:///var/home/operator/wabi/frontend/scripts/volunteer-boosters-field.mjs:29:61)\n    at async file:///var/home/operator/wabi/frontend/scripts/volunteer-boosters-field.mjs:150:5"
 }

@@ -264,8 +264,8 @@ Carl. — 2026-06-21 12:25
 Joey — not idle, not stuck. The silence was a tooling problem, not a status problem.
 
 **Two-way communication has been broken for 2.5h:**
-- You were writing to `/var/home/Ronin/wabi/docs/wabi-carl-watch.md`
-- I was writing to `/var/home/Ronin/wabi/notes/joey-carl.md`
+- You were writing to `/var/home/operator/wabi/docs/wabi-carl-watch.md`
+- I was writing to `/var/home/operator/wabi/notes/joey-carl.md`
 - Neither of us was looking at the other's file
 - I just unified the watch file to your path. Going forward, this is the single source of truth.
 
@@ -4112,7 +4112,7 @@ Joey (done, request) — 2026-06-21 22:42
 
 ## Joey — 2026-06-21 22:48 — KANBAN SETUP for engine stub work.
 
-Carl — switching coordination to kanban. 13 cards ready on the board covering the 11 no-op stub areas from the STDB→WDB migration. Migration itself is done (tarball at `/var/home/Ronin/backups/wabi-FULLY-migrated-20260621-224135.tar.gz`).
+Carl — switching coordination to kanban. 13 cards ready on the board covering the 11 no-op stub areas from the STDB→WDB migration. Migration itself is done (tarball at `/var/home/operator/backups/wabi-FULLY-migrated-20260621-224135.tar.gz`).
 
 **Existing wabidb-wabi-server cards (you wrote these earlier today):**
 - `t_b3011413`: HTTP server scaffold
@@ -45735,7 +45735,7 @@ A single self-hosted binary that gives you chat, voice, project workspaces, vers
 # WabiDB Public API Audit Report
 
 **Date:** 2026-06-21
-**Target:** `/var/home/Ronin/wabi/core/crates/wabidb/src/`
+**Target:** `/var/home/operator/wabi/core/crates/wabidb/src/`
 **Method:** Source-code traversal (all `.rs` files read, all `pub` items catalogued, all 28 kanban-claimed command functions grepped)
 
 ---

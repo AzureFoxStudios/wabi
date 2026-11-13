@@ -40,7 +40,7 @@
 - **Scope:** Create `core/crates/wabidb/` as a Rust library crate. Set up `Cargo.toml` with workspace dependency declarations for `blake3`, `aes-gcm`, `crc32c`, `tokio`, `serde`, `tracing`. Create empty `src/lib.rs` and module skeleton.
 - **Files:** `core/crates/wabidb/Cargo.toml`, `core/crates/wabidb/src/lib.rs`
 - **Acceptance:** `cargo check -p wabidb` succeeds.
-- **Verify:** `cd /var/home/Ronin/wabi && cargo check -p wabidb`
+- **Verify:** `cd /var/home/operator/wabi && cargo check -p wabidb`
 
 ### wabidb-02: Storage format spec doc
 - **Component:** Foundation

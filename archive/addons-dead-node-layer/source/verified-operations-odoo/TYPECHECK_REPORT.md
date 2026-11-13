@@ -47,12 +47,12 @@ The addon loads into a wabi addon runtime and exposes:
   - Caps, tamper config, templates, audit log
 - A socket handler on `biz:verify:now` that re-runs tamper verification.
 - A startup timer that runs tamper verification at the configured interval and emits `biz:tamper:alert` on the workspace context.
-- A typed bridge to the Odoo CE server at `/var/home/Ronin/odoo-thailand-sandbox/` (default config), including Thai VAT, Thai withholding tax, OCA Thai tax reports (PND1/PND1A/PND2/PND3/PND53) and PromptPay QR (CueR) on the Thai commercial invoice PDF.
+- A typed bridge to the Odoo CE server at `/var/home/operator/odoo-thailand-sandbox/` (default config), including Thai VAT, Thai withholding tax, OCA Thai tax reports (PND1/PND1A/PND2/PND3/PND53) and PromptPay QR (CueR) on the Thai commercial invoice PDF.
 - A typed bridge to the wabi plugin storage, audit log, socket event bus, and `PluginContext` lifecycle hooks.
 
 ## Recommended next work
 
-1. Re-`rsync` the addon into the wabi-business-roofing fork at `/var/home/Ronin/Documents/wabi-business-roofing/` (already done).
+1. Re-`rsync` the addon into the wabi-business-roofing fork at `/var/home/operator/Documents/wabi-business-roofing/` (already done).
 2. Add a unit-test or smoke-test pass via `odoo shell` to confirm the Odoo-side calls work end-to-end against the sandbox.
 3. Build the wabi-business-roofing SvelteKit frontend that calls these routes and renders the business views.
 4. Wire the Odoo CE sandbox into the wabi addon runtime's connection config so the bridge can be live-tested.

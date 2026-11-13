@@ -2,7 +2,7 @@
 
 ## Executed scope
 
-The shared worktree on **dotRonin**, `/home/ironin/wabi`, branch
+The shared worktree on **dotRonin**, `/home/operator/wabi`, branch
 `codex/security-boundary-hardening-20260930`, base `138abe39`, adds the isolated
 `wabi-consensus` crate. The final pinned offline/locked run exited **0**:
 

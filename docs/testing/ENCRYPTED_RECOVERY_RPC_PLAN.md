@@ -30,7 +30,7 @@ This document specifies the next acceptance slice of package 4 in the
 close the whole-instance recovery, canonical writer or regional-room gates.
 
 A fresh [read-only SSH preflight](geographic-2026-10-01/encrypted-rpc-ssh-preflight.json)
-on October 1 passed for Ronin (`bazzite`) and Iyoku (`192.168.1.11`), with
+on October 1 passed for Ronin (`bazzite`) and Iyoku (`198.51.100.20`), with
 approximately 13.5 GiB and 7.1 GiB temporary space. Both reported zero remaining
 directories from the previous inactive-checkpoint rehearsal. No remote file or
 process was created. This checks access and headroom only; it does not qualify

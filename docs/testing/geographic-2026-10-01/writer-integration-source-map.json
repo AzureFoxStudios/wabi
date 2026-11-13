@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "scope": "Read-only source map for the next actual recovery-material/distributed writer integration, not implementation or acceptance",
   "executionComputer": "dotRonin",
-  "checkout": "/home/ironin/wabi",
+  "checkout": "/home/operator/wabi",
   "branch": "codex/security-boundary-hardening-20260930",
   "head": "138abe39e08e400188d1812ed3bfd378df435315",
   "recordedAtUtc": "2026-10-01T14:07:57.825135+00:00",

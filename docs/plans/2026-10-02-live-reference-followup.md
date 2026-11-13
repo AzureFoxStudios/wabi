@@ -13,7 +13,7 @@ Changes prepared:
 
 Frontend check: zero errors, 121 existing warnings. Gallery/reference tests: 13 passed. Offline mention directory: one passed. Gallery lifecycle fixture passed in its isolated process (12 inner cases).
 
-Final deployed static version: 1790928065702. Index SHA256: 660c692855418b596dc063bdd459e10682ca1101d0ff76a56461566b507c9dd0. Binary SHA256: edc7dd8d1685fa89676e4ddb5a5a5603cee9a2c22689ace6143df4b091b8994f. Backup: `/home/tim/wabi-backups/ui-20261002T081704Z`.
+Final deployed static version: 1790928065702. Index SHA256: 660c692855418b596dc063bdd459e10682ca1101d0ff76a56461566b507c9dd0. Binary SHA256: edc7dd8d1685fa89676e4ddb5a5a5603cee9a2c22689ace6143df4b091b8994f. Backup: `/home/operator/wabi-backups/ui-20261002T081704Z`.
 
 The final package passed disposable Authority startup/UI/version/health/ready and anonymous admin rejection checks. Live Tim readback verified the binary, embedded version and entry assets, all health routes, helper containers and preserved advisory lock inode6029360. Existing runtime Rust/Cargo inputs remained unchanged through compilation; geographic focused checkpoint verification separately passed7/0/1ignored against its earlier exact static/source freeze.
 

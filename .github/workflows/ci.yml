@@ -137,6 +137,8 @@ jobs:
         run: python3 scripts/security/supply_chain_check.py --root . --mode advisory --json
       - name: Action pin integrity
         run: python3 scripts/security/pin_actions.py --check
+      - name: No operator-private addresses in docs/scripts (allowlist in scripts/security)
+        run: python3 scripts/security/private_details_check.py
       - name: npm advisory baseline gate (blocks NEW high/critical advisories)
         run: python3 scripts/security/npm_audit_gate.py --mode blocking
       - name: Cargo advisories (existing rust debt graded, report-only)

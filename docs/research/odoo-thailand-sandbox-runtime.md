@@ -6,7 +6,7 @@ Date: 2026-06-14
 
 Runtime sandbox lives outside the Wabi repo:
 
-- `/var/home/Ronin/odoo-thailand-sandbox`
+- `/var/home/operator/odoo-thailand-sandbox`
 
 This keeps Docker volumes and fake Odoo database files out of the Wabi source tree.
 
@@ -32,9 +32,9 @@ Use Ronin as a completely isolated fake-data sandbox to determine whether Odoo C
 
 ## Files created
 
-- `/var/home/Ronin/odoo-thailand-sandbox/docker-compose.yml`
-- `/var/home/Ronin/odoo-thailand-sandbox/config/odoo.conf`
-- `/var/home/Ronin/odoo-thailand-sandbox/README.md`
+- `/var/home/operator/odoo-thailand-sandbox/docker-compose.yml`
+- `/var/home/operator/odoo-thailand-sandbox/config/odoo.conf`
+- `/var/home/operator/odoo-thailand-sandbox/README.md`
 
 ## Container services
 
@@ -45,31 +45,31 @@ Use Ronin as a completely isolated fake-data sandbox to determine whether Odoo C
 
 - `odoo-thailand-sandbox_odoo_thailand_postgres` — Podman/Docker named volume for PostgreSQL database files
 - `odoo-thailand-sandbox_odoo_thailand_odoo` — Podman/Docker named volume for Odoo filestore/session data
-- `/var/home/Ronin/odoo-thailand-sandbox/addons/` — reserved for later OCA extra addons after base Odoo is verified
-- `/var/home/Ronin/odoo-thailand-sandbox/config/odoo.conf` — reserved config file, not mounted during first boot
+- `/var/home/operator/odoo-thailand-sandbox/addons/` — reserved for later OCA extra addons after base Odoo is verified
+- `/var/home/operator/odoo-thailand-sandbox/config/odoo.conf` — reserved config file, not mounted during first boot
 
-Named volumes are used for database/app data because rootless Podman hit bind-mount write permission issues with the official PostgreSQL image. First boot intentionally avoids config/addon bind mounts because `/var/home/Ronin` has restrictive traversal permissions for rootless containers; add OCA addons after the base UI is healthy.
+Named volumes are used for database/app data because rootless Podman hit bind-mount write permission issues with the official PostgreSQL image. First boot intentionally avoids config/addon bind mounts because `/var/home/operator` has restrictive traversal permissions for rootless containers; add OCA addons after the base UI is healthy.
 
 ## Commands
 
 Start:
 
 ```bash
-cd /var/home/Ronin/odoo-thailand-sandbox
+cd /var/home/operator/odoo-thailand-sandbox
 podman compose up -d
 ```
 
 Stop:
 
 ```bash
-cd /var/home/Ronin/odoo-thailand-sandbox
+cd /var/home/operator/odoo-thailand-sandbox
 podman compose down
 ```
 
 Logs:
 
 ```bash
-cd /var/home/Ronin/odoo-thailand-sandbox
+cd /var/home/operator/odoo-thailand-sandbox
 podman compose logs -f odoo
 ```
 

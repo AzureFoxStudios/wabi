@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "recordedAtUtc": "2026-10-01T15:52:44.477152+00:00",
   "executionComputer": "dotRonin",
-  "checkout": "/home/ironin/wabi",
+  "checkout": "/home/operator/wabi",
   "branch": "codex/security-boundary-hardening-20260930",
   "baselineCommit": "138abe39e08e400188d1812ed3bfd378df435315",
   "candidateState": "local, uncommitted, undeployed",

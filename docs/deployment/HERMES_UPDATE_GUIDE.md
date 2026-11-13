@@ -4,23 +4,23 @@ A teaching-oriented walkthrough for pushing the current local Wabi tree out to t
 
 ## The two hosts and what they're for
 
-- **`tim@100.96.11.45`** — live rebuild target. After a sync, tim rebuilds its docker stack so the running services pick up the new code.
-- **`Iyoku@100.104.166.42`** — synced staging machine. Receives the tree but does **not** rebuild docker by default. Used for ad-hoc testing of the native Rust binary (`target/release/wabi-server`).
+- **`operator@192.0.2.10`** — live rebuild target. After a sync, tim rebuilds its docker stack so the running services pick up the new code.
+- **`operator@192.0.2.20`** — synced staging machine. Receives the tree but does **not** rebuild docker by default. Used for ad-hoc testing of the native Rust binary (`target/release/wabi-server`).
 
-Both hosts keep the project at `~/Desktop/Wabi/` (note the capital W). The local source-of-truth is `/home/Ronin/Desktop/Wabi/dotronin-worktree/wabi/`.
+Both hosts keep the project at `~/Desktop/Wabi/` (note the capital W). The local source-of-truth is `/home/operator/Desktop/Wabi/dotronin-worktree/wabi/`.
 
 ## Preflight
 
 ```bash
-ssh tim@100.96.11.45      'echo ok; ls -d ~/Desktop/Wabi'
-ssh Iyoku@100.104.166.42  'echo ok; ls -d ~/Desktop/Wabi'
+ssh operator@192.0.2.10      'echo ok; ls -d ~/Desktop/Wabi'
+ssh operator@192.0.2.20  'echo ok; ls -d ~/Desktop/Wabi'
 ```
 
 If either fails, fix SSH/Tailscale before going further — there is no recovery path from a half-applied sync.
 
 ## Sync the tree
 
-From `/home/Ronin/Desktop/Wabi/dotronin-worktree/wabi/`:
+From `/home/operator/Desktop/Wabi/dotronin-worktree/wabi/`:
 
 ```bash
 rsync -az --delete \
@@ -30,7 +30,7 @@ rsync -az --delete \
   --exclude 'target/' \
   --exclude 'node_modules' \
   --exclude 'spacetimedb/target' \
-  ./ tim@100.96.11.45:~/Desktop/Wabi/
+  ./ operator@192.0.2.10:~/Desktop/Wabi/
 
 rsync -az --delete \
   --exclude 'data/' \
@@ -39,7 +39,7 @@ rsync -az --delete \
   --exclude 'target/' \
   --exclude 'node_modules' \
   --exclude 'spacetimedb/target' \
-  ./ Iyoku@100.104.166.42:~/Desktop/Wabi/
+  ./ operator@192.0.2.20:~/Desktop/Wabi/
 ```
 
 Why each exclude matters:
@@ -56,7 +56,7 @@ Why each exclude matters:
 ## Rebuild tim
 
 ```bash
-ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose up -d --build'
+ssh operator@192.0.2.10 'cd ~/Desktop/Wabi && docker compose up -d --build'
 ```
 
 `docker compose` re-uses cached layers where it can; rebuilds the backend image when source under `backend/` changes. Expect 1–10 minutes depending on what moved.
@@ -64,18 +64,18 @@ ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose up -d --build'
 ## Verify
 
 ```bash
-ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose ps'
-ssh tim@100.96.11.45 'curl -fsS http://127.0.0.1:8080/health'
-ssh tim@100.96.11.45 'curl -I http://127.0.0.1:3000'
+ssh operator@192.0.2.10 'cd ~/Desktop/Wabi && docker compose ps'
+ssh operator@192.0.2.10 'curl -fsS http://127.0.0.1:8080/health'
+ssh operator@192.0.2.10 'curl -I http://127.0.0.1:3000'
 
-ssh Iyoku@100.104.166.42 'ls ~/Desktop/Wabi/docs/deployment/TIM_IYOKU_UPDATE_RUNBOOK.md && echo synced-ok'
+ssh operator@192.0.2.20 'ls ~/Desktop/Wabi/docs/deployment/TIM_IYOKU_UPDATE_RUNBOOK.md && echo synced-ok'
 ```
 
 A green `/health` on tim is the success signal. If it's red, jump to the gotchas below before doing anything else.
 
 ## Gotchas (real ones that have bitten us)
 
-- **Shadow install (`/home/tim/Desktop/Wabi/` vs `/home/tim/wabi/`).** Both lowercase to the same docker compose project name `wabi`. If both directories exist, containers silently get bind-mounts from whichever was last `docker compose up`'d — keys drift, tokens go stale, everything dies with `InvalidSignature`. If `docker inspect <wabi-container>` shows a `wabi/` (lowercase) mount, somebody re-created the shadow. Delete it before debugging anything else.
+- **Shadow install (`/home/operator/Desktop/Wabi/` vs `/home/operator/wabi/`).** Both lowercase to the same docker compose project name `wabi`. If both directories exist, containers silently get bind-mounts from whichever was last `docker compose up`'d — keys drift, tokens go stale, everything dies with `InvalidSignature`. If `docker inspect <wabi-container>` shows a `wabi/` (lowercase) mount, somebody re-created the shadow. Delete it before debugging anything else.
 - **STDB token / fingerprint mismatch.** After a republish, the publisher's JWT in `data/stdb-publisher-config/cli.toml` must be copied into `.env` as `WABI_STDB_AUTH_TOKEN`. Symptom: backend logs `TokenError(Error(InvalidSignature))` on `/state-plane/healthz`. Recovery steps are in `TIM_IYOKU_UPDATE_RUNBOOK.md` ("STDB Token/Fingerprint Gotcha").
 - **Wiping STDB state.** If you `rm -rf data/spacetimedb/`, you **must** also wipe `data/stdb-publisher-config/`. They're a matched pair; orphaning one leaves an identity the counterpart can't authenticate, and republish returns `403 Forbidden ... not authorized`.
 - **Iyoku does not rebuild docker.** The compose file is synced but no `up -d --build` runs. If you want updated behavior on Iyoku, you're either restarting an existing service manually or running the native `wabi-server` binary (Iyoku's intended use case).
@@ -89,9 +89,9 @@ The cargo workspace at `core/crates/wabi-server/` builds a `wabi-server` binary 
 If the rebuild on tim breaks the live stack:
 
 ```bash
-ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose down'
+ssh operator@192.0.2.10 'cd ~/Desktop/Wabi && docker compose down'
 # fix the cause locally, resync, then:
-ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose up -d --build'
+ssh operator@192.0.2.10 'cd ~/Desktop/Wabi && docker compose up -d --build'
 ```
 
 No data loss: `data/` is excluded from sync and from `down`.

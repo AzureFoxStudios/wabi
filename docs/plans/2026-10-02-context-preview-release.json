@@ -148,7 +148,7 @@
       "adminGate": 401
     },
     "sourceCommit": "9dd4c2672d56e30eed58f0bff06d333fe2024419",
-    "backup": "/home/tim/wabi-backups/ui-20261002T105559Z",
+    "backup": "/home/operator/wabi-backups/ui-20261002T105559Z",
     "localSmoke": {
       "sha256": "b012e207b958be3259091cf02a0b0bc6c34b26af1704962915c565798d8eb54d",
       "bytes": 87858648,
@@ -329,7 +329,7 @@
       "adminGate": 401
     },
     "sourceCommit": "825e693b",
-    "backup": "/home/tim/wabi-backups/ui-20261002T113230Z",
+    "backup": "/home/operator/wabi-backups/ui-20261002T113230Z",
     "localSmoke": {
       "sha256": "9d459dcd2e48652efa49cdb3a0db090b966a0e1d5356782535ea08c9bfba3424",
       "bytes": 87858672,
@@ -503,7 +503,7 @@
       "adminGate": 401
     },
     "sourceCommit": "636f133b971288577cd402a8c71bfeb31772790a",
-    "backup": "/home/tim/wabi-backups/ui-20261002T132617Z",
+    "backup": "/home/operator/wabi-backups/ui-20261002T132617Z",
     "localSmoke": {
       "sha256": "54170e5e85a0bd1e5a59a9412848f5d2779296c40ef4c25254ad72b1d29cf7db",
       "bytes": 87857888,

@@ -4,7 +4,7 @@
   "result": "PASS",
   "scope": "read-only SSH host, temporary-space and prior-rehearsal cleanup preflight",
   "executionComputer": "dotRonin",
-  "checkout": "/home/ironin/wabi",
+  "checkout": "/home/operator/wabi",
   "branch": "codex/security-boundary-hardening-20260930",
   "baseRevision": "138abe39e08e400188d1812ed3bfd378df435315",
   "nodes": [
@@ -18,7 +18,7 @@
     },
     {
       "siteLabel": "Iyoku",
-      "observedHostname": "192.168.1.11",
+      "observedHostname": "198.51.100.20",
       "expectedHostMatches": true,
       "machine": "x86_64",
       "temporaryFreeBytes": 7673655296,

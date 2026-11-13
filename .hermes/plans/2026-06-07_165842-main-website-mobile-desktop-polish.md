@@ -14,10 +14,10 @@
 
 Screenshots inspected:
 
-- `/home/Ronin/Desktop/Screenshot_20260502-131716.png`
-- `/home/Ronin/Desktop/Screenshot_20260502-113209.png`
-- `/home/Ronin/Desktop/image (1).png`
-- `/home/Ronin/Desktop/image (2).png`
+- `/home/operator/Desktop/Screenshot_20260502-131716.png`
+- `/home/operator/Desktop/Screenshot_20260502-113209.png`
+- `/home/operator/Desktop/image (1).png`
+- `/home/operator/Desktop/image (2).png`
 
 Relevant source inspected:
 
@@ -65,7 +65,7 @@ Design direction:
 
 **Steps:**
 
-1. From `/home/Ronin/wabi/frontend`, run:
+1. From `/home/operator/wabi/frontend`, run:
    ```bash
    bun install
    bun run check
@@ -444,7 +444,7 @@ Visual language:
 **Command:**
 
 ```bash
-cd /home/Ronin/wabi/frontend
+cd /home/operator/wabi/frontend
 bun run check
 ```
 
