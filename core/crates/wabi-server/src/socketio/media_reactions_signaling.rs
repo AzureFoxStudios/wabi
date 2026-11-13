@@ -262,6 +262,26 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
         .await;
 }
 
+/// Emoji identifiers the client sends: a custom emote id (`emo_<name>`, the
+/// same name rule as emoji upload), a Unicode codepoint sequence
+/// (`1F44D`, `1F468-200D-1F469`), or a literal emoji of a few characters
+/// from older clients. Anything else, notably words, is refused.
+fn valid_reaction_emoji_id(id: &str) -> bool {
+    if id.is_empty() || id.len() > 64 {
+        return false;
+    }
+    if let Some(name) = id.strip_prefix("emo_") {
+        return (1..=30).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    }
+    let codepoints = id.split('-').collect::<Vec<_>>();
+    if codepoints.len() <= 10
+        && codepoints.iter().all(|part| (2..=6).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return true;
+    }
+    id.chars().count() <= 12 && id.chars().all(|c| !c.is_ascii() && !c.is_whitespace() && !c.is_control())
+}
+
 #[allow(dead_code)]
 async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let message_id = match data.get("messageId").and_then(|v| v.as_str()) {
@@ -302,6 +322,13 @@ async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, 
     };
     if blacklist.is_channel_timed_out(&channel_id, user_id_num).await.is_some() {
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "You are timed out in this channel" }));
+        return;
+    }
+
+    // A reaction is stored and broadcast as-is, in every room: keep it an
+    // emoji identifier, never a place for free text.
+    if !valid_reaction_emoji_id(&emoji_id) {
+        let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Unknown emoji" }));
         return;
     }
 

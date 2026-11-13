@@ -111,8 +111,11 @@ struct SetRoomInput {
     envelopes: Vec<WrappedRoomKey>,
 }
 
+/// Exactly the fields the shipped client signs (`frontend/src/lib/e2ee.ts`).
+/// Extra fields (a readable "preview", "plaintext", ...) are refused, never
+/// stored beside the ciphertext.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MessageEnvelope {
     pub v: u8,
     pub room: String,
@@ -592,6 +595,121 @@ fn parse_message(content: &str) -> Option<MessageEnvelope> {
     serde_json::from_str(raw).ok()
 }
 
+/// The new-room policy for readable text from `user_id` in a room that is not
+/// (yet) encrypted: refused while pending, and after a server-readable choice
+/// refused for every sender who has not made that choice themselves.
+fn new_room_plaintext_refusal(data: &E2eeData, channel_id: &str, user_id: i64) -> Option<&'static str> {
+    match data.new_room_policies.get(channel_id) {
+        Some(policy) if policy.mode == NewRoomMode::PendingEncryption => Some(
+            "Encryption is pending for this new conversation. Wait for participants to prepare encryption, or explicitly choose server-readable messages.",
+        ),
+        Some(policy) if !policy.consenting_user_ids.contains(&user_id) => Some(
+            "A participant chose server-readable chat. Confirm server-readable messages on your own device before sending.",
+        ),
+        _ => None,
+    }
+}
+
+/// Features with no encrypted form (forum, wiki, albums, gallery, incidents,
+/// whiteboards) store server-readable text. They follow the same boundary as a
+/// plaintext chat message: refused in a room with experimental encryption
+/// enabled or pending, and after a server-readable choice only accepted from
+/// a sender who made that choice. Call under `retention_policy_lock`, like a
+/// send; `feature` names what is unavailable, e.g. "Wiki pages".
+fn require_server_readable_text(state: &AppState, channel_id: &str, user_id: i64, feature: &str) -> Result<()> {
+    let data = read_data(&state.config.data_dir)
+        .map_err(|_| AppError::Forbidden(REGISTRY_UNAVAILABLE.into()))?;
+    if data.rooms.get(channel_id).is_some_and(|room| room.enabled) {
+        return Err(AppError::Forbidden(format!(
+            "This conversation uses experimental encryption. {feature} store server-readable text, so they are not available here."
+        )));
+    }
+    match new_room_plaintext_refusal(&data, channel_id, user_id) {
+        Some(refusal) => Err(AppError::Forbidden(refusal.into())),
+        None => Ok(()),
+    }
+}
+
+/// Admission for a write of server-readable text into `channel_id`, whose
+/// persisted kind the caller already loaded (`require_participation`).
+/// Ordinary rooms can never be encrypted: no lock, no registry read. In a DM
+/// or group the encryption-policy lock is returned and must be held through
+/// the durable write, so the room cannot become encrypted in between.
+pub async fn admit_readable_text<'a>(
+    state: &'a AppState,
+    channel: &wabidb::domain::Channel,
+    user_id: i64,
+    feature: &str,
+) -> Result<Option<tokio::sync::MutexGuard<'a, ()>>> {
+    if !crate::channel_access::is_conversation(channel.channel_kind) {
+        return Ok(None);
+    }
+    let guard = state.retention_policy_lock.lock().await;
+    require_server_readable_text(state, &channel.channel_id, user_id, feature)?;
+    Ok(Some(guard))
+}
+
+/// A bot cannot confirm server-readable mode on a device of its own, and the
+/// server does not record who added it to a conversation. So in a new room
+/// that a participant switched to server-readable, a bot may post only once
+/// every current human member has made that choice themselves; while the room
+/// is pending or encrypted, never. Call under `retention_policy_lock`.
+pub async fn require_bot_post_allowed(state: &AppState, channel_id: &str) -> Result<()> {
+    let data = read_data(&state.config.data_dir)?;
+    if data.rooms.get(channel_id).is_some_and(|room| room.enabled)
+        || data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption)
+    {
+        return Err(AppError::BadRequest(
+            "Bot sends are unavailable while private-room encryption is pending or enabled".into(),
+        ));
+    }
+    let Some(policy) = data.new_room_policies.get(channel_id) else { return Ok(()) };
+    for member in state.wdb.list_channel_members(channel_id).await? {
+        let Ok(user_id) = i64::try_from(member.user_id) else { continue };
+        if !state.bot_registry.is_bot(member.user_id).await && !policy.consenting_user_ids.contains(&user_id) {
+            return Err(AppError::BadRequest(
+                "Bots can post in this conversation only after every member has confirmed server-readable messages on their own device.".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The shape of a file the shipped client encrypted before upload
+/// (`frontend/src/lib/e2ee.ts`): a random `e2ee-<uuid>.wabi` name and
+/// `application/octet-stream`. Nothing about the original file is in it.
+pub fn is_opaque_encrypted_upload(file_name: &str, mime_type: &str) -> bool {
+    mime_type == "application/octet-stream"
+        && file_name
+            .strip_prefix("e2ee-")
+            .and_then(|rest| rest.strip_suffix(".wabi"))
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+}
+
+/// Admission for an upload bound to a conversation. Where readable text is
+/// refused, only the opaque encrypted-upload shape is accepted, so no original
+/// file name or plaintext bytes are stored. A damaged registry refuses all.
+pub async fn admit_channel_upload<'a>(
+    state: &'a AppState,
+    channel: &wabidb::domain::Channel,
+    user_id: i64,
+    file_name: &str,
+    mime_type: &str,
+) -> Result<Option<tokio::sync::MutexGuard<'a, ()>>> {
+    if !crate::channel_access::is_conversation(channel.channel_kind) {
+        return Ok(None);
+    }
+    let guard = state.retention_policy_lock.lock().await;
+    match require_server_readable_text(state, &channel.channel_id, user_id, "Plaintext file uploads") {
+        Ok(()) => Ok(Some(guard)),
+        Err(AppError::Forbidden(reason)) if reason == REGISTRY_UNAVAILABLE => Err(AppError::Forbidden(reason)),
+        Err(_) if is_opaque_encrypted_upload(file_name, mime_type) => Ok(Some(guard)),
+        Err(_) => Err(AppError::Forbidden(
+            "Plaintext files cannot be attached to this conversation: it uses experimental encryption or is waiting for it. Send the file from an updated Wabi client, which encrypts it first.".into(),
+        )),
+    }
+}
+
 /// Enforce the private-room content boundary before any server-side content
 /// processing. Returns true when this room is E2EE and the opaque envelope is
 /// valid for the current epoch. Signature verification is intentionally an
@@ -604,12 +722,8 @@ pub async fn validate_outbound_message(
     let room = data.rooms.get(channel_id).filter(|r| r.enabled).cloned();
     let Some(room) = room else {
         if is_ciphertext(content) { return Err("E2EE envelopes are only accepted in an E2EE conversation".into()); }
-        if data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption) {
-            return Err("Encryption is pending for this new conversation. Wait for participants to prepare encryption, or explicitly choose server-readable messages.".into());
-        }
-        if data.new_room_policies.get(channel_id).is_some_and(|policy|
-            policy.mode == NewRoomMode::ServerReadable && !policy.consenting_user_ids.contains(&user_id)) {
-            return Err("A participant chose server-readable chat. Confirm server-readable messages on your own device before sending.".into());
+        if let Some(refusal) = new_room_plaintext_refusal(&data, channel_id, user_id) {
+            return Err(refusal.into());
         }
         return Ok(false);
     };
@@ -634,6 +748,19 @@ pub async fn validate_outbound_message(
     let registered_sender = data.devices.iter().any(|d| d.user_id == user_id && d.device_id == envelope.sender_device_id && d.revoked_at.is_none());
     if !registered_sender { return Err("Encrypted message came from an unregistered or revoked device".into()); }
     if envelope.iv.is_empty() || envelope.iv.len() > MAX_KEY_FIELD || envelope.ciphertext.is_empty() || envelope.signature.is_empty() || envelope.signature.len() > MAX_KEY_FIELD {
+        return Err("Malformed encrypted message envelope".into());
+    }
+    // The client's AES-GCM/ECDSA-P256 output: a 12-byte IV, ciphertext with
+    // at least its 16-byte tag, a 64-byte signature, all standard base64. A
+    // readable value in any of these fields does not decode to that shape.
+    let decoded_len = |value: &str| {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.decode(value).ok().map(|bytes| bytes.len())
+    };
+    if decoded_len(&envelope.iv) != Some(12)
+        || decoded_len(&envelope.ciphertext).is_none_or(|len| len < 16)
+        || decoded_len(&envelope.signature) != Some(64)
+    {
         return Err("Malformed encrypted message envelope".into());
     }
     Ok(true)

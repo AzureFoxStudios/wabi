@@ -172,7 +172,10 @@ async fn init_upload(
         return Err(anyhow::anyhow!("Guests cannot upload files").into());
     }
     if !req.channel_id.is_empty() {
-        crate::channel_access::require_participation(&state, auth.user_id, &req.channel_id).await?;
+        let channel = crate::channel_access::require_participation(&state, auth.user_id, &req.channel_id).await?;
+        // Before any session, temp file or log line exists: a conversation that
+        // is encrypted or pending accepts only client-encrypted opaque files.
+        drop(crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &req.file_name, &req.mime_type).await?);
     }
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
 
@@ -427,8 +430,14 @@ async fn complete_upload(
             .clone()
     };
     if !session.channel_id.is_empty() {
-        crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
+        let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
             .await?;
+        // The room may have become encrypted since init: re-check before the
+        // name is recorded or the bytes are published.
+        drop(
+            crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type)
+                .await?,
+        );
     }
     if session.uploaded_bytes != session.file_size {
         return Err(anyhow::anyhow!("Upload is incomplete").into());
