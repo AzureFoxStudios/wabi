@@ -1,0 +1,50 @@
+error[vulnerability]: Multiple timing variability issues in operations intended to be constant-time
+   ┌─ prototypes/mls-trial/openmls-proto/Cargo.lock:29:1
+   │
+29 │ crypto-bigint 0.5.5 registry+https://github.com/rust-lang/crates.io-index
+   │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ security vulnerability detected
+   │
+   ├ ID: RUSTSEC-2026-0387
+   ├ Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0387
+   ├ ## Summary
+     
+     Several operations intended to be constant-time could execute secret-dependent
+     branches, depending on the compiler and target CPU. These include subtraction,
+     zero counting, division, and Montgomery multiplication.
+     
+     Additionally, `UintRef` equality could terminate at the first unequal limb,
+     and `BoxedMontyForm::invert` branched on whether an inverse exists.
+     
+     ## Impact
+     
+     Applications using affected operations on secret integers may leak information
+     through timing or microarchitectural side channels. This includes information
+     about intermediate arithmetic values, matching limbs, and invertibility.
+     
+     Such leakage could potentially enable recovery of cryptographic secrets.
+     Practical exploitability depends on the downstream algorithm, compiler, target
+     CPU, and an attacker's ability to observe the side channel.
+     
+     ## Resolution
+     
+     Upgrade to v0.7.6, which removes the identified branches, updates `ctutils` to
+     include its constant-time fixes, and adds BINSEC-based regression checks using
+--
+error[unmaintained]: proc-macro-error2 is unmaintained
+    ┌─ prototypes/mls-trial/openmls-proto/Cargo.lock:111:1
+    │
+111 │ proc-macro-error2 2.0.1 registry+https://github.com/rust-lang/crates.io-index
+    │ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ unmaintained advisory detected
+    │
+    ├ ID: RUSTSEC-2026-0173
+    ├ Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0173
+    ├ The author of `proc-macro-error2` has [confirmed](https://github.com/GnomedDev/proc-macro-error-2/issues/17#issuecomment-4643215473) that the crate is no longer maintained and recommends that users migrate away from it.
+      
+      `proc-macro-error2` was originally created as a maintained fork of [`proc-macro-error`](https://crates.io/crates/proc-macro-error) (see [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370)). Both the original crate and this fork are now unmaintained.
+      
+      ## Possible Alternative(s)
+      
+      - [manyhow](https://crates.io/crates/manyhow)
+      - [proc-macro2-diagnostics](https://github.com/SergioBenitez/proc-macro2-diagnostics)
+    ├ Announcement: https://github.com/GnomedDev/proc-macro-error-2/issues/17
+    ├ Solution: No safe upgrade is available!
