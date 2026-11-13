@@ -382,8 +382,8 @@ const defaultWabidbServer = () => import.meta.env.VITE_WABI_SERVER_URL || getSer
 
 // Phase 1 hardening: the server denies unauthorized wabidb media room joins
 // (voice roster / group session / dm key check). When one of OUR sessions is
-// denied, hand the loss to the transport watchdog so the fallback chain
-// demotes to the next link (p2p) instead of staying silently deaf.
+// denied, hand the loss to the transport watchdog: it retries the relay once
+// and otherwise tells the user. It never demotes to P2P.
 function onWabidbCallDenied(payload: { sessionId?: string; reason?: string }): void {
 	const denied = payload?.sessionId;
 	if (!denied) return;
@@ -657,8 +657,8 @@ async function doConnectWabidbCall(
 		relay.attachVideoLane(videoSession.lane);
 
 		// Phase 1 hardening: on denial, onWabidbCallDenied feeds the transport
-		// watchdog so the fallback chain demotes to the next link (p2p)
-		// instead of leaving the user silently deaf. off-then-on keeps the
+		// watchdog (relay retry, then a visible reason) instead of leaving the
+		// user silently deaf. off-then-on keeps the
 		// registration idempotent across repeated connects.
 		socket.off('wabidb-call-denied', onWabidbCallDenied);
 		socket.on('wabidb-call-denied', onWabidbCallDenied);
@@ -685,15 +685,8 @@ async function doConnectWabidbCall(
 					await connectWabidbCall(socket, targetChannelId, localDisplayName, serverUrl, peerUserId, listenOnly);
 					return;
 				}
-				if (transport === 'p2p') {
-					// 2026-08-27: a dead relay used to be a dead call — the watchdog
-					// had no p2p path and just threw. Rebuild the mesh via the impl
-					// module (dynamic import: calling_impl imports this module).
-					const { reEstablishChannelP2P } = await import('./calling_impl_core');
-					if (!access()) throw new DOMException('Call recovery superseded', 'AbortError');
-					await reEstablishChannelP2P(socket, targetChannelId);
-					return;
-				}
+				// No P2P branch: the watchdog never demotes into direct RTP here
+				// (allowP2pDemotion is not set), and community voice must not use it.
 				throw new Error(`watchdog cannot re-establish ${transport} from here`);
 			},
 			disconnectCurrent: async () => {
