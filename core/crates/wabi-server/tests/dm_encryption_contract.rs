@@ -1929,6 +1929,146 @@ async fn an_enable_racing_an_upload_completion_never_publishes_plaintext_after_i
     }
 }
 
+/// Init and chunk an upload into `ch` without completing it.
+async fn staged_upload(app: &Router, auth: &str, ch: &str, name: &str, mime: &str, bytes: &[u8]) -> (String, String) {
+    let (status, init) = request(app, Method::POST, "/upload/resumable/init", auth,
+        json!({"fileName":name,"fileSize":bytes.len(),"mimeType":mime,"channelId":ch})).await;
+    assert_eq!(status, StatusCode::OK, "{init}");
+    let id = init["uploadId"].as_str().unwrap().to_string();
+    let token = init["uploadToken"].as_str().unwrap().to_string();
+    for (i, chunk) in bytes.chunks(1024 * 1024).enumerate() {
+        let (status, body) = raw_request(app, Method::PUT, &format!("/upload/resumable/chunk?uploadId={id}&offset={}", i * 1024 * 1024), auth,
+            &[("x-upload-token", token.clone()), ("content-type", "application/octet-stream".into())], chunk.to_vec()).await;
+        assert!(status.is_success(), "chunk: {status} {body}");
+    }
+    (id, token)
+}
+
+/// A plaintext upload started while the room was readable and completed
+/// after it became encrypted is refused: nothing is recorded or published,
+/// and the staged plaintext and its session are removed. The refusal comes
+/// before the expensive checks (a staged playlist is refused for the room,
+/// not for being a playlist).
+#[tokio::test]
+async fn an_upload_completed_after_its_room_became_encrypted_is_refused_and_discarded() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "late-complete-a").await;
+    let b = user(&state, "late-complete-b").await;
+    let ch = "group-late-complete".to_string();
+    state.wdb.create_group(&ch, "late", a, &[a, b]).await.unwrap();
+    let auth = bearer(&state, a);
+    let m = format!("STAGED-{}", uuid::Uuid::new_v4().simple());
+    let plain = staged_upload(&app, &auth, &ch, "plan.txt", "text/plain", format!("{m} plaintext bytes").as_bytes()).await;
+    let playlist = staged_upload(&app, &auth, &ch, "clip.mp4", "video/mp4", format!("#EXTM3U\n{m}.ts\n").as_bytes()).await;
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for (id, token) in [&plain, &playlist] {
+        let (status, body) = request(&app, Method::POST, "/upload/resumable/complete", &auth, json!({"uploadId":id,"uploadToken":token})).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!body.to_string().contains("EXTM3U"), "refused for the playlist, not the room: {body}");
+        assert_policy_reason("late completion", &body);
+        // The session is gone: a retry fails without redoing any work. (The
+        // existing "session not found" error is answered as a 500.)
+        let (status, body) = request(&app, Method::POST, "/upload/resumable/complete", &auth, json!({"uploadId":id,"uploadToken":token})).await;
+        assert!(!status.is_success(), "{status} {body}");
+    }
+    assert!(state.upload_registry.by_channel(&ch).await.is_empty(), "a refused upload was recorded");
+    let left = files_containing(Path::new(&state.config.uploads_dir), &m);
+    assert!(left.is_empty(), "refused plaintext left on disk: {left:?}");
+}
+
+/// The encryption-policy lock is held from the moment the upload's name is
+/// recorded until its bytes are renamed into place. A watcher tries the lock
+/// whenever it sees the name recorded but the file not yet published.
+#[tokio::test]
+async fn the_policy_lock_is_held_from_recording_an_upload_to_publishing_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "lock-hold-a").await;
+    let b = user(&state, "lock-hold-b").await;
+    let ch = "group-lock-hold".to_string();
+    state.wdb.create_group(&ch, "lock", a, &[a, b]).await.unwrap();
+    let auth = bearer(&state, a);
+    let (mut observed, mut violations) = (0usize, 0usize);
+    for round in 0..8 {
+        let (id, token) = staged_upload(&app, &auth, &ch, "notes.txt", "text/plain", &vec![b'n'; 256 * 1024]).await;
+        let final_path = Path::new(&state.config.uploads_dir).join(format!("{id}.txt"));
+        let name = format!("{id}.txt");
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let watcher = {
+            let (state, done, final_path, name) = (state.clone(), done.clone(), final_path.clone(), name.clone());
+            tokio::spawn(async move {
+                let (mut seen, mut free) = (0usize, 0usize);
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    if state.upload_registry.get(&name).await.is_some() && !final_path.exists() {
+                        seen += 1;
+                        if state.retention_policy_lock.try_lock().is_ok() {
+                            free += 1;
+                        }
+                    }
+                    tokio::task::yield_now().await;
+                }
+                (seen, free)
+            })
+        };
+        let (status, body) = request(&app, Method::POST, "/upload/resumable/complete", &auth, json!({"uploadId":id,"uploadToken":token})).await;
+        assert_eq!(status, StatusCode::OK, "round {round}: {body}");
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let (seen, free) = watcher.await.unwrap();
+        observed += seen;
+        violations += free;
+    }
+    assert!(observed > 0, "the watcher never saw a recorded, unpublished upload");
+    assert_eq!(violations, 0, "the policy lock was free between recording and publishing ({violations} of {observed})");
+}
+
+/// History reports a room's messages by the server's decision: a readable
+/// message from before the room was encrypted stays not encrypted, the
+/// envelope after it is encrypted, on REST history, join history and
+/// load-history alike.
+#[tokio::test]
+async fn history_reports_readable_messages_from_before_encryption_as_not_encrypted() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let a = user(&state, "hist-shape-a").await;
+    let b = user(&state, "hist-shape-b").await;
+    let ch = "group-hist-shape".to_string();
+    state.wdb.create_group(&ch, "hist", a, &[a, b]).await.unwrap();
+    // Stored directly so that no session cache entry answers for it.
+    state.wdb.send_message(&ch, a, "readable before encryption", false, &[]).await.unwrap();
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let revision = current_revision(&app, &state, a, &ch).await;
+    state.wdb.send_message(&ch, a, &envelope(&ch, 1, &revision, &da), false, &[]).await.unwrap();
+    let check = |path: &str, list: &[Value]| {
+        assert_eq!(list.len(), 2, "{path}: {list:?}");
+        for m in list {
+            let text = m["text"].as_str().or(m["content"].as_str()).unwrap_or_default();
+            let expected = text.starts_with(PREFIX);
+            assert_eq!(m["encrypted"], expected, "{path}: {m}");
+        }
+    };
+    let (_, listed) = request(&app, Method::GET, &format!("/messages/{ch}"), &bearer(&state, b), Value::Null).await;
+    check("REST history", listed["messages"].as_array().unwrap());
+    let mut sio = Client::connect(&app, &token(&state, b)).await;
+    sio.emit("join-channel", json!(ch)).await;
+    let joined = sio.event("channel-messages").await;
+    check("join history", joined["messages"].as_array().unwrap());
+    sio.emit("load-history", json!({"channelId":ch,"limit":50})).await;
+    let loaded = sio.event("history-loaded").await;
+    check("load-history", loaded["messages"].as_array().unwrap());
+}
+
 /// "encrypted" on a relayed or listed message is the server's decision, not
 /// the sender's claim. A plaintext message sent with `encrypted: true` (and an
 /// `iv`) in a public channel is relayed, cached and listed as not encrypted;

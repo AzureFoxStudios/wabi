@@ -514,6 +514,22 @@ struct CompleteUploadResponse {
 }
 
 /// Finalize an upload — move temp file to final location
+/// A completion the room's encryption policy refused will never succeed:
+/// remove its staged plaintext and its session, so the bytes do not stay on
+/// disk and a retry does not repeat the sniff, fsync and hash. Unreadable
+/// encryption state keeps both (completion can be retried after a restore).
+async fn discard_refused_upload(state: &AppState, upload_id: &str, session: &UploadSession, error: &crate::error::AppError) {
+    if !crate::api::e2ee::upload_refusal_is_final(error) {
+        return;
+    }
+    state.upload_state.sessions.write().await.remove(upload_id);
+    match tokio::fs::remove_file(&session.temp_path).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!("[upload] could not remove a refused staged upload: {e}"),
+    }
+}
+
 async fn complete_upload(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
@@ -562,6 +578,18 @@ async fn complete_upload(
     // Final filename: UUID with original extension
     let final_name = format!("{}{}", session.upload_id, session.extension);
     let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
+
+    // A cheap admission check before the expensive work: a room that is
+    // already encrypted or pending refuses at once. The decision that counts
+    // is the locked re-check below.
+    if !session.channel_id.is_empty() {
+        let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
+            .await?;
+        if let Err(error) = crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type).await {
+            discard_refused_upload(&state, &req.upload_id, &session, &error).await;
+            return Err(error);
+        }
+    }
 
     // The slow part first, without the encryption-policy lock (it is global:
     // holding it while hashing a large file would stall every conversation
@@ -612,8 +640,13 @@ async fn complete_upload(
     } else {
         let channel = crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
             .await?;
-        crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type)
-            .await?
+        match crate::api::e2ee::admit_channel_upload(&state, &channel, auth.user_id, &session.file_name, &session.mime_type).await {
+            Ok(guard) => guard,
+            Err(error) => {
+                discard_refused_upload(&state, &req.upload_id, &session, &error).await;
+                return Err(error);
+            }
+        }
     };
     if staged {
         // Persist ownership while the bytes remain in the private staging path.

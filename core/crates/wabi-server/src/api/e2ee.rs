@@ -1135,6 +1135,13 @@ pub fn is_opaque_encrypted_upload(file_name: &str, mime_type: &str) -> bool {
             .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
 }
 
+/// Whether an upload refusal from [`admit_channel_upload`] is the room's
+/// encryption policy (final for these bytes), not unreadable encryption
+/// state (an operator problem; the upload may be completed after a restore).
+pub fn upload_refusal_is_final(error: &AppError) -> bool {
+    matches!(error, AppError::Forbidden(reason) if reason != REGISTRY_UNAVAILABLE && reason != MARKER_UNAVAILABLE)
+}
+
 /// Admission for an upload bound to a conversation. Where readable text is
 /// refused, only the opaque encrypted-upload shape is accepted, so no original
 /// file name or plaintext bytes are stored. A damaged registry refuses all.
