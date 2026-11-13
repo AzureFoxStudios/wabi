@@ -60,22 +60,6 @@ pub struct RoomEncryptionRecord {
     pub consenting_user_ids: Vec<u64>,
 }
 
-/// Version 1 layout, before per-sender consent was recorded. Kept unchanged:
-/// a version-1 record decodes with no recorded consent, so every sender has
-/// to choose server-readable again (the safe direction).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct RoomEncryptionRecordV1 {
-    channel_id: String,
-    mode: RoomEncryptionMode,
-    epoch: u64,
-}
-
-impl From<RoomEncryptionRecordV1> for RoomEncryptionRecord {
-    fn from(v1: RoomEncryptionRecordV1) -> Self {
-        RoomEncryptionRecord { channel_id: v1.channel_id, mode: v1.mode, epoch: v1.epoch, consenting_user_ids: vec![] }
-    }
-}
-
 /// Upper bound on recorded consents; a conversation has far fewer members.
 const MAX_CONSENTS: usize = 4096;
 
@@ -126,18 +110,14 @@ fn corrupt(detail: String) -> WabiError {
 }
 
 pub fn encode_record(record: &RoomEncryptionRecord) -> Vec<u8> {
-    versioned::encode(&FORMAT, 2, record)
+    versioned::encode_v1(&FORMAT, record)
 }
 
 pub fn decode_record(bytes: &[u8]) -> Result<RoomEncryptionRecord> {
     let record: RoomEncryptionRecord = versioned::decode(
         &FORMAT,
         bytes,
-        |version, body| match version {
-            1 => Some(versioned::payload::<RoomEncryptionRecordV1>(&FORMAT, body).map(Into::into)),
-            2 => Some(versioned::payload(&FORMAT, body)),
-            _ => None,
-        },
+        |version, body| (version == 1).then(|| versioned::payload(&FORMAT, body)),
         |_| Err(corrupt("room encryption marker without a version header".into())),
     )?;
     if !record.valid() {
@@ -235,52 +215,38 @@ mod tests {
         }
     }
 
-    /// Golden bytes of version 1, captured from the first encoder. Stored
-    /// markers look like this; never regenerate the literal. Version 1 now
-    /// only decodes, with no recorded consent.
+    /// Golden bytes of version 1, the only layout. Captured from the encoder
+    /// before this record reached `main`; stored markers look like this, so
+    /// never regenerate these literals: a change needs a version 2.
     #[test]
     fn golden_version_1_bytes() {
-        let sample = RoomEncryptionRecord {
+        let enabled = RoomEncryptionRecord {
             channel_id: "group-ü".into(),
             mode: RoomEncryptionMode::Enabled,
             epoch: 300,
             consenting_user_ids: vec![],
         };
-        let golden = "ffffffffffffffffffff52454e43010867726f75702dc3bc02ac02";
-        assert_eq!(decode_record(&hex::decode(golden).unwrap()).unwrap(), sample);
-        // A version-1 server-readable marker carries no consent.
-        let v1_readable = versioned::encode(&FORMAT, 1, &RoomEncryptionRecordV1 {
-            channel_id: "grandm".into(), mode: RoomEncryptionMode::ServerReadable, epoch: 0,
-        });
-        assert_eq!(hex::encode(&v1_readable), "ffffffffffffffffffff52454e4301066772616e646d0100");
-        assert_eq!(decode_record(&v1_readable).unwrap().consenting_user_ids, Vec::<u64>::new());
-        let pending = "ffffffffffffffffffff52454e4301066772616e646d0000";
-        let decoded = decode_record(&hex::decode(pending).unwrap()).unwrap();
-        assert_eq!(decoded.mode, RoomEncryptionMode::Pending);
-        assert_eq!(decoded.channel_id, "grandm");
-    }
-
-    /// Golden bytes of version 2 (consent recorded); never regenerate.
-    #[test]
-    fn golden_version_2_bytes() {
-        let sample = RoomEncryptionRecord {
+        let golden = "ffffffffffffffffffff52454e43010867726f75702dc3bc02ac0200";
+        assert_eq!(hex::encode(encode_record(&enabled)), golden);
+        assert_eq!(decode_record(&hex::decode(golden).unwrap()).unwrap(), enabled);
+        let readable = RoomEncryptionRecord {
             channel_id: "dm_3_7".into(),
             mode: RoomEncryptionMode::ServerReadable,
             epoch: 0,
             consenting_user_ids: vec![3, 300],
         };
-        let golden = "ffffffffffffffffffff52454e430206646d5f335f37010002 03ac02".replace(' ', "");
-        assert_eq!(hex::encode(encode_record(&sample)), golden);
-        assert_eq!(decode_record(&hex::decode(&golden).unwrap()).unwrap(), sample);
+        let golden = "ffffffffffffffffffff52454e430106646d5f335f3701000203ac02";
+        assert_eq!(hex::encode(encode_record(&readable)), golden);
+        assert_eq!(decode_record(&hex::decode(golden).unwrap()).unwrap(), readable);
     }
 
     #[test]
     fn unversioned_unknown_version_and_invalid_records_are_refused() {
         let bytes = encode_record(&record(RoomEncryptionMode::Pending, 0));
         assert!(decode_record(&bytes[versioned::HEADER_LEN..]).is_err(), "no legacy form");
-        let mut v3 = bytes.clone();
-        v3[versioned::HEADER_LEN - 1] = 3;
-        assert!(decode_record(&v3).is_err());
+        let mut v2 = bytes.clone();
+        v2[versioned::HEADER_LEN - 1] = 2;
+        assert!(decode_record(&v2).is_err());
         for bad in [
             record(RoomEncryptionMode::Enabled, 0),
             record(RoomEncryptionMode::Pending, 3),
