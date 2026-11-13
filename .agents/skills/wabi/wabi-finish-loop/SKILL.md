@@ -96,7 +96,7 @@ cd frontend && rm -rf build .svelte-kit && STATIC_BUILD=1 bun run build
 # must see index.html + _app/ — not handler.js
 cd .. && cargo build --release -p wabi-server
 scp target/release/wabi-server root@<host>:<wabi-root>/target/release/wabi-server.new
-# <host>: SHA match → stop → rm BOTH locks → mv .new → up -d
+# <host>: SHA match → stop → confirm exit (never delete wabidb/.lock) → mv .new → up -d
 # Prove :3001 + :8088 health + public CSS hash
 ```
 Never terser minify. Headless cannot verify UI — Ronin real browser + hard refresh.

@@ -33,7 +33,7 @@ to Hermes captain for direct implementation.
 - Wire events the worker forgot
 
 ## Deploy
-STATIC_BUILD=1 bun build → cargo release wabi-server → <host> binary + both locks + restart
+STATIC_BUILD=1 bun build → cargo release wabi-server → <host> binary + stop (lock left in place, AGENTS.md rule 9) + restart
 
 ## Channel types
 See `channel-type-surfaces.md` (wiki path, projection barrier, no double header).

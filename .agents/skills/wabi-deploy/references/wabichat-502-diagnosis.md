@@ -21,7 +21,7 @@ Cloudflare browser page text often says **Bad gateway / Error code 502 / Host Er
 |--------------------|-----------|-----------|--------------------------------------|---------|--------------|
 | 502 Host Error | 200 | 200 | **No** (~4s, `server-timing: cfOrigin;dur≈4000`) | CF edge never reached a live connector for that client/colo path | Dual connectors / re-register tunnel; not origin |
 | 502 | 200 | 200 | **Yes**, then origin error | Tunnel up; cloudflared→Caddy/server hop broken | Docker network, `caddy-tunnel:8088`, Caddyfile |
-| 502 | fail | * | * | Origin down | Fix wabi-server / env / locks |
+| 502 | fail | * | * | Origin down | Fix wabi-server / env / lock holder (never delete the lock) |
 | 200 agent, 502 user browser | 200 | 200 | only agent IP | **Client-IP / path split** (this session’s main bug) | Dual connector + verify user path; optional SOCKS test |
 | 200 | 200 | 200 | yes | Healthy | Stop |
 

@@ -185,7 +185,7 @@ After subscribe is fixed, audit send if it still feels flaky. Full recipe: `refe
 
 1. `STATIC_BUILD=1 bun run build` → `frontend/build/index.html` present.
 2. `cargo build --release -p wabi-server` after FE build (embed order).
-3. Stage `wabi-server.new`, SHA match, stop, **rm locks**, swap, up.
+3. Stage `wabi-server.new`, SHA match, stop, confirm the process exited (never delete `wabidb/.lock`, AGENTS.md rule 9), swap, up.
 4. Prove `/health`, `/api/setup/status`, public CSS hash, `/api/*` 404 JSON.
 5. User hard-refresh; agent does not invent UI success from SHA alone.
 

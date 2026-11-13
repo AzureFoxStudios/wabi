@@ -57,7 +57,7 @@ Then rebuild + redeploy:
 ```bash
 cd frontend && rm -rf build .svelte-kit && STATIC_BUILD=1 bun run build && cd ..
 cargo build --release -p wabi-server
-# ship binary, lock-clear, up (see host-update-runbook.md)
+# ship binary, stop, confirm exit, up; never delete wabidb/.lock (see host-update-runbook.md)
 ```
 
 ## Verify end-to-end (no browser needed)
