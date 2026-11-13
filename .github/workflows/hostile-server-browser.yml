@@ -1,0 +1,47 @@
+name: Hostile server content browser check
+
+# Server-supplied text must never run script in the app: renders the real chat, Reader, Notes and
+# Lore renderers in Chromium with script-injection payloads and checks the live DOM
+# (frontend/scripts/hostile-server-browser-smoke.mjs; docs/audits/2026-11-hostile-server-audit.md).
+on:
+  pull_request:
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/src/lib/markdown.ts'
+      - 'frontend/src/lib/privacy/remoteMedia.ts'
+      - 'frontend/src/lib/components/readerTabHelpers.ts'
+      - 'frontend/src/lib/notes/render.ts'
+      - 'frontend/src/lib/lore/documentMarkdown.ts'
+      - 'frontend/scripts/hostile-server-browser-smoke.mjs'
+      - '.github/workflows/hostile-server-browser.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hostile-server-browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hostile-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Render hostile content in Chromium
+        working-directory: frontend
+        run: node scripts/hostile-server-browser-smoke.mjs

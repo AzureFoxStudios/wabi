@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { serverAssetHeaders } from './sameServerAuth';
 
 /**
  * Board-scoped custom fonts. Fonts are uploaded per board (privacy model: no
@@ -86,13 +87,9 @@ function resolveUrl(fileUrl: string): string {
 	}
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(url: string): HeadersInit {
 	const token = getAuthToken();
-	const sessionId = token ? null : getGuestSessionId();
-	const headers: HeadersInit = {};
-	if (token) headers.Authorization = `Bearer ${token}`;
-	if (!token && sessionId) headers['X-Session-Id'] = sessionId;
-	return headers;
+	return serverAssetHeaders(url, getServerUrl(), token, token ? null : getGuestSessionId());
 }
 
 async function ensureFontLoaded(boardId: string, record: FontRecord): Promise<void> {
@@ -103,7 +100,7 @@ async function ensureFontLoaded(boardId: string, record: FontRecord): Promise<vo
 			record.status = 'error';
 			return;
 		}
-		const response = await fetch(resolveUrl(record.fileUrl), { headers: authHeaders() });
+		const response = await fetch(resolveUrl(record.fileUrl), { headers: authHeaders(resolveUrl(record.fileUrl)) });
 		if (!response.ok) throw new Error(`font fetch failed (${response.status})`);
 		const buffer = await response.arrayBuffer();
 		const face = new FontFace(record.family, buffer);
@@ -137,9 +134,8 @@ function upsertFont(boardId: string, font: WhiteboardFont): void {
 export async function loadFontsForBoard(boardId: string): Promise<void> {
 	if (!boardId) return;
 	try {
-		const response = await fetch(`${getServerUrl()}/api/whiteboard/boards/${encodeURIComponent(boardId)}/fonts`, {
-			headers: authHeaders()
-		});
+		const url = `${getServerUrl()}/api/whiteboard/boards/${encodeURIComponent(boardId)}/fonts`;
+		const response = await fetch(url, { headers: authHeaders(url) });
 		if (!response.ok) return;
 		const payload = await response.json().catch(() => null);
 		const fonts: unknown = payload?.fonts;
@@ -187,9 +183,10 @@ export function resolveFontFamily(boardId: string | undefined | null, fontId: st
 export async function uploadWhiteboardFont(boardId: string, file: File): Promise<WhiteboardFont> {
 	const formData = new FormData();
 	formData.append('file', file, file.name);
-	const response = await fetch(`${getServerUrl()}/api/whiteboard/boards/${encodeURIComponent(boardId)}/fonts`, {
+	const url = `${getServerUrl()}/api/whiteboard/boards/${encodeURIComponent(boardId)}/fonts`;
+	const response = await fetch(url, {
 		method: 'POST',
-		headers: authHeaders(),
+		headers: authHeaders(url),
 		body: formData
 	});
 	const payload = await response.json().catch(() => ({}));

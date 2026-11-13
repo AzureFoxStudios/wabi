@@ -26,6 +26,8 @@ export interface SignedCommunityRoster {
 }
 
 interface Pin {
+	/** The address this roster was fetched from. Only that address's own answer is pinned. */
+	source?: string;
 	publicKey: string;
 	version: number;
 	roster: SignedCommunityRoster;
@@ -121,17 +123,25 @@ function readPins(): Record<string, Pin> {
 	}
 }
 
-function storePins(roster: SignedCommunityRoster, accountId: number): boolean {
+/**
+ * Pin a roster under the address it was fetched from, and nowhere else.
+ *
+ * A roster is signed by a key the serving community chooses, so it only proves what that
+ * community says about itself. It used to be pinned under every URL it listed: a hostile server A
+ * could list another saved server B (and an attacker host), plant a pin under B's address for the
+ * same numeric account id, and B's next failover would carry B's bearer token to the attacker host
+ * (docs/audits/2026-11-hostile-server-audit.md, finding R1). Now only the source's own answer is
+ * pinned, so a failover from B can only follow a roster B itself served.
+ */
+export function pinCommunityRoster(roster: SignedCommunityRoster, sourceUrl: string, accountId: number): boolean {
+	const source = normalizeServerUrl(sourceUrl);
+	if (!source || !roster.body.entries.some((entry) => entry.url === source)) return false;
 	const pins = readPins();
-	for (const { url } of roster.body.entries) {
-		const existing = pins[pinScope(url, accountId)];
-		if (existing && (existing.publicKey !== roster.publicKey || existing.version > roster.body.version)) return false;
-	}
-	for (const { url } of roster.body.entries) {
-		pins[pinScope(url, accountId)] = {
-			publicKey: roster.publicKey, version: roster.body.version, roster
-		};
-	}
+	const scope = pinScope(source, accountId);
+	const existing = pins[scope];
+	if (existing && existing.source === source &&
+		(existing.publicKey !== roster.publicKey || existing.version > roster.body.version)) return false;
+	pins[scope] = { source, publicKey: roster.publicKey, version: roster.body.version, roster };
 	try {
 		localStorage.setItem(PIN_KEY, JSON.stringify(pins));
 		return true;
@@ -157,7 +167,7 @@ export async function refreshCommunityRoster(sourceUrl: string): Promise<SignedC
 		if (!roster || !roster.body.entries.some((entry) => entry.url === source) ||
 			getAuthToken(source) !== token || getStoredDbUserId(source) !== accountId ||
 			authSessionGeneration(source) !== generation) return null;
-		return storePins(roster, accountId) ? roster : null;
+		return pinCommunityRoster(roster, source, accountId) ? roster : null;
 	} catch {
 		return null;
 	}
@@ -168,7 +178,8 @@ export async function getPinnedCommunityRoster(sourceUrl: string, accountId: num
 	const source = normalizeServerUrl(sourceUrl);
 	if (!source) return null;
 	const pin = readPins()[pinScope(source, accountId)];
-	if (!pin || pin.publicKey !== pin.roster?.publicKey) return null;
+	// A pin written by another address's roster (before R1 was fixed) is not this address's answer.
+	if (!pin || pin.source !== source || pin.publicKey !== pin.roster?.publicKey) return null;
 	const roster = await verifyCommunityRoster(pin.roster);
 	if (!roster || roster.body.version !== pin.version ||
 		!roster.body.entries.some((entry) => entry.url === source)) return null;

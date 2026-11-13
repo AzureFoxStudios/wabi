@@ -19,7 +19,8 @@ fn allowed_external_url(url: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_external_url(url: String) -> Result<(), String> {
+pub fn open_external_url(window: tauri::WebviewWindow, url: String) -> Result<(), String> {
+    crate::hosting::require_bundled_window(&window)?;
     allowed_external_url(&url)?;
     #[cfg(not(mobile))]
     {

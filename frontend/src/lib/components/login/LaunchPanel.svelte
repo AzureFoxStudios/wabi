@@ -1,7 +1,10 @@
 <script lang="ts">
 	import type { LaunchPageConfig } from '$lib/api';
+	import { safeExternalHttpUrl } from '$lib/safeExternalUrl';
 
 	let { config }: { config: LaunchPageConfig } = $props();
+	// The server chooses this address; only an http(s) link is rendered.
+	const primaryCtaUrl = $derived(safeExternalHttpUrl(config.heroPrimaryCtaUrl));
 </script>
 
 <section class="launch-panel">
@@ -17,8 +20,8 @@
 	{#if config.heroBody || config.subheadline}
 		<p>{config.heroBody || config.subheadline}</p>
 	{/if}
-	{#if config.heroPrimaryCtaLabel && config.heroPrimaryCtaUrl}
-		<a class="launch-primary-cta" href={config.heroPrimaryCtaUrl} target="_blank" rel="noreferrer">
+	{#if config.heroPrimaryCtaLabel && primaryCtaUrl}
+		<a class="launch-primary-cta" href={primaryCtaUrl} target="_blank" rel="noopener noreferrer">
 			{config.heroPrimaryCtaLabel}
 		</a>
 	{/if}

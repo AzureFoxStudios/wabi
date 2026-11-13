@@ -30,9 +30,12 @@ fn sanitize_recording_file_name(name: &str) -> String {
 #[tauri::command]
 pub fn save_call_recording(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     suggested_name: String,
     bytes_base64: String,
 ) -> Result<String, String> {
+    // Writes into the user's Documents folder without a dialog: only Wabi's own pages may ask.
+    crate::hosting::require_bundled_window(&window)?;
     let bytes = BASE64_STANDARD
         .decode(bytes_base64.trim())
         .map_err(|e| format!("Invalid recording payload: {e}"))?;

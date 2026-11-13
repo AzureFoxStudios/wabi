@@ -52,6 +52,15 @@ pub struct HostStatus {
     log_directory: String,
 }
 
+/// Refuse a command unless the calling window shows Wabi's own bundled pages (any window label).
+pub(crate) fn require_bundled_window(window: &tauri::WebviewWindow) -> Result<()> {
+    let url = window.url().map_err(|e| e.to_string())?;
+    if !bundled_origin(&url, cfg!(debug_assertions)) {
+        return Err("This action is available only to Wabi's own app pages".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn authorize(window: &tauri::WebviewWindow) -> Result<()> {
     if cfg!(mobile) {
         return Err("Hosting runs on desktop, not this mobile client".into());
@@ -64,7 +73,16 @@ pub(crate) fn authorize(window: &tauri::WebviewWindow) -> Result<()> {
 }
 
 pub(crate) fn local_main_origin(label: &str, url: &url::Url, development: bool) -> bool {
-    if label != "main" || !url.username().is_empty() || url.password().is_some() {
+    label == "main" && bundled_origin(url, development)
+}
+
+/// True only for a page of the app's own bundled frontend (or, in a debug build, the configured
+/// dev server). Wabi's own `#[tauri::command]`s are not filtered by Tauri's capability ACL (the app
+/// defines no app manifest), so a server page that ever loaded in a webview would get the IPC
+/// bridge. Every command that touches the disk, starts a process or opens something checks this
+/// itself (docs/audits/2026-11-hostile-server-audit.md, finding D1).
+pub(crate) fn bundled_origin(url: &url::Url, development: bool) -> bool {
+    if !url.username().is_empty() || url.password().is_some() {
         return false;
     }
     let packaged = url.port().is_none()
@@ -737,5 +755,37 @@ mod tests {
         let dev = url::Url::parse("http://localhost:5173/host").unwrap();
         assert!(local_main_origin("main", &dev, true));
         assert!(!local_main_origin("main", &dev, false));
+    }
+
+    // Hostile-server audit D1: a server page, wherever it loads, is never a bundled origin.
+    #[test]
+    fn bundled_origin_accepts_only_the_app_frontend_in_any_window() {
+        use super::bundled_origin;
+        for origin in [
+            "tauri://localhost/",
+            "http://tauri.localhost/detached",
+            "https://tauri.localhost/chat",
+        ] {
+            assert!(bundled_origin(&url::Url::parse(origin).unwrap(), false), "{origin}");
+        }
+        for origin in [
+            "https://wabi.example/",
+            "http://127.0.0.1:3001/",
+            "http://127.0.0.1:41234/",
+            "http://localhost/",
+            "http://localhost:5173/",
+            "https://tauri.localhost.wabi.example/",
+            "http://tauri.localhost:3001/",
+            "http://x@tauri.localhost/",
+            "tauri://evil/",
+            "file:///tmp/index.html",
+            "data:text/html,hi",
+            "about:blank",
+        ] {
+            assert!(!bundled_origin(&url::Url::parse(origin).unwrap(), false), "{origin}");
+        }
+        let dev = url::Url::parse("http://localhost:5173/").unwrap();
+        assert!(bundled_origin(&dev, true));
+        assert!(!bundled_origin(&dev, false));
     }
 }

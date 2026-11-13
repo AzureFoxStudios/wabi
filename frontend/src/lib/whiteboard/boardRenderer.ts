@@ -6,6 +6,7 @@ import type { WhiteboardLayer } from './boardTypes';
 import { sortWhiteboardLayers, WHITEBOARD_BLEND_MODES } from './layers';
 import { getAuthToken, getGuestSessionId } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { resolvesToServer } from './sameServerAuth';
 import { strokeWidthAt } from './tools';
 import { renderMathToCanvas } from './mathRender';
 import { renderRasterLayer } from './rasterLayers';
@@ -31,7 +32,9 @@ function resolveImageUrl(src: string): string {
 function isProtectedWhiteboardImage(src: string): boolean {
 	try {
 		const resolved = new URL(resolveImageUrl(src));
-		return /\/api\/whiteboard\/boards\/[^/]+\/files\/[^/]+$/.test(resolved.pathname);
+		// Only this server's own board files get credentials; a lookalike path elsewhere does not.
+		return resolvesToServer(resolved.href, getServerUrl()) &&
+			/\/api\/whiteboard\/boards\/[^/]+\/files\/[^/]+$/.test(resolved.pathname);
 	} catch {
 		return false;
 	}

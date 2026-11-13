@@ -24,6 +24,7 @@
 	import {
 		uploadLoreFile,
 		downloadLoreFile,
+		pdfPreviewBlob,
 		getSignedLoreUrl,
 		deleteLoreFile,
 		lockLoreFile,
@@ -168,7 +169,8 @@
 		try {
 			const blob = await downloadLoreFile(token, chId, file.path);
 			if (gen !== previewBlobGen) return; // stale
-			previewUrl = URL.createObjectURL(blob);
+			// The PDF frame must never get a server-chosen type (text/html would run as this app).
+			previewUrl = URL.createObjectURL(getFileType(file.path) === 'pdf' ? pdfPreviewBlob(blob) : blob);
 		} catch (err) {
 			if (gen !== previewBlobGen) return;
 			console.warn('[LoreChannel] preview blob failed', err);
