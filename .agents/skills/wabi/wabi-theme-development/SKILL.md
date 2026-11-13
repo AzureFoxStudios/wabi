@@ -1,6 +1,6 @@
 ---
 name: wabi-theme-development
-description: "Use when adding/editing Wabi themes or ambient effects. Map + checklists."
+description: "Use when adding or tuning Wabi frontend color presets, ambient background effects, or the Appearance settings theme picker."
 version: 2.0.0
 platforms: [linux, macos, windows]
 metadata:
@@ -41,7 +41,7 @@ Add, tune, or audit **Wabi frontend** themes (not Hermes CLI skins in `~/.hermes
 | Effect interface | `frontend/src/lib/effects/types.ts` |
 | Built-in effects | `frontend/src/lib/effects/built-in/*.ts` |
 | Appearance UI | `…/settings/AppearanceSettingsTab.svelte` + `settings-appearance.css` |
-| Login ambient | `frontend/src/lib/components/Login.svelte` (full theme from `ALL_PALETTES`) |
+| Login ambient | `frontend/src/lib/components/Login.svelte` (keeps the viewer's selected theme) |
 
 Repo: `<wabi-root>` (or `$WABI_ROOT`).
 
@@ -72,15 +72,15 @@ Need to…?
 2. **Dark themes need a signature ambient.** Do not default new dark presets to `effect: 'none'` (only `light` / `high-contrast` intentionally none).
 3. **Blue family must split at a glance:** `blue`=grid, `warp`=streaks, `storm`=overcast, `synapse`=neural, `space`=stars void — see identity map.
 4. **Joker not Balatro** in product UI (`balatro.ts` filename OK if `id`/`name` are joker).
-5. **Login:** random **full** palette from `ALL_PALETTES` — never a detached effect-only list while presets carry `none`.
+5. **Login:** uses the selected theme; never substitute a random palette or a detached effect-only list.
 6. **Settings:** theme grid primary; Custom in grid; effects/customizer/font under progressive disclosure.
 7. **Perf:** particle caps; prefer sprite cache over per-frame gradients; destroy clears canvas; host pauses when tab hidden.
-8. **Visual verify:** real browser only. Headless Chromium cannot paint Wabi.
+8. **Visual verify:** headless Chromium screenshots are unreliable; verify visuals in a real browser (AGENTS.md rule 7).
 9. **Deploy:** not this skill. Code-ready ≠ live on <host>.
 
 ## Token recolor gotcha (short)
 
-When replacing hex with semantic tokens: **do not alias an undefined token to a different resolved color** (e.g. gray `#666` must not become lavender `--text-muted`). Prefer `--text-heading` over undefined `--text-primary`. Legacy block in `tokens.css` can win — preserve rendered colors.
+When replacing hex with semantic tokens: **do not alias an undefined token to a different resolved color** (e.g. gray `#666` must not become lavender `--text-muted`). Legacy block in `tokens.css` can win — preserve rendered colors.
 
 ## Verify
 

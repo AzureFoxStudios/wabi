@@ -1,6 +1,6 @@
 ---
 name: wabidb-api-handlers
-description: "Learn the wabi-server REST API handler patterns — route registration, auth, payloads, error handling, and all endpoint groups."
+description: "Use when adding or changing wabi-server REST routes, auth extractors, channel-access guards, payloads or AppError mapping."
 ---
 
 # WabiDB API Handlers
@@ -224,11 +224,11 @@ The `?` operator converts `wabidb::error::WabiError` to `AppError` automatically
 | Admin | `/admin` | `admin.rs` | policies (get/save by key), compression config/metrics, runtime guardrails, payment blocks, dashboard stats, revoke user/all/token, transfer-ownership, recovery-codes, **users/reset-password**, **users/clear-login-lockout** |
 | Payments | `/payments` | `payments.rs` | provider integration |
 | Nodes | `/nodes` | `nodes.rs` | helper node registry |
-| Mesh | `/mesh` | `mesh.rs` | multi-node coordination |
+| Mesh | — | `mesh.rs` | legacy, not mounted in `api/routes.rs`; not a production topology |
 | Media | `/media` | `media.rs` | SFU assignment |
 | Jobs | `/jobs` | `jobs.rs` | async job queue |
-| Standby | `/standby` | `standby.rs` | snapshot receive |
-| Sync | `/sync` | `sync.rs` | replication sync |
+| Standby | `/standby` | `standby.rs` | experimental warm standby; not a backup or HA path |
+| Sync | `/sync` | `sync.rs` | experimental replication, gated (`replication_transport.rs`, `WABIDB_EXPERIMENTAL_REPLICATION`); not HA |
 | LAN | `/lan` | `lan.rs` | local route tokens |
 
 ### Admin auth (headers-based)
@@ -287,22 +287,7 @@ the account/global-floor tests. No serialized record was changed for this fix.
 
 ## ChannelKind Mapping
 
-When creating channels, the `channel_type` string is mapped to `ChannelKind` in `channels.rs`:
-
-```rust
-let channel_kind = match req.channel_type.as_str() {
-    "text" | "" => ChannelKind::Text,
-    "voice" => ChannelKind::Voice,
-    "dm" => ChannelKind::Dm,
-    "group_dm" => ChannelKind::GroupDm,
-    "announcement" => ChannelKind::Announcement,
-    "whiteboard" => ChannelKind::Whiteboard,
-    "wiki" => ChannelKind::Wiki,
-    "forum" => ChannelKind::Forum,
-    "incident" => ChannelKind::Incident,
-    _ => ChannelKind::Text,
-};
-```
+When creating channels, the `channel_type` string is mapped to `ChannelKind` in `core/crates/wabi-server/src/api/channels.rs` (the `match` ending in `_ => wabidb::domain::ChannelKind::Text`). Read it there; it covers more kinds than text/voice/dm (gallery, category, group and others), and unknown strings fall back to text.
 
 ## Adding a New Handler Module
 

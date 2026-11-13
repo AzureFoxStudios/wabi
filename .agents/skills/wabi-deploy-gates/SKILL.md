@@ -1,6 +1,6 @@
 ---
 name: wabi-deploy-gates
-description: "Verify a Wabi binary before swap: addons, probes, locks."
+description: "Use when verifying a release wabi-server binary before or after a swap: addon feature marker, health/readyz probes, admin 401 gate, lock-holder errors."
 version: 1.1.0
 author: Hermes Agent
 license: MIT
@@ -12,7 +12,7 @@ metadata:
 
 # Wabi Deploy Gates
 
-Companion to `devops/wabi-deploy` (user-owned; not editable by the agent). This skill captures the deploy-verification lessons that that skill's text does not yet carry. If `wabi-deploy` is ever adopted by the curator (`hermes curator adopt wabi-deploy`), merge this content into it and delete this skill.
+Deploy verification gates. Lock and recovery rules: `AGENTS.md` rule 9 and `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 ## Gate 1 — Addon marker on the exact artifact (MANDATORY)
 
@@ -48,17 +48,14 @@ curl -fsS http://127.0.0.1:8088/api/addons
 
 ## Gate 2 — Probe suite after swap (post-wave-3, 2026-08-21+)
 
-On the <host> HOST, container port 3001 is NOT reachable from the shell (only the
-caddy tunnel port is routed); probe through **8088**. From off-host (LAN IP /
-Tailscale / public), :3001 works. Verified 2026-08-26: full suite green via
-8088 during swap verification.
+Probe the host port compose maps (`${WABI_PORT_OUT:-3001}` in `docker-compose.yml`), or `127.0.0.1:8088` when the `tunnel` profile's Caddy is running.
 
 ```bash
-BASE=http://127.0.0.1:8088   # on <host> host; use :3001 (or public URL) from elsewhere
+BASE=http://127.0.0.1:3001
 curl $BASE/health     # {"status":"ok",...}
 curl $BASE/livez      # liveness (process up)
 curl $BASE/readyz     # engine canary — proves WabiDB readable (503 if degraded)
-curl $BASE/metrics    # Prometheus text; public unless gated
+curl $BASE/metrics    # Prometheus text; served without auth (app_router.rs), keep it off public ingress
 # admin gate check — MUST be 401 unauthenticated:
 curl -o /dev/null -w "%{http_code}" $BASE/api/admin/jobs/dead-lettered
 ```
@@ -90,21 +87,3 @@ for m in "Lore addon initialized" "/livez" "token reuse detected"; do
 done
 ```
 
-## Pitfall — big-binary ops trip the agent inline-command blocklist
-
-`strings`/`sha256sum` on the ~50MB release binary, and multi-part scp+ssh
-chains over it, get rejected as "oversized/unparseable inline command payload"
-— blocked even under YOLO. Do NOT retry inline and do not hand-type alternatives;
-write the operation to a small script and execute it (verified end-to-end
-2026-08-26: entire gates→ship→swap→verify chain ran as `/tmp/wabi-*.sh`
-scripts, zero blocks). Keep each script single-purpose (gates / ship / swap /
-verify) so a failure pinpoints its stage.
-
-## Tailscale re-auth mid-session
-
-Tailscale SSH checkpoints expire periodically (seen again 2026-08-22, ~daily).
-The ssh command hangs until timeout printing
-`https://login.tailscale.com/a/<hash>`. Hand the raw URL to Ronin immediately,
-then poll with `ssh -o ConnectTimeout=10 <user>@<host> 'echo ok'` between
-other work. Do not burn retries on long commands while blocked — do local-side
-work (builds, kanban cards) during the wait.
