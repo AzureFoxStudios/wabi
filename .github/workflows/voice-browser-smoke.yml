@@ -12,6 +12,14 @@ on:
       - 'frontend/test/**'
       - 'frontend/scripts/audio-browser-smoke.mjs'
       - '.github/workflows/voice-browser-smoke.yml'
+  # The PR trigger is path-filtered, so a regression merged by an unrelated
+  # PR stayed red unseen for weeks (runs 32-76). Every push to main runs it
+  # unfiltered, so a red result marks main's commit and notifies the pusher;
+  # the weekly run catches runner/Chromium drift on a quiet branch.
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
   workflow_dispatch:
 
 permissions:
