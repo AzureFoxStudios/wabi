@@ -89,7 +89,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import MobileNav from '$lib/components/MobileNav.svelte';
 	import YouPage from '$lib/components/YouPage.svelte';
 	import type { SettingsRequest } from '$lib/components/settings/settingsFrame';
-	import { showToast } from '$lib/toast';
+	import { showToast, toast, type ToastHandle } from '$lib/toast';
 	import { workspaceViewSelect, workspaceActivityBadge } from '$lib/workspaceViewBridge';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
@@ -131,6 +131,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let unsubscribeFriendshipSync: (() => void) | null = null;
 	let unsubscribeFriendRequestNotices: (() => void) | null = null;
 	let knownIncomingRequestIds: Set<string> | null = null;
+	// The "Friend request from …" toasts, so a toast can be taken down once the request it announced
+	// is no longer incoming (accepted or declined), instead of lingering for its full timeout.
+	let friendRequestToasts: { handle: ToastHandle; ids: Set<string> }[] = [];
 	$: activityCount = $friendships.incoming.length + Object.values($remoteFriendRequests).reduce((sum, entry) => sum + entry.requests.length, 0) + Object.values($followUnreadCountsByServer).reduce((sum, count) => sum + count, 0) + totalUnreadDMs;
 	$: activityBadge = formatMobileUnreadBadge(activityCount);
 
@@ -912,13 +915,28 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				return;
 			}
 			const nextIds = new Set(state.incoming.map((request) => request.id));
+			// Take down any announced request that is no longer incoming (accepted or declined), so its
+			// toast does not sit on screen after the request is gone. A toast drops only once every
+			// request it named is resolved (the aggregate toast names several).
+			friendRequestToasts = friendRequestToasts.filter((entry) => {
+				for (const id of entry.ids) {
+					if (!nextIds.has(id)) entry.ids.delete(id);
+				}
+				if (entry.ids.size === 0) {
+					entry.handle.dismiss();
+					return false;
+				}
+				return true;
+			});
 			if (knownIncomingRequestIds !== null) {
 				const newRequests = state.incoming.filter((request) => !knownIncomingRequestIds?.has(request.id));
 				if (newRequests.length === 1) {
 					const person = newRequests[0];
-					showToast(`Friend request from ${person.handle ? `@${person.handle}` : person.username}. Open Friends to respond.`, 'info', 8000);
+					const handle = toast(`Friend request from ${person.handle ? `@${person.handle}` : person.username}. Open Friends to respond.`, { tone: 'info', timeout: 8000 });
+					friendRequestToasts.push({ handle, ids: new Set([person.id]) });
 				} else if (newRequests.length > 1) {
-					showToast(`${newRequests.length} new friend requests. Open Friends to respond.`, 'info', 8000);
+					const handle = toast(`${newRequests.length} new friend requests. Open Friends to respond.`, { tone: 'info', timeout: 8000 });
+					friendRequestToasts.push({ handle, ids: new Set(newRequests.map((request) => request.id)) });
 				}
 			}
 			knownIncomingRequestIds = nextIds;
