@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { openWorkspace, waitForAppShell } from './smoke-shell.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-planner-ui-');
@@ -60,9 +61,8 @@ try {
 	await page.goto(origin, { waitUntil: 'networkidle' });
 
 	async function openPlanner() {
-		await page.locator('.workspace-trigger').waitFor({ timeout: 60000 });
-		await page.locator('.workspace-trigger').click();
-		await page.getByRole('dialog', { name: 'Choose workspace' }).getByRole('button', { name: 'Planner', exact: true }).click();
+		await waitForAppShell(page);
+		await openWorkspace(page, { view: 'planner', label: 'Planner' });
 		await page.locator('.chat-surface .planner-account .planner-surface').waitFor();
 	}
 	await openPlanner();
