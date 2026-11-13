@@ -1592,6 +1592,17 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		<div class="mobile-right-overlay" class:visible={$layoutStore.rightPanelMode !== 'none'}>
 			{#if RightPanelCmp}
 				<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+			{:else if $layoutStore.rightPanelMode !== 'none'}
+				<!-- Like the desktop dock: the first open loads the panel lazily, so the sheet shows a
+				     real loading state instead of rising empty (§7.16). -->
+				<div class="companion-loading" aria-busy="true">
+					<span class="w-loadline" role="progressbar" aria-label={$_('shell.loading_panel')}></span>
+					<div class="companion-loading-rows" aria-hidden="true">
+						{#each [0, 1, 2, 3, 4] as row (row)}
+							<div class="w-skel-row"><span class="w-skel w-skel--disc"></span><span class="w-skel-stack"><span class="w-skel"></span><span class="w-skel"></span></span></div>
+						{/each}
+					</div>
+				</div>
 			{/if}
 		</div>
 	{/if}
