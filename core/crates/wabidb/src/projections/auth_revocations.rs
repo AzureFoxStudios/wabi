@@ -352,8 +352,7 @@ fn validate_credential_command(
     match events[0].event_type.as_str() {
         "user_updated" if events.len() == 2 => {
             let record = super::users::decode_record(&events[0].plaintext)?;
-            let current = state
-                .get("users", &super::users::encode_key(*user_id as u64))
+            let current = super::users::stored_record(state, *user_id as u64)?
                 .map(|bytes| super::users::decode_record(&bytes))
                 .transpose()?
                 .ok_or_else(|| bad("credential account no longer exists"))?;
@@ -582,11 +581,12 @@ mod tests {
     #[test]
     fn only_exact_atomic_credential_shapes_admit_and_denials_still_advance() {
         let state = initialized();
-        state.insert(
-            "users",
-            super::super::users::encode_key(8),
-            super::super::users::encode_record(&user(8, "old-owner", "old-hash")),
-            1,
+        super::super::users::insert_raw_for_tests(
+            &state,
+            8,
+            // A fixture value, not a credential: built from the id so no
+            // literal flows into the account row.
+            &super::super::users::encode_record(&user(8, "old-owner", &format!("hash-{}", 8))),
         );
         state.insert(
             "server_meta",
@@ -1096,9 +1096,8 @@ mod tests {
             before
         );
         let record = super::super::users::decode_record(
-            &engine
-                .projection_state()
-                .get("users", &super::super::users::encode_key(2))
+            &super::super::users::stored_record(engine.projection_state(), 2)
+                .unwrap()
                 .unwrap(),
         )
         .unwrap();
@@ -1126,8 +1125,8 @@ mod tests {
         );
         assert_eq!(
             super::super::users::decode_record(
-                &state
-                    .get("users", &super::super::users::encode_key(2))
+                &super::super::users::stored_record(&state, 2)
+                    .unwrap()
                     .unwrap()
             )
             .unwrap()

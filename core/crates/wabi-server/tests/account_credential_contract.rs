@@ -360,15 +360,14 @@ async fn ambiguous_legacy_login_names_fail_closed_without_breaking_record_decode
         .await
         .unwrap();
     let state = store.engine().projection_state();
-    let bytes = state.get("users", &uid.to_be_bytes()).unwrap();
+    let bytes = wabidb::projections::users::stored_record(state, uid).unwrap().unwrap();
     let mut record = wabidb::projections::users::decode_record(&bytes).unwrap();
     record.user_id = uid + 1000;
     record.username = "LEGACY".into();
-    state.insert(
-        "users",
-        record.user_id.to_be_bytes().to_vec(),
-        wabidb::projections::users::encode_record(&record),
-        store.engine().barrier().current(),
+    wabidb::projections::users::insert_raw_for_tests(
+        state,
+        record.user_id,
+        &wabidb::projections::users::encode_record(&record),
     );
     assert_eq!(store.list_users().await.unwrap().len(), 2);
     assert!(store.get_user_by_username("legacy").await.is_err());

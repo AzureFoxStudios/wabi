@@ -123,15 +123,17 @@ pub(crate) enum Table {
     Channels,
     ChannelMembers,
     ChannelMembershipVersions,
+    Users,
 }
 
 impl Table {
-    pub(crate) const ALL: [Table; 5] = [
+    pub(crate) const ALL: [Table; 6] = [
         Table::Messages,
         Table::MessageVersions,
         Table::Channels,
         Table::ChannelMembers,
         Table::ChannelMembershipVersions,
+        Table::Users,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -141,6 +143,7 @@ impl Table {
             Table::Channels => "channels",
             Table::ChannelMembers => "channel_members",
             Table::ChannelMembershipVersions => "channel_membership_versions",
+            Table::Users => "users",
         }
     }
 }
@@ -320,13 +323,49 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn read_meta(conn: &Connection) -> rusqlite::Result<Option<(i64, i64)>> {
-    conn.query_row(
-        "SELECT schema_version, generation FROM read_model_meta WHERE id = 0",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )
-    .optional()
+/// `(schema_version, generation, unicode_version)`. A file whose meta row
+/// has another layout (an older schema) reads as having no version row.
+fn read_meta(conn: &Connection) -> rusqlite::Result<Option<(i64, i64, String)>> {
+    match conn
+        .query_row(
+            "SELECT schema_version, generation, unicode_version FROM read_model_meta WHERE id = 0",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+    {
+        // An older layout has no `unicode_version` column.
+        Err(rusqlite::Error::SqliteFailure(_, Some(message))) if message.contains("no such column") => {
+            conn.query_row(
+                "SELECT schema_version, generation FROM read_model_meta WHERE id = 0",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, String::new())),
+            )
+            .optional()
+        }
+        other => other,
+    }
+}
+
+/// The first account row whose `username_lower` is not its record's username
+/// folded by this build, as a reason; `None` when every row agrees. A row
+/// whose record does not decode is left to the reads, which report it.
+fn stale_username_fold(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    let mut statement = conn.prepare("SELECT username_lower, record FROM users")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let stored: String = row.get(0)?;
+        let record = row.get_ref(1)?.as_blob()?;
+        if let Ok(record) = crate::projections::users::decode_record(record) {
+            if record.username.to_lowercase() != stored {
+                return Ok(Some(format!(
+                    "the stored login name of account {} does not match its record",
+                    record.user_id
+                )));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// The lowest `applied_commit_seq` of the projections stored here; a missing
@@ -358,8 +397,9 @@ fn read_applied(conn: &Connection) -> rusqlite::Result<u64> {
 fn create_tables(conn: &Connection, generation: i64) -> rusqlite::Result<()> {
     conn.execute_batch(&format!("BEGIN IMMEDIATE;{}COMMIT;", schema::DDL))?;
     conn.execute(
-        "INSERT INTO read_model_meta (id, schema_version, generation) VALUES (0, ?1, ?2)",
-        params![schema::SCHEMA_VERSION, generation],
+        "INSERT INTO read_model_meta (id, schema_version, generation, unicode_version) \
+         VALUES (0, ?1, ?2, ?3)",
+        params![schema::SCHEMA_VERSION, generation, schema::unicode_version()],
     )?;
     Ok(())
 }
@@ -375,9 +415,35 @@ fn raise_applied(conn: &Connection, seq: u64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Make the existing database file and its `-wal` and `-shm` files readable
+/// and writable by their owner only, before any connection opens them: SQLite
+/// creates a missing `-shm` (and `-wal`) with the mode of the database file.
+/// Nothing is created.
+fn tighten_existing(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for file in [path.to_path_buf(), sidecar(path, "-wal"), sidecar(path, "-shm")] {
+            match std::fs::symlink_metadata(&file) {
+                Ok(metadata) if metadata.is_file() && metadata.permissions().mode() & 0o077 != 0 => {
+                    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))?;
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 /// Create the database file readable and writable by its owner only. SQLite
-/// gives its `-wal` and `-shm` files the mode of the database file.
+/// gives its `-wal` and `-shm` files the mode of the database file; existing
+/// ones are tightened too ([`tighten_existing`]).
 fn make_private(path: &Path) -> Result<()> {
+    tighten_existing(path)?;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(false);
     #[cfg(unix)]
@@ -623,6 +689,11 @@ impl ReadModel {
                     .into(),
             ));
         }
+        if !frozen {
+            // A read-only connection may create `-shm` with the database
+            // file's mode.
+            tighten_existing(&path)?;
+        }
         let opened = if wal_frames {
             Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         } else {
@@ -655,13 +726,17 @@ impl ReadModel {
         if let Some(reason) = marker {
             return unusable(format!("a rebuild was requested: {reason}"));
         }
+        let unicode = schema::unicode_version();
         match meta {
-            Some((schema_version, stored))
-                if schema_version == schema::SCHEMA_VERSION && stored == generation => {}
-            Some((schema_version, stored)) => {
+            Some((schema_version, stored, stored_unicode))
+                if schema_version == schema::SCHEMA_VERSION
+                    && stored == generation
+                    && stored_unicode == unicode => {}
+            Some((schema_version, stored, stored_unicode)) => {
                 return unusable(format!(
-                    "schema version {schema_version} generation {stored}, this build has \
-                     schema version {} generation {generation}",
+                    "schema version {schema_version} generation {stored} Unicode \
+                     {stored_unicode:?}, this build has schema version {} generation \
+                     {generation} Unicode {unicode:?}",
                     schema::SCHEMA_VERSION
                 ))
             }
@@ -671,6 +746,15 @@ impl ReadModel {
         // with its table, which the engine's lookups depend on.
         let pragma = if frozen { "PRAGMA integrity_check(1)" } else { "PRAGMA quick_check(1)" };
         match conn.query_row(pragma, [], |row| row.get::<_, String>(0)) {
+            // The engine's login lookup trusts `username_lower`; a value that
+            // is not the record's fold (damage, or a hand edit) means the file
+            // is rebuilt. Offline inspection compares every row with a replay
+            // instead.
+            Ok(result) if result == "ok" && !frozen => match stale_username_fold(&conn) {
+                Ok(None) => Ok(Classified::State(FileState::Usable { applied }, Some(conn))),
+                Ok(Some(reason)) => unusable(format!("consistency check failed: {reason}")),
+                Err(error) => unusable(format!("consistency check failed: {error}")),
+            },
             Ok(result) if result == "ok" => {
                 Ok(Classified::State(FileState::Usable { applied }, Some(conn)))
             }
@@ -747,6 +831,10 @@ impl ReadModel {
             conn.pragma_update(None, "journal_mode", "WAL")?;
             conn.pragma_update(None, "synchronous", "NORMAL")?;
             conn.pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT)?;
+            // Deleted and replaced rows (an old password hash, a deleted
+            // account) are overwritten with zeros in the database file, not
+            // left in free space.
+            conn.pragma_update(None, "secure_delete", "ON")?;
             if !existed {
                 create_tables(&conn, generation)?;
             }
@@ -755,7 +843,9 @@ impl ReadModel {
             Ok((conn, meta, applied))
         });
         match opened {
-            Ok((conn, Some(meta), applied)) if meta == (schema::SCHEMA_VERSION, generation) => {
+            Ok((conn, Some(meta), applied))
+                if meta == (schema::SCHEMA_VERSION, generation, schema::unicode_version()) =>
+            {
                 Ok(Self::from_parts(
                     Some(path),
                     Some(data_dir.to_path_buf()),
@@ -821,7 +911,7 @@ impl ReadModel {
 
     /// The committed `applied_commit_seq` of the read model: every event of
     /// every commit up to it that a projection stored here handles (messages,
-    /// channels, channel members) is stored.
+    /// channels, channel members, users) is stored.
     pub(crate) fn messages_applied_seq(&self) -> u64 {
         self.messages_applied.load(Ordering::Acquire)
     }
@@ -924,7 +1014,8 @@ impl ReadModel {
                 conn.execute_batch(
                     "DELETE FROM messages; DELETE FROM message_versions; \
                      DELETE FROM channels; DELETE FROM channel_members; \
-                     DELETE FROM channel_membership_versions; DELETE FROM applied_commit_seq;",
+                     DELETE FROM channel_membership_versions; DELETE FROM users; \
+                     DELETE FROM applied_commit_seq;",
                 )
                 .map_err(sql_error)
             })
@@ -1106,6 +1197,7 @@ impl ReadModel {
             Table::ChannelMembershipVersions => {
                 "SELECT key, record FROM channel_membership_versions ORDER BY key"
             }
+            Table::Users => "SELECT key, CAST(username_lower AS BLOB), record FROM users ORDER BY key",
         };
         self.watching_for_damage(|| {
             let mut statement = writer.conn.prepare_cached(sql).map_err(sql_error)?;
@@ -1188,6 +1280,7 @@ pub(crate) fn get(conn: &Connection, table: Table, key: &[u8]) -> Result<Option<
         Table::Channels => "SELECT record FROM channels WHERE key = ?1",
         Table::ChannelMembers => "SELECT record FROM channel_members WHERE key = ?1",
         Table::ChannelMembershipVersions => "SELECT record FROM channel_membership_versions WHERE key = ?1",
+        Table::Users => "SELECT record FROM users WHERE key = ?1",
     };
     conn.prepare_cached(sql)
         .and_then(|mut statement| statement.query_row(params![key], |row| row.get(0)).optional())
@@ -1258,6 +1351,10 @@ pub(crate) fn scan(
         (Table::ChannelMembershipVersions, true, true) => "SELECT key, record FROM channel_membership_versions WHERE key >= ?1 AND key < ?2 ORDER BY key DESC",
         (Table::ChannelMembershipVersions, false, false) => "SELECT key, record FROM channel_membership_versions WHERE key >= ?1 ORDER BY key",
         (Table::ChannelMembershipVersions, false, true) => "SELECT key, record FROM channel_membership_versions WHERE key >= ?1 ORDER BY key DESC",
+        (Table::Users, true, false) => "SELECT key, record FROM users WHERE key >= ?1 AND key < ?2 ORDER BY key",
+        (Table::Users, true, true) => "SELECT key, record FROM users WHERE key >= ?1 AND key < ?2 ORDER BY key DESC",
+        (Table::Users, false, false) => "SELECT key, record FROM users WHERE key >= ?1 ORDER BY key",
+        (Table::Users, false, true) => "SELECT key, record FROM users WHERE key >= ?1 ORDER BY key DESC",
     };
     let mut statement = conn.prepare_cached(sql).map_err(sql_error)?;
     let mut rows = match upper {
@@ -1349,6 +1446,43 @@ pub(crate) fn put_membership_version(conn: &Connection, key: &[u8], record: &[u8
         .map_err(sql_error)
 }
 
+/// Insert or replace an account. `username_lower` is the record's username
+/// folded by `str::to_lowercase`.
+pub(crate) fn put_user(conn: &Connection, key: &[u8], username_lower: &str, record: &[u8]) -> Result<()> {
+    conn.prepare_cached("INSERT OR REPLACE INTO users (key, username_lower, record) VALUES (?1, ?2, ?3)")
+        .and_then(|mut statement| statement.execute(params![key, username_lower, record]))
+        .map(drop)
+        .map_err(sql_error)
+}
+
+/// The `username_lower` and record of the account row with `key`.
+pub(crate) fn user_row(conn: &Connection, key: &[u8]) -> Result<Option<(String, Vec<u8>)>> {
+    conn.prepare_cached("SELECT username_lower, record FROM users WHERE key = ?1")
+        .and_then(|mut statement| {
+            statement.query_row(params![key], |row| Ok((row.get(0)?, row.get(1)?))).optional()
+        })
+        .map_err(sql_error)
+}
+
+/// The key and record of each account row whose `username_lower` is
+/// `username_lower`, in key order: one indexed lookup.
+pub(crate) fn users_by_username(conn: &Connection, username_lower: &str) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut statement = conn
+        .prepare_cached("SELECT key, record FROM users WHERE username_lower = ?1 ORDER BY key")
+        .map_err(sql_error)?;
+    let rows = statement
+        .query_map(params![username_lower], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(sql_error)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(sql_error)
+}
+
+/// Remove an account. Returns the number of rows removed.
+pub(crate) fn delete_user(conn: &Connection, key: &[u8]) -> Result<usize> {
+    conn.prepare_cached("DELETE FROM users WHERE key = ?1")
+        .and_then(|mut statement| statement.execute(params![key]))
+        .map_err(sql_error)
+}
+
 /// Number of rows in `table`.
 #[cfg(test)]
 pub(crate) fn count(conn: &Connection, table: Table) -> Result<u64> {
@@ -1358,6 +1492,7 @@ pub(crate) fn count(conn: &Connection, table: Table) -> Result<u64> {
         Table::Channels => "SELECT count(*) FROM channels",
         Table::ChannelMembers => "SELECT count(*) FROM channel_members",
         Table::ChannelMembershipVersions => "SELECT count(*) FROM channel_membership_versions",
+        Table::Users => "SELECT count(*) FROM users",
     };
     conn.query_row(sql, [], |row| row.get::<_, i64>(0))
         .map(|rows| rows as u64)

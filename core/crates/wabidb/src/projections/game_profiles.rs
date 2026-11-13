@@ -56,7 +56,7 @@ impl Projection for GameProfilesProjection {
         let row = decode(&event.payload)?;
         // A deletion may have committed between admission and this event. Do not
         // resurrect a deleted account or its private external association.
-        if state.get("users", &row.user_id.to_be_bytes()).is_none() { return Ok(()); }
+        if !super::users::existed_while_applying(state, row.user_id, event.commit_seq)? { return Ok(()); }
         state.insert(INDEX, row.user_id.to_be_bytes().to_vec(), event.payload.clone(), event.commit_seq);
         Ok(())
     }

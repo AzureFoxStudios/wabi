@@ -7,7 +7,7 @@
 
 /// Layout of the tables below. Change it whenever a table, column or index
 /// changes.
-pub(crate) const SCHEMA_VERSION: i64 = 3;
+pub(crate) const SCHEMA_VERSION: i64 = 4;
 
 /// What replay writes into the read model.
 ///
@@ -20,7 +20,21 @@ pub(crate) const SCHEMA_VERSION: i64 = 3;
 /// - a record type gets a new version in `format::versioned`, or
 /// - a projection handler whose rows live in the read model changes what it
 ///   stores for an event (keys, values, which events it applies).
-pub const READ_MODEL_GENERATION: i64 = 4;
+///
+/// History: 2 added channels, 3 channel members, 4 the membership revision
+/// that a user deletion sets (PR 349), 5 users (Task 3.5.4; it would have
+/// been 4, which PR 349 took first).
+pub const READ_MODEL_GENERATION: i64 = 5;
+
+/// The Unicode version of this build's `str::to_lowercase`, as
+/// `major.minor.update`. Stored in `read_model_meta` next to the generation:
+/// a toolchain whose standard library has other case mappings folds login
+/// names differently, so a file written by it is rebuilt like a file of
+/// another generation.
+pub(crate) fn unicode_version() -> String {
+    let (major, minor, update) = char::UNICODE_VERSION;
+    format!("{major}.{minor}.{update}")
+}
 
 /// The largest commit number any file may name. Anything above is damage or
 /// tampering, not a count of commits: a value near `u64::MAX` would stop the
@@ -39,10 +53,13 @@ pub(crate) const CHANNELS: &str = "channels";
 /// Name of the channel_members projection's row in `applied_commit_seq`.
 pub(crate) const CHANNEL_MEMBERS: &str = "channel_members";
 
+/// Name of the users projection's row in `applied_commit_seq`.
+pub(crate) const USERS: &str = "users";
+
 /// Every projection stored here, by its row in `applied_commit_seq`. All of
 /// them are written in one transaction per commit, so their rows always hold
 /// the same number.
-pub(crate) const PROJECTIONS: [&str; 3] = [MESSAGES, CHANNELS, CHANNEL_MEMBERS];
+pub(crate) const PROJECTIONS: [&str; 4] = [MESSAGES, CHANNELS, CHANNEL_MEMBERS, USERS];
 
 /// `messages`: the latest version of each message. `key` is the length-prefixed
 /// channel id followed by the length-prefixed message id, so a byte-ordered
@@ -69,8 +86,19 @@ pub(crate) const PROJECTIONS: [&str; 3] = [MESSAGES, CHANNELS, CHANNEL_MEMBERS];
 /// history, `key` being the channel id's bytes and `record` the commit of the
 /// channel's latest membership event (8 bytes, little endian).
 ///
+/// `users`: one row per account. `key` is the user id (8 bytes, big endian),
+/// so a byte-ordered scan lists accounts in the old in-memory index's order;
+/// `record` is the versioned `UserRecord`, password hash included;
+/// `username_lower` is the record's username as Rust's `str::to_lowercase`
+/// folds it, so that a login name is one indexed lookup. The index is not
+/// unique: admission refuses a new duplicate, but names that were already
+/// duplicated in the log must still replay.
+///
 /// `read_model_meta.sync_count` is bumped by every checkpoint sync, so that
 /// transaction always writes something for SQLite to sync.
+/// `read_model_meta.unicode_version` is the Unicode version of the build that
+/// created the file ([`unicode_version`]); `users.username_lower` depends on
+/// it, so a file from a build with other case mappings is rebuilt.
 ///
 /// `applied_commit_seq`: one row per projection stored here. Every commit
 /// whose events that projection handles, up to and including `seq`, is in the
@@ -80,7 +108,8 @@ CREATE TABLE read_model_meta (
     id INTEGER PRIMARY KEY CHECK (id = 0),
     schema_version INTEGER NOT NULL,
     generation INTEGER NOT NULL,
-    sync_count INTEGER NOT NULL DEFAULT 0
+    sync_count INTEGER NOT NULL DEFAULT 0,
+    unicode_version TEXT NOT NULL
 );
 CREATE TABLE applied_commit_seq (
     projection TEXT PRIMARY KEY,
@@ -116,4 +145,10 @@ CREATE TABLE channel_membership_versions (
     key BLOB PRIMARY KEY,
     record BLOB NOT NULL
 ) WITHOUT ROWID;
+CREATE TABLE users (
+    key BLOB PRIMARY KEY,
+    username_lower TEXT NOT NULL,
+    record BLOB NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX users_by_username ON users (username_lower);
 ";

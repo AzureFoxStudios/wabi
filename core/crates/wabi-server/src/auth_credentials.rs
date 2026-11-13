@@ -890,16 +890,13 @@ mod tests {
         state.bot_registry.create(bot).await.unwrap();
         let projection = state.wdb.engine().projection_state();
         let mut record = wabidb::projections::users::decode_record(
-            &projection.get("users", &inactive.to_be_bytes()).unwrap(),
+            &wabidb::projections::users::stored_record(projection, inactive)
+                .unwrap()
+                .unwrap(),
         )
         .unwrap();
         record.is_active = false;
-        projection.insert(
-            "users",
-            inactive.to_be_bytes().to_vec(),
-            encode_record(&record),
-            state.wdb.engine().barrier().current(),
-        );
+        wabidb::projections::users::insert_raw_for_tests(projection, inactive, &encode_record(&record));
         let mut stepup_claims = JwtClaims {
             sub: actor.user_id.to_string(),
             username: actor.username.clone(),

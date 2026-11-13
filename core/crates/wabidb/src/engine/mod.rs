@@ -305,8 +305,8 @@ impl WabiDbEngine {
         let dispatch_table = type_registry.dispatch_table().clone();
 
         // 7. Load the saved projections: the snapshot of the in-memory ones,
-        // and the SQLite read model (messages, channels, channel members). Each
-        // has its own watermark.
+        // and the SQLite read model (messages, channels, channel members,
+        // users). Each has its own watermark.
         // Replay starts at the snapshot's. The read model is normally ahead
         // of it (it commits every commit; the snapshot is written every
         // 1,000), and replay then skips the events it already holds.
@@ -1551,7 +1551,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
         },
         // Guest tombstone. One handler per event type is enforced, so this
         // projection owns `user_deleted` and cascades removal across the
-        // users / channel_members / dm_identities indexes itself.
+        // users / channel_members (read model) and dm_identities indexes itself.
         ProjectionRegistration {
             event_types: &["user_deleted"],
             handler: Arc::new(UserDeletionProjection),

@@ -18,6 +18,8 @@ pub mod read_model_messages;
 pub mod read_model_channels;
 pub mod read_model_channel_members;
 #[cfg(test)]
+pub mod read_model_users;
+#[cfg(test)]
 pub mod replay_test;
 #[cfg(test)]
 pub mod send_message_flow;

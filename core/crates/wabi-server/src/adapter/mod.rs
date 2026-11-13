@@ -909,10 +909,9 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn get_user(&self, user_id: u64) -> Result<Option<User>> {
-        use wabidb::projections::users::decode_record;
+        use wabidb::projections::users::{decode_record, stored_record};
         let state = self.engine.projection_state();
-        let key = user_id.to_be_bytes().to_vec();
-        match state.get("users", &key) {
+        match stored_record(&state, user_id)? {
             Some(bytes) => {
                 let record = decode_record(&bytes)?;
                 Ok(Some(User::from(record)))
@@ -922,14 +921,9 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
-        use wabidb::projections::query::UsersFilter;
-        use wabidb::projections::users::UsersProjection;
+        // One indexed lookup of the case-folded name in the read model.
         let state = self.engine.projection_state();
-        let key_lc = username.to_lowercase();
-        let mut matches = UsersProjection
-            .query(&state, &UsersFilter::default())?
-            .into_iter()
-            .filter(|r| r.username.to_lowercase() == key_lc);
+        let mut matches = wabidb::projections::users::find_by_username(&state, username)?.into_iter();
         let found = matches.next();
         if matches.next().is_some() {
             return Err(WabiError::Validation {

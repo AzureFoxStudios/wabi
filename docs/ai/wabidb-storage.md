@@ -16,14 +16,14 @@ $DATA_DIR/                      (the engine directory, e.g. data/wabi-server/wab
 │   ├── 00000001.wseg
 │   └── 00000002.wseg
 ├── projections/snapshot.json
-├── projections/read-model.sqlite3   (messages, channels, channel members; plus SQLite's -wal and -shm while the engine runs)
+├── projections/read-model.sqlite3   (messages, channels, channel members, users; plus SQLite's -wal and -shm while the engine runs)
 ├── projections/read-model.rebuild   (only when a rebuild of the read model was requested)
 └── blobs/
 ```
 
 `<kind>` is `channel`, `dm`, `whiteboard`, `place`, `kanban` or `other`. Segment files are zero-padded 8-digit numbers (test: `cli::check::tests::check_scans_the_segments_a_real_engine_wrote` builds a tree with the real engine and walks this layout; `stream_log::segment_writer::tests::next_segment_id_increments`).
 
-`projections/read-model.sqlite3` is the SQLite read model of the messages, channels and channel_members projections. It is derived from the log, not encrypted, and created with mode 0600 (tests: `tests::read_model_messages::deleting_the_read_model_file_changes_no_read`, `tests::read_model_messages::the_read_model_file_is_owner_only_and_messages_leave_the_snapshot`). A clean stop leaves only the database file; `-wal` and `-shm` exist while the engine runs or after a crash (same second test). The full rules are in `docs/ai/wabidb-engine.md`, "Messages: the SQLite read model".
+`projections/read-model.sqlite3` is the SQLite read model of the messages, channels, channel_members and users projections (the users rows include every account's password hash). It is derived from the log, not encrypted, and created with mode 0600 (tests: `tests::read_model_messages::deleting_the_read_model_file_changes_no_read`, `tests::read_model_messages::the_read_model_file_is_owner_only_and_messages_leave_the_snapshot`). A clean stop leaves only the database file; `-wal` and `-shm` exist while the engine runs or after a crash (same second test). The full rules are in `docs/ai/wabidb-engine.md`, "Messages: the SQLite read model".
 
 `global/quarantine.json` has the form `{"version":1,"commit_seqs":[...]}`. Replay skips each listed commit; startup refuses a file it cannot parse or that lists a commit above every commit on disk (tests: `engine::quarantine_tests::failing_handler_is_named_at_startup_and_quarantine_skips_it`, `engine::quarantine_tests::unparseable_quarantine_file_refuses_startup`, `engine::quarantine_tests::quarantine_file_listing_a_future_seq_refuses_startup`). Only `wabidb-cli quarantine` writes it (test: `cli::quarantine::tests::quarantine_appends_once_and_refuses_unindexed_seqs`).
 

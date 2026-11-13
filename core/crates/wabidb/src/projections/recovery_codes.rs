@@ -134,16 +134,32 @@ fn current(
         .map(|bytes| decode_value(key, &bytes))
         .transpose()
 }
-fn require_user(state: &ProjectionState, user_id: i64) -> Result<()> {
-    let bytes = state
-        .get("users", &users::encode_key(user_id as u64))
-        .ok_or_else(|| bad("recovery account does not exist"))?;
+/// Which accounts table a [`plan`] checks against.
+#[derive(Clone, Copy)]
+enum Accounts {
+    /// Admission, before the command is written: committed rows.
+    Committed,
+    /// Applying commit `.0`: the rows written so far. At or below the read
+    /// model's replay floor (startup replay of a commit the read model
+    /// already holds) the table holds a later state, and the check is
+    /// skipped: the commit passed it when it was first applied, because the
+    /// read model keeps a commit only once every handler of it succeeded.
+    Applying(u64),
+}
+
+fn require_user(state: &ProjectionState, accounts: Accounts, user_id: i64) -> Result<()> {
+    let bytes = match accounts {
+        Accounts::Committed => users::stored_record(state, user_id as u64)?,
+        Accounts::Applying(commit_seq) if commit_seq <= state.read_model().replay_floor() => return Ok(()),
+        Accounts::Applying(_) => users::stored_while_applying(state, user_id as u64)?,
+    }
+    .ok_or_else(|| bad("recovery account does not exist"))?;
     if users::decode_record(&bytes)?.user_id != user_id as u64 {
         return Err(bad("recovery account does not match its key"));
     }
     Ok(())
 }
-fn plan(delta: &Delta, state: &ProjectionState) -> Result<Writes> {
+fn plan(delta: &Delta, state: &ProjectionState, accounts: Accounts) -> Result<Writes> {
     let initialized = state
         .get(INDEX, READY)
         .map(|b| decode_value(READY, &b))
@@ -189,7 +205,7 @@ fn plan(delta: &Delta, state: &ProjectionState) -> Result<Writes> {
                     }
                 }
                 if !delta.migration {
-                    require_user(state, user_id)?;
+                    require_user(state, accounts, user_id)?;
                     if owner::OwnerProjection::get_owner(state) != Some(user_id as u64) {
                         return Err(bad("only the current owner may issue recovery codes"));
                     }
@@ -215,7 +231,7 @@ fn plan(delta: &Delta, state: &ProjectionState) -> Result<Writes> {
                     if delta.operations.len() != 1 {
                         return Err(bad("account recovery must be a single compound operation"));
                     }
-                    require_user(state, user_id)?;
+                    require_user(state, accounts, user_id)?;
                     auth_revocations::validate_global_floor(state, *epoch)?;
                     writes.push((
                         auth_revocations::INDEX,
@@ -268,7 +284,7 @@ pub(crate) fn preflight(events: &[EventToWrite], state: &ProjectionState) -> Res
     {
         return Err(bad("invalid recovery stream or record kind"));
     }
-    plan(&decode(&event.plaintext)?, state)?;
+    plan(&decode(&event.plaintext)?, state, Accounts::Committed)?;
     Ok(())
 }
 pub struct RecoveryCodesProjection;
@@ -280,7 +296,7 @@ impl Projection for RecoveryCodesProjection {
         if event.stream_id != STREAM {
             return Err(bad("invalid recovery replay stream"));
         }
-        let writes = plan(&decode(&event.payload)?, state)?;
+        let writes = plan(&decode(&event.payload)?, state, Accounts::Applying(event.commit_seq))?;
         for (index, key, value) in writes {
             state.insert(index, key, value, event.commit_seq);
         }
@@ -328,12 +344,7 @@ mod tests {
     }
     fn initialized() -> ProjectionState {
         let state = ProjectionState::new();
-        state.insert(
-            "users",
-            users::encode_key(1),
-            users::encode_record(&user_record()),
-            1,
-        );
+        users::insert_raw_for_tests(&state, 1, &users::encode_record(&user_record()));
         auth_revocations::AuthRevocationsProjection
             .apply(
                 &DurableEvent {
@@ -518,7 +529,7 @@ mod tests {
                 }
             );
         }
-        state.remove("users", &users::encode_key(1));
+        users::remove_raw_for_tests(&state, 1);
         assert!(RecoveryCodesProjection
             .apply(
                 &event(
@@ -532,12 +543,7 @@ mod tests {
                 &state
             )
             .is_err());
-        state.insert(
-            "users",
-            users::encode_key(1),
-            users::encode_record(&user_record()),
-            1,
-        );
+        users::insert_raw_for_tests(&state, 1, &users::encode_record(&user_record()));
         RecoveryCodesProjection
             .apply(
                 &event(
@@ -984,10 +990,15 @@ mod tests {
         }
         let compare = |state: &ProjectionState| {
             let mut records = BTreeMap::new();
-            for index in [INDEX, auth_revocations::INDEX, "server_meta", "users"] {
+            for index in [INDEX, auth_revocations::INDEX, "server_meta"] {
                 state.for_each(index, |key, bytes| {
                     records.insert((index, key.to_vec()), bytes.to_vec());
                 });
+            }
+            // Accounts live in the read model.
+            use crate::projections::query::QueryableProjection;
+            for user in users::UsersProjection.query(state, &Default::default()).unwrap() {
+                records.insert(("users", users::encode_key(user.user_id)), users::encode_record(&user));
             }
             records
         };

@@ -137,7 +137,10 @@ pub(crate) mod tests {
         for index in crate::engine::locks::LEGACY_MESSAGE_INDEXES {
             state.insert(index, encode_key("ch_a", "msg_a"), encode_record(&row), 9);
         }
-        state.insert("users", b"kept".to_vec(), b"row".to_vec(), 9);
+        // `users` moved to the read model too (Task 3.5.4); `server_meta` is
+        // still in memory.
+        state.insert("users", b"dropped".to_vec(), b"row".to_vec(), 9);
+        state.insert("server_meta", b"kept".to_vec(), b"row".to_vec(), 9);
         state.set_applied_commit_seq(9);
         state.save_snapshot(dir.path()).unwrap();
         let (restored, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
@@ -145,7 +148,8 @@ pub(crate) mod tests {
         for index in crate::engine::locks::LEGACY_MESSAGE_INDEXES {
             assert_eq!(restored.index_len(index), 0, "{index}");
         }
-        assert_eq!(restored.get("users", b"kept"), Some(b"row".to_vec()));
+        assert_eq!(restored.index_len("users"), 0);
+        assert_eq!(restored.get("server_meta", b"kept"), Some(b"row".to_vec()));
         assert_eq!(get(&restored, "msg_a").unwrap(), None);
     }
 
