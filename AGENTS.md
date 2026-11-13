@@ -1,6 +1,6 @@
 # AGENTS.md — Wabi Orientation for Code/AI Agents
 
-Read this before making non-trivial changes. The canonical product maturity boundary is `docs/PROJECT_STATUS.md`; the deeper code mental model is `docs/architecture/overview.md`.
+Read this before making non-trivial changes. The canonical product maturity boundary is `docs/PROJECT_STATUS.md`; the deeper code mental model is `docs/architecture/overview.md`. What Wabi is for, and the three questions to ask of any change, are in `docs/VISION.md`.
 
 ## What Wabi is
 

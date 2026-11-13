@@ -41,6 +41,7 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 | 349 | (fix) | A user deletion sets the membership revision of each channel it removes the user from (generation 4), so call rejoin and E2EE room checks notice. |
 | 350 | (fix) | A user deletion is announced to the user's groups like a removal (both deletion paths: final disconnect and idle guest sweep), and the user is dropped from calls. |
 | 351 | 2.7b | `rusqlite` 0.41.1 (bundled SQLite 3.54.1) for RUSTSEC-2026-0459; a test asserts the linked SQLite is at least 3.54.0. |
+| 354 | (DM) | Server-side DM encryption boundary: `core/crates/wabi-server/tests/dm_encryption_contract.rs` (19 tests). Readable text is refused in conversations with experimental encryption enabled or pending on every path found: chat (all transports, edits), notes, forum, wiki, albums, gallery, incidents, whiteboard (REST and socket), bots, and uploads that are not the opaque encrypted shape. File refs beside an envelope must be registry-issued; reaction ids and envelopes are shape-checked. |
 | 340 | 4.8g | `wabi-sync` state records whose folder it is (server + channel) and refuses a mismatch; `link` moves old state aside; mass-delete guard (`--allow-mass-delete`); refusals (400/403/413/422) remembered per file, 5xx retried; one sync per folder (OS lock). |
 
 ## Open PRs
@@ -48,6 +49,9 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 | PR | Task | State | Next step |
 |---|---|---|---|
 | 348 | 3.5.4 | Users to the read model (schema 4, generation 5; case-folded login column with the Unicode version recorded; `secure_delete`; 729-pair restart matrix). Green; independent review done and fixed. **On hold:** CodeQL reports 5 new alerts (1 critical, 4 high) that no available tool can list; the visible one is a test fixture (`rust/hard-coded-cryptographic-value`, `auth_revocations.rs`). | Owner looks at the alert list on GitHub; if all are test fixtures or the intended `password_hash` storage, dismiss and merge. Trying to satisfy the scanner with generated test values made it worse (6 alerts); that attempt was reverted. |
+| 353 | 2.7c | `p256` 0.14 / `ecdsa` 0.17: Wabi's own P-256 code leaves the affected `crypto-bigint`; golden tests for signatures and key files added first. Green. **On hold:** one CodeQL alert, a fixed key in a golden test (`community_roster.rs`), for the owner to dismiss. RUSTSEC-2026-0387 stays reported through `age` 0.12 (Wabi uses only its x25519 part). | Owner dismisses the alert; merge. |
+| 355 | (DM) | Client: decrypted content does not go back to the server or to other hosts (`frontend/src/lib/privacy/`): no link previews, no remote media without a click, no audio/video/3D from a URL, no auto-translate, albums/forward/Lore/Blender off, report needs an explicit disclosure. Three review rounds; the coordinator re-ran the browser smoke and a 273-payload probe on the last head. | Merge on green CI. Owner runs the browser checklist in the PR. |
+| (soon) | (DM) | Durable per-room encryption marker in WabiDB so a missing or rolled-back `e2ee_state.json` cannot reopen readable sends; the server sets `encrypted` itself; `#EXTM3U` uploads refused (session `session_012VCxQLQKEp9pfEBxcSnvNc`, branch `claude/encryption-durable-room-marker`). | Independent review, then merge. |
 | 329 | 4.8b | Green. **On hold.** | Needs the owner's result for `q1` from the real-`lore` checks (does a review-branch upload leave the mainline's files alone). If yes: merge `main` in, re-check CI, merge. If no: do Task 4.9 first. |
 
 ## Remaining tasks, in order
@@ -61,13 +65,29 @@ Wabi is not deployed. The only data directory is a test server the owner can wip
 7. **Dependency upgrades** from Task 2.7: `zip` (346) and `rusqlite` (351) are done. Still to do: `p256`/`crypto-bigint` (RUSTSEC-2026-0387) (a RustCrypto major bump; `wabi-consensus` pins `p256`). **Owner decisions:** accept the six unmaintained notices with a written expiry or not; the `bans` wildcard rule for four in-workspace path dependencies.
 8. **3.3** last: remove `projections/snapshot.json` once every projection is in SQLite.
 
-Phase 5 is new features, not hardening; stop and ask the owner before starting it.
+Phase 5 is new features, not hardening; stop and ask the owner before starting it. The owner has asked for one: a game overlay, planned in `2026-11-13-game-overlay-plan.md` (nothing built; the owner is starting it from a desktop session on a real machine, because it cannot be verified in a cloud sandbox).
+
+## DM encryption: known gaps after 354 and 355
+
+- Registry loss or rollback reopens readable sends until the marker PR lands.
+- Attachments in encrypted messages: the server's `FileAttachmentRecord` reads snake_case and the client sends camelCase `files[]`, so the list is dropped server-side. What recipients actually get has not been checked end to end.
+- Upload completion re-check is not under the policy lock (init, enable, complete window).
+- No media-src CSP; a blob: HLS playlist is followed by Chromium, so no inline player for decrypted audio/video may be added without refusing `#EXTM3U`.
+- Client: a same-origin path such as `/api;x/image-proxy` passes the `/api/` check as written (it misses the proxy on a bare Authority). Strip `;params` before the check.
+- Not started: key verification that does not depend on the server, and the choice of a published protocol. These need an owner decision and a design note first.
+- After these land: one pass over docs and UI strings so they say exactly what is enforced.
+
+## For a session on the owner's desktop
+
+- This note, the overlay plan and `docs/testing/LORE_REAL_BINARY_CHECKS.md` are the shared state. Cloud sessions keep working on `core/crates/wabi-server/src/api/e2ee.rs`, the upload and message paths, `frontend/src/lib/privacy/`, `frontend/src/lib/components/message/` and `frontend/src/lib/e2ee*.ts`; avoid those files or expect conflicts.
+- Overlay work belongs in `src-tauri/` and new frontend files. One PR per step of the plan's build order.
 
 ## Things nobody has verified
 
 - Any of this against the real `lore` program (the checks above), in a browser, or on a real long-lived data directory.
 - A real power cut (the crash tests kill the process).
 - Windows for the server (the Windows CI job builds only the desktop shell, which does not include Lore).
+- An install from nothing by a non-expert (blank machine to a running server with a friend invited). The owner's goal is that this is easy; nothing measures it yet.
 
 ## Notes for a model picking this up
 
