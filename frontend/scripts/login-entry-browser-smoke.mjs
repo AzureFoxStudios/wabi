@@ -93,9 +93,33 @@ try {
 		assert.equal(geometry.documentFits && geometry.containerFits, true, `${scenario.name}: no horizontal overflow`);
 		assert.equal(geometry.randomAmbient, false, 'login does not install a random ambient theme');
 		assert.ok(geometry.contrast >= 4.5, `${scenario.name}: primary action contrast ${geometry.contrast}`);
-		if (scenario.width <= 700) {
-			const targets = await page.locator('.login-footer-links > a, .login-change-server, .login-locale-control, .remember-row, .password-toggle').evaluateAll(nodes => nodes.map(node => { const rect = node.getBoundingClientRect(); return { label: node.textContent?.trim() || node.getAttribute('aria-label'), width: rect.width, height: rect.height }; }));
-			for (const target of targets) assert.ok(target.width >= 44 && target.height >= 44, `${scenario.name}: ${target.label} target ${target.width}×${target.height}`);
+		// Target size follows the pointer, not the width (decision recorded with the fix for
+		// 25e8a4e2, "Dialogs and popouts: review fixes (wave 1c)", which sizes login targets by
+		// pointer type; the owner can reverse it). Under a coarse (touch) pointer every interactive
+		// target is at least 44×44. Under a fine pointer a narrow window keeps the WCAG 2.2 target-size
+		// minimum, 24×24, for the same footer, server, locale, remember and password controls the
+		// 44px rule covered before. The pointer is read from the page, so a touch scenario that stops
+		// emulating a coarse pointer fails here instead of quietly taking the smaller rule.
+		const coarsePointer = await page.evaluate(() => matchMedia('(pointer: coarse)').matches);
+		assert.equal(coarsePointer, Boolean(scenario.touch), `${scenario.name}: emulated pointer is ${coarsePointer ? 'coarse' : 'fine'}`);
+		if (coarsePointer || scenario.width <= 700) {
+			const minimum = coarsePointer ? 44 : 24;
+			const selector = coarsePointer
+				// Every visible control; a checkbox or radio is measured by the label row that is its target.
+				? 'a[href], button, select, textarea, input:not([type=hidden], [type=checkbox], [type=radio]), [role=button], [role=link], [role=tab], label:has(> input:is([type=checkbox], [type=radio]))'
+				: '.login-footer-links > a, .login-change-server, .login-locale-control, .remember-row, .password-toggle';
+			const targets = await page.locator(selector).evaluateAll(nodes => nodes.filter(node => {
+				const rect = node.getBoundingClientRect();
+				const style = getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && !node.closest('[inert], [aria-hidden="true"]');
+			}).map(node => {
+				// An input inside a .w-field wrapper (the @ prefix, the show-password key) inside its
+				// <label> is reached by tapping anywhere in that box, so the box is its target.
+				const wrapper = node.matches('input') && !node.matches('.w-field') ? node.parentElement?.closest('.w-field') : null;
+				const box = wrapper && wrapper.closest('label')?.contains(node) ? wrapper : node;
+				const rect = box.getBoundingClientRect(); return { label: node.getAttribute('aria-label') || node.textContent?.trim() || node.getAttribute('placeholder') || node.outerHTML.slice(0, 80), width: rect.width, height: rect.height }; }));
+			assert.ok(targets.length > 0, `${scenario.name}: found interactive targets to measure`);
+			for (const target of targets) assert.ok(target.width >= minimum && target.height >= minimum, `${scenario.name}: ${target.label} target ${target.width}×${target.height} (minimum ${minimum}px, ${coarsePointer ? 'coarse' : 'fine'} pointer)`);
 		}
 		if (scenario.theme) assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('wabi-theme')).theme_id), scenario.theme, 'selected theme remains selected');
 		await page.screenshot({ path: `${evidence}/${scenario.name}.png` });
