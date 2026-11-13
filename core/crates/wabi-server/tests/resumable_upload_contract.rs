@@ -211,3 +211,155 @@ async fn resumable_upload_rejects_gaps_and_overrun_then_publishes_complete_bytes
     );
     assert!(state.upload_state.sessions.read().await.is_empty());
 }
+
+fn multipart(field: &str, file_name: &str, mime: &str, bytes: &[u8]) -> (String, Vec<u8>) {
+    let boundary = format!("wabi-playlist-{}", uuid::Uuid::new_v4().simple());
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{file_name}\"\r\nContent-Type: {mime}\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
+async fn raw_post(app: &Router, path: &str, bearer: &str, content_type: &str, body: Vec<u8>) -> (StatusCode, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(path)
+                .header("authorization", format!("Bearer {bearer}"))
+                .header("content-type", content_type)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn files_containing(root: &Path, needle: &[u8]) -> Vec<std::path::PathBuf> {
+    let mut hits = vec![];
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if std::fs::read(&path).is_ok_and(|b| b.windows(needle.len()).any(|w| w == needle)) {
+                hits.push(path);
+            }
+        }
+    }
+    hits
+}
+
+/// An HLS playlist makes a browser that plays HLS fetch segments from the
+/// hosts it names, even when served as `video/mp4` with `nosniff`. No upload
+/// path publishes one, whatever name and type it claims; the refusal is a
+/// 4xx that says why. Paths that already accept only sniffed image/video
+/// bytes refuse it for that reason first.
+#[tokio::test]
+async fn hls_playlists_are_refused_on_every_upload_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut cfg = config(temp.path());
+    let state = Arc::new(AppState::new(cfg.clone()).await.unwrap());
+    let admin = state.wdb.create_user("playlist-admin", None, "registered-hash").await.unwrap();
+    drop(state);
+    cfg.admin_user_ids = vec![admin as i64];
+    let state = loop {
+        match AppState::new(cfg.clone()).await {
+            Ok(state) => break Arc::new(state),
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+        }
+    };
+    let bearer = token(admin, &state.config.jwt_secret);
+    let channel = state
+        .wdb
+        .create_channel("playlist", wabidb::domain::ChannelKind::Text, admin, false)
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let playlists: [&[u8]; 3] = [
+        b"#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nhttps://media.example.invalid/seg0.ts\n",
+        b"\xEF\xBB\xBF \r\n\t#EXTM3U\nhttps://media.example.invalid/seg0.ts\n",
+        b"#extm3u\nhttps://media.example.invalid/seg0.ts\n",
+    ];
+    let mut outcomes = vec![];
+    for (i, bytes) in playlists.iter().enumerate() {
+        let (status, init) = json_call(
+            &app,
+            "/upload/resumable/init",
+            &bearer,
+            json!({"fileName":"clip.mp4","fileSize":bytes.len(),"mimeType":"video/mp4","channelId":channel}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{init}");
+        let (id, upload_token) = (init["uploadId"].as_str().unwrap(), init["uploadToken"].as_str().unwrap());
+        let chunk = app
+            .clone()
+            .oneshot(
+                Request::put(format!("/upload/resumable/chunk?uploadId={id}&offset=0"))
+                    .header("x-upload-token", upload_token)
+                    .body(Body::from(bytes.to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(chunk, StatusCode::OK);
+        let (status, body) =
+            json_call(&app, "/upload/resumable/complete", &bearer, json!({"uploadId":id,"uploadToken":upload_token})).await;
+        outcomes.push((format!("resumable #{i}"), status, body.to_string(), true));
+
+        let (status, body) = raw_post(
+            &app,
+            "/blobs/upload?original_name=clip.mp4&mime_type=video%2Fmp4",
+            &bearer,
+            "application/octet-stream",
+            bytes.to_vec(),
+        )
+        .await;
+        outcomes.push((format!("blob #{i}"), status, body, true));
+        for (path, field, name, mime, reason) in [
+            ("/upload".to_string(), "file", "clip.mp4", "video/mp4", true),
+            ("/upload-profile-picture".to_string(), "profilePicture", "me.png", "image/png", true),
+            (format!("/whiteboard/boards/{channel}/images"), "file", "sketch.png", "image/png", true),
+            (format!("/whiteboard/boards/{channel}/fonts"), "file", "font.woff2", "font/woff2", true),
+            ("/upload-profile-media".to_string(), "file", "banner.mp4", "video/mp4", true),
+            ("/upload-background-image".to_string(), "backgroundImage", "loop.mp4", "video/mp4", true),
+            ("/emoji/upload".to_string(), "file", "wave.png", "image/png", true),
+        ] {
+            let (content_type, mut body) = multipart(field, name, mime, bytes);
+            if path == "/emoji/upload" {
+                // The emoji path validates its shortcode before the bytes.
+                let boundary = content_type.rsplit('=').next().unwrap().to_string();
+                let mut with_name = format!(
+                    "--{boundary}\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nwave{i}\r\n"
+                )
+                .into_bytes();
+                with_name.extend_from_slice(&body);
+                body = with_name;
+            }
+            let (status, body) = raw_post(&app, &path, &bearer, &content_type, body).await;
+            outcomes.push((format!("{path} #{i}"), status, body, reason));
+        }
+    }
+    for (path, status, body, names_playlist) in &outcomes {
+        assert!(status.is_client_error(), "{path} accepted a playlist: {status} {body}");
+        if *names_playlist {
+            assert!(body.contains("#EXTM3U"), "{path} refused for another reason: {status} {body}");
+        }
+    }
+    let hits = files_containing(temp.path(), b"seg0.ts");
+    let published: Vec<_> = hits.iter().filter(|p| !p.to_string_lossy().contains("/.tmp/")).collect();
+    assert!(published.is_empty(), "playlist bytes published at {published:?}");
+
+    // Positive control: ordinary bytes under the same name still upload.
+    let (content_type, body) = multipart("file", "clip.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42 not a playlist");
+    let (status, body) = raw_post(&app, "/upload", &bearer, &content_type, body).await;
+    assert!(status.is_success(), "{status} {body}");
+}

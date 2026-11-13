@@ -107,6 +107,7 @@ pub async fn upload_emoji(
     validate_metadata(&name, &display_name, &artist, &category, &kind)?;
 
     // Use the sniffed format for the stored extension, not the supplied filename.
+    crate::api::upload::refuse_hls_playlist(&file_data)?;
     let ext = image_extension(&file_data)
         .ok_or_else(|| AppError::BadRequest("Uploaded file is not a supported image".into()))?;
 

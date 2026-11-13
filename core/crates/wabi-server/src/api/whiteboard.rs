@@ -379,6 +379,7 @@ async fn upload_whiteboard_image(
 
             // Create uploads dir if needed
             let uploads_dir = &state.config.uploads_dir;
+            crate::api::upload::refuse_hls_playlist(&file_data)?;
             if !std::path::Path::new(uploads_dir).exists() {
                 tokio::fs::create_dir_all(uploads_dir).await?;
             }
@@ -538,6 +539,7 @@ async fn upload_whiteboard_font(
             crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, None).await?;
 
             let uploads_dir = &state.config.uploads_dir;
+            crate::api::upload::refuse_hls_playlist(&file_data)?;
             if !std::path::Path::new(uploads_dir).exists() {
                 tokio::fs::create_dir_all(uploads_dir).await?;
             }

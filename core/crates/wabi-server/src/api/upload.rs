@@ -125,6 +125,31 @@ const UPLOAD_SECURITY_HEADERS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The refusal for an HLS playlist upload.
+pub const HLS_PLAYLIST_REFUSED: &str = "HLS playlists (#EXTM3U) cannot be uploaded: a browser playing one fetches media from whatever hosts the playlist names, whatever type the file is served as.";
+
+/// True when `prefix`, the first bytes of an upload, is an HLS playlist: after
+/// an optional UTF-8 byte-order mark and ASCII whitespace it starts with
+/// `#EXTM3U` (compared without case, which only refuses more). Browsers that
+/// play HLS natively follow such a playlist to segments on other hosts even
+/// when it is served as `video/mp4` with `nosniff`.
+pub fn is_hls_playlist(prefix: &[u8]) -> bool {
+    let rest = prefix.strip_prefix(b"\xEF\xBB\xBF".as_slice()).unwrap_or(prefix);
+    let start = rest.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(rest.len());
+    rest[start..].len() >= 7 && rest[start..start + 7].eq_ignore_ascii_case(b"#EXTM3U")
+}
+
+/// Refuse an upload whose bytes are an HLS playlist, with a 400.
+pub fn refuse_hls_playlist(bytes: &[u8]) -> Result<()> {
+    if is_hls_playlist(&bytes[..bytes.len().min(HLS_SNIFF_LEN)]) {
+        return Err(crate::error::AppError::BadRequest(HLS_PLAYLIST_REFUSED.into()));
+    }
+    Ok(())
+}
+
+/// How many leading bytes the playlist check reads.
+pub const HLS_SNIFF_LEN: usize = 4096;
+
 /// Build the header map applied to uploaded-file responses.
 ///
 /// Pure function so it can be unit-tested without spinning up the server.
@@ -457,6 +482,18 @@ async fn complete_upload(
     let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
 
     if tokio::fs::try_exists(&session.temp_path).await? {
+        // Before the name is recorded or the bytes are published.
+        let mut prefix = vec![0u8; HLS_SNIFF_LEN];
+        let mut staged = tokio::fs::File::open(&session.temp_path).await?;
+        let mut read = 0;
+        while read < prefix.len() {
+            match tokio::io::AsyncReadExt::read(&mut staged, &mut prefix[read..]).await? {
+                0 => break,
+                n => read += n,
+            }
+        }
+        drop(staged);
+        refuse_hls_playlist(&prefix[..read])?;
         let file = OpenOptions::new()
             .write(true)
             .open(&session.temp_path)
@@ -629,6 +666,7 @@ async fn upload_simple(
     tokio::fs::create_dir_all(&uploads_dir).await?;
 
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -713,6 +751,7 @@ pub async fn upload_background_image(
 
     // Sniff the actual content instead of trusting the client MIME string:
     // magic-byte check keeps a mislabeled script from landing as a "video".
+    refuse_hls_playlist(&file_data)?;
     let mime = sniff_background_mime(&file_data).ok_or_else(|| {
         anyhow::anyhow!(
             "Unsupported file type. Only PNG, JPG, GIF, WEBP, MP4, or WEBM are allowed."
@@ -726,6 +765,7 @@ pub async fn upload_background_image(
     tokio::fs::create_dir_all(&uploads_dir).await?;
 
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -843,12 +883,14 @@ pub async fn upload_profile_media(
         return Err(anyhow::anyhow!("No file data provided").into());
     }
 
+    refuse_hls_playlist(&file_data)?;
     let ext = profile_media_extension(&file_data).map_err(crate::error::AppError::BadRequest)?;
 
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     tokio::fs::create_dir_all(&uploads_dir).await?;
 
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -929,6 +971,7 @@ pub async fn upload_profile_picture(
 
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
+    refuse_hls_playlist(&file_data)?;
     let final_path = uploads_dir.join(&final_name);
 
     state
@@ -1005,6 +1048,18 @@ mod tests {
         assert!(complete_size_matches(10, 10, 10));
         assert!(!complete_size_matches(9, 10, 10));
         assert!(!complete_size_matches(10, 10, 9));
+    }
+
+    #[test]
+    fn hls_playlist_detection_skips_bom_and_whitespace_only() {
+        for yes in [&b"#EXTM3U"[..], b"#EXTM3U\n#EXTINF:1,\nx.ts", b"\xEF\xBB\xBF#EXTM3U", b" \r\n\t#EXTM3U", b"#extm3u\n"] {
+            assert!(super::is_hls_playlist(yes), "{yes:?}");
+        }
+        for no in [&b""[..], b"#EXTM3", b"x#EXTM3U", b"\xEF\xBB#EXTM3U", b"\x00\x00\x00\x18ftypmp42", b"# EXTM3U"] {
+            assert!(!super::is_hls_playlist(no), "{no:?}");
+        }
+        assert!(super::refuse_hls_playlist(b"#EXTM3U").is_err());
+        assert!(super::refuse_hls_playlist(b"plain text").is_ok());
     }
 
     #[test]
