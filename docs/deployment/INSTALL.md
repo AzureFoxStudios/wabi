@@ -52,7 +52,7 @@ curl -s http://127.0.0.1:3000/ | grep -qi '<!doctype html' && echo "frontend OK"
 
 `/readyz` should answer `{"engine":"ready","status":"ok"}`. If the second check prints `frontend MISSING`, rebuild the frontend with `STATIC_BUILD=1` and then rebuild the binary (the embed is compile-time). Checking only the status code of `/` is not enough: without a frontend build the server still answers `200` with an empty page.
 
-**Create the owner:** open `http://localhost:3000` (or `http://<this machine's address>:3000` from another computer on your network) in a browser. The first account created becomes the server owner; the setup screens then ask for starter rooms and who can join: **Open** (anyone who can reach the address), **Invite only** (only people you send an invitation link) or **Closed** (nobody, invitations included). See [Inviting someone](#inviting-someone) for what that choice means.
+**Create the owner:** open `http://localhost:3000` (or `http://<this machine's address>:3000` from another computer on your network) in a browser. The first account created becomes the server owner; the setup screens then ask for starter rooms and who can join: **Invite only** (preselected: only people you send an invitation link), **Open** (anyone who can reach the address) or **Closed** (nobody, invitations included). Until a choice is saved, a server that has an owner already behaves as Invite only. See [Inviting someone](#inviting-someone) for what that choice means.
 
 **Prod front:** point Caddy (or cloudflared) at `127.0.0.1:3000`. Edit Caddyfile + `.env` only — no STDB, no node backend.
 
@@ -103,8 +103,8 @@ docker run --rm -p 3001:3000 \
 
 **What each admission mode does:**
 
-- **Open** — anyone who can reach the address can create an account; no invitation needed. With no policy saved, this is also what the server does.
-- **Invite only** — only someone with an unused invitation can create an account. Guests cannot join.
+- **Invite only** — only someone with an unused invitation can create an account. Guests cannot join. Preselected on the setup screen, and what the server does once it has an owner and no choice has been saved (for example if setup was never finished). Someone who tries to register without an invitation is told: "This server is invite only. Ask the server owner for an invitation link."
+- **Open** — anyone who can reach the address can create an account; no invitation needed. Only when chosen and saved.
 - **Closed** — nobody can create an account, not even with an invitation.
 
 The desktop app's hosting screen (`/host`, Tauri builds) has its own invitation button; it uses the same server API.

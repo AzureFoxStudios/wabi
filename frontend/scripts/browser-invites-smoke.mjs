@@ -125,7 +125,7 @@ try {
 	await choices.waitFor();
 	const labels = await choices.locator('.join-option-title').allInnerTexts();
 	assert.deepEqual(labels, ['Open', 'Invite only', 'Closed'], 'Invite only sits between Open and Closed');
-	assert.equal(await choices.locator('input[value="open"]').isChecked(), true, 'the preselected option is unchanged (Open)');
+	assert.equal(await choices.locator('input[value="invite"]').isChecked(), true, 'Invite only is preselected (owner decision); Open and Closed stay one click away');
 	await choices.locator('input[value="invite"]').check();
 	assert.equal(await owner.locator('.join-guest-row').count(), 0, 'guest access is not offered for Invite only (the server refuses guests)');
 	await owner.screenshot({ path: `${evidence}/setup-invite-only-desktop.png` });
@@ -210,7 +210,7 @@ try {
 	await stranger.goto(ORIGIN, { waitUntil: 'domcontentloaded' });
 	const direct = await fetch(`${backend}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'stranger', password: 'Stranger-smoke-4471!' }) });
 	assert.equal(direct.status, 403, 'registration without an invitation is refused by the server');
-	assert.match((await direct.json()).error, /invite is required/);
+	assert.match((await direct.json()).error, /invite only\. Ask the server owner for an invitation link/);
 	await stranger.locator('[data-invite-only]').getByText('This server is invite only.', { exact: false }).waitFor({ timeout: 60000 });
 	assert.equal(await stranger.getByRole('button', { name: /create one|create account/i }).count(), 0, 'no registration form is offered without an invitation');
 	assert.equal(await stranger.locator('.main-content .chat-surface').count(), 0, 'the stranger is not let in');

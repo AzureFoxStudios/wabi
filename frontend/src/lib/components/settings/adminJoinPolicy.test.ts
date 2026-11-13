@@ -8,7 +8,8 @@ describe('Settings › Admin › Who can join reads auth_policy the way the serv
 	test('the wizard choices read back as Open or Closed', () => {
 		expect(joinModeOf(wizardOpen)).toBe('open');
 		expect(joinModeOf({ ...wizardOpen, allowRegister: false })).toBe('closed');
-		expect(joinModeOf(null)).toBe('open');
+		// Nothing saved reads as Invite only, which is what the server enforces then.
+		expect(joinModeOf(null)).toBe('invite');
 	});
 
 	test('a closed or invite mode set elsewhere is shown, never hidden behind "Open"', () => {
@@ -93,8 +94,8 @@ describe('Settings › Admin › Who can join reads auth_policy the way the serv
 	});
 
 	test('the setup screen offers Open, Invite only and Closed, and saves what the server enforces', () => {
-		// The preselected option is one constant; this PR does not change it (owner's decision).
-		expect(SETUP_DEFAULT_JOIN_MODE).toBe('open');
+		// The preselected option is one constant: Invite only (owner's decision, 2026-11-13).
+		expect(SETUP_DEFAULT_JOIN_MODE).toBe('invite');
 		expect(setupPolicy('open', true)).toEqual({ mode: 'open', allowRegister: true, allowGuest: true, emailVerifyRequired: false });
 		expect(setupPolicy('open', false).allowGuest).toBe(false);
 		// Closed is stored the way the wizard always stored it, so older readers agree.

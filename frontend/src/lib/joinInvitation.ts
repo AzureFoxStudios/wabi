@@ -33,7 +33,8 @@ export function explainLinkProblem(href: string): string {
 export function explainJoinRefusal(status: number, serverMessage: string | undefined): string {
 	const message = serverMessage ?? '';
 	if (/invalid, expired, revoked or already used/i.test(message)) return USED_OR_EXPIRED;
-	if (/registration is closed|invite is required|require an invitation/i.test(message)) return SERVER_CLOSED;
+	if (/registration is closed|require an invitation/i.test(message)) return SERVER_CLOSED;
+	if (/invite only/i.test(message)) return 'This server only accepts new members with an invitation, and this one was not accepted. Ask the server owner for a new invitation link.';
 	if (/username already taken/i.test(message)) return 'Someone on this server already has that username. Choose another one; your invitation has not been used.';
 	if (/too many registration attempts|registration is busy/i.test(message)) return 'Too many accounts were tried from this network recently. Wait an hour, then open the same link again.';
 	if (/password/i.test(message) && status === 400) return message;

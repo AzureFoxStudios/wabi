@@ -16,6 +16,7 @@ import { runAdminPolishChecks } from './admin-polish-checks.mjs';
 import { runAdminActionsChecks } from './admin-actions-browser-checks.mjs';
 import { runComposerSendChecks } from './composer-send-polish-checks.mjs';
 import { runMessageDeliveryAppChecks } from './message-delivery-app-checks.mjs';
+import { saveOpenAdmission } from './smoke-admission.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const scratch = await mkdtemp('/tmp/wabi-workspace-smoke-');
@@ -24,6 +25,7 @@ await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
 const port = listener.address().port;
 await new Promise(resolve => listener.close(resolve));
 const backend = `http://127.0.0.1:${port}`;
+saveOpenAdmission(`${scratch}/data`); // registers members directly; no saved policy means invite only
 const server = spawn(process.env.WABI_SMOKE_SERVER_BINARY || fileURLToPath(new URL('../../target/release/wabi-server', import.meta.url)),
 	['--data-dir', `${scratch}/data`, '--host', '127.0.0.1', '--port', String(port)],
 	{ cwd: scratch, env: { PATH: process.env.PATH, WABI_LOG_DIR: `${scratch}/logs` }, stdio: ['ignore', 'pipe', 'pipe'] });

@@ -9,6 +9,7 @@ import { io } from 'socket.io-client';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 import { openDmConversation, waitForAppShell } from './smoke-shell.mjs';
+import { saveOpenAdmission } from './smoke-admission.mjs';
 
 const frontendRoot = fileURLToPath(new URL('../', import.meta.url));
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -21,6 +22,7 @@ const port = listener.address().port;
 await new Promise((resolve) => listener.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
 const binary = process.env.WABI_DM_TEST_BINARY || fileURLToPath(new URL('../../target/debug/wabi-server', import.meta.url));
+saveOpenAdmission(`${scratch}/data`); // registers members directly; no saved policy means invite only
 const server = spawn(binary, ['--data-dir', `${scratch}/data`, '--host', '127.0.0.1', '--port', String(port)], {
 	cwd: scratch, env: { PATH: process.env.PATH, WABI_LOG_DIR: `${scratch}/logs` }, stdio: ['ignore', 'pipe', 'pipe'],
 });

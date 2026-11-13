@@ -56,6 +56,9 @@ fn test_config(data_dir: &Path) -> ServerConfig {
 
 async fn fresh_server() -> (tempfile::TempDir, axum::Router) {
     let tmp = tempfile::TempDir::new().unwrap();
+    // These fixtures register several members directly. With no saved policy a server with an
+    // owner admits by invitation only, so save Open explicitly, as an owner would.
+    std::fs::write(tmp.path().join("admin_policies.json"), r#"{"auth_policy":{"mode":"open","allowRegister":true,"allowGuest":true,"emailVerifyRequired":false}}"#).unwrap();
     let config = test_config(tmp.path());
     let state = Arc::new(AppState::new(config).await.unwrap());
     let app = create_api_router(state.clone()).with_state(state);

@@ -75,7 +75,7 @@ What I found, in order:
 
 - **The browser app has no way to create an invitation.** The only caller of the invitation API in the frontend is the desktop app's hosting screen (`frontend/src/routes/host/+page.svelte`, through a Tauri command). INSTALL.md did not mention invitations at all.
 - **The setup screen offers no "invite only".** It offers Open (anyone who can reach the server registers, invitation or not) or Closed (nobody registers, invitations included).
-- **The default is open registration.** With no admission policy saved, a third account (`stranger`) registered here with no invitation at all.
+- **The default was open registration.** With no admission policy saved, a third account (`stranger`) registered here with no invitation at all. (Since changed: such a server is now invite only; see item 2.)
 - **An invitation link is refused in the browser over plain HTTP unless the address is `localhost` or a private LAN address** (`frontend/src/lib/hostInvites.ts`). A friend on the internet therefore needs HTTPS: INSTALL.md says only "point Caddy (or cloudflared) at 127.0.0.1:3000. Edit Caddyfile + .env" — no Caddyfile, no domain or DNS steps, no firewall/port step.
 
 So "joined by invitation" is reachable only by reading the source:
@@ -95,7 +95,7 @@ Stage 3 as first measured (friend on the same LAN): **2 commands**, **0 files**,
 
 #### Stage 3 after browser invitations
 
-What changed: the setup screen offers **Invite only** between Open and Closed (Open stays preselected; the server's default is unchanged), and **Settings › Admin › Invite someone** creates a one-use link with a lifetime, a copy button and a QR code, lists waiting invitations and cancels them. The link is built from the address the owner is using, and the page says when that address only works on the owner's network, refuses to make a link from `localhost`, and asks for HTTPS on a plain-HTTP public address. The friend's `/join` page explains used, cancelled, expired and closed-server refusals in plain words.
+What changed: the setup screen offers **Invite only** between Open and Closed and preselects it; a server with an owner and no saved policy now admits only by invitation (item 2), and **Settings › Admin › Invite someone** creates a one-use link with a lifetime, a copy button and a QR code, lists waiting invitations and cancels them. The link is built from the address the owner is using, and the page says when that address only works on the owner's network, refuses to make a link from `localhost`, and asks for HTTPS on a plain-HTTP public address. The friend's `/join` page explains used, cancelled, expired and closed-server refusals in plain words.
 
 | # | Action | Notes |
 |---|---|---|
@@ -175,7 +175,7 @@ A risk read from the code, **not run**: the container runs as UID 1000 and the g
 None of these were changed in this PR. Items marked *owner* touch security or data-location defaults and need the owner's decision.
 
 1. **Done (browser invitations).** ~~No invitation button in the browser app, and no "invite only" on the setup screen.~~ Was: add "Create invitation" to the owner's settings (the API, `POST /api/invites`, already exists and is owner-only) and an "Invite only" choice to the setup screen (the `invite` mode already exists in `auth_policy`).
-2. **Registration is open by default** (*owner*). With no policy saved, anyone who can reach the server registers. Once (1) exists, consider making the setup screen's default "Invite only". Not changed: it is an admission/security default.
+2. **Done (owner decided 2026-11-13: invite only).** The setup screen preselects Invite only, and a server with an owner and no saved policy now refuses registration without an invitation ("This server is invite only. Ask the server owner for an invitation link."), with guests refused too; a saved Open/Closed/Invite policy is always respected and the first (owner) account is created as before (`first_boot_onboarding.rs`, `unsaved_admission_policy_is_invite_only_once_an_owner_exists`). Was: **Registration is open by default** (*owner*). With no policy saved, anyone who can reach the server registers. Once (1) exists, consider making the setup screen's default "Invite only". Not changed: it is an admission/security default.
 3. **No prebuilt server.** Every path compiles Rust and the frontend (≥10 minutes, a toolchain, and an npm dependency fetched from `cdn.sheetjs.com`). Publish the container image to a registry so Compose pulls instead of builds, and/or attach `wabi-server` binaries to releases, and say so in the guide.
 4. **Silent terminal, misleading empty page.** Print one line at startup with the address to open, the data directory, the log file and "the first account becomes the owner". Answer `503` with a plain message instead of an empty `200` when the frontend was not built.
 5. **Backup and restore are 8 and 7 hand-typed commands.** A `wabi-server backup <dir>` / `wabi-server restore <backup> <new-dir>` pair that takes the engine lock, refuses a running server and copies the whole data directory would make each one command. (`wabi-instance-snapshot export/restore` exists but needs an age key pair and the uploads path; it is not a beginner's path.)

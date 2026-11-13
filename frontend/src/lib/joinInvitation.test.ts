@@ -12,6 +12,8 @@ describe('the friend sees what happened in plain words', () => {
 
 	test('a closed server is named as closed, not as a bad link', () => {
 		expect(explainJoinRefusal(403, 'Registration is closed on this server')).toBe(SERVER_CLOSED);
+		// Invite-only refusal (also the default once an owner exists and nothing is saved).
+		expect(explainJoinRefusal(403, 'This server is invite only. Ask the server owner for an invitation link')).toMatch(/Ask the server owner for a new invitation link/);
 	});
 
 	test('a taken username says the invitation was not used (the server checks names first)', () => {
