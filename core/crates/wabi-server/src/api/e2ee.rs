@@ -1506,7 +1506,8 @@ mod registry_tests {
         commit_marker(state.wdb.engine(), &readable_record(&ch, 1..=limit), 0).await.unwrap();
         let applied = state.wdb.engine().projection_state().applied_commit_seq();
         match commit_marker_if_changed(&state, &readable_record(&ch, [limit + 1])).await {
-            Err(AppError::Conflict(reason)) => assert!(reason.contains("server-readable"), "{reason}"),
+            // The server's own check, before anything reaches the engine.
+            Err(AppError::Conflict(reason)) => assert!(reason.contains("most server-readable choices"), "{reason}"),
             other => panic!("expected a conflict, got {other:?}"),
         }
         assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), applied);

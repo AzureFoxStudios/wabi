@@ -2033,8 +2033,8 @@ async fn the_policy_lock_is_held_from_recording_an_upload_to_publishing_it() {
 
 /// History reports a room's messages by the server's decision: a readable
 /// message from before the room was encrypted stays not encrypted, the
-/// envelope after it is encrypted, on REST history, join history and
-/// load-history alike.
+/// envelope after it is encrypted, and prefixed text that is not an envelope
+/// is not encrypted, on REST history, join history and load-history alike.
 #[tokio::test]
 async fn history_reports_readable_messages_from_before_encryption_as_not_encrypted() {
     let dir = tempfile::tempdir().unwrap();
@@ -2052,13 +2052,16 @@ async fn history_reports_readable_messages_from_before_encryption_as_not_encrypt
     let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let revision = current_revision(&app, &state, a, &ch).await;
-    state.wdb.send_message(&ch, a, &envelope(&ch, 1, &revision, &da), false, &[]).await.unwrap();
+    let real = envelope(&ch, 1, &revision, &da);
+    state.wdb.send_message(&ch, a, &real, false, &[]).await.unwrap();
+    // Prefixed but not an envelope (stored directly, as an older build could
+    // have): not encrypted, even in an encrypted room.
+    state.wdb.send_message(&ch, a, &format!("{PREFIX}readable text behind the prefix"), false, &[]).await.unwrap();
     let check = |path: &str, list: &[Value]| {
-        assert_eq!(list.len(), 2, "{path}: {list:?}");
+        assert_eq!(list.len(), 3, "{path}: {list:?}");
         for m in list {
             let text = m["text"].as_str().or(m["content"].as_str()).unwrap_or_default();
-            let expected = text.starts_with(PREFIX);
-            assert_eq!(m["encrypted"], expected, "{path}: {m}");
+            assert_eq!(m["encrypted"], text == real, "{path}: {m}");
         }
     };
     let (_, listed) = request(&app, Method::GET, &format!("/messages/{ch}"), &bearer(&state, b), Value::Null).await;
