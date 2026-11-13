@@ -468,7 +468,7 @@ impl AppState {
         );
         ensure_authority_not_fenced(&config.data_dir)?;
         upload_registry.reconcile_revocations(wdb.engine()).await?;
-        crate::api::e2ee::reconcile_room_markers(wdb.engine(), &config.data_dir).await?;
+        crate::api::e2ee::reconcile_room_markers(&wdb, &config.data_dir).await?;
         upload_registry
             .reconcile_published_assets(Path::new(&config.uploads_dir), wdb.engine())
             .await?;

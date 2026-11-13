@@ -262,11 +262,43 @@ fn registry_room(data: &E2eeData, channel_id: &str) -> RegistryRoom {
 }
 
 fn mode_record(channel_id: &str, mode: MarkerMode) -> RoomEncryptionRecord {
-    RoomEncryptionRecord { channel_id: channel_id.to_string(), mode, epoch: 0 }
+    RoomEncryptionRecord { channel_id: channel_id.to_string(), mode, epoch: 0, consenting_user_ids: vec![] }
 }
 
 fn enabled_record(channel_id: &str, epoch: u64) -> RoomEncryptionRecord {
-    RoomEncryptionRecord { channel_id: channel_id.to_string(), mode: MarkerMode::Enabled, epoch }
+    RoomEncryptionRecord { channel_id: channel_id.to_string(), mode: MarkerMode::Enabled, epoch, consenting_user_ids: vec![] }
+}
+
+fn readable_record(channel_id: &str, consenting: impl IntoIterator<Item = i64>) -> RoomEncryptionRecord {
+    let mut ids: Vec<u64> = consenting.into_iter().filter_map(|id| u64::try_from(id).ok()).filter(|id| *id > 0).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    RoomEncryptionRecord { consenting_user_ids: ids, ..mode_record(channel_id, MarkerMode::ServerReadable) }
+}
+
+/// Why the registry's entry for `channel_id` cannot be the source of a
+/// marker (an enabled room without a valid key set, consent from an invalid
+/// id, a mismatched id). Such an entry never moves a marker; it is logged.
+fn registry_entry_problem(data: &E2eeData, channel_id: &str) -> Option<&'static str> {
+    if let Some(room) = data.rooms.get(channel_id).filter(|room| room.enabled) {
+        let device_known = |e: &WrappedRoomKey| {
+            data.devices.iter().any(|d| {
+                d.user_id == e.recipient_user_id && d.device_id == e.recipient_device_id
+                    && valid_key(&d.encryption_public_key) && valid_key(&d.signing_public_key)
+            })
+        };
+        if room.channel_id != channel_id
+            || room.epoch == 0
+            || room.envelopes.is_empty()
+            || !room.envelopes.iter().all(|e| validate_wrapped_key(e, &e.sender_device_id) && device_known(e))
+        {
+            return Some("encrypted room entry without a valid epoch and key set");
+        }
+    }
+    if data.new_room_policies.get(channel_id).is_some_and(|p| p.consenting_user_ids.iter().any(|id| *id <= 0)) {
+        return Some("server-readable choice from an invalid user id");
+    }
+    None
 }
 
 fn read_marker(state: &AppState, channel_id: &str) -> wabidb::error::Result<Option<RoomEncryptionRecord>> {
@@ -340,27 +372,72 @@ impl Refusal {
 /// The registry, checked against the database marker for `channel_id`. Every
 /// decision about readable content in a conversation reads through this.
 async fn read_checked(state: &AppState, channel_id: &str) -> std::result::Result<E2eeData, Refusal> {
-    let data = read_data(&state.config.data_dir).map_err(|_| Refusal::Unavailable(REGISTRY_UNAVAILABLE))?;
-    let marker = read_marker(state, channel_id).map_err(|error| {
+    let mut data = read_data(&state.config.data_dir).map_err(|_| Refusal::Unavailable(REGISTRY_UNAVAILABLE))?;
+    let mut marker = read_marker(state, channel_id).map_err(|error| {
         tracing::error!("[e2ee] room encryption marker unreadable: {error}");
         Refusal::Unavailable(MARKER_UNAVAILABLE)
     })?;
     match coverage(channel_id, marker.as_ref(), registry_room(&data, channel_id)) {
-        Coverage::Covered => Ok(data),
+        Coverage::Covered => {}
         Coverage::RegistryAhead(record) => {
             // The registry is the stricter source here and decides. Bringing
             // the marker up is best effort: a failure leaves it behind, which
             // the next decision or startup retries.
-            if let Err(error) = commit_marker(state.wdb.engine(), &record, 0).await {
-                tracing::warn!("[e2ee] could not bring a room encryption marker up to the registry: {error}");
+            match catch_up_target(state.wdb.as_ref(), &data, channel_id, record).await {
+                Some(record) => match commit_marker(state.wdb.engine(), &record, 0).await {
+                    Ok(()) => marker = read_marker(state, channel_id).ok().flatten(),
+                    Err(error) => tracing::warn!("[e2ee] could not bring a room encryption marker up to the registry: {error}"),
+                },
+                None => {}
             }
-            Ok(data)
         }
         Coverage::Behind(reason) => {
             tracing::warn!("[e2ee] encryption registry is behind the database for a conversation; readable content refused");
-            Err(Refusal::Behind(reason))
+            return Err(Refusal::Behind(reason));
         }
     }
+    // Per-sender consent counts only where the registry and the marker agree:
+    // a registry (older, or from another data directory) that lists a sender
+    // the marker does not is not trusted for that sender.
+    if let (Some(m), Some(policy)) = (marker.as_ref(), data.new_room_policies.get_mut(channel_id)) {
+        if m.mode == MarkerMode::ServerReadable {
+            let before = policy.consenting_user_ids.len();
+            policy.consenting_user_ids.retain(|id| u64::try_from(*id).is_ok_and(|id| m.consenting_user_ids.binary_search(&id).is_ok()));
+            if policy.consenting_user_ids.len() != before {
+                tracing::warn!("[e2ee] the encryption registry lists server-readable choices the database does not record; those senders must choose again");
+            }
+        }
+    }
+    Ok(data)
+}
+
+/// The marker to write when the registry is ahead of it, or `None` when the
+/// registry entry must not move a marker: the id is not an existing DM or
+/// group (a registry may name any id), or the entry does not validate.
+async fn catch_up_target(
+    wdb: &crate::adapter::WdbAdapter,
+    data: &E2eeData,
+    channel_id: &str,
+    mut record: RoomEncryptionRecord,
+) -> Option<RoomEncryptionRecord> {
+    let conversation = matches!(
+        wdb.get_channel(channel_id).await,
+        Ok(Some(channel)) if crate::channel_access::is_conversation(channel.channel_kind)
+    );
+    if !conversation {
+        tracing::warn!("[e2ee] e2ee_state.json names {channel_id}, which is not an existing DM or group; no marker written for it");
+        return None;
+    }
+    if let Some(problem) = registry_entry_problem(data, channel_id) {
+        tracing::warn!("[e2ee] e2ee_state.json entry for {channel_id} is not used for the database marker: {problem}");
+        return None;
+    }
+    if record.mode == MarkerMode::ServerReadable {
+        // Only a room with no marker at all gets here (one from before
+        // markers existed): its registry consent is the only record of it.
+        record = readable_record(channel_id, data.new_room_policies.get(channel_id).map(|p| p.consenting_user_ids.clone()).unwrap_or_default());
+    }
+    Some(record)
 }
 
 async fn commit_marker(
@@ -412,7 +489,8 @@ async fn commit_marker_if_changed(state: &AppState, target: &RoomEncryptionRecor
 /// idempotent; later starts write nothing). A registry behind an existing
 /// marker is left alone and logged; it never weakens the marker. A damaged
 /// registry is skipped: it already refuses every conversation decision.
-pub async fn reconcile_room_markers(engine: &wabidb::engine::WabiDbEngine, data_dir: &str) -> anyhow::Result<()> {
+pub async fn reconcile_room_markers(wdb: &crate::adapter::WdbAdapter, data_dir: &str) -> anyhow::Result<()> {
+    let engine = wdb.engine();
     let data = match read_data(data_dir) {
         Ok(data) => data,
         Err(_) => {
@@ -433,8 +511,10 @@ pub async fn reconcile_room_markers(engine: &wabidb::engine::WabiDbEngine, data_
         match coverage(channel_id, current.as_ref(), registry_room(&data, channel_id)) {
             Coverage::Covered => {}
             Coverage::RegistryAhead(record) => {
-                commit_marker(engine, &record, 0).await?;
-                written += 1;
+                if let Some(record) = catch_up_target(wdb, &data, channel_id, record).await {
+                    commit_marker(engine, &record, 0).await?;
+                    written += 1;
+                }
             }
             Coverage::Behind(_) => behind += 1,
         }
@@ -656,7 +736,13 @@ async fn room_status(
     // A registry behind the database marker still answers: the status shows
     // the marker's state (encrypted at its epoch, or pending), so updated
     // clients run setup again instead of treating the room as readable.
-    let (data, behind) = match read_checked(&state, &channel_id).await {
+    // Under the policy lock: a catch-up commit here must not race a
+    // server-readable choice or an enable.
+    let checked = {
+        let _policy_guard = state.retention_policy_lock.lock().await;
+        read_checked(&state, &channel_id).await
+    };
+    let (data, behind) = match checked {
         Ok(data) => (data, None),
         Err(Refusal::Unavailable(reason)) => return Err(AppError::Internal(reason.into())),
         Err(Refusal::Behind(reason)) => (read_data(&state.config.data_dir)?, Some(reason)),
@@ -769,7 +855,9 @@ async fn allow_server_readable(
             let starts_fresh = marker_mode == Some(MarkerMode::Pending)
                 || registry == RegistryRoom::Pending
                 || (registry == RegistryRoom::Earlier && marker_mode == Some(MarkerMode::ServerReadable));
-            commit_marker_if_changed(&state, &mode_record(&channel_id, MarkerMode::ServerReadable)).await?;
+            // The marker records who chose, so a registry listing more
+            // consenting senders cannot widen it.
+            commit_marker_if_changed(&state, &readable_record(&channel_id, [auth.user_id])).await?;
             mutate_data(&state.config.data_dir, |data| {
                 if data.rooms.get(&channel_id).is_some_and(|room| room.enabled) {
                     return Err(AppError::Conflict(
@@ -1217,7 +1305,7 @@ mod registry_tests {
         assert!(validate_outbound_message(&state, "dm-test", 1, "private-canary").await
             .unwrap_err().contains("e2ee_state.json"));
         // The real transition writes the marker first.
-        commit_marker(state.wdb.engine(), &mode_record("dm-test", MarkerMode::ServerReadable), 1).await.unwrap();
+        commit_marker(state.wdb.engine(), &readable_record("dm-test", [1]), 1).await.unwrap();
         assert!(!validate_outbound_message(&state, "dm-test", 1, "private-canary").await.unwrap());
         assert!(validate_outbound_message(&state, "dm-test", 2, "private-canary").await
             .unwrap_err().contains("your own device"));
@@ -1227,6 +1315,142 @@ mod registry_tests {
         mark_new_room_pending(&state, "dm-test").await.unwrap();
         assert!(validate_outbound_message(&state, "dm-test", 1, "private-canary").await.is_err());
         assert_eq!(read_data(dir).unwrap().new_room_policies["dm-test"].mode, NewRoomMode::PendingEncryption);
+    }
+
+    async fn test_group(state: &AppState, id: &str) -> String {
+        let a = state.wdb.create_user(&format!("{id}-a"), None, "hash").await.unwrap();
+        let b = state.wdb.create_user(&format!("{id}-b"), None, "hash").await.unwrap();
+        let ch = format!("group-{id}");
+        state.wdb.create_group(&ch, id, a, &[a, b]).await.unwrap();
+        ch
+    }
+
+    /// A registry room entry that validates: two devices and keys wrapped to both.
+    fn valid_enabled_entry(data: &mut E2eeData, ch: &str, epoch: u64) {
+        let key = || format!("{}AAAAAAAAAAAA", uuid::Uuid::new_v4().simple());
+        let mut envelopes = vec![];
+        for uid in [1i64, 2] {
+            let device = format!("device-{uid}-1");
+            data.devices.push(DeviceBundle {
+                user_id: uid, device_id: device.clone(), label: None,
+                encryption_public_key: key(), signing_public_key: key(),
+                created_at: String::new(), last_seen_at: String::new(), revoked_at: None,
+            });
+            envelopes.push(WrappedRoomKey {
+                recipient_user_id: uid, recipient_device_id: device,
+                ephemeral_public_key: key(), salt: "c2FsdA".into(), iv: "aXY".into(),
+                ciphertext: "wrapped".into(), sender_device_id: "device-1-1".into(), signature: "c2ln".into(),
+            });
+        }
+        data.rooms.insert(ch.into(), RoomState {
+            channel_id: ch.into(), enabled: true, epoch, membership_revision: 0,
+            enabled_by_user_id: 1, enabled_at: String::new(), rekeyed_at: String::new(), envelopes,
+        });
+    }
+
+    fn marker_of(state: &AppState, ch: &str) -> Option<RoomEncryptionRecord> {
+        read_marker(state, ch).unwrap()
+    }
+
+    /// The privacy label follows the marker when the registry lost the room.
+    #[tokio::test]
+    async fn room_is_enabled_follows_the_marker_without_a_registry_entry() {
+        let (_directory, state) = make_test_state().await;
+        let ch = test_group(&state, "label").await;
+        assert!(!room_is_enabled(&state, &ch).await.unwrap());
+        commit_marker(state.wdb.engine(), &enabled_record(&ch, 2), 0).await.unwrap();
+        assert!(room_is_enabled(&state, &ch).await.unwrap());
+    }
+
+    /// Integration announcements (Lore) are server-written readable text: a
+    /// registry behind the marker blocks them.
+    #[tokio::test]
+    async fn server_content_is_blocked_when_the_registry_is_behind_the_marker() {
+        let (_directory, state) = make_test_state().await;
+        for (id, record) in [("blocks-p", None), ("blocks-e", Some(2u64))] {
+            let ch = test_group(&state, id).await;
+            assert!(!room_blocks_server_content(&state, &ch).await.unwrap());
+            let marker = match record {
+                Some(epoch) => enabled_record(&ch, epoch),
+                None => readable_record(&ch, [1]),
+            };
+            commit_marker(state.wdb.engine(), &marker, 0).await.unwrap();
+            assert!(room_blocks_server_content(&state, &ch).await.unwrap(), "{id}");
+        }
+    }
+
+    /// A decision (not startup) that sees the registry ahead brings the
+    /// marker up, for an existing conversation only.
+    #[tokio::test]
+    async fn a_decision_brings_the_marker_up_to_a_registry_ahead_of_it() {
+        let (directory, state) = make_test_state().await;
+        let dir = directory.path().to_str().unwrap();
+        let ch = test_group(&state, "catch-up").await;
+        mutate_data(dir, |data| {
+            data.new_room_policies.insert(ch.clone(), NewRoomPolicy {
+                mode: NewRoomMode::PendingEncryption, created_at: String::new(),
+                chosen_by_user_id: None, consenting_user_ids: BTreeSet::new(),
+            });
+            Ok(())
+        }).unwrap();
+        assert!(marker_of(&state, &ch).is_none());
+        assert!(validate_outbound_message(&state, &ch, 1, "plain").await.is_err());
+        assert_eq!(marker_of(&state, &ch).map(|m| m.mode), Some(MarkerMode::Pending));
+        // An enabled entry ahead of a pending marker brings it to Enabled.
+        mutate_data(dir, |data| { valid_enabled_entry(data, &ch, 3); Ok(()) }).unwrap();
+        assert!(validate_outbound_message(&state, &ch, 1, "plain").await.is_err());
+        assert_eq!(marker_of(&state, &ch), Some(enabled_record(&ch, 3)));
+        // Not for an id that is not a conversation (M1), nor from an entry
+        // that does not validate (M2).
+        let public = state.wdb.create_channel("public", wabidb::domain::ChannelKind::Text, 1, false).await.unwrap();
+        let ghost = "group-never-created".to_string();
+        let broken = test_group(&state, "broken").await;
+        mutate_data(dir, |data| {
+            for id in [&public, &ghost] {
+                data.new_room_policies.insert(id.to_string(), NewRoomPolicy {
+                    mode: NewRoomMode::PendingEncryption, created_at: String::new(),
+                    chosen_by_user_id: None, consenting_user_ids: BTreeSet::new(),
+                });
+            }
+            valid_enabled_entry(data, &broken, 0);
+            Ok(())
+        }).unwrap();
+        for id in [&public, &ghost, &broken] {
+            let _ = validate_outbound_message(&state, id, 1, "plain").await;
+            assert!(marker_of(&state, id).is_none(), "{id}");
+        }
+        // Startup reconcile skips them too, and does not stop.
+        reconcile_room_markers(&state.wdb, dir).await.unwrap();
+        for id in [&public, &ghost, &broken] {
+            assert!(marker_of(&state, id).is_none(), "{id}");
+        }
+    }
+
+    /// A conversation id that was encrypted before (stable DM ids come back
+    /// after deletion) is never marked pending.
+    #[tokio::test]
+    async fn a_previously_encrypted_id_is_not_marked_pending() {
+        let (directory, state) = make_test_state().await;
+        let dir = directory.path().to_str().unwrap();
+        let ch = "dm-user-1-user-2";
+        mutate_data(dir, |data| { valid_enabled_entry(data, ch, 4); Ok(()) }).unwrap();
+        mark_new_room_pending(&state, ch).await.unwrap();
+        assert_eq!(marker_of(&state, ch), Some(enabled_record(ch, 4)));
+        assert!(!read_data(dir).unwrap().new_room_policies.contains_key(ch));
+    }
+
+    /// Writing the marker it already holds commits nothing.
+    #[tokio::test]
+    async fn an_unchanged_marker_is_not_committed_again() {
+        let (_directory, state) = make_test_state().await;
+        let ch = test_group(&state, "unchanged").await;
+        commit_marker_if_changed(&state, &readable_record(&ch, [5, 9])).await.unwrap();
+        let applied = state.wdb.engine().projection_state().applied_commit_seq();
+        commit_marker_if_changed(&state, &readable_record(&ch, [9])).await.unwrap();
+        commit_marker_if_changed(&state, &readable_record(&ch, [5, 9])).await.unwrap();
+        assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), applied);
+        commit_marker_if_changed(&state, &readable_record(&ch, [7])).await.unwrap();
+        assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), applied + 1);
     }
 
     #[test]

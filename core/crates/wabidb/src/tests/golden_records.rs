@@ -779,6 +779,7 @@ fn every_durable_record_is_versioned() {
                     channel_id: "dm_1_2".into(),
                     mode: crate::projections::room_encryption::RoomEncryptionMode::Pending,
                     epoch: 0,
+                    consenting_user_ids: vec![],
                 },
             ),
         ),

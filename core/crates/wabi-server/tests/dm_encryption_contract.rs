@@ -1642,7 +1642,9 @@ async fn crash_between_marker_and_registry_writes_resolves_in_the_safe_direction
     // Startup brought every marker up to the registry before any decision.
     assert_eq!(room_marker(&state, &enabled), Some((Mode::Enabled, 3)));
     assert_eq!(room_marker(&state, late), Some((Mode::Enabled, 1)));
-    assert_eq!(room_marker(&state, "group-crash-pending-late"), Some((Mode::Pending, 0)));
+    // The pending group was created after the copy: in this database it does
+    // not exist, so its registry entry writes no marker (a create would).
+    assert_eq!(room_marker(&state, "group-crash-pending-late"), None);
     let app = http(&state);
     for (ch, epoch) in [(enabled.as_str(), 3), (late, 1)] {
         let revision = current_revision(&app, &state, a, ch).await;
@@ -1659,6 +1661,193 @@ async fn crash_between_marker_and_registry_writes_resolves_in_the_safe_direction
     let state = open_server(older_config).await;
     assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), applied, "a second start committed again");
     assert_eq!(room_marker(&state, &enabled), Some((Mode::Enabled, 3)));
+}
+
+/// A new DM through the real create path's order (marker, registry, channel).
+async fn pending_dm(state: &Arc<AppState>, a: u64, b: u64) -> String {
+    let mut members = vec![format!("user-{a}"), format!("user-{b}")];
+    members.sort();
+    let ch = format!("dm-{}", members.join("-"));
+    wabi_server::api::e2ee::mark_new_room_pending(state, &ch).await.unwrap();
+    state.wdb.create_dm_channel(&ch, "DM", Some(&members), a as i64).await.unwrap();
+    ch
+}
+
+async fn choose_readable(app: &Router, state: &AppState, uid: u64, ch: &str) -> StatusCode {
+    request(app, Method::POST, &format!("/e2ee/channels/{ch}/allow-server-readable"), &bearer(state, uid), Value::Null).await.0
+}
+
+async fn send_rest(app: &Router, state: &AppState, uid: u64, ch: &str, text: &str) -> (StatusCode, Value) {
+    request(app, Method::POST, "/messages", &bearer(state, uid), json!({"channel_id":ch,"content":text})).await
+}
+
+fn registry_consents(dir: &Path, ch: &str) -> Vec<i64> {
+    let registry: Value = serde_json::from_slice(&std::fs::read(registry_file(dir)).unwrap()).unwrap();
+    serde_json::from_value(registry["newRoomPolicies"][ch]["consentingUserIds"].clone()).unwrap_or_default()
+}
+
+/// Per-sender server-readable consent is durable too. A registry that lists
+/// a consenting sender the database does not record (an older copy from a
+/// previous period of a recreated DM, or a copy from another data directory)
+/// is not trusted for that sender: they are refused and their client is told
+/// to ask again. Consent from before a return to pending is not carried over.
+#[tokio::test]
+async fn server_readable_consent_from_an_older_or_foreign_registry_is_not_trusted() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let a = user(&state, "consent-a").await;
+    let b = user(&state, "consent-b").await;
+    let dm = pending_dm(&state, a, b).await;
+    for uid in [a, b] {
+        assert_eq!(choose_readable(&app, &state, uid, &dm).await, StatusCode::OK);
+    }
+    assert_eq!(send_rest(&app, &state, b, &dm, "b in the first period").await.0, StatusCode::OK);
+    let both_chose = std::fs::read(registry_file(dir.path())).unwrap();
+
+    // Delete and recreate: the same stable id starts pending again.
+    state.wdb.delete_channel(&dm, a).await.unwrap();
+    assert_eq!(pending_dm(&state, a, b).await, dm);
+    assert_eq!(room_marker(&state, &dm), Some((Mode::Pending, 0)));
+
+    // (S2b) The older copy restored while the DM is still pending: it is
+    // weaker than the marker, so everyone is refused; a's choice then starts
+    // a fresh consent set in the registry that does not carry b over.
+    let recreated = std::fs::read(registry_file(dir.path())).unwrap();
+    std::fs::write(registry_file(dir.path()), &both_chose).unwrap();
+    for uid in [a, b] {
+        let (status, body) = send_rest(&app, &state, uid, &dm, "while pending").await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    }
+    assert_eq!(choose_readable(&app, &state, a, &dm).await, StatusCode::OK);
+    assert_eq!(registry_consents(dir.path(), &dm), vec![a as i64], "consent carried over from the earlier period");
+    let (status, body) = send_rest(&app, &state, b, &dm, "b without choosing").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.to_string().contains("your own device"), "{body}");
+    let _ = recreated;
+
+    // Scenario A: the older backup (a and b chose) restored over a restart.
+    drop(app);
+    drop(state);
+    std::fs::write(registry_file(dir.path()), &both_chose).unwrap();
+    let state = open_server(config).await;
+    let app = http(&state);
+    let (status, body) = send_rest(&app, &state, b, &dm, "b via the older backup").await;
+    assert_ne!(status, StatusCode::OK, "older consent trusted: {body}");
+    assert!(body.to_string().contains("your own device"), "{body}");
+    let (_, status) = room_status(&app, &state, b, &dm).await;
+    assert_eq!(status["serverReadableAllowedByMe"], false, "{status}");
+    let (_, status) = room_status(&app, &state, a, &dm).await;
+    assert_eq!(status["serverReadableAllowedByMe"], true, "{status}");
+    assert_eq!(send_rest(&app, &state, a, &dm, "a chose in this period").await.0, StatusCode::OK);
+
+    // Scenario B: a registry from elsewhere naming this room with more consent.
+    let mut foreign: Value = serde_json::from_slice(&std::fs::read(registry_file(dir.path())).unwrap()).unwrap();
+    foreign["newRoomPolicies"][&dm]["consentingUserIds"] = json!([a, b, 999]);
+    std::fs::write(registry_file(dir.path()), serde_json::to_vec(&foreign).unwrap()).unwrap();
+    let (status, body) = send_rest(&app, &state, b, &dm, "b via a foreign registry").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    // b's own choice is what admits b.
+    assert_eq!(choose_readable(&app, &state, b, &dm).await, StatusCode::OK);
+    assert_eq!(send_rest(&app, &state, b, &dm, "b chose").await.0, StatusCode::OK);
+}
+
+/// (S2a) An older registry from a room's server-readable period, restored
+/// after the room was encrypted, is weaker than the marker: refused, and the
+/// marker stays encrypted.
+#[tokio::test]
+async fn a_server_readable_registry_restored_over_an_encrypted_room_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let a = user(&state, "sr-enc-a").await;
+    let b = user(&state, "sr-enc-b").await;
+    let ch = pending_group(&state, "sr-enc", &[a, b]).await;
+    for uid in [a, b] {
+        assert_eq!(choose_readable(&app, &state, uid, &ch).await, StatusCode::OK);
+    }
+    let readable_period = std::fs::read(registry_file(dir.path())).unwrap();
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let (status, body) = set_room(&app, &state, (a, &da), &ch, 1, &[(a, da.clone()), (b, db)], false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    drop(app);
+    drop(state);
+    std::fs::write(registry_file(dir.path()), &readable_period).unwrap();
+    let state = open_server(config).await;
+    let app = http(&state);
+    let (status, body) = send_rest(&app, &state, a, &ch, "plaintext via the readable-period registry").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_registry_reason("readable-period registry", &body);
+    assert_eq!(room_marker(&state, &ch), Some((Mode::Enabled, 1)));
+}
+
+/// (M2) Valid JSON that holds invalid entries (an encrypted room at epoch 0,
+/// a 300-byte or empty key) does not stop startup and never becomes a
+/// marker; the entries keep refusing plaintext from the registry side.
+#[tokio::test]
+async fn invalid_registry_entries_neither_stop_startup_nor_become_markers() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let a = user(&state, "invalid-a").await;
+    let b = user(&state, "invalid-b").await;
+    let mut rooms = vec![];
+    for id in ["epoch0", "longkey", "emptykey"] {
+        let ch = format!("group-invalid-{id}");
+        state.wdb.create_group(&ch, id, a, &[a, b]).await.unwrap();
+        rooms.push(ch);
+    }
+    drop(state);
+    let device = |uid: u64, key: &str| json!({"userId":uid,"deviceId":device_id(uid, 1),"label":null,"encryptionPublicKey":key,"signingPublicKey":opaque_key(),"createdAt":"","lastSeenAt":"","revokedAt":null});
+    let envelope_to = |uid: u64| json!({"recipientUserId":uid,"recipientDeviceId":device_id(uid, 1),"ephemeralPublicKey":opaque_key(),"salt":"c2FsdA","iv":"aXY","ciphertext":"w","senderDeviceId":device_id(a, 1),"signature":"c2ln"});
+    let room = |ch: &str, epoch: u64| json!({"channelId":ch,"enabled":true,"epoch":epoch,"membershipRevision":0,"enabledByUserId":a,"enabledAt":"","rekeyedAt":"","envelopes":[envelope_to(a), envelope_to(b)]});
+    let registry = json!({
+        "devices": [device(a, &"A".repeat(300)), device(b, "")],
+        "rooms": { &rooms[0]: room(&rooms[0], 0), &rooms[1]: room(&rooms[1], 1), &rooms[2]: room(&rooms[2], 2) },
+        "newRoomPolicies": {},
+    });
+    std::fs::write(registry_file(dir.path()), serde_json::to_vec(&registry).unwrap()).unwrap();
+    let state = open_server(config).await;
+    let app = http(&state);
+    for ch in &rooms {
+        assert_eq!(room_marker(&state, ch), None, "{ch}: invalid entry became a marker");
+        let (status, body) = send_rest(&app, &state, a, ch, "plaintext").await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{ch}: {body}");
+    }
+}
+
+/// (M6) After a lost registry a member who never comes back blocks the
+/// rekey ("Missing user IDs"); the group removes them and then rekeys.
+#[tokio::test]
+async fn a_member_who_never_returns_is_removed_and_the_room_rekeyed() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let room = encrypted_group(&app, &state, "never-returns", &["a", "b", "gone"]).await;
+    drop(app);
+    drop(state);
+    install_registry(dir.path(), None);
+    let state = open_server(config).await;
+    let app = http(&state);
+    let (a, b, gone) = (room.users[0], room.users[1], room.users[2]);
+    let (da, db) = (device_id(a, 1), device_id(b, 1));
+    register_device(&app, &state, a, &da).await;
+    register_device(&app, &state, b, &db).await;
+    let recipients = [(a, da.clone()), (b, db.clone())];
+    let (status, body) = set_room(&app, &state, (a, &da), &room.ch, 2, &recipients, true).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.to_string().contains("Missing user IDs"), "{body}");
+    state.wdb.remove_channel_member(&room.ch, gone).await.unwrap();
+    let (status, body) = set_room(&app, &state, (a, &da), &room.ch, 2, &recipients, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let revision = current_revision(&app, &state, a, &room.ch).await;
+    let (status, body) = send_rest(&app, &state, a, &room.ch, &envelope(&room.ch, 2, &revision, &da)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
 }
 
 /// "encrypted" on a relayed or listed message is the server's decision, not

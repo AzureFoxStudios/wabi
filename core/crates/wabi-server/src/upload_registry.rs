@@ -955,6 +955,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publish_bytes_refuses_an_hls_playlist_a_caller_did_not_check() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let uploads = temp.path().join("uploads");
+        std::fs::create_dir(&data).unwrap();
+        let registry = UploadRegistry::new_persistent(&data).unwrap();
+        let engine = test_engine(&temp.path().join("wabidb")).await;
+        let error = registry
+            .publish_bytes(&uploads, &engine, "clip.mp4", "clip.mp4", None, None, Some(1), UploadKind::Attachment, b"#EXTM3U\nhttps://x.invalid/a.ts\n")
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(!uploads.join("clip.mp4").exists());
+        assert!(registry.get("clip.mp4").await.is_none());
+    }
+
+    #[tokio::test]
     async fn roundtrip_record_reload_list() {
         let tmp = std::env::temp_dir().join(format!("wabi-upload-reg-test-{}", Uuid::new_v4()));
         let reg = UploadRegistry::new_persistent(&tmp).unwrap();
