@@ -1,6 +1,7 @@
 [package]
 name = "wabi-server"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Wabi self-hosted authority/helper/anchor server"
 license = "MIT"

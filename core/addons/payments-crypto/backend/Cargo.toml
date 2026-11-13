@@ -1,6 +1,7 @@
 [package]
 name = "wabi-payments-crypto"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Wabi payments-crypto addon: non-custodial crypto pointers (USDC Base/SOL, USDT TRC-20, BTC BIP21, Lightning LNURL/BOLT12, Monero) with validation and URI/QR rendering"
 license = "MIT"
