@@ -216,8 +216,12 @@ channel policy; October's new surface is `game:*`.
 Global layers in `app_router.rs` (rate limiting, IP deny, JSON body budget,
 `RequestBodyLimitLayer`/`DefaultBodyLimit`, CORS, compression, tracing,
 `TimeoutLayer`) are **not** authorization and are not counted as a guard.
-`/health`, `/livez`, `/readyz` and `/metrics` are deliberately unauthenticated
-operational endpoints (`/metrics` gated by `WABI_METRICS_PUBLIC`).
+`/health`, `/livez` and `/readyz` are deliberately unauthenticated operational
+endpoints. At the time of this audit `/metrics` was also served without
+authentication: nothing read `WABI_METRICS_PUBLIC`, although INSTALL.md said it
+was admin-gated. Corrected afterwards: `/metrics` now requires an admin
+(`admin_auth`) or `WABI_METRICS_TOKEN`, and is open only when
+`WABI_METRICS_PUBLIC=1` (contract: `tests/metrics_access_contract.rs`).
 
 ### 3.3 Bug-class pass
 

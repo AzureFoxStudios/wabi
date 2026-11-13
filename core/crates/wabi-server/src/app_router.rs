@@ -454,8 +454,71 @@ async fn readiness_check(
     }
 }
 
+/// Who may read `/metrics`. Resolved once from the environment when the
+/// router is built (see docs/deployment/INSTALL.md).
+#[derive(Clone)]
+struct MetricsAccess {
+    /// `WABI_METRICS_PUBLIC` is `1`/`true`/`yes`: no authentication at all.
+    public: bool,
+    /// `WABI_METRICS_TOKEN`: a scrape secret accepted as
+    /// `Authorization: Bearer <token>`. Only opens `/metrics`.
+    scrape_token: Option<String>,
+}
+
+impl MetricsAccess {
+    fn from_env() -> Self {
+        let public = std::env::var("WABI_METRICS_PUBLIC")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes"));
+        let scrape_token = std::env::var("WABI_METRICS_TOKEN")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        if public {
+            tracing::warn!(
+                "WABI_METRICS_PUBLIC is set: /metrics is served without authentication. \
+                 Unset it, or use WABI_METRICS_TOKEN, if this server is reachable from the internet."
+            );
+        }
+        Self { public, scrape_token }
+    }
+
+    fn token_matches(&self, headers: &HeaderMap) -> bool {
+        let Some(expected) = self.scrape_token.as_deref() else { return false };
+        let Some(provided) = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+        else {
+            return false;
+        };
+        // Constant-time compare (same pattern as the sync token guard).
+        if expected.len() != provided.len() {
+            return false;
+        }
+        expected
+            .bytes()
+            .zip(provided.bytes())
+            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+            == 0
+    }
+}
+
 /// Prometheus metrics endpoint. Reads from the global static state.
-async fn metrics_handler() -> axum::response::Response {
+///
+/// Admin-only (the same `admin_auth` check the `/api/admin` routes use), or a
+/// matching `WABI_METRICS_TOKEN`, unless `WABI_METRICS_PUBLIC` opened it.
+async fn metrics_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(access): axum::Extension<MetricsAccess>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    if !access.public && !access.token_matches(&headers) {
+        if let Err(resp) = crate::api::admin::admin_auth(&headers, &state).await {
+            return resp;
+        }
+    }
     let body = crate::metrics::render_prometheus();
     (
         axum::http::StatusCode::OK,
@@ -829,8 +892,12 @@ pub fn build_app_router(state: Arc<AppState>) -> Router {
         .route("/livez", get(liveness_check))
         // Readiness probe — engine is answering
         .route("/readyz", get(readiness_check))
-        // Prometheus metrics (public if WABI_METRICS_PUBLIC=true)
-        .route("/metrics", get(metrics_handler))
+        // Prometheus metrics: admin or WABI_METRICS_TOKEN; open to everyone
+        // only when WABI_METRICS_PUBLIC=1 (warned at startup).
+        .route(
+            "/metrics",
+            get(metrics_handler).layer(axum::Extension(MetricsAccess::from_env())),
+        )
         // API routes — timeout + metrics scoped to /api so uploads and
         // static SPA fallback are NOT cut by the timeout.
         .nest(
