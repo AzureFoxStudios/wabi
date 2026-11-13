@@ -524,10 +524,17 @@ async fn plaintext_entry_paths(
     accepted
 }
 
-/// Point 1 for an existing room that a participant enabled, and for a new DM
-/// that went pending -> enabled through the real Socket.IO create path.
+/// Point 1 for the message-shaped paths: Socket.IO `message` (plain and with
+/// reply/quote metadata), REST `/api/messages`, shared conversation notes,
+/// forum threads/posts and Socket.IO `create-thread`, the bot post and the
+/// Socket.IO edit. Run for an existing room that a participant enabled and
+/// for a new DM that went pending -> enabled through the real create path.
+/// The other surfaces are covered by
+/// `feature_surfaces_refuse_readable_text_in_encrypted_and_pending_conversations`
+/// (wiki, albums, gallery, incidents, whiteboards, uploads) and
+/// `encrypted_messages_carry_only_server_issued_upload_references` (files).
 #[tokio::test]
-async fn plaintext_is_refused_on_every_entry_path_of_an_encrypted_room() {
+async fn plaintext_is_refused_on_message_note_forum_bot_and_edit_paths_of_an_encrypted_room() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let app = router(&state);
@@ -621,15 +628,16 @@ async fn plaintext_is_refused_on_every_entry_path_of_an_encrypted_room() {
     let edit_error = sio_a.event("edit-error").await;
     assert!(edit_error["error"].as_str().unwrap().contains("encrypted"), "{edit_error}");
 
-    // A ciphertext message with plaintext reply/quote metadata: the envelope
-    // is accepted, and nothing outside the envelope is kept or relayed.
+    // A ciphertext message with plaintext reply/quote/GIF metadata: the
+    // envelope is accepted, and that metadata is neither stored nor relayed.
+    // (File references beside an envelope have their own test.)
     let quoted = group.envelope(&app, &state, 0, 2).await;
     let (event, body) = sio_a
         .send(json!({
             "channelId":group.ch,"clientMessageId":"p1-quoted","text":quoted,
             "replyTo":{"id":cipher_id,"text":format!("{marker} quoted beside ciphertext")},
             "entities":[{"type":"quote","text":format!("{marker} entity")}],
-            "fileName": format!("{marker}.png"), "gifUrl": format!("https://example.invalid/{marker}"),
+            "gifUrl": format!("https://example.invalid/{marker}"), "emojiName": format!("{marker} emoji"),
         }))
         .await;
     assert_eq!(event, "message-accepted", "{body}");
@@ -645,7 +653,8 @@ async fn plaintext_is_refused_on_every_entry_path_of_an_encrypted_room() {
     }
     let seen = sio_a.drain().await;
     assert!(!seen.contains(&format!("{marker} quoted beside")), "relayed reply plaintext: {seen}");
-    assert!(!seen.contains(&format!("{marker}.png")), "relayed file name: {seen}");
+    assert!(!seen.contains(&format!("example.invalid/{marker}")), "relayed GIF URL: {seen}");
+    assert!(!seen.contains(&format!("{marker} emoji")), "relayed emoji name: {seen}");
     let notes = std::fs::read_to_string(dir.path().join("conversation_notes.json")).unwrap_or_default();
     assert!(!notes.contains(&marker));
 }
@@ -1071,10 +1080,13 @@ async fn missing_registry_does_not_reopen_plaintext_in_a_room_with_ciphertext_hi
     assert_ne!(status, StatusCode::OK, "plaintext accepted after registry loss: {body}");
 }
 
-/// Records what actually happens today when the registry file is missing, so
-/// the finding above is observed by the suite rather than only described.
+/// KNOWN GAP RECORD, not a desired behaviour. This test deliberately asserts
+/// the vulnerable behaviour that exists today (a missing registry re-admits
+/// plaintext), so the gap stays visible in every run. It is to be inverted by
+/// the follow-up that adds a durable per-room encryption marker in WabiDB, at
+/// which point the ignored test above becomes the real contract.
 #[tokio::test]
-async fn missing_registry_behaviour_is_observed() {
+async fn known_gap_missing_registry_currently_readmits_plaintext() {
     let dir = tempfile::tempdir().unwrap();
     let config = server_config(dir.path());
     let state = open_server(config.clone()).await;
@@ -1105,7 +1117,7 @@ async fn missing_registry_behaviour_is_observed() {
         json!({"channel_id":room.ch,"content":"plaintext after registry loss"}),
     )
     .await;
-    // Current behaviour (the finding): accepted as server-readable.
+    // KNOWN GAP: accepted as server-readable. Invert with the follow-up fix.
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -2025,4 +2037,195 @@ async fn bots_post_in_a_new_room_only_after_every_human_member_chose_server_read
     assert_eq!(status, StatusCode::OK, "{body}");
     let contents = stored(&state, &group).await;
     assert_eq!(contents, vec!["bot after everyone chose".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// Round 2: one test per check that a mutation run showed was unguarded
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn new_forum_post_in_existing_thread_is_refused_after_encryption_and_on_a_damaged_registry() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "forum2-a").await;
+    let b = user(&state, "forum2-b").await;
+    let ch = "group-forum2";
+    state.wdb.create_group(ch, "forum2", a, &[a, b]).await.unwrap();
+    let auth = bearer(&state, a);
+    let (status, thread) = request(&app, Method::POST, &format!("/forum/{ch}/threads"), &auth, json!({"title":"t","body":"before"})).await;
+    assert_eq!(status, StatusCode::OK, "{thread}");
+    let thread_id = thread["thread_id"].as_str().unwrap().to_string();
+    for (uid, device) in [(a, device_id(a, 1)), (b, device_id(b, 1))] {
+        register_device(&app, &state, uid, &device).await;
+    }
+    let (status, _) = set_room(&app, &state, (a, &device_id(a, 1)), ch, 1, &[(a, device_id(a, 1)), (b, device_id(b, 1))], false).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = request(
+        &app,
+        Method::POST,
+        &format!("/forum/{ch}/threads/{thread_id}/posts"),
+        &auth,
+        json!({"body":"PLAINTEXT reply after encryption"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    // Damaged registry: conversations fail closed. An ordinary room never
+    // reads the registry, so its forum keeps working.
+    let text = state.wdb.create_channel("general", wabidb::domain::ChannelKind::Text, a, false).await.unwrap();
+    state.wdb.add_channel_member(&text, a, MemberRole::Member).await.unwrap();
+    std::fs::write(dir.path().join("e2ee_state.json"), b"{damaged").unwrap();
+    let (status, body) = request(&app, Method::POST, &format!("/forum/{ch}/threads"), &auth, json!({"title":"t","body":"damaged"})).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "conversation with damaged registry: {body}");
+    let (status, body) = request(&app, Method::POST, &format!("/forum/{text}/threads"), &auth, json!({"title":"t","body":"public"})).await;
+    assert_eq!(status, StatusCode::OK, "ordinary room must not depend on the registry: {body}");
+    assert!(state.wdb.list_forum_posts(ch, &thread_id).await.unwrap().iter().all(|p| !p.body.contains("PLAINTEXT")));
+}
+
+#[tokio::test]
+async fn revision_device_set_and_sender_checks_each_refuse_on_their_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let room = encrypted_group(&app, &state, "standalone", &["a", "b"]).await;
+    let (a, b) = (room.users[0], room.users[1]);
+    let send = |content: String| {
+        let (app, auth, ch) = (app.clone(), bearer(&state, a), room.ch.clone());
+        async move { request(&app, Method::POST, "/messages", &auth, json!({"channel_id":ch,"content":content})).await }
+    };
+    let revision = current_revision(&app, &state, a, &room.ch).await;
+
+    // Sender device must be registered to the sending account.
+    let (status, body) = send(envelope(&room.ch, 1, &revision, &room.devices[1])).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a used b's device: {body}");
+    assert!(body.to_string().contains("unregistered or revoked device"), "{body}");
+
+    // Device set changes, revision does not: only the device-set check refuses.
+    let old = envelope(&room.ch, 1, &revision, &room.devices[0]);
+    register_device(&app, &state, b, &device_id(b, 2)).await;
+    assert_eq!(current_revision(&app, &state, a, &room.ch).await, revision);
+    let (status, body) = send(old.clone()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "device set changed: {body}");
+    assert!(body.to_string().contains("device set changed"), "{body}");
+    let mut recipients = room.recipients(&[0, 1]);
+    recipients.push((b, device_id(b, 2)));
+    let (status, body) = set_room(&app, &state, room.device(0), &room.ch, 2, &recipients, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Revision changes, device set does not (the new member has no device yet,
+    // so the expected devices are unchanged): only the revision check refuses.
+    let fresh = envelope(&room.ch, 2, &revision, &room.devices[0]);
+    let late = user(&state, "standalone-late").await;
+    state.wdb.add_channel_member(&room.ch, late, MemberRole::Member).await.unwrap();
+    assert_ne!(current_revision(&app, &state, a, &room.ch).await, revision);
+    let (status, body) = send(fresh).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "membership changed: {body}");
+    assert!(body.to_string().contains("membership changed"), "{body}");
+}
+
+#[tokio::test]
+async fn device_identities_cannot_be_silently_replaced_or_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let a = user(&state, "devices-a").await;
+    let device = device_id(a, 1);
+    register_device(&app, &state, a, &device).await;
+    let (status, _) = request(
+        &app,
+        Method::POST,
+        "/e2ee/devices",
+        &bearer(&state, a),
+        json!({"deviceId":device,"encryptionPublicKey":opaque_key(),"signingPublicKey":opaque_key()}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "same device id, different keys");
+    let registry = std::fs::read_to_string(dir.path().join("e2ee_state.json")).unwrap();
+    let (status, _) = request(&app, Method::DELETE, &format!("/e2ee/devices/{device}"), &bearer(&state, a), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let original: Value = serde_json::from_str(&registry).unwrap();
+    let keys = &original["devices"][0];
+    let (status, _) = request(
+        &app,
+        Method::POST,
+        "/e2ee/devices",
+        &bearer(&state, a),
+        json!({"deviceId":device,"encryptionPublicKey":keys["encryptionPublicKey"],"signingPublicKey":keys["signingPublicKey"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "revoked device restored with its own keys");
+    let after: Value = serde_json::from_slice(&std::fs::read(dir.path().join("e2ee_state.json")).unwrap()).unwrap();
+    assert!(!after["devices"][0]["revokedAt"].is_null());
+}
+
+#[tokio::test]
+async fn room_key_changes_require_current_revision_registered_sender_next_epoch_and_every_member_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = http(&state);
+    let room = encrypted_group(&app, &state, "setroom", &["a", "b"]).await;
+    let (a, b) = (room.users[0], room.users[1]);
+    let revision = current_revision(&app, &state, a, &room.ch).await;
+    let rekey = |epoch: u64, revision: String, sender: String, recipients: Vec<(u64, String)>| {
+        let (app, auth, ch) = (app.clone(), bearer(&state, a), room.ch.clone());
+        async move {
+            let envelopes: Vec<Value> = recipients.iter().map(|(uid, device)| wrapped(*uid, device, &sender)).collect();
+            request(&app, Method::POST, &format!("/e2ee/channels/{ch}/rekey"), &auth,
+                json!({"senderDeviceId":sender,"epoch":epoch,"membershipRevision":revision,"envelopes":envelopes})).await.0
+        }
+    };
+    let all = room.recipients(&[0, 1]);
+    let stale = (revision.parse::<u64>().unwrap() - 1).to_string();
+    assert_eq!(rekey(2, stale, room.devices[0].clone(), all.clone()).await, StatusCode::CONFLICT, "stale revision");
+    assert_eq!(rekey(2, revision.clone(), device_id(a, 7), all.clone()).await, StatusCode::FORBIDDEN, "unregistered sender device");
+    assert_eq!(rekey(2, revision.clone(), room.devices[1].clone(), all.clone()).await, StatusCode::FORBIDDEN, "another account's device");
+    assert_eq!(rekey(3, revision.clone(), room.devices[0].clone(), all.clone()).await, StatusCode::CONFLICT, "epoch skipped");
+    assert_eq!(rekey(1, revision.clone(), room.devices[0].clone(), all.clone()).await, StatusCode::CONFLICT, "epoch repeated");
+    assert_eq!(rekey(2, revision.clone(), room.devices[0].clone(), all.clone()).await, StatusCode::OK, "control");
+
+    // Enabling requires every member to have a device.
+    let c = user(&state, "setroom-c").await;
+    let ch = "group-setroom-nodevice";
+    state.wdb.create_group(ch, "nodevice", a, &[a, b, c]).await.unwrap();
+    let (status, body) = set_room(&app, &state, room.device(0), ch, 1, &room.recipients(&[0, 1]), false).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.to_string().contains("Every participant needs an E2EE device"), "{body}");
+    let (_, status) = room_status(&app, &state, a, ch).await;
+    assert_eq!(status["enabled"], false);
+}
+
+#[tokio::test]
+async fn staff_cannot_replace_a_members_ciphertext_even_with_a_valid_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = server_config(dir.path());
+    let state = open_server(config.clone()).await;
+    let app = http(&state);
+    let room = encrypted_group(&app, &state, "staffedit", &["member", "admin"]).await;
+    let (member, admin) = (room.users[0], room.users[1]);
+    let (status, body) = request(
+        &app,
+        Method::POST,
+        "/messages",
+        &bearer(&state, member),
+        json!({"channel_id":room.ch,"content":room.envelope(&app, &state, 0, 1).await}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let message = body["id"].as_str().unwrap().to_string();
+    drop(app);
+    drop(state);
+    // Restart (HTTP-only phase above) with the second account as a configured admin.
+    config.admin_user_ids = vec![admin as i64];
+    let state = open_server(config).await;
+    let app = router(&state);
+    assert!(state.is_admin(admin as i64).await);
+    let original = stored(&state, &room.ch).await;
+    let mut sio_admin = Client::connect(&app, &token(&state, admin)).await;
+    sio_admin
+        .emit("edit-message", json!({"channelId":room.ch,"messageId":message,"newText":room.envelope(&app, &state, 1, 1).await}))
+        .await;
+    let error = sio_admin.event("edit-error").await;
+    assert_eq!(error["error"], "Cannot edit others' messages", "{error}");
+    assert_eq!(stored(&state, &room.ch).await, original);
 }
