@@ -607,22 +607,77 @@ fn new_room_plaintext_refusal(data: &E2eeData, channel_id: &str, user_id: i64) -
     }
 }
 
-/// Features with no encrypted form (forum threads, forum posts, thread titles)
-/// store server-readable text. They follow the same boundary as a plaintext
-/// chat message: refused in a room with experimental encryption enabled or
-/// pending, and after a server-readable choice only accepted from a sender
-/// who made that choice. Call under `retention_policy_lock`, like a send.
-pub fn require_server_readable_text(state: &AppState, channel_id: &str, user_id: i64) -> Result<()> {
+/// Features with no encrypted form (forum, wiki, albums, gallery, incidents,
+/// whiteboards) store server-readable text. They follow the same boundary as a
+/// plaintext chat message: refused in a room with experimental encryption
+/// enabled or pending, and after a server-readable choice only accepted from
+/// a sender who made that choice. Call under `retention_policy_lock`, like a
+/// send; `feature` names what is unavailable, e.g. "Wiki pages".
+fn require_server_readable_text(state: &AppState, channel_id: &str, user_id: i64, feature: &str) -> Result<()> {
     let data = read_data(&state.config.data_dir)
         .map_err(|_| AppError::Forbidden(REGISTRY_UNAVAILABLE.into()))?;
     if data.rooms.get(channel_id).is_some_and(|room| room.enabled) {
-        return Err(AppError::Forbidden(
-            "This conversation uses experimental encryption. Forum threads and posts store server-readable text, so they are not available here.".into(),
-        ));
+        return Err(AppError::Forbidden(format!(
+            "This conversation uses experimental encryption. {feature} store server-readable text, so they are not available here."
+        )));
     }
     match new_room_plaintext_refusal(&data, channel_id, user_id) {
         Some(refusal) => Err(AppError::Forbidden(refusal.into())),
         None => Ok(()),
+    }
+}
+
+/// Admission for a write of server-readable text into `channel_id`, whose
+/// persisted kind the caller already loaded (`require_participation`).
+/// Ordinary rooms can never be encrypted: no lock, no registry read. In a DM
+/// or group the encryption-policy lock is returned and must be held through
+/// the durable write, so the room cannot become encrypted in between.
+pub async fn admit_readable_text<'a>(
+    state: &'a AppState,
+    channel: &wabidb::domain::Channel,
+    user_id: i64,
+    feature: &str,
+) -> Result<Option<tokio::sync::MutexGuard<'a, ()>>> {
+    if !crate::channel_access::is_conversation(channel.channel_kind) {
+        return Ok(None);
+    }
+    let guard = state.retention_policy_lock.lock().await;
+    require_server_readable_text(state, &channel.channel_id, user_id, feature)?;
+    Ok(Some(guard))
+}
+
+/// The shape of a file the shipped client encrypted before upload
+/// (`frontend/src/lib/e2ee.ts`): a random `e2ee-<uuid>.wabi` name and
+/// `application/octet-stream`. Nothing about the original file is in it.
+pub fn is_opaque_encrypted_upload(file_name: &str, mime_type: &str) -> bool {
+    mime_type == "application/octet-stream"
+        && file_name
+            .strip_prefix("e2ee-")
+            .and_then(|rest| rest.strip_suffix(".wabi"))
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+}
+
+/// Admission for an upload bound to a conversation. Where readable text is
+/// refused, only the opaque encrypted-upload shape is accepted, so no original
+/// file name or plaintext bytes are stored. A damaged registry refuses all.
+pub async fn admit_channel_upload<'a>(
+    state: &'a AppState,
+    channel: &wabidb::domain::Channel,
+    user_id: i64,
+    file_name: &str,
+    mime_type: &str,
+) -> Result<Option<tokio::sync::MutexGuard<'a, ()>>> {
+    if !crate::channel_access::is_conversation(channel.channel_kind) {
+        return Ok(None);
+    }
+    let guard = state.retention_policy_lock.lock().await;
+    match require_server_readable_text(state, &channel.channel_id, user_id, "Plaintext file uploads") {
+        Ok(()) => Ok(Some(guard)),
+        Err(AppError::Forbidden(reason)) if reason == REGISTRY_UNAVAILABLE => Err(AppError::Forbidden(reason)),
+        Err(_) if is_opaque_encrypted_upload(file_name, mime_type) => Ok(Some(guard)),
+        Err(_) => Err(AppError::Forbidden(
+            "Plaintext files cannot be attached to this conversation: it uses experimental encryption or is waiting for it. Send the file from an updated Wabi client, which encrypts it first.".into(),
+        )),
     }
 }
 

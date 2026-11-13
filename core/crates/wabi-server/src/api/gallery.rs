@@ -87,7 +87,9 @@ async fn upload_work(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Gallery works and feedback").await?;
             let work_id = state
                 .wdb
                 .upload_gallery_work(
@@ -144,7 +146,9 @@ async fn edit_work(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Gallery works and feedback").await?;
             let existing = state
                 .wdb
                 .get_gallery_work(&channel_id, &work_id)
@@ -232,7 +236,9 @@ async fn add_feedback(
     let operation_state = state.clone();
     admission
         .run(&operation_state, async move {
-            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let channel = crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let _encryption_policy =
+                crate::api::e2ee::admit_readable_text(&state, &channel, auth.user_id, "Gallery works and feedback").await?;
             resolve_feedback_work(&state, &channel_id, &work_id).await?;
             let feedback_id = state
                 .wdb
