@@ -96,7 +96,7 @@ Phase 5 is new features, not hardening; stop and ask the owner before starting i
 - Upload completion re-check is not under the policy lock (init, enable, complete window).
 - No media-src CSP; a blob: HLS playlist is followed by Chromium, so no inline player for decrypted audio/video may be added without refusing `#EXTM3U`.
 - Client: a same-origin path such as `/api;x/image-proxy` passes the `/api/` check as written (it misses the proxy on a bare Authority). Strip `;params` before the check.
-- Not started: key verification that does not depend on the server, and the choice of a published protocol. The design note is ADR-0002 (358); it waits for the owner's answers to its nine questions. It also records three things the current code does: three client paths accept whatever devices the server lists without telling the user, the key-wrapping secret sits in `localStorage` beside the keys, and an old envelope can be replayed.
+- Not started: key verification that does not depend on the server, and the move to a published protocol. ADR-0002 is accepted: the owner answered its nine questions on 2026-11-13 (its §9, with the order of work). `docs/ENCRYPTION_STATUS.md` says what "experimental" means and what is tested; read it before touching encryption. It also records three things the current code does: three client paths accept whatever devices the server lists without telling the user, the key-wrapping secret sits in `localStorage` beside the keys, and an old envelope can be replayed.
 - After these land: one pass over docs and UI strings so they say exactly what is enforced.
 
 ## For a session on the owner's desktop
