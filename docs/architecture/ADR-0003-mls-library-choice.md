@@ -40,7 +40,7 @@
 
 ## 2. What was built and measured
 
-I built a small throwaway prototype for **each** library, plus a cross-library test and a storage-compatibility test. They live in `prototypes/mls-trial/` and are **excluded from the Wabi Cargo workspace** — each has its own `[workspace]` and its own lockfile, so none of this touches Wabi's dependency tree, lockfile, `cargo deny` or CI. (Whether to keep them in the repo: **yes, kept** — see §9.)
+I built a small throwaway prototype for **each** library, plus a cross-library test and a storage-compatibility test. **They are not in the current tree.** They were committed once, at commit `3e193fde96d039c84737673bfa47aadcfd5e1d13`, and removed in the next commit, so they live in git history only. Appendix B gives the exact commands to restore and re-run them. While they existed, each had its own `[workspace]` and lockfile, so they never touched Wabi's dependency tree, lockfile, `cargo deny` or CI. What stays in the tree is the evidence as plain text: the run outputs and the exact resolved dependency versions, in [`docs/architecture/adr-0003/results/`](adr-0003/results/). (Why history and not the tree: see Appendix B.)
 
 Each prototype runs the **same scenario**: three clients form a group, exchange messages, race two simultaneous membership changes, refuse an outsider, add a fourth member, remove one, confirm the removed member cannot read later messages, let an offline member catch up over several changes, and save a device's state to bytes and reload it. The scenario is driven through a tiny in-memory stand-in for WabiDB that **orders** messages and **checks** membership commits using only their public parts.
 
@@ -54,13 +54,13 @@ Each prototype runs the **same scenario**: three clients form a group, exchange 
 | mls-rs 0.57.1 (Rust crypto) | 10/10 pass | 10/10 pass | 10/10 pass |
 | mls-rs 0.57.1 (WebCrypto) | n/a | n/a | 10/10 pass (suite 2 only) |
 
-**[tested: `prototypes/mls-trial/{openmls-proto,mlsrs-proto}`, scenario in `src/lib.rs`]** Browser runs used the pre-installed Chromium 153 via Playwright, serving the wasm over a local HTTP server. The full pass/fail logs are in each run.
+**[tested: `prototypes/mls-trial/{openmls-proto,mlsrs-proto}` at commit `3e193fde96d039c84737673bfa47aadcfd5e1d13`, scenario in `src/lib.rs`]** Browser runs used the pre-installed Chromium 153 via Playwright, serving the wasm over a local HTTP server. The full pass/fail output is in [`results/native-openmls.txt`](adr-0003/results/native-openmls.txt), [`results/native-mlsrs.txt`](adr-0003/results/native-mlsrs.txt) and [`results/browser.txt`](adr-0003/results/browser.txt).
 
 ### 2.2 Cross-library interoperability — the decisive test for reversibility
 
 I put **both libraries in the same group at the same time**: alice and carol on one library, bob and dave on the other, and the delivery-service checker built on the library the group creator does *not* use. The group was created once with OpenMLS and once with mls-rs, each at suites 1 and 2.
 
-**Result: 112 checks, 112 passed, 0 failed, both directions, both suites.** An OpenMLS client joined a group created by mls-rs from its Welcome message, decrypted mls-rs's application messages, processed mls-rs's add/remove commits, and vice versa; and a delivery service built on one library correctly ordered and validated commits produced by the other. **[tested: `prototypes/mls-trial/interop`, output in the run log]**
+**Result: 112 checks, 112 passed, 0 failed, both directions, both suites.** An OpenMLS client joined a group created by mls-rs from its Welcome message, decrypted mls-rs's application messages, processed mls-rs's add/remove commits, and vice versa; and a delivery service built on one library correctly ordered and validated commits produced by the other. **[tested: `prototypes/mls-trial/interop` at commit `3e193fde96d039c84737673bfa47aadcfd5e1d13`; output in [`results/interop.txt`](adr-0003/results/interop.txt); re-run from a restored copy on 2026-11-13 with the original lockfile, again 112/112]**
 
 This is the single most important result in the document. It means a later switch between the two libraries is a **client-library change, not a protocol migration**: the bytes on the wire and the group state the server orders are RFC-9420 conformant on both sides, so one library's groups are the other library's groups.
 
@@ -78,7 +78,7 @@ Built with `wasm-bindgen --target web`, then size-optimised with `wasm-opt -Oz` 
 
 ### 2.4 Speed (median of 3, milliseconds)
 
-Selected rows; full tables for both suites and both environments are in the prototype run logs. "create group of n" builds a group of that size in one commit; "remove 1" removes one member at that size.
+Selected rows; the raw runs for both suites and both environments are in [`results/`](adr-0003/results/). "create group of n" builds a group of that size in one commit; "remove 1" removes one member at that size.
 
 **Native, suite 1 (X25519/AES-128 — the MLS mandatory-to-implement suite):**
 
@@ -269,7 +269,7 @@ The owner wants "something that lasts." For a self-hosted FOSS communications ap
 1. **One small Wabi-owned interface.** Wrap mls-rs behind a single Wabi crate (working name `wabi-mls`) exposing only what Wabi needs: create/join group, add/remove member, encrypt/decrypt, serialize/restore device state, and the server-side "observe and validate a commit" operation. No mls-rs type appears outside that crate. This is what makes the proven reversibility real — a switch to OpenMLS touches one crate. (Firefox does exactly this with `mls-platform-api`.)
 2. **Pin exact versions** (`=0.57.1` style) and upgrade deliberately, reading the diff each time, because mls-rs has no changelog. Keep the trial's `cargo deny` result green on every bump.
 3. **Golden-byte tests of stored state.** Capture bytes written by the adopted mls-rs version and assert they still load after every upgrade — Wabi's own regression test for "data written today stays readable," not relying on mls-rs's (real but unguaranteed) format stability. This dovetails with AGENTS.md golden rule 5 (versioned/dual-decode for durable records).
-4. **Keep the OpenMLS prototype as the documented fallback.** The interop proof (§2.2) is the evidence that the fallback is cheap; re-run it in CI-adjacent form if a switch is ever seriously considered.
+4. **Keep the OpenMLS prototype as the documented fallback, in git history.** The interop proof (§2.2) is the evidence that the fallback is cheap. The prototype is preserved at commit `3e193fde96d039c84737673bfa47aadcfd5e1d13` (Appendix B). If a switch is ever seriously considered, restore it and re-run the interop and storage tests first. Expect to update versions: nothing builds or tests this code, so it will age.
 
 **Concrete triggers that would reverse this to OpenMLS (or re-open the decision):**
 
@@ -297,7 +297,7 @@ Nothing in this table is a claim that Wabi's encryption is secure. Every item is
 
 Given mls-rs, the first concrete steps of stage 2 (ADR-0002 §7), in order:
 
-1. **Create the `wabi-mls` wrapper crate** with the interface in §7.1 and *nothing* leaking mls-rs types. Port the prototype's delivery-service checks (`ExternalClient`-based) into the shape WabiDB will call. This is the reversibility guarantee; build it first.
+1. **Create the `wabi-mls` wrapper crate** with the interface in §7.1 and *nothing* leaking mls-rs types. Port the prototype's delivery-service checks (`ExternalClient`-based; `mlsrs-proto/src/lib.rs` at commit `3e193fde96d039c84737673bfa47aadcfd5e1d13`, see Appendix B) into the shape WabiDB will call. Write them as new, reviewed Wabi code with tests; do not copy the prototype in unchanged. This is the reversibility guarantee; build it first.
 2. **Map the MLS message flow onto WabiDB's single sequenced writer.** A group's commits are ordered by WabiDB exactly as the MLS architecture document requires of a "strongly consistent" Delivery Service (§A). The server validates each commit's public parts (sender, epoch, membership, tree) via the wrapper's observe-operation **without holding any key that can read content** — the prototype shows this works; keep the membership-revision cross-check from the v1 server boundary (ADR-0002 §5 (ii)).
 3. **Define what the server stores:** MLS KeyPackages (published per-device keys, single-use) and ordered group messages, replacing v1's `devices`/wrapped-copies registry. Carry over the plaintext-refusal boundary, the opaque-upload shape, the no-downgrade rule and the pending/server-readable policy — most of `dm_encryption_contract.rs` is about those and stays valid (ADR-0002 §5 (ii)).
 4. **Golden-byte storage tests** for the chosen mls-rs version before any feature work builds on stored state.
@@ -315,12 +315,56 @@ ADR-0002 had to mark these "not verified" because the RFC hosts would not load. 
 - **RFC 9750 (the MLS architecture).** Source: `mlswg/mls-architecture`, `rfc9750-draft.xml`, `number="9750" category="info"`, dated February 2025. On the Delivery Service (the server's role): "these properties **do not depend on correct behavior by the DS; even a malicious DS cannot add itself to groups or recover the group key**. However ... the DS may be able to determine group membership or prevent changes to the group from taking place." On ordering: "the group must agree on a single MLS Commit message that ends each epoch and begins the next one," and in the strongly-consistent model "the **Delivery Service is trusted to break ties** when two members send a Commit message at the same time" — clients "apply the first valid Commit for an epoch and ignore subsequent Commits." **[verified from repo]** This is exactly WabiDB's single-sequenced-writer role, and why §7 can map Wabi's server onto MLS without the server being able to read anything.
 - **Post-quantum / hybrid suites.** A working-group draft (`draft-ietf-mls-pq-ciphersuites`) exists; its status and revision could not be verified (datatracker blocked). Both libraries implement PQ code behind flags (§3, §4). No PQ promise is made here.
 
-## Appendix B: How to reproduce
+## Appendix B: Where the prototypes are, and how to re-run them
 
-The prototypes are kept in `prototypes/mls-trial/` (excluded from the Wabi workspace). **Why kept and not just described:** the owner is learning and asked for concrete facts; keeping the code lets every number here be re-run and checked, and the interop and storage tests are the evidence behind the two load-bearing claims (reversibility; data stays readable). They are throwaway — not Wabi code, not reviewed, pinned to exact versions — and their own `[workspace]`/lockfiles keep them off Wabi's dependency tree, CI and `cargo deny`.
+**Where they are.** The prototypes are **not in the current tree**. They were committed at
 
-- `openmls-proto/`, `mlsrs-proto/` — the scenario and benchmark for each library. `cargo run --release -- 2 10 100` runs the scenario (suites 1 and 2) then benchmarks. Add `--features wasm` (both) or `--no-default-features --features webcrypto` (mls-rs) and build for `wasm32-unknown-unknown` for the browser.
-- `interop/` — the cross-library test (§2.2). `cargo run --release`.
-- `storage-compat/` — the old-version→current-version load test (§2, point 4). `CARGO_TARGET_DIR=<dir> ./run.sh`.
-- `web/` — the Playwright harness that runs the WASM builds in headless Chromium and records size, timing and memory.
-- Supply-chain check: from a prototype dir, `cargo deny --config /path/to/wabi/deny.toml check advisories licenses bans sources`.
+`3e193fde96d039c84737673bfa47aadcfd5e1d13`
+
+on the branch `claude/mls-library-trial`, and removed in the commit after it. This PR is merged with a merge commit, so that commit stays in `main`'s history and the code can be restored at any time.
+
+**Why history and not the tree.** Three reasons, decided before merge:
+1. GitHub's dependency graph reads every `Cargo.toml` and `Cargo.lock` on the default branch. The prototypes' lockfiles include old OpenMLS releases and the tree that trips `RUSTSEC-2026-0387`, which would raise Dependabot alerts and update PRs against code nobody runs.
+2. Code scanning would scan it too.
+3. The owner does not want code in the tree that is meant to be thrown away.
+
+What stays in the tree is everything a reader needs to check the claims without building anything:
+- the run outputs, in [`adr-0003/results/`](adr-0003/results/);
+- the exact resolved versions of every dependency each prototype used, in [`resolved-versions.txt`](adr-0003/results/resolved-versions.txt), taken with `cargo tree` before removal.
+
+**Not maintained.** Nothing in CI builds or tests this code. It is pinned to the November 2026 releases and will age: crates get yanked, toolchains move on, and advisories are published. A future re-run may need version updates first. That is expected, and it does not change the recorded results.
+
+**Restore.** The commands below were tested on 2026-11-13 from a fresh restore, with the original lockfiles. Restore to a directory **outside** the repository, so nothing lands in the working tree by accident:
+
+```bash
+# from the root of a Wabi clone
+mkdir -p /tmp/mls-trial
+git archive 3e193fde96d039c84737673bfa47aadcfd5e1d13 prototypes/mls-trial | tar -x -C /tmp/mls-trial
+cd /tmp/mls-trial/prototypes/mls-trial
+export CARGO_TARGET_DIR=/tmp/mls-trial-target   # build output stays out of the clone
+```
+
+Alternatively, `git checkout 3e193fde96d039c84737673bfa47aadcfd5e1d13 -- prototypes/mls-trial` puts the files back inside the clone. If you use that, do not commit them, and remove them afterwards with `git rm -r --cached prototypes && rm -rf prototypes`.
+
+To read a single file without restoring anything: `git show 3e193fde96d039c84737673bfa47aadcfd5e1d13:prototypes/mls-trial/interop/src/main.rs`.
+
+**Re-run the interop test (§2.2)** from the restored copy:
+
+```bash
+cd /tmp/mls-trial/prototypes/mls-trial/interop
+cargo run --release --locked
+# expect 112 lines starting with PASS and none starting with FAIL
+```
+
+**Re-run the storage test (§2, point 4)**, which writes with an older release, loads with the current one, and replies:
+
+```bash
+cd /tmp/mls-trial/prototypes/mls-trial/storage-compat
+./run.sh
+# expect five "--- old-... -> ..." blocks, each ending "bob read the reply from the upgraded alice"
+```
+
+**Other runs** (same restored copy; details in its `README.md`):
+- Scenario and benchmarks: `cd openmls-proto && cargo run --release --locked -- 2 10 100`, and the same in `mlsrs-proto`.
+- Browser: build each crate for `wasm32-unknown-unknown` (`--features wasm`; for mls-rs WebCrypto, `RUSTFLAGS="--cfg mls_build_async"` with `--no-default-features --features webcrypto`), run `wasm-bindgen --target web` (0.2.130) and `wasm-opt -Oz`, then `node web/run.mjs <dir> 2 10 100`.
+- Supply-chain check: `cargo deny --config <wabi-clone>/deny.toml check advisories licenses bans sources` in a prototype directory. Today's results are in [`cargo-deny-openmls.txt`](adr-0003/results/cargo-deny-openmls.txt) and [`cargo-deny-mlsrs.txt`](adr-0003/results/cargo-deny-mlsrs.txt).
