@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-WABI_REPO="/var/home/Ronin/wabi"
+WABI_REPO="/var/home/operator/wabi"
 WATCH_DOC="$WABI_REPO/docs/wabi-carl-watch.md"
 NOW="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 TS="$(date '+%H:%M:%S')"

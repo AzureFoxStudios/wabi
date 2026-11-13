@@ -3,7 +3,7 @@
 # merge latest main -> cargo test --workspace --locked -> bun gate -> squash merge.
 set -u
 export PATH="$HOME/.local/bin:$PATH"
-cd /home/ironin/wabi
+cd /home/operator/wabi
 
 merge_layer() { # pr branch
   local pr="$1" branch="$2"

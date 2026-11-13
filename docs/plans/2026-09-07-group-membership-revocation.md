@@ -777,7 +777,7 @@ unprovable account ownership, trace actual callers, and protect managed reads/
 writes across revoke/re-add and account/server changes. Already exported files
 cannot be recalled. Native commands and archive operations were inspected only.
 
-Read-only SSH to Tim succeeded (`hostname` → `tim-Predator-G3-572`). No remote
+Read-only SSH to Tim succeeded (`hostname` → `prod-host`). No remote
 service, package, data or configuration changes were made.
 
 Final voice-ownership checkpoint (all verification processes exited):
@@ -1067,7 +1067,7 @@ the authenticated screenshot; no real-device or native installer claim.
 
 Consistent Tim backup completed while only `wabi-server` was stopped, then the
 original binary was restarted and readiness verified. Private directory:
-`/home/tim/Desktop/Wabi/release-group-20260908.5spRGE` (mode 0700). It contains
+`/home/operator/Desktop/Wabi/release-group-20260908.5spRGE` (mode 0700). It contains
 the original binary, data, uploads, plugins, compose and protected environment/
 container configuration. The two lock paths were checked only after the owning
 container had fully stopped; the remaining stale engine lock was moved into

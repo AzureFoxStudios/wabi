@@ -27,8 +27,8 @@ Only this still-missing backend change was carried from the paused worktree. Cur
 - Locked `npm ci`: exit 0; dependency audit notices remain, no automatic dependency upgrades.
 - `npm exec --yes --package=bun@1.3.14 -- bun run build:static`: exit 0 on this source. Node 22.22.2. Build warnings remain visible in the local log.
 - Files fixture: 23 pass / 0 fail / no uncaught page errors. Real headful Chromium with synthetic Lore HTTP; no real Lore integration or physical-client acceptance. [Portable assertions](../reviews/evidence/2026-09-19-resume/files-results.json).
-- Backend command: `CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/var/home/Ronin/wabi/target cargo +1.93 test -p wabi-server --test channel_access_contract` (Rust 1.93.1). Result recorded below when terminal.
-- Browser command from frontend: `DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 WABI_SMOKE_CHROMIUM_PATH=/home/Ronin/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome node scripts/files-workspace-browser-smoke.mjs`; Gallery uses `scripts/gallery-workspace-browser-smoke.mjs` with the same environment.
+- Backend command: `CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=/var/home/operator/wabi/target cargo +1.93 test -p wabi-server --test channel_access_contract` (Rust 1.93.1). Result recorded below when terminal.
+- Browser command from frontend: `DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 WABI_SMOKE_CHROMIUM_PATH=/home/operator/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome node scripts/files-workspace-browser-smoke.mjs`; Gallery uses `scripts/gallery-workspace-browser-smoke.mjs` with the same environment.
 
 Not run in this batch: full Rust workspace/frontend unit suites, native installers, real Lore, physical calls, hosted-copy restore, final release identity/deployment, actual pilot. This batch changes backend metadata and documentation; synthetic browser checks reconcile prior frontend evidence but do not prove backend integration. No push, merge, tag, deploy, keys or live-data changes.
 

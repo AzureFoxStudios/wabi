@@ -23,7 +23,7 @@ The content viewport subtracts the bar height without transforming the root or c
 - Screenshots inspected: normal workspace, custom menu, Settings, and 480×360 workspace. Sidebar footer and compact bottom navigation are visible after their viewport corrections.
 - Syntax/diff checks passed. No commit, push, deployment or installer release.
 
-Native smoke command: `dbus-run-session -- node scripts/desktop-shell-native-smoke.mjs /var/home/Ronin/wabi/src-tauri/target/debug/wabi-desktop`.
+Native smoke command: `dbus-run-session -- node scripts/desktop-shell-native-smoke.mjs /var/home/operator/wabi/src-tauri/target/debug/wabi-desktop`.
 
 Not verified: Windows/macOS runtime, Windows native snap-layout hover integration, physical pointer drag/resize gestures, all theme variants, 10%-speed motion inspection, and field sleep/network/call behavior. Those are not implied by the Linux smoke. The earlier Tailcat direct-reconnect risk remains outside this visual change.
 

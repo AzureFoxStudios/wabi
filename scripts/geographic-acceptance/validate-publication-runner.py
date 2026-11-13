@@ -7,7 +7,23 @@ from pathlib import Path
 import base64, contextlib, fcntl, gzip, hashlib, importlib.util, json, os
 import select, shutil, signal, stat, sys, time, traceback
 
-ROOT = Path('/home/Ronin/.cache/wabi-geographic-authority-validation')
+# The machine identity this runner is pinned to comes from the operator, not
+# from the repository. All four are required; workers inherit them through
+# environment() below.
+#   WABI_VALIDATION_USER        login name the runner must execute as (e.g. operator)
+#   WABI_VALIDATION_HOME        resolved home directory (e.g. /var/home/operator)
+#   WABI_VALIDATION_HOME_LINK   home path that must resolve to it (e.g. /home/operator)
+#   WABI_VALIDATION_CONTROLLER  node name of the controller it must NOT run on
+IDENTITY_NAMES = ('WABI_VALIDATION_USER', 'WABI_VALIDATION_HOME', 'WABI_VALIDATION_HOME_LINK',
+    'WABI_VALIDATION_CONTROLLER')
+_missing = [name for name in IDENTITY_NAMES if not os.environ.get(name)]
+if _missing:
+    raise SystemExit('Set ' + ', '.join(_missing) + ' (see the header of this runner)')
+FIELD_USER = os.environ['WABI_VALIDATION_USER']
+FIELD_HOME = Path(os.environ['WABI_VALIDATION_HOME'])
+FIELD_HOME_LINK = Path(os.environ['WABI_VALIDATION_HOME_LINK'])
+CONTROLLER_NODE = os.environ['WABI_VALIDATION_CONTROLLER'].lower()
+ROOT = FIELD_HOME_LINK / '.cache/wabi-geographic-authority-validation'
 E = ROOT / 'evidence'
 SEED = ROOT / 'seed'
 CASES = ROOT / 'cases'
@@ -80,8 +96,8 @@ def load_module(path, expected, name):
 
 
 def environment():
-    result = {name: os.environ[name] for name in ('HOME', 'USER', 'LOGNAME') if name in os.environ}
-    assert result['USER'] == 'Ronin' and Path(result['HOME']).resolve() == Path('/var/home/Ronin')
+    result = {name: os.environ[name] for name in ('HOME', 'USER', 'LOGNAME', *IDENTITY_NAMES) if name in os.environ}
+    assert result['USER'] == FIELD_USER and Path(result['HOME']).resolve() == FIELD_HOME
     result.update(PATH='/usr/bin:/bin', LANG='C.UTF-8', TZ='UTC', TMPDIR=str(ROOT))
     return result
 
@@ -104,9 +120,9 @@ def guard():
 def initialize(packet_sha):
     global BUNDLE, PACKET_SHA, OWNER, CORE
     PACKET_SHA = packet_sha
-    assert os.environ.get('USER') == 'Ronin' and os.getuid() != 0
-    assert os.uname().nodename.lower() != 'dotronin'
-    assert Path('/home/Ronin').resolve() == Path('/var/home/Ronin')
+    assert os.environ.get('USER') == FIELD_USER and os.getuid() != 0
+    assert os.uname().nodename.lower() != CONTROLLER_NODE
+    assert FIELD_HOME_LINK.resolve() == FIELD_HOME
     data = private(ROOT / 'bundle.json')
     assert digest(data) == packet_sha
     BUNDLE = json.loads(data)
@@ -129,10 +145,10 @@ def bootstrap(packet_sha):
     assert bundle['approvedRoot'] == str(ROOT) and bundle['schemaVersion'] == 1
     assert {f['name'] for f in bundle['files']} == {'validation.py', 'authority-staging.json'}
     assert len(bundle['files']) == 2
-    assert os.getuid() != 0 and os.environ.get('USER') == 'Ronin'
-    assert os.uname().nodename.lower() != 'dotronin'
-    assert Path(os.environ['HOME']).resolve() == Path('/var/home/Ronin')
-    assert Path('/home/Ronin').resolve() == Path('/var/home/Ronin')
+    assert os.getuid() != 0 and os.environ.get('USER') == FIELD_USER
+    assert os.uname().nodename.lower() != CONTROLLER_NODE
+    assert Path(os.environ['HOME']).resolve() == FIELD_HOME
+    assert FIELD_HOME_LINK.resolve() == FIELD_HOME
     parent_id = directory(ROOT.parent, False)
     parent = os.open(ROOT.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:

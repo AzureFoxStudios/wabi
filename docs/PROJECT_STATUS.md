@@ -225,7 +225,7 @@ The exact release binary SHA-256 is
 `57452407550d192214e6d4362325b84b689aea169a508f9e0e0ce0e2b87e565c`;
 its embedded PWA build ID is `bc3da61ab7d3546f`. Tim was stopped for a full
 data/uploads/config/binary backup at
-`/home/tim/wabi-backups/authority-20260926-dm-call-notes-followup` before the
+`/home/operator/wabi-backups/authority-20260926-dm-call-notes-followup` before the
 swap. Disposable two-account tests covered encrypted shared-note delivery and
 reload, default-relay DM/group camera frames, and two controlled phone PWAs
 exchanging durable messages, including HTTP polling and offline replay. Tim

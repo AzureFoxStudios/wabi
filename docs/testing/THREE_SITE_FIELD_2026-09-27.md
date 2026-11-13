@@ -50,19 +50,19 @@ The full `scripts/three-site-real-authority-smoke.mjs` flow passed again: sign-i
 
 The hit therefore avoided retransmitting the file across that measured Anchor uplink in this run. It still required an Authority validation request and still returned 503 once the Authority stopped. The remote client probes' four sequential HTTP operations took 1,398 ms on Ronin and 1,180 ms on Iyoku; these are small samples, not throughput or latency distributions. The metrics cover this chosen static asset and upload, not all application, media or call traffic.
 
-**Network qualification changed:** fresh queries to two public IPv4 echo services produced the same egress value for iRonin and Iyoku, and a different one for Ronin. Tailscale reported Iyoku's current endpoint as a `192.168.1.11` LAN address from iRonin. The operator confirmed that iRonin returned to Iyoku's network between the two runs, explaining why the earlier three-egress observation and this two-egress observation differ. Treat the physical three-network Gate A requirement as **open** for the current placement until three separate locations are verified together during a run. This result is three-computer access and scoped byte offload over Tailscale. It still does not cover the same Tauri desktop at all sites, Tailcat/public-IP entry, live calls, sustained sessions, privacy races, recovery, or local room ownership.
+**Network qualification changed:** fresh queries to two public IPv4 echo services produced the same egress value for iRonin and Iyoku, and a different one for Ronin. Tailscale reported Iyoku's current endpoint as a `198.51.100.20` LAN address from iRonin. The operator confirmed that iRonin returned to Iyoku's network between the two runs, explaining why the earlier three-egress observation and this two-egress observation differ. Treat the physical three-network Gate A requirement as **open** for the current placement until three separate locations are verified together during a run. This result is three-computer access and scoped byte offload over Tailscale. It still does not cover the same Tauri desktop at all sites, Tailcat/public-IP entry, live calls, sustained sessions, privacy races, recovery, or local room ownership.
 
 The field harness stopped all test processes and removed its local data. The two remote binaries, remote data/log directories, local stripped binary, and field configuration were removed after the run. Existing Wabi installations and firewall rules were not changed.
 
 ## 2026-09-28 route inventory before another field run
 
-A read-only tailnet inventory found the peers named `192`, `bazzite` and `tim-Predator-G3-572` online. One Tailscale ping to each returned through the Singapore DERP relay; the `192` peer also advertised a local LAN endpoint. Relay reachability and a computer count do not prove three independent public uplinks. The operator had already confirmed iRonin with Iyoku at one site and Ronin with Tim at another, so the third physical site remains unverified. Tim's fresh Tailscale SSH browser approval was not completed before the connection timed out; no command ran on Tim during this follow-up. Do not reuse this route inventory as Gate A or as a three-site traffic measurement.
+A read-only tailnet inventory found the peers named `192`, `bazzite` and `prod-host` online. One Tailscale ping to each returned through the Singapore DERP relay; the `192` peer also advertised a local LAN endpoint. Relay reachability and a computer count do not prove three independent public uplinks. The operator had already confirmed iRonin with Iyoku at one site and Ronin with Tim at another, so the third physical site remains unverified. Tim's fresh Tailscale SSH browser approval was not completed before the connection timed out; no command ran on Tim during this follow-up. Do not reuse this route inventory as Gate A or as a three-site traffic measurement.
 
 ### Authentication follow-up — 2026-09-28, 00:57 UTC
 
 After the operator approved the browser authentication, a fresh read-only
 Tailscale SSH connection as `tim` succeeded and returned hostname
-`tim-Predator-G3-572` with exit status zero. Tim's and the local computer's
+`prod-host` with exit status zero. Tim's and the local computer's
 Tailscale status checks both then reported a direct path between them. The
 inventory still showed `192` and `bazzite` online and the phone offline.
 This confirms authenticated remote-command access at that moment. No Wabi
@@ -73,6 +73,6 @@ not establish a third physical network or any Wabi acceptance gate.
 
 Following the operator's additional approval message, a fresh bounded,
 read-only Tailscale SSH hostname check as `tim` again returned
-`tim-Predator-G3-572` with exit status zero. The check made no installation,
+`prod-host` with exit status zero. The check made no installation,
 firewall or live-data changes. It confirms login access only; the physical
 three-network requirement remains open.
