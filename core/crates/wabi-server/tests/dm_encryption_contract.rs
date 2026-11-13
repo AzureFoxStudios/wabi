@@ -1661,6 +1661,54 @@ async fn crash_between_marker_and_registry_writes_resolves_in_the_safe_direction
     assert_eq!(room_marker(&state, &enabled), Some((Mode::Enabled, 3)));
 }
 
+/// "encrypted" on a relayed or listed message is the server's decision, not
+/// the sender's claim. A plaintext message sent with `encrypted: true` (and an
+/// `iv`) in a public channel is relayed, cached and listed as not encrypted;
+/// a valid envelope in an encrypted room is relayed as encrypted.
+#[tokio::test]
+async fn the_encrypted_flag_comes_from_the_server_not_the_sender() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let a = user(&state, "flag-a").await;
+    let b = user(&state, "flag-b").await;
+    let public = state.wdb.create_channel("flag-public", wabidb::domain::ChannelKind::Text, a, false).await.unwrap();
+    for uid in [a, b] {
+        state.wdb.add_channel_member(&public, uid, MemberRole::Member).await.unwrap();
+    }
+    let mut sio_a = Client::connect(&app, &token(&state, a)).await;
+    let mut sio_b = Client::connect(&app, &token(&state, b)).await;
+    sio_b.emit("join-channel", json!(public)).await;
+    sio_b.event("channel-messages").await;
+    let (event, body) = sio_a
+        .send(json!({"channelId":public,"clientMessageId":"claims-encrypted","text":"ordinary text","encrypted":true,"iv":"AAAAAAAAAAAAAAAA"}))
+        .await;
+    assert_eq!(event, "message-accepted", "{body}");
+    let relayed = sio_b.event("message").await;
+    assert_eq!(relayed["message"]["text"], "ordinary text", "{relayed}");
+    assert_eq!(relayed["message"]["encrypted"], false, "relayed with the sender's claim: {relayed}");
+    assert!(relayed["message"].get("iv").is_none_or(Value::is_null), "relayed the sender's iv: {relayed}");
+    let cached = serde_json::to_value(state.session_messages.read().await.get(&public)).unwrap();
+    assert_eq!(cached[0]["encrypted"], false, "{cached}");
+    let (status, listed) = request(&app, Method::GET, &format!("/messages/{public}"), &bearer(&state, b), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let listed = listed["messages"].as_array().cloned().unwrap_or_default();
+    assert!(listed.iter().all(|m| m["encrypted"] == false), "{listed:?}");
+
+    // The server's own positive decision is still reported.
+    let room = encrypted_group(&app, &state, "flag-room", &["c", "d"]).await;
+    let mut sio_c = Client::connect(&app, &token(&state, room.users[0])).await;
+    let mut sio_d = Client::connect(&app, &token(&state, room.users[1])).await;
+    sio_d.emit("join-channel", json!(room.ch)).await;
+    sio_d.event("channel-messages").await;
+    let (event, body) = sio_c
+        .send(json!({"channelId":room.ch,"clientMessageId":"real","text":room.envelope(&app, &state, 0, 1).await,"encrypted":false}))
+        .await;
+    assert_eq!(event, "message-accepted", "{body}");
+    let relayed = sio_d.event("message").await;
+    assert_eq!(relayed["message"]["encrypted"], true, "{relayed}");
+}
+
 // ---------------------------------------------------------------------------
 // Point 6: plaintext does not leak into derived data
 // ---------------------------------------------------------------------------

@@ -254,7 +254,10 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
             "id": message_id.clone(), "user": username, "userId": stable_id.clone(), "senderStableId": stable_id,
             "color": color, "text": text, "timestamp": timestamp, "bornAt": timestamp,
             "type": cmd.get("type").and_then(|v| v.as_str()).unwrap_or("text"),
-            "clientMessageId": client_message_id.clone(), "encrypted": cmd.get("encrypted"), "iv": cmd.get("iv"),
+            // `encrypted` is the server's decision (validate_outbound_message),
+            // never the client's claim: a sender must not be able to make an
+            // ordinary message look encrypted to its recipients.
+            "clientMessageId": client_message_id.clone(), "encrypted": false,
             "isSpoiler": is_spoiler, "replyTo": cmd.get("replyTo"), "gifUrl": cmd.get("gifUrl"),
             "emojiUrl": cmd.get("emojiUrl"), "emojiName": cmd.get("emojiName"), "fileUrl": cmd.get("fileUrl"),
             "fileName": cmd.get("fileName"), "fileSize": cmd.get("fileSize"), "files": cmd.get("files"),
