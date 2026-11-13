@@ -63,8 +63,22 @@ const SERVER_ORIGIN = new URL(getServerUrl()).origin;
 function urlsIn(html: string): string[] {
 	return [...html.matchAll(/\s(?:src|href|poster|srcset)="([^"]*)"/g)].map((match) => match[1].replace(/&amp;/g, '&')).filter(Boolean);
 }
-const loads = (html: string) => [...html.matchAll(/\s(?:src|poster|srcset)="([^"]*)"/g)].map((match) => match[1].replace(/&amp;/g, '&'));
-const remoteSrc = (html: string, host: string) => new RegExp(`\\s(src|poster|srcset)="(https?:)?//${host.replace(/\./g, '\\.')}`).test(html);
+/** Every URL the markup would fetch by itself (src, poster, each srcset candidate). */
+const loads = (html: string) =>
+	[...html.matchAll(/\s(src|poster|srcset)="([^"]*)"/g)].flatMap((match) => {
+		const value = match[2].replace(/&amp;/g, '&');
+		return match[1] === 'srcset' ? value.split(',').map((part) => part.trim().split(/\s+/)[0]).filter(Boolean) : [value];
+	});
+/** Exact hostname of a URL as the browser would resolve it against this server, or ''. */
+function hostnameOf(url: string): string {
+	try {
+		return new URL(url, SERVER_ORIGIN).hostname;
+	} catch {
+		return '';
+	}
+}
+/** Whether the markup would fetch something from exactly this host (parsed, not matched). */
+const remoteSrc = (html: string, host: string) => loads(html).some((url) => hostnameOf(url) === host);
 
 beforeEach(() => {
 	parseCalls.length = 0;
@@ -298,7 +312,7 @@ describe('BLOCKER 1: the gate decides on exactly the URL that renders', () => {
 			files: [{ fileUrl: 'https://a.example/x.png', fileName: 'x.png', fileSize: 1 }, { fileUrl: 'https://b.example/y.png', fileName: 'y.png', fileSize: 1 }],
 			...encrypted
 		}, DM);
-		expect(loads(html).some((url) => /a\.example|b\.example/.test(url))).toBe(false);
+		expect(loads(html).some((url) => ['a.example', 'b.example'].includes(hostnameOf(url)))).toBe(false);
 		expect(html).toContain('Load from a.example, b.example');
 	});
 });

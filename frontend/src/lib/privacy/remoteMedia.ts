@@ -35,7 +35,11 @@ export function wabiOrigins(): string[] {
 	return origins;
 }
 
-/** Percent-decode (repeatedly) and normalise a path, the way a decoding proxy might route it. */
+/**
+ * Percent-decode (repeatedly) and normalise a path the way a decoding, `;param`-stripping front
+ * proxy might route it: backslashes are slashes, each segment loses its `;…` part, and empty,
+ * `.` and `;`-only segments are dropped before `..` is applied.
+ */
 function normalisedPath(pathname: string): string {
 	let path = pathname;
 	for (let i = 0; i < 4; i += 1) {
@@ -49,7 +53,9 @@ function normalisedPath(pathname: string): string {
 		path = decoded;
 	}
 	const segments: string[] = [];
-	for (const segment of path.replace(/\\/g, '/').split('/')) {
+	for (const raw of path.replace(/\\/g, '/').split('/')) {
+		// A front proxy that strips `;params` would route "/api;x/…" and "/;/api/…" to /api/.
+		const segment = raw.split(';')[0];
 		if (!segment || segment === '.') continue;
 		if (segment === '..') segments.pop();
 		else segments.push(segment);

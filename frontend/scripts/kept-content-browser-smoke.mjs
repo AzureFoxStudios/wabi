@@ -136,7 +136,9 @@ const CHAT_PROBES = {
 	srcset: '<img srcset="https://t.example.net/s.png 2x" src="/uploads/ok-srcset.png">',
 	protocolRelative: '<img src="//t.example.net/pr.gif">',
 	apiProxy: '<img src="/api/image-proxy?url=https%3A%2F%2Ft.example.net%2Fproxy.png">',
-	apiProxyEncoded: '<img src="/api%2Fimage-proxy?url=https%3A%2F%2Ft.example.net%2Fproxy2.png">'
+	apiProxyEncoded: '<img src="/api%2Fimage-proxy?url=https%3A%2F%2Ft.example.net%2Fproxy2.png">',
+	apiProxySemicolon: '<img src="/api;x/image-proxy?url=https%3A%2F%2Ft.example.net%2Fproxy3.png">',
+	apiProxyEmptySegment: '<img src="/;/api/image-proxy?url=https%3A%2F%2Ft.example.net%2Fproxy4.png">'
 };
 const READER_PROBES = {
 	video: '<video src="https://t.example.net/v.mp4" poster="https://t.example.net/poster.png" autoplay muted></video>',
@@ -156,19 +158,50 @@ const browser = await chromium.launch(process.env.WABI_SMOKE_CHROMIUM_PATH ? { e
 const results = {};
 const pageErrors = [];
 
+/** A same-origin request that a path-normalising front proxy would route to a server endpoint. */
+function isServerEndpointRequest(url) {
+	let path = new URL(url).pathname;
+	for (let i = 0; i < 4; i += 1) {
+		try {
+			const decoded = decodeURIComponent(path);
+			if (decoded === path) break;
+			path = decoded;
+		} catch {
+			break;
+		}
+	}
+	const segments = path.replace(/\\/g, '/').split('/').map((segment) => segment.split(';')[0]).filter((segment) => segment && segment !== '.');
+	return segments[0]?.toLowerCase() === 'api';
+}
+
+/** Exact host (and optionally path) match on a parsed URL; never a substring check. */
+function isRequestTo(url, hostname, pathname) {
+	let parsed;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	return parsed.hostname === hostname && (pathname === undefined || parsed.pathname === pathname);
+}
+
 async function openPage() {
 	const page = await browser.newPage();
 	const seen = [];
+	const local = [];
 	page.on('pageerror', (error) => pageErrors.push(String(error)));
 	await page.route('**/*', async (route) => {
 		const url = route.request().url();
-		if (url.startsWith(`${origin}/`)) return route.continue();
+		if (new URL(url).origin === origin) {
+			local.push(url);
+			return route.continue();
+		}
 		seen.push(url);
 		return route.fulfill({ status: 404 });
 	});
 	await page.goto(origin, { waitUntil: 'domcontentloaded' });
 	await page.waitForFunction(() => Boolean(window.wabiRender), null, { timeout: 30_000 });
-	return { page, seen };
+	return { page, seen, local };
 }
 
 /** Elements in the live DOM whose fetch attribute resolves to another host. */
@@ -201,7 +234,7 @@ const pokeMedia = (page) => page.evaluate(async () => {
 try {
 	// --- renderers: kept (remote media off) and control (on) -----------------------------------
 	for (const remote of [false, true]) {
-		const { page, seen } = await openPage();
+		const { page, seen, local } = await openPage();
 		const rendered = {};
 		for (const [name, text] of Object.entries(CHAT_PROBES)) {
 			rendered[`chat:${name}`] = await page.evaluate(([text, remote]) => {
@@ -226,7 +259,12 @@ try {
 		rendered.localImage = await page.evaluate((remote) => window.wabiRender.parseMessage('<img src="/uploads/emoji/ok.png" alt="ok">', [], { remoteImages: remote }), remote);
 		await pokeMedia(page);
 		await page.waitForTimeout(1500);
-		results[remote ? 'renderOn' : 'renderOff'] = { seen: [...new Set(seen)], rendered, remoteElements: await remoteElementsIn(page, '.probe') };
+		results[remote ? 'renderOn' : 'renderOff'] = {
+			seen: [...new Set(seen)],
+			endpointRequests: [...new Set(local)].filter(isServerEndpointRequest),
+			rendered,
+			remoteElements: await remoteElementsIn(page, '.probe')
+		};
 		await page.close();
 	}
 
@@ -253,10 +291,10 @@ try {
 		const keptSeen = [...new Set(seen)];
 		const keptRemoteElements = await remoteElementsIn(page, '[data-probe="message"]');
 		// The gate: nothing from gate.example.net until the click, then exactly that.
-		const beforeClick = keptSeen.filter((url) => url.includes('gate.example.net'));
+		const beforeClick = keptSeen.filter((url) => isRequestTo(url, 'gate.example.net'));
 		await page.click('.gated .remote-media-gate__load');
 		await page.waitForTimeout(800);
-		const afterClick = [...new Set(seen)].filter((url) => url.includes('gate.example.net'));
+		const afterClick = [...new Set(seen)].filter((url) => isRequestTo(url, 'gate.example.net'));
 		const keptHasPlayer = await page.evaluate(() => Boolean(document.querySelector('[data-probe="message"] video, [data-probe="message"] audio')));
 		results.messageKept = { seen: keptSeen, remoteElements: keptRemoteElements, beforeClick, afterClick, keptHasPlayer };
 		await page.close();
@@ -288,7 +326,7 @@ try {
 			await Promise.race([video.play().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 1500))]);
 		}, playlist('blob.segments.test'));
 		await page.waitForTimeout(1500);
-		results.blobPlaylist = { followed: seen.some((url) => url.includes('blob.segments.test')) };
+		results.blobPlaylist = { followed: seen.some((url) => isRequestTo(url, 'blob.segments.test')) };
 		await page.close();
 	}
 } finally {
@@ -299,7 +337,8 @@ try {
 
 const { renderOff: off, renderOn: on, messageKept: kept, messageControl: control } = results;
 console.log(JSON.stringify({
-	renderOff: { seen: off.seen, remoteElements: off.remoteElements },
+	renderOff: { seen: off.seen, endpointRequests: off.endpointRequests, remoteElements: off.remoteElements },
+	renderOnEndpointRequests: on.endpointRequests,
 	renderOn: { seen: on.seen },
 	messageKept: kept,
 	messageControl: control,
@@ -310,25 +349,27 @@ console.log(JSON.stringify({
 // Renderers.
 assert.deepEqual(off.seen, [], 'renderers, remote media off: no request may reach another host');
 assert.deepEqual(off.remoteElements, [], 'renderers, remote media off: no element still points at another host');
+assert.deepEqual(off.endpointRequests, [], 'renderers, remote media off: no request to a server endpoint (/api/, ;params, %2F)');
+assert.ok(on.endpointRequests.length >= 4, 'control: with remote media on, the proxy-URL probes do reach the server endpoint paths');
 assert.ok(!/<template\b/i.test(off.rendered['reader:template']), 'kept Reader content keeps no <template>');
 assert.ok(!/<(video|audio|source|track)\b/i.test(off.rendered['reader:sameOriginHls']), 'kept Reader content keeps no audio/video, same-origin included');
 assert.match(off.rendered.localImage, /<img[^>]+src="\/uploads\/emoji\/ok\.png"/, 'a server-hosted image still renders');
 assert.match(off.rendered['chat:markdownImage'], /<a [^>]*href="https:\/\/t\.example\.net\/md\.png"/, 'a markdown image becomes a link');
 // The chat sanitizer drops srcset itself, so only the Reader's <picture> exercises srcset here.
 for (const probe of ['md.png', 'alias.gif', 'pr.gif', 'reader.png', 'reader-alias.gif', 'v.mp4', 'poster.png', 'a.mp3', 'p.webp']) {
-	assert.ok(on.seen.some((url) => url.includes(probe)), `control: with remote media on, ${probe} is requested (the harness sees requests)`);
+	assert.ok(on.seen.some((url) => isRequestTo(url, 't.example.net', `/${probe}`)), `control: with remote media on, ${probe} is requested (the harness sees requests)`);
 }
-const hlsSupported = on.seen.some((url) => url.includes('reader.segments.test'));
+const hlsSupported = on.seen.some((url) => isRequestTo(url, 'reader.segments.test'));
 
 // Real message component.
 assert.deepEqual(kept.seen, [], 'kept messages: no request to another host (URL tricks, HLS uploads, GIF, emoji, links)');
 assert.deepEqual(kept.remoteElements, [], 'kept messages: no element points at another host');
 assert.equal(kept.keptHasPlayer, false, 'kept messages: no audio/video player, same-origin included');
 assert.deepEqual(kept.beforeClick, [], 'gate: nothing from the attachment host before the click');
-assert.ok(kept.afterClick.some((url) => url.includes('gate.example.net/x.png')), 'gate: the click loads the attachment');
-assert.ok(control.seen.some((url) => url.includes('t.example.net/control.gif')), 'control: an ordinary GIF loads from its host');
+assert.ok(kept.afterClick.some((url) => isRequestTo(url, 'gate.example.net', '/x.png')), 'gate: the click loads the attachment');
+assert.ok(control.seen.some((url) => isRequestTo(url, 't.example.net', '/control.gif')), 'control: an ordinary GIF loads from its host');
 if (hlsSupported) {
-	assert.ok(control.seen.some((url) => url.includes('control.segments.test')), 'control: an ordinary same-origin .mp4 that is an HLS playlist pulls segments from another host');
+	assert.ok(control.seen.some((url) => isRequestTo(url, 'control.segments.test')), 'control: an ordinary same-origin .mp4 that is an HLS playlist pulls segments from another host');
 } else {
 	console.log('note: this Chromium build does not follow HLS; the HLS controls were skipped');
 }

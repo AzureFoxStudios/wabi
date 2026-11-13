@@ -22,7 +22,7 @@ try {
         'src/lib/components/ReaderIcon.svelte','src/lib/components/ReaderImageAnnotator.svelte','src/lib/components/readerTabHelpers.ts',
         'src/lib/components/readerDocumentTools.ts','src/lib/components/readerCode.css',
         'src/lib/readerWorkspace.ts','src/lib/readerDocuments.ts','src/lib/readerDocumentScope.ts',
-        'src/lib/readerLibrary.ts','src/lib/readerCode.ts','src/lib/prism.ts',
+        'src/lib/readerLibrary.ts','src/lib/readerCode.ts','src/lib/prism.ts','src/lib/privacy/remoteMedia.ts',
         'src/lib/workspaces/bridge.ts',
         'src/styles/components/reader-tab.css'
     ]) {
