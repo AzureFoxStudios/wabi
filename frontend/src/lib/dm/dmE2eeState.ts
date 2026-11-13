@@ -12,8 +12,15 @@
  */
 import { allowServerReadableRoom, e2eeClientRealmKey, enableE2eeRoom, ensureE2eeDeviceRegistered, getE2eeRoomStatus, rekeyE2eeRoom, type E2eeRoomStatus } from '$lib/e2ee';
 import { getServerUrl } from '$lib/serverUrl';
+import { writable } from 'svelte/store';
 
 const statusCache = new Map<string, E2eeRoomStatus>();
+
+/**
+ * Bumps whenever the cache above changes, so components that gate on a room's status
+ * (privacy/contentEgress.ts) re-read `cachedE2eeStatus` instead of keeping their own copy.
+ */
+export const e2eeStatusRevision = writable(0);
 
 function cacheKey(channelId: string): string | null {
 	try { return `${e2eeClientRealmKey()}:${channelId}`; }
@@ -22,7 +29,10 @@ function cacheKey(channelId: string): string | null {
 
 function remember(channelId: string, status: E2eeRoomStatus): E2eeRoomStatus {
 	const key = cacheKey(channelId);
-	if (key) statusCache.set(key, status);
+	if (key) {
+		statusCache.set(key, status);
+		e2eeStatusRevision.update((value) => value + 1);
+	}
 	return status;
 }
 
@@ -30,6 +40,22 @@ function remember(channelId: string, status: E2eeRoomStatus): E2eeRoomStatus {
 export function cachedE2eeStatus(channelId: string): E2eeRoomStatus | null {
 	const key = cacheKey(channelId);
 	return key ? statusCache.get(key) ?? null : null;
+}
+
+const statusRequests = new Map<string, Promise<unknown>>();
+
+/**
+ * Ask once for a room's status when nothing is cached yet (a surface that gates content on it
+ * opened before the header or composer did). Errors leave the cache empty, which gates fail closed.
+ */
+export function ensureE2eeStatus(channelId: string): void {
+	if (!channelId || cachedE2eeStatus(channelId)) return;
+	const key = cacheKey(channelId);
+	if (!key || statusRequests.has(key)) return;
+	const request = refreshE2eeStatus(channelId)
+		.catch(() => null)
+		.finally(() => statusRequests.delete(key));
+	statusRequests.set(key, request);
 }
 
 /** Fetch fresh status and update the cache (fail-closed: errors leave the cache as-is). */
@@ -90,6 +116,7 @@ export async function rekeyE2ee(channelId: string): Promise<E2eeRoomStatus> {
 /** Clear cached state (e.g. account/session switch). */
 export function clearE2eeCache(): void {
 	statusCache.clear();
+	e2eeStatusRevision.update((value) => value + 1);
 }
 
 /** True when the server we're talking to serves the E2EE endpoint. */

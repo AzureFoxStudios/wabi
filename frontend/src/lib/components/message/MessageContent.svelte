@@ -22,9 +22,17 @@
 	import SteamJoinButton from '$lib/components/plugins/SteamJoinButton.svelte';
 	import type { MessageEntity } from '$lib/socket';
 	import LoreChatCitation from '$lib/components/lore/LoreChatCitation.svelte';
+	import RemoteMediaGate from './RemoteMediaGate.svelte';
+	import { ALBUMS_SERVER_READABLE_HINT } from '$lib/privacy/contentEgress';
 
 	export let message: Message;
 	export let messageText: string;
+	/**
+	 * The message or its room is under experimental encryption (privacy/contentEgress.ts): images
+	 * written in the text become links, GIFs from other hosts wait for a click, no link previews,
+	 * and the server-readable album actions are not offered.
+	 */
+	export let contentOnDevice = false;
 	export let albumAnnouncementUploadName: string | null;
 	export let translatedText: string | undefined;
 	export let translationLoading: boolean;
@@ -127,6 +135,11 @@
 		if (body) observer.observe(body);
 		measure();
 		return { destroy: () => observer.disconnect() };
+	}
+
+	/** A GIF that is not on this server (relative upload path, data: or blob: URL). */
+	function gifIsRemote(url: string): boolean {
+		return !(url.startsWith('/') || url.startsWith('data:') || url.startsWith('blob:'));
 	}
 
 	function findFirstObjectEntity(entities: MessageEntity[]): MessageEntity | null {
@@ -275,6 +288,10 @@
 				<div class="album-message-actions">
 					<span class="album-message-deleted-note">Album deleted</span>
 				</div>
+			{:else if contentOnDevice}
+				<div class="album-message-actions">
+					<span class="album-message-deleted-note">{ALBUMS_SERVER_READABLE_HINT}</span>
+				</div>
 			{:else}
 				<div class="album-message-actions">
 					<button
@@ -303,7 +320,13 @@
 		</div>
 	{:else if message.type === 'gif' && message.gifUrl}
 		<div class="gif-message-block">
-			<img src={message.gifUrl} alt="GIF" class="gif {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+			{#if contentOnDevice && gifIsRemote(message.gifUrl)}
+				<RemoteMediaGate url={message.gifUrl}>
+					<img src={message.gifUrl} alt="GIF" class="gif {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} decoding="async" referrerpolicy="no-referrer" />
+				</RemoteMediaGate>
+			{:else}
+				<img src={message.gifUrl} alt="GIF" class="gif {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+			{/if}
 				{#if messageText}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -311,7 +334,7 @@
 					class="markdown-content gif-caption {gifCaptionStyleClass}"
 					on:click={onHandleMarkdownContentClick}
 				>
-			{@html parseMessage(messageText, message.entities || [])}
+			{@html parseMessage(messageText, message.entities || [], { remoteImages: !contentOnDevice })}
 		</div>
 			{/if}
 		</div>
@@ -338,7 +361,7 @@
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div class="markdown-content" on:click={onHandleMarkdownContentClick}>
-				{@html parseMessage(messageText, message.entities || [])}
+				{@html parseMessage(messageText, message.entities || [], { remoteImages: !contentOnDevice })}
 			</div>
 		{/if}
 	{:else if message.type === 'emoji' && message.emojiUrl}
@@ -355,7 +378,7 @@
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div class="markdown-content" on:click={onHandleMarkdownContentClick}>
-				{@html parseMessage(messageText, message.entities || [])}
+				{@html parseMessage(messageText, message.entities || [], { remoteImages: !contentOnDevice })}
 			</div>
 		</div>
 		{#if textCollapsible}
@@ -381,11 +404,12 @@
 			{LinkPreviewComponent}
 			{ensureLinkPreviewLoaded}
 			{onOpenModelInDedicatedTab}
+			{contentOnDevice}
 		/>
 	{/if}
 
 	{#if firstObjectEntity}
-		<UnfurlCard entity={firstObjectEntity} />
+		<UnfurlCard entity={firstObjectEntity} showThumb={!contentOnDevice} />
 	{/if}
 
 	<SteamJoinButton {messageText} />

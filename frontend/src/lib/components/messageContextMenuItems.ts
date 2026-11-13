@@ -8,6 +8,7 @@
  * the message actually has files attached.
  */
 import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
+import { ALBUMS_SERVER_READABLE_HINT, FORWARD_UNAVAILABLE_HINT } from '$lib/privacy/contentEgress';
 
 type Action = (() => void) | undefined;
 
@@ -21,6 +22,11 @@ export interface MessageMenuInput {
 	canCopyText: boolean;
 	isPinned: boolean;
 	isPersonalPinned: boolean;
+	/**
+	 * The message or its room is under experimental encryption: rows that would hand its content to
+	 * a server-readable feature (albums, Lore, forwarding as a new message) are off, with a reason.
+	 */
+	keepContentOnDevice?: boolean;
 	translatorEnabled: boolean;
 	quickMentionEnabled: boolean;
 	personalPinsEnabled: boolean;
@@ -55,13 +61,26 @@ export function buildMessageMenu(input: MessageMenuInput): MenuEntry[] {
 	}
 
 	const share: MenuEntry[] = [];
-	if (input.onForward) share.push({ id: 'forward', label: t('context_menu.forward'), icon: 'forward', onSelect: input.onForward });
+	const keep = input.keepContentOnDevice === true;
+	if (input.onForward) {
+		share.push(
+			keep
+				? { id: 'forward', label: t('context_menu.forward'), icon: 'forward', disabled: true, hint: FORWARD_UNAVAILABLE_HINT }
+				: { id: 'forward', label: t('context_menu.forward'), icon: 'forward', onSelect: input.onForward }
+		);
+	}
 	share.push({ id: 'copy', label: t('context_menu.copy_text'), icon: 'copy', disabled: !input.canCopyText, onSelect: input.onCopyText });
 	if (input.onCopyQuote) share.push({ id: 'copy-quote', label: t('context_menu.copy_quote'), icon: 'quote', onSelect: input.onCopyQuote });
 	if (input.onCopyMessageLink) share.push({ id: 'copy-link', label: t('context_menu.copy_message_link'), icon: 'link', onSelect: input.onCopyMessageLink });
 	if (input.hasFile && input.onDownload) share.push({ id: 'download', label: t('context_menu.download'), icon: 'download', onSelect: input.onDownload });
-	if (input.hasFile && input.onAddToAlbum) share.push({ id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', onSelect: input.onAddToAlbum });
-	if (input.hasFile && input.onPromoteToLore) {
+	if (input.hasFile && input.onAddToAlbum) {
+		share.push(
+			keep
+				? { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', disabled: true, hint: ALBUMS_SERVER_READABLE_HINT }
+				: { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', onSelect: input.onAddToAlbum }
+		);
+	}
+	if (input.hasFile && input.onPromoteToLore && !keep) {
 		share.push({ id: 'promote-to-lore', label: 'Promote to Lore…', icon: 'box', keepCase: true, onSelect: input.onPromoteToLore });
 	}
 

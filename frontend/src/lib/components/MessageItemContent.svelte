@@ -56,6 +56,8 @@
 	export let albumAnnouncementUploadName: string | null;
 	export let highlightedMessageId: string | null;
 	export let messageText: string;
+	/** Under experimental encryption: no previews or remote media without a click (privacy/contentEgress.ts). */
+	export let contentOnDevice = false;
 	export let deletionModeEnabled = false;
 	export let canDeleteInDeletionMode = false;
 	export let deletionModeDeleting = false;
@@ -328,6 +330,7 @@
 			<MessageContent
 				{message}
 				{messageText}
+				{contentOnDevice}
 				{albumAnnouncementUploadName}
 				{translatedText}
 				{translationLoading}

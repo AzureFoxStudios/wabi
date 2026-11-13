@@ -104,6 +104,21 @@ this policy can accept plaintext in a room that was pending encryption. Use a
 matching stopped-instance backup for rollback. Do not delete the registry to
 clear a problem; damaged registry state blocks sends and key changes.
 
+### Client-side handling of decrypted content
+
+The browser decrypts an experimental-encryption message into an ordinary message object. For a
+message that arrived encrypted, and for any message in a DM or group whose encryption is enabled,
+pending or not yet known to the client, the web client (`frontend/src/lib/privacy/contentEgress.ts`)
+does not send that content onward on its own: no server link previews (`/api/url-preview`,
+`/api/image-proxy`); images, video, audio, GIFs, 3D models and Spotify players from other hosts
+wait for a click; images written in the message text render as links; no auto-translation, and
+manual translation asks once per conversation per session before sending text to the configured
+service; album, Lore, Blender-import and forward actions are off because those features are
+server-readable. Reporting such a message discloses its decrypted text to the server's moderators
+only after the reporter ticks an explicit disclosure box. These are client behaviors in this web
+client; they do not change the experimental status above, and a modified client is not bound by
+them.
+
 ### Experimental registry and recovery boundary
 
 The current release path retains the existing encrypted-envelope and attachment mechanisms; it does not convert existing ciphertext to plaintext. A room's registry flag reports `experimental_e2ee`, not verified operator-blind confidentiality. The separate DM “Sealed / Private / Open” menu was a device-local label with no connection to message encryption and is no longer presented as a security control. Existing stored preferences are left untouched.

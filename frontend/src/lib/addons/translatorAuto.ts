@@ -32,11 +32,22 @@ export function isAutoTranslationCandidateText(text: string): boolean {
 	return /[\p{L}\p{N}]/u.test(meaningful);
 }
 
+export type AutoTranslationOptions = {
+	/**
+	 * The message or its room is under experimental encryption (privacy/contentEgress.ts):
+	 * its decrypted text is never sent to the translation service automatically. Manual
+	 * translation asks first instead.
+	 */
+	keepOnDevice?: boolean;
+};
+
 export function requestAutoTranslation(
 	messageKey: string,
 	text: string,
-	settings: TranslatorSettings
+	settings: TranslatorSettings,
+	options: AutoTranslationOptions = {}
 ): Promise<TranslationResult | null> {
+	if (options.keepOnDevice) return Promise.resolve(null);
 	if (settings.mode !== 'auto' || !isAutoTranslationCandidateText(text)) {
 		return Promise.resolve(null);
 	}

@@ -4,8 +4,9 @@
 	import ModelViewerLauncher from '../ModelViewerLauncher.svelte';
 	import YouTubeWatchEmbed from '../plugins/YouTubeWatchEmbed.svelte';
 	import SpotifyControlsEmbed from '../plugins/SpotifyControlsEmbed.svelte';
-	import { isSpotifyUrl } from '$lib/spotifyControls';
-	import { extractUrls, getMediaType, isYouTubeUrl } from './messageItemUtils';
+	import RemoteMediaGate from './RemoteMediaGate.svelte';
+	import { LINK_PREVIEW_OFF_HINT } from '$lib/privacy/contentEgress';
+	import { needsLinkPreviewComponent, planLinkEmbeds, type LinkEmbedContext } from './linkEmbedPolicy';
 
 	export let message: Message;
 	export let messageText: string;
@@ -15,75 +16,130 @@
 	export let LinkPreviewComponent: any;
 	export let ensureLinkPreviewLoaded: () => void;
 	export let onOpenModelInDedicatedTab: (src: string, fileName: string) => void;
+	/**
+	 * The message or its room is under experimental encryption (privacy/contentEgress.ts): no
+	 * server-side link preview, and media from other hosts waits for a click (linkEmbedPolicy.ts).
+	 */
+	export let contentOnDevice = false;
 
-	// Load the preview card component as soon as the message has a link. This must live in script:
-	// a side effect inside a template {@const} is dropped by the production compiler, which left
-	// every link as a bare URL on built (non-dev) deployments.
-	$: if (messageText && !LinkPreviewComponent && extractUrls(messageText).length > 0) ensureLinkPreviewLoaded();
-
-	function isYouTubeQueueChannel(channelId: string): boolean {
-		const channel = channels.find((channelRecord) => channelRecord.id === channelId);
+	function isYouTubeQueueChannel(channelId: string, list: Channel[]): boolean {
+		const channel = list.find((channelRecord) => channelRecord.id === channelId);
 		return Boolean(channel?.watchQueueEnabled);
+	}
+
+	$: embedContext = {
+		keepOnDevice: contentOnDevice,
+		spotifyControlsEnabled: Boolean(displayEnhancementSettingsStore?.spotifyControlsEnabled),
+		youtubeQueueChannel: isYouTubeQueueChannel(currentChannel, channels)
+	} satisfies LinkEmbedContext;
+	$: plans = planLinkEmbeds(messageText, embedContext);
+	$: previewOffShown = plans.some((plan) => plan.plainLink && !plan.direct) && contentOnDevice;
+
+	// Load the preview card component as soon as the message has a link that will use it. This must
+	// live in script: a side effect inside a template {@const} is dropped by the production
+	// compiler, which left every link as a bare URL on built (non-dev) deployments.
+	$: if (messageText && !LinkPreviewComponent && needsLinkPreviewComponent(messageText, embedContext)) ensureLinkPreviewLoaded();
+
+	function modelName(url: string): string {
+		return url.split('/').pop() || $_('messages.media.model_fallback_name');
 	}
 </script>
 
-{#if messageText}
-	{@const urls = extractUrls(messageText)}
-	{#each urls as url, urlIndex}
-		{#if isYouTubeUrl(url)}
-			{#if LinkPreviewComponent}
-				<svelte:component this={LinkPreviewComponent} {url} />
-			{:else}
-				<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
-			{/if}
-			{#if isYouTubeQueueChannel(currentChannel) && urlIndex === 0}
-				<div class="youtube-queue-section">
-					<YouTubeWatchEmbed url={url} channelId={currentChannel} />
-				</div>
-			{/if}
-		{:else if displayEnhancementSettingsStore.spotifyControlsEnabled && isSpotifyUrl(url)}
-			<SpotifyControlsEmbed {url} />
+{#each plans as plan}
+	{@const url = plan.url}
+	{#if plan.preview}
+		{#if LinkPreviewComponent}
+			<svelte:component this={LinkPreviewComponent} {url} />
 		{:else}
-			{@const mediaType = getMediaType(url)}
-			{#if mediaType === 'image'}
-				<img
-					src={url}
-					alt={$_('messages.media.embedded_image_alt')}
-					class="embedded-media embedded-image {message.isSpoiler ? 'spoiler' : ''}"
-					data-spoiler={message.isSpoiler ? 'true' : 'false'}
-					loading="lazy"
-				/>
-			{:else if mediaType === 'video'}
-				<!-- svelte-ignore a11y-media-has-caption -->
-				<video
-					controls
-					class="embedded-media embedded-video {message.isSpoiler ? 'spoiler' : ''}"
-					data-spoiler={message.isSpoiler ? 'true' : 'false'}
-				>
-					<source src={url} />
-					{$_('messages.viewer.video_not_supported')}
-				</video>
-			{:else if mediaType === 'audio'}
-				<!-- svelte-ignore a11y-media-has-caption -->
-				<audio controls class="embedded-media embedded-audio">
-					<source src={url} />
-					{$_('messages.media.audio_not_supported')}
-				</audio>
-			{:else if mediaType === 'model'}
-				<div class="embedded-model-container">
-					<ModelViewerLauncher src={url} fileName={url.split('/').pop() || $_('messages.media.model_fallback_name')} height={280} />
-					<button
-						class="open-viewport-btn"
-						on:click={() => onOpenModelInDedicatedTab(url, url.split('/').pop() || $_('messages.media.model_fallback_name'))}
-					>
-						{$_('messages.media.open_3d_tab')}
-					</button>
-				</div>
-			{:else if LinkPreviewComponent}
-				<svelte:component this={LinkPreviewComponent} {url} />
-			{:else}
-				<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
-			{/if}
+			<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
 		{/if}
-	{/each}
+	{:else if plan.plainLink && !plan.direct}
+		<a href={url} target="_blank" rel="noopener noreferrer nofollow" class="plain-link-fallback">{url}</a>
+	{/if}
+	{#if plan.direct}
+		{#if plan.directNeedsClick}
+			<RemoteMediaGate {url}>
+				{#if plan.direct === 'youtube-queue'}
+					<div class="youtube-queue-section"><YouTubeWatchEmbed url={url} channelId={currentChannel} /></div>
+				{:else if plan.direct === 'spotify'}
+					<SpotifyControlsEmbed {url} />
+				{:else if plan.direct === 'image'}
+					<img
+						src={url}
+						alt={$_('messages.media.embedded_image_alt')}
+						class="embedded-media embedded-image {message.isSpoiler ? 'spoiler' : ''}"
+						data-spoiler={message.isSpoiler ? 'true' : 'false'}
+						referrerpolicy="no-referrer"
+					/>
+				{:else if plan.direct === 'video'}
+					<!-- svelte-ignore a11y-media-has-caption -->
+					<video controls class="embedded-media embedded-video {message.isSpoiler ? 'spoiler' : ''}" data-spoiler={message.isSpoiler ? 'true' : 'false'}>
+						<source src={url} />
+						{$_('messages.viewer.video_not_supported')}
+					</video>
+				{:else if plan.direct === 'audio'}
+					<!-- svelte-ignore a11y-media-has-caption -->
+					<audio controls class="embedded-media embedded-audio">
+						<source src={url} />
+						{$_('messages.media.audio_not_supported')}
+					</audio>
+				{:else if plan.direct === 'model'}
+					<div class="embedded-model-container">
+						<ModelViewerLauncher src={url} fileName={modelName(url)} height={280} />
+					</div>
+				{/if}
+			</RemoteMediaGate>
+		{:else if plan.direct === 'youtube-queue'}
+			<div class="youtube-queue-section">
+				<YouTubeWatchEmbed url={url} channelId={currentChannel} />
+			</div>
+		{:else if plan.direct === 'spotify'}
+			<SpotifyControlsEmbed {url} />
+		{:else if plan.direct === 'image'}
+			<img
+				src={url}
+				alt={$_('messages.media.embedded_image_alt')}
+				class="embedded-media embedded-image {message.isSpoiler ? 'spoiler' : ''}"
+				data-spoiler={message.isSpoiler ? 'true' : 'false'}
+				loading="lazy"
+			/>
+		{:else if plan.direct === 'video'}
+			<!-- svelte-ignore a11y-media-has-caption -->
+			<video
+				controls
+				class="embedded-media embedded-video {message.isSpoiler ? 'spoiler' : ''}"
+				data-spoiler={message.isSpoiler ? 'true' : 'false'}
+			>
+				<source src={url} />
+				{$_('messages.viewer.video_not_supported')}
+			</video>
+		{:else if plan.direct === 'audio'}
+			<!-- svelte-ignore a11y-media-has-caption -->
+			<audio controls class="embedded-media embedded-audio">
+				<source src={url} />
+				{$_('messages.media.audio_not_supported')}
+			</audio>
+		{:else if plan.direct === 'model'}
+			<div class="embedded-model-container">
+				<ModelViewerLauncher src={url} fileName={modelName(url)} height={280} />
+				<button
+					class="open-viewport-btn"
+					on:click={() => onOpenModelInDedicatedTab(url, modelName(url))}
+				>
+					{$_('messages.media.open_3d_tab')}
+				</button>
+			</div>
+		{/if}
+	{/if}
+{/each}
+{#if previewOffShown}
+	<p class="link-preview-off">{LINK_PREVIEW_OFF_HINT}</p>
 {/if}
+
+<style>
+	.link-preview-off {
+		margin: 2px 0 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+</style>
