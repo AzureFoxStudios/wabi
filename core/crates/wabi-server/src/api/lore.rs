@@ -1061,13 +1061,15 @@ async fn promote_from_message(
     // One service call performs create/switch/upload/switch-back under a single
     // io_gate hold and restores the branch that was current, even on error.
     let review_name = (mode == "stage").then(|| {
+        // The random part keeps two promotes in one second apart.
         format!(
-            "chat/u{}-{}",
+            "chat/u{}-{}-{}",
             auth.user_id,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
-                .unwrap_or(0)
+                .unwrap_or(0),
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
         )
     });
     let result = lore
@@ -1835,12 +1837,21 @@ async fn admit_file_upload(
     auth: &AuthUser,
     channel_id: i64,
     repo_path: &str,
+    stage_only: bool,
 ) -> Result<Option<Arc<wabi_lore::LoreService>>> {
     ensure_channel_member(state, channel_id, auth.user_id).await?;
     // L8: asset writes = Owner/Admin/Developer/Artist
     if !can_asset_write_lore(state, auth.user_id).await {
         return Err(AppError::Forbidden(
             "Lore asset uploads require at least Artist role".into(),
+        ));
+    }
+    // A stage-only upload writes the file into the working tree of the
+    // current branch, where everyone reads it and where the next commit by
+    // anyone picks it up. That changes the mainline, so it needs lore.commit.
+    if stage_only && !can_lore(state, auth.user_id, "lore.commit").await {
+        return Err(AppError::Forbidden(
+            "Staging a batch writes to the main branch and requires lore.commit. Upload the file without stageOnly to send it for review.".into(),
         ));
     }
     wabi_lore::validate_repo_path(repo_path)
@@ -1854,6 +1865,36 @@ async fn admit_file_upload(
     Ok(Some(lore))
 }
 
+/// Upload `local_path` the way the caller's capabilities allow. A caller
+/// without lore.commit never changes the mainline: the file is committed on a
+/// fresh review branch (the per-call form of auto_branch_on_upload) and the
+/// working tree is put back on the branch that was current.
+async fn upload_for_caller(
+    state: &AppState,
+    lore: &wabi_lore::LoreService,
+    user_id: i64,
+    channel_id: i64,
+    local_path: &str,
+    repo_path: &str,
+    message: &str,
+) -> anyhow::Result<wabi_lore::LoreUploadResult> {
+    if can_lore(state, user_id, "lore.commit").await {
+        return lore
+            .upload_file(channel_id, local_path, repo_path, message, user_id)
+            .await;
+    }
+    let review = format!(
+        "uploads/u{user_id}-{}-{}",
+        chrono::Utc::now().timestamp(),
+        &uuid::Uuid::new_v4().simple().to_string()[..8]
+    );
+    // `branch` is unused when a review branch is given.
+    lore.promote_file(
+        channel_id, local_path, repo_path, message, user_id, "", Some(&review),
+    )
+    .await
+}
+
 async fn upload_file(
     State(state): State<Arc<AppState>>,
     LoreWriteUser(auth): LoreWriteUser,
@@ -1865,6 +1906,7 @@ async fn upload_file(
     let message = query.message.unwrap_or_else(|| "Upload via API".into());
     check_commit_message(&message)?;
     let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
+    let stage_only = query.stage_only.unwrap_or(false);
     let operation_state = state.clone();
 
     // Authorize and look up the blob cap before reading any of the body. The
@@ -1876,7 +1918,7 @@ async fn upload_file(
         let (state, auth, repo_path) = (state.clone(), auth.clone(), repo_path.clone());
         admission
             .run(&operation_state, async move {
-                admit_file_upload(&state, &auth, channel_id, &repo_path).await
+                admit_file_upload(&state, &auth, channel_id, &repo_path, stage_only).await
             })
             .await?
     };
@@ -1895,7 +1937,8 @@ async fn upload_file(
     super::lore_auth::validate_current_capability(&state, &auth, channel_id, true).await?;
     admission
         .run(&operation_state, async move {
-            let Some(lore) = admit_file_upload(&state, &auth, channel_id, &repo_path).await?
+            let Some(lore) =
+                admit_file_upload(&state, &auth, channel_id, &repo_path, stage_only).await?
             else {
                 return Ok(mirror_read_only_response());
             };
@@ -1921,7 +1964,7 @@ async fn upload_file(
             // Batch-push half of the device setup flow: stage the bytes now, seal the
             // whole batch with ONE POST /snapshot afterwards. Per-file WDB commit
             // recording is deferred to that snapshot (which owns the revision hash).
-            if query.stage_only.unwrap_or(false) {
+            if stage_only {
                 let file = lore
                     .stage_file(
                         channel_id,
@@ -1955,15 +1998,16 @@ async fn upload_file(
                 .into_response());
             }
 
-            let result = lore
-                .upload_file(
-                    channel_id,
-                    tmp_path.to_str().unwrap_or("/dev/null"),
-                    &repo_path,
-                    &message,
-                    auth.user_id,
-                )
-                .await?;
+            let result = upload_for_caller(
+                &state,
+                &lore,
+                auth.user_id,
+                channel_id,
+                tmp_path.to_str().unwrap_or("/dev/null"),
+                &repo_path,
+                &message,
+            )
+            .await?;
 
             let mut wdb_recorded = false;
             let mut cursor = 0u64;
@@ -2152,15 +2196,17 @@ async fn upload_recording(
 
             let tmp_path = temporary.path();
 
-            let result = lore
-                .upload_file(
-                    lore_channel_id,
-                    tmp_path.to_str().unwrap_or("/dev/null"),
-                    &repo_path,
-                    &message,
-                    auth.user_id,
-                )
-                .await?;
+            let result = upload_for_caller(
+                &state,
+                &lore,
+                auth.user_id,
+                lore_channel_id,
+                tmp_path.to_str().unwrap_or("/dev/null"),
+                &repo_path,
+                &message,
+            )
+            .await?;
+            let (pending_review, review_branch) = (result.pending_review, result.review_branch);
             let (revision, file_info) = (result.revision, result.file_info);
 
             let mut wdb_recorded = false;
@@ -2189,6 +2235,8 @@ async fn upload_recording(
                     "etag": etag,
                     "revision": revision.hash,
                     "authorUserId": auth.user_id,
+                    "pendingReview": pending_review,
+                    "reviewBranch": review_branch,
                 }),
             )
             .await;
@@ -2198,6 +2246,8 @@ async fn upload_recording(
                 "file": file_info,
                 "path": repo_path,
                 "etag": etag,
+                "pendingReview": pending_review,
+                "reviewBranch": review_branch,
                 "wdbRecorded": wdb_recorded,
             }))
             .into_response())
@@ -2495,6 +2545,13 @@ async fn delete_file(
             if !can_asset_write_lore(&state, auth.user_id).await {
                 return Err(AppError::Forbidden(
                     "Lore asset deletion requires at least Artist role".into(),
+                ));
+            }
+            // A delete has no review-branch path, and committing it would change
+            // the mainline: it needs lore.commit, not just lore.stage.
+            if !can_lore(&state, auth.user_id, "lore.commit").await {
+                return Err(AppError::Forbidden(
+                    "Deleting a Lore file changes the mainline and requires lore.commit".into(),
                 ));
             }
             let message = payload.message.unwrap_or_else(|| "Deleted via API".into());
