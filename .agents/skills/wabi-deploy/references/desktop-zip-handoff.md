@@ -1,13 +1,13 @@
 # Wabi Desktop Zip Handoff
 
-Use this when the user asks to "send the updated project as a zip" or wants the current Wabi source copied to Tim/Iyoku desktops, not deployed live.
+Use this when the user asks to "send the updated project as a zip" or wants the current Wabi source copied to <host>/<staging-host> desktops, not deployed live.
 
 ## Source-of-truth check
 
 Before zipping, verify the tree is the active refactor worktree rather than an old backup:
 
 ```bash
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 pwd
 git rev-parse --show-toplevel
 git branch --show-current
@@ -27,12 +27,12 @@ Healthy refactor signal from the May 2026 Wabi tree: `Settings.svelte` is a smal
 ## Create zip
 
 ```bash
-SRC=/var/home/Ronin/wabi
-BACKUP_DIR=/var/home/Ronin/Desktop/Wabi/backups
+SRC=<wabi-root>
+BACKUP_DIR=<wabi-root>/backups
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT="$BACKUP_DIR/wabi-refactor-current-$STAMP.zip"
 mkdir -p "$BACKUP_DIR"
-cd /var/home/Ronin
+cd /home/<user>
 zip -r "$OUT" wabi \
   -x 'wabi/frontend/node_modules/*' \
      'wabi/node_modules/*' \
@@ -56,29 +56,29 @@ unzip -l "$OUT" 'wabi/frontend/src/lib/components/Settings.svelte' 'wabi/fronten
 
 ```bash
 BASE=$(basename "$OUT")
-ssh tim@100.96.11.45 'mkdir -p ~/Desktop'
-scp "$OUT" tim@100.96.11.45:~/Desktop/
-ssh tim@100.96.11.45 "ls -lh ~/Desktop/$BASE"
+ssh <user>@<host> 'mkdir -p ~/Desktop'
+scp "$OUT" <user>@<host>:~/Desktop/
+ssh <user>@<host> "ls -lh ~/Desktop/$BASE"
 
-ssh Iyoku@100.104.166.42 'mkdir -p ~/Desktop'
-scp "$OUT" Iyoku@100.104.166.42:~/Desktop/
-ssh Iyoku@100.104.166.42 "ls -lh ~/Desktop/$BASE"
+ssh <user>@<staging-host> 'mkdir -p ~/Desktop'
+scp "$OUT" <user>@<staging-host>:~/Desktop/
+ssh <user>@<staging-host> "ls -lh ~/Desktop/$BASE"
 ```
 
-Tailscale SSH to Tim may print an approval URL. Surface the URL to the user, wait for approval, then retry.
+Tailscale SSH to <host> may print an approval URL. Surface the URL to the user, wait for approval, then retry.
 
 ## Verify transfer integrity
 
 ```bash
 sha256sum "$OUT"
-ssh tim@100.96.11.45 "sha256sum ~/Desktop/$BASE && ls -lh ~/Desktop/$BASE"
-ssh Iyoku@100.104.166.42 "sha256sum ~/Desktop/$BASE && ls -lh ~/Desktop/$BASE"
+ssh <user>@<host> "sha256sum ~/Desktop/$BASE && ls -lh ~/Desktop/$BASE"
+ssh <user>@<staging-host> "sha256sum ~/Desktop/$BASE && ls -lh ~/Desktop/$BASE"
 ```
 
-Checksums must match local, Tim, and Iyoku.
+Checksums must match local, <host>, and <staging-host>.
 
 ## Notes
 
 - This is a handoff/archive operation, not a live deploy.
 - Exclude generated/bulky directories; include source and uncommitted work.
-- Ronin is the local machine. Iyoku is the staging remote.
+- Ronin is the local machine. <staging-host> is the staging remote.

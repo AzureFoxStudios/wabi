@@ -22,7 +22,7 @@ Fact-checked reference for WabiDB's actual architecture — an encrypted event/c
 
 ## Prerequisites
 
-- Access to WabiDB source code at `/var/home/Ronin/wabi`
+- Access to WabiDB source code at `<wabi-root>`
 - Rust toolchain
 - Basic understanding of event sourcing and CQRS concepts
 
@@ -186,7 +186,7 @@ Each benchmark populates 10k records across 100 groups. Run with `cargo bench -p
 - **Projections are in-memory**: Rebuilt from snapshots + commit journal on restart. Large datasets may have slow recovery.
 - **Recovery must use the existing log**: Never clean the commit index to make a restart test pass. Startup must recover every indexed post-snapshot event in `(commit_seq, event_ref ordinal)` order or refuse readiness. Handler failures cannot be logged and skipped. Failed open releases its own engine lock.
 - **DB-change policy**: Per AGENTS.md, implement + document + update relevant skills autonomously for domain/projection/ChannelKind changes. Preserve postcard compatibility; this policy does not authorize pushes or deployment.
-- **Live-channel keying (2026-07-18): do NOT add a `live` `ChannelKind`/`Channel` domain field.** A struct-field change to the `Channel` domain type risks the **postcard replay-break** class of bug — old events fail to decode on replay (this is exactly what broke Tim's accounts). Instead key Live behavior off the EXISTING in-memory `channel_auto_delete_label` map using the sentinel string `"live"` (already used for timed-retention labels). The backend `update-channel-settings` handler already accepts `autoDeleteAfter: "live"`. Verified Live Rooms backend (in-memory reaper + per-message TTL + count cap + `message-deleted` emit + `live-buffer-snapshot`) lives in `wabi-server`; port recipe in `software-development/wabi-frontend-polish` → `references/live-rooms-architecture-and-port-recipe.md`.
+- **Live-channel keying (2026-07-18): do NOT add a `live` `ChannelKind`/`Channel` domain field.** A struct-field change to the `Channel` domain type risks the **postcard replay-break** class of bug — old events fail to decode on replay (this is exactly what broke <host>'s accounts). Instead key Live behavior off the EXISTING in-memory `channel_auto_delete_label` map using the sentinel string `"live"` (already used for timed-retention labels). The backend `update-channel-settings` handler already accepts `autoDeleteAfter: "live"`. Verified Live Rooms backend (in-memory reaper + per-message TTL + count cap + `message-deleted` emit + `live-buffer-snapshot`) lives in `wabi-server`; port recipe in `software-development/wabi-frontend-polish` → `references/live-rooms-architecture-and-port-recipe.md`.
 
 ## Verification
 

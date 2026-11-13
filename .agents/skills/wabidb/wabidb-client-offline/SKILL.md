@@ -1,6 +1,6 @@
 ---
 name: wabidb-client-offline
-description: "Client-side WabiDB offline queue and scope registry in frontend/src/lib/wabidb. Use when changing outbound queueing, reconnect replay, group intent cancellation, IndexedDB queue transactions, or Offline & Storage settings."
+description: "Use when changing frontend/src/lib/wabidb outbound queueing, reconnect drain, message receipts, group-intent fencing or Offline & Storage settings."
 metadata:
   version: 1.2.0
   author: Hermes

@@ -36,10 +36,10 @@ Use these commands to explore the replication system:
 
 ```bash
 # View SyncTransport implementation
-read_file /var/home/Ronin/wabi/core/crates/wabidb/src/replication/sync_protocol.rs
+read_file <wabi-root>/core/crates/wabidb/src/replication/sync_protocol.rs
 
 # View SyncWorker implementation
-read_file /var/home/Ronin/wabi/core/crates/wabidb/src/replication/sync_worker.rs
+read_file <wabi-root>/core/crates/wabidb/src/replication/sync_worker.rs
 
 # Run replication tests
 cargo test -p wabidb --test sync_protocol

@@ -23,8 +23,8 @@ This skill captures the current state of the WabiDB engine integration into wabi
 ## Prerequisites
 
 - Rust toolchain (stable + nightly for MIRI)
-- WabiDB source at `/var/home/Ronin/wabi/core/crates/wabidb/`
-- wabi-server source at `/var/home/Ronin/wabi/core/crates/wabi-server/`
+- WabiDB source at `<wabi-root>/core/crates/wabidb/`
+- wabi-server source at `<wabi-root>/core/crates/wabi-server/`
 - 656 wabidb tests passing, 44 wabi-server tests passing
 - `WABIDB_ROOT_KEY` env var set for engine bootstrap
 
@@ -33,7 +33,7 @@ This skill captures the current state of the WabiDB engine integration into wabi
 Invoke through the `terminal` tool from the Wabi monorepo root:
 
 ```bash
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 cargo test -p wabidb --lib  # 656 tests
 cargo test -p wabi-server  # 44 tests
 ```
@@ -175,7 +175,7 @@ impl WabiDbEngine {
 Run the full test suite:
 
 ```bash
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 cargo test -p wabidb --lib  # Should show 656+ tests
 cargo test -p wabi-server  # Should show 44+ tests
 cargo check -p wabi-server  # Should be clean
@@ -201,7 +201,7 @@ hermes kanban complete wabidb-event-log-replay
 ## Verification
 
 ```bash
-cd /var/home/Ronin/wabi
+cd <wabi-root>
 cargo test -p wabidb --lib 2>&1 | tail -3  # Should show "656 passed"
 cargo test -p wabi-server 2>&1 | tail -3  # Should show "44 passed"
 ```

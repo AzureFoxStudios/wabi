@@ -77,7 +77,7 @@
 	const images = $derived($readerSelection?.images || []);
 	const textLayout = $derived(isCodeDocument ? 'scroll' : layout);
 	const horizontal = $derived(isImageMode ? $readerPreferences.readingDirection === 'horizontal' : textLayout === 'paged');
-	const html = $derived($readerSelection && !isImageMode ? renderReaderHtml($readerSelection.content, $readerSelection.format) : '');
+	const html = $derived($readerSelection && !isImageMode ? renderReaderHtml($readerSelection.content, $readerSelection.format, { remoteMedia: $readerSelection.remoteMedia !== false }) : '');
 	const theme = $derived($readerPreferences.theme === 'auto' ? (systemDark ? 'night' : 'paper') : $readerPreferences.theme);
 	const record = $derived($readerSelection ? $readerLibrary[$readerSelection.docKey] : undefined);
 	const bookmarks = $derived(record?.bookmarks || []);

@@ -1,6 +1,6 @@
 ---
 name: wabidb-performance-benchmarks
-description: "Learn WabiDB's benchmark suite — 24 criterion benchmarks measuring projection read performance across get, list, and compact operations on 10k records."
+description: "Use when measuring WabiDB projection-read or commit-throughput performance with the criterion benches in core/crates/wabidb/benches."
 ---
 
 # WabiDB Performance Benchmarks
@@ -15,8 +15,8 @@ This skill covers WabiDB's Criterion-based benchmark suite in `benches/projectio
 
 ## Prerequisites
 
-- Access to WabiDB source code at `/var/home/Ronin/wabi`
-- Rust toolchain with nightly (for `cargo bench`)
+- Access to WabiDB source code at `<wabi-root>`
+- The repository's pinned stable toolchain (`rust-toolchain.toml`)
 
 ## How to Run
 
@@ -36,7 +36,7 @@ cargo bench -p wabidb -- "projection_get/get_message"
 
 ## Key File
 
-`benches/projection_read.rs` (381 lines) — the entire benchmark suite.
+`benches/projection_read.rs` — projection reads; `benches/commit_throughput.rs` — `run_command` throughput.
 
 ## Dataset
 
@@ -57,9 +57,11 @@ The `populate()` function creates **10k records** across **100 groups** (100 rec
 
 Approximately 10% of records are marked `is_deleted = true` for compaction benchmarks.
 
+Messages, channels and channel members here go to an in-memory SQLite read model (`ProjectionState::new()` lazily creates `ReadModel::in_memory()`), not the on-disk file, so these numbers exclude disk I/O for those projections.
+
 ## Benchmark Groups
 
-### `projection_get` (10 benchmarks)
+### `projection_get`
 
 Measures single-record lookup by exact key:
 
@@ -76,7 +78,7 @@ Measures single-record lookup by exact key:
 | `get_album` | `AlbumProjection::get_album()` | scope_type + scope_id + album_id |
 | `get_album_item` | `AlbumItemsProjection::get_item()` | album_id + item_id |
 
-### `projection_list` (13 benchmarks)
+### `projection_list`
 
 Measures range scans with prefix lookup:
 

@@ -5,7 +5,7 @@
 //
 // Usage:
 //   node probe-init-payload.mjs                  # defaults to https://wabi.chat
-//   WABI_BASE=http://100.96.11.45:3001 node probe-init-payload.mjs
+//   WABI_BASE=http://<host>:3001 node probe-init-payload.mjs
 //
 // Run from a dir where socket.io-client resolves (e.g. wabi/frontend).
 // Contract: the frontend joins with `sock.emit('join', username)` (plain string).

@@ -141,3 +141,27 @@ describe('message menu (§8.9)', () => {
 		expect(source).not.toContain("'message-circle'");
 	});
 });
+
+describe('message menu under experimental encryption', () => {
+	test('albums and forwarding are off with a reason, Lore is not offered, report and translate stay', () => {
+		const menu = buildMessageMenu(input({ hasFile: true, keepReason: 'checking' }));
+		const row = (id: string) => menu.find((entry) => entry.id === id);
+		expect(row('add-to-album')?.disabled).toBe(true);
+		expect(row('add-to-album')?.onSelect).toBeUndefined();
+		expect(row('add-to-album')?.hint).toContain('server-readable');
+		expect(row('add-to-album')?.hint).toContain('still checking');
+		expect(row('add-to-album')?.hint).not.toContain('uses experimental encryption');
+		expect(row('forward')?.disabled).toBe(true);
+		expect(row('forward')?.onSelect).toBeUndefined();
+		expect(row('promote-to-lore')).toBeUndefined();
+		expect(row('report')?.onSelect).toBe(noop);
+		expect(row('translate')?.onSelect).toBe(noop);
+	});
+
+	test('server-readable messages keep every row as before', () => {
+		const menu = buildMessageMenu(input({ hasFile: true }));
+		expect(menu.find((entry) => entry.id === 'add-to-album')?.disabled).toBeFalsy();
+		expect(menu.find((entry) => entry.id === 'forward')?.disabled).toBeFalsy();
+		expect(menu.find((entry) => entry.id === 'promote-to-lore')).toBeDefined();
+	});
+});

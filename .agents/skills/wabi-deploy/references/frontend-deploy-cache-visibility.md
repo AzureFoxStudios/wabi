@@ -4,8 +4,8 @@ Use when a Wabi frontend/Rust-binary deploy appears to succeed but the live webs
 
 ## Symptom
 
-- Tim container is healthy and `/health` returns 200.
-- Local rebuilt `frontend/build/index.html` asset filenames match Tim/public HTML.
+- <host> container is healthy and `/health` returns 200.
+- Local rebuilt `frontend/build/index.html` asset filenames match <host>/public HTML.
 - User/browser still shows old UI, a `n.subscribe is not a function` crash, or a login bounce loop.
 
 ## Verify live bytes, not just container health
@@ -15,14 +15,14 @@ Compare these three sources:
 1. Local build:
    - `frontend/build/index.html`
    - `frontend/build/_app/immutable/...`
-2. Tim local HTTP:
+2. <host> local HTTP:
    - `curl -fsS http://127.0.0.1:3001/`
    - `curl -fsS -I http://127.0.0.1:3001/sw.js`
 3. Public site:
    - `curl -fsS -I https://wabi.chat/`
    - fetch CSS/JS referenced by public HTML and grep for expected selectors/strings.
 
-If local build, Tim local, and public HTML reference the same hashed assets, the deploy reached the server. The problem is likely browser/service-worker/CDN cache or the expected visual change is subtler/different than assumed.
+If local build, <host> local, and public HTML reference the same hashed assets, the deploy reached the server. The problem is likely browser/service-worker/CDN cache or the expected visual change is subtler/different than assumed.
 
 ## Cache-header pitfall found in session
 
@@ -57,9 +57,9 @@ Expected:
 **Definitive diagnosis without trusting the user's browser:** reproduce headlessly with a real Chromium against the LIVE site. Playwright is already a `frontend` dep (`playwright-core`); install the browser once:
 
 ```bash
-cd /var/home/Ronin/wabi/frontend && npx playwright install chromium
+cd <wabi-root>/frontend && npx playwright install chromium
 cat > /tmp/repro.mjs <<'MJS'
-import pkg from '/var/home/Ronin/wabi/frontend/node_modules/playwright-core/index.js';
+import pkg from '<wabi-root>/frontend/node_modules/playwright-core/index.js';
 const { chromium } = pkg;
 (async () => {
   const b = await chromium.launch();
@@ -104,7 +104,7 @@ If that returns 200, the server auth works; the bounce is purely client stale st
 When the user reports no visible update / a crash / a login bounce, do not simply insist it deployed. Re-check and report evidence:
 
 - local vs remote binary SHA256
-- Tim local root asset refs
+- <host> local root asset refs
 - public root asset refs
 - public CSS/JS contains expected selectors/strings
 - cache headers for `/`, `/sw.js`, and a representative `_app/immutable` asset

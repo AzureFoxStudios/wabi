@@ -21,7 +21,7 @@ disagree:
 - `LoreService.repos` map has no entry → UI offers setup → `lore repository create`
   refuses because the path is taken.
 
-Verified incident 2026-08-21, channel 97 on Tim: repo created 11:43, server restarted
+Verified incident 2026-08-21, channel 97 on <host>: repo created 11:43, server restarted
 12:07, index lost it. User uploads (`gallery-prototype.html`) were inside the tree —
 wiping would have destroyed real content.
 

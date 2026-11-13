@@ -13,7 +13,7 @@ on every call — a loop.
 The browser tool is backed by a **browser-harness** Python daemon
 (`browser_harness.daemon`, usually under `~/.local/share/uv/tools/browser-harness`)
 driving a long-lived Chromium
-(`--user-data-dir=/home/Ronin/.browser-harness-chromium-profile`). The stale URL lives in
+(`--user-data-dir=/home/<user>/.browser-harness-chromium-profile`). The stale URL lives in
 TWO places:
 1. The daemon's Chromium profile (persisted tab state).
 2. The **running Hermes agent process's in-memory `current_url`** — this is what replays
@@ -28,7 +28,7 @@ TWO places:
    ```
 2. Wipe the corrupted profile so a fresh one spawns:
    ```
-   rm -rf /home/Ronin/.browser-harness-chromium-profile
+   rm -rf /home/<user>/.browser-harness-chromium-profile
    ```
 3. **Restart the Hermes CLI/agent.** This is the actual fix — it clears the agent's
    in-memory `current_url`. Killing the external daemon alone (steps 1–2) is necessary

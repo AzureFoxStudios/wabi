@@ -6,6 +6,8 @@
   import type { NavRef } from '$lib/navigateToRef';
 
   export let entity: MessageEntity;
+  /** false under experimental encryption: the thumbnail URL comes from the message itself. */
+  export let showThumb = true;
 
   $: record = findRecordInStore(entity.kind, entity.targetId, $objectRefStore);
 
@@ -92,7 +94,7 @@
         <span class="unfurl-card-status">{displayStatus}</span>
       {/if}
     </div>
-    {#if thumbUrl}
+    {#if thumbUrl && showThumb}
       <div class="unfurl-card-thumb">
         <img src={thumbUrl} alt="" loading="lazy" />
       </div>

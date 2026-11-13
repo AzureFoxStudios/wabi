@@ -7,7 +7,8 @@ import type { Message } from '$lib/socket-types';
 import { E2eeNoKeyError, classifyUnreadable, unreadableMessageText, type E2eeUnreadableClass } from './e2eeUnreadable';
 import type { AttachmentEncryptionMeta } from '../../../packages/wabi-protocol/src';
 
-export const E2EE_MESSAGE_PREFIX = 'wabi-e2ee-v1:';
+import { E2EE_MESSAGE_PREFIX, markE2eeObserved } from './e2eeEnvelope';
+export { E2EE_MESSAGE_PREFIX };
 const DEVICE_VERSION = 1;
 const FILE_CHUNK_SIZE = 1024 * 1024;
 const encoder = new TextEncoder();
@@ -378,6 +379,11 @@ function cachedRoomStatus(channelId: string): E2eeRoomStatus | null {
 	try { return JSON.parse(raw) as E2eeRoomStatus; } catch { return null; }
 }
 
+/** This device's last stored status for a room (no network), or null. Never a downgrade of an observed encrypted room. */
+export function storedE2eeRoomStatus(channelId: string): E2eeRoomStatus | null {
+	try { return cachedRoomStatus(channelId); } catch { return null; }
+}
+
 export async function getE2eeRoomStatus(channelId: string, allowCached = true): Promise<E2eeRoomStatus> {
 	try {
 		const response = await authorizedFetch(`/api/e2ee/channels/${encodeURIComponent(channelId)}`);
@@ -684,7 +690,7 @@ export async function prepareIncomingE2eeMessage(channelId: string, message: Mes
 		);
 		const payload = JSON.parse(decoder.decode(clear)) as E2eePayload;
 		if (payload?.v !== 1 || typeof payload.text !== 'string' || typeof payload.type !== 'string') throw new Error('Invalid decrypted message payload.');
-		return {
+		return markE2eeObserved({
 			...message,
 			...safeDecryptedOptions(payload.options || {}),
 			text: payload.text,
@@ -694,7 +700,7 @@ export async function prepareIncomingE2eeMessage(channelId: string, message: Mes
 			e2eeVerified: true,
 			e2eeEpoch: envelope.epoch,
 			e2eeSenderDeviceId: envelope.senderDeviceId,
-		};
+		});
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : 'Unable to decrypt message.';
 		return undecryptableMessage(message, detail, classifyUnreadable(error));
@@ -707,7 +713,7 @@ export async function prepareIncomingE2eeMessage(channelId: string, message: Mes
  * screen, the search index, or a notification.
  */
 function undecryptableMessage(message: Message, detail: string, kind: E2eeUnreadableClass): E2eePreparedMessage {
-	return {
+	return markE2eeObserved({
 		...message,
 		text: unreadableMessageText(kind),
 		type: 'text' as Message['type'],
@@ -716,7 +722,7 @@ function undecryptableMessage(message: Message, detail: string, kind: E2eeUnread
 		e2eeVerified: false,
 		e2eeError: detail,
 		e2eeUnreadable: kind
-	};
+	});
 }
 
 function chunkIv(prefix: Uint8Array, index: number): Uint8Array {

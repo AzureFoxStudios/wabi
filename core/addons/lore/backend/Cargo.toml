@@ -1,6 +1,7 @@
 [package]
 name = "wabi-lore"
 version = "0.1.0"
+publish = false
 edition = "2021"
 description = "Wabi Lore addon - version-controlled binary storage via Epic Games Lore"
 license = "MIT"

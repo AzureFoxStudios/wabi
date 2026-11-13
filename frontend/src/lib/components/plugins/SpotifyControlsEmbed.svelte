@@ -2,6 +2,8 @@
 	import { buildSpotifyEmbedUrl, buildSpotifyOpenUrl } from '$lib/spotifyControls';
 
 	export let url: string;
+	/** Behind a click-to-load gate (privacy/remoteMedia.ts): do not tell Spotify which page embedded it. */
+	export let noReferrer = false;
 
 	$: embedUrl = buildSpotifyEmbedUrl(url);
 	$: openUrl = buildSpotifyOpenUrl(url);
@@ -12,6 +14,7 @@
 		<iframe
 			src={embedUrl}
 			title="Spotify player"
+			referrerpolicy={noReferrer ? 'no-referrer' : undefined}
 			loading="lazy"
 			allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
 			allowfullscreen

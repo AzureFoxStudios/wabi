@@ -38,6 +38,7 @@ mock.module('$lib/api/authRefresh', () => ({ tryRefresh: async () => false }));
 mock.module('$lib/serverUrl', () => ({ getServerUrl: () => SERVER }));
 
 const { E2EE_MESSAGE_PREFIX, prepareIncomingE2eeMessage } = await import('./e2ee');
+const { isE2eeObserved } = await import('./e2eeEnvelope');
 
 const subtle = globalThis.crypto.subtle;
 const enc = new TextEncoder();
@@ -121,6 +122,8 @@ function expectSafe(prepared: any) {
 	expect(prepared.text.toLowerCase()).not.toContain('end-to-end');
 	expect(prepared.id).toBe('m1');
 	expect(prepared.e2eeError).toBeTruthy();
+	// This client saw an envelope it could not open: its content stays on the device.
+	expect(isE2eeObserved(prepared)).toBe(true);
 }
 
 // ---- class "failed-check": the message failed a check -------------------------------------
@@ -197,6 +200,21 @@ test('a decrypted payload with the wrong shape is a failed check', async () => {
 	expectFailedCheck(await prepareIncomingE2eeMessage(channel, message(await envelopeText({ iv: b64(iv) }, signingPair.privateKey, ciphertext))));
 });
 
+test('a message this device decrypts carries the local "observed" marker (wire JSON cannot)', async () => {
+	const roomKey = crypto.getRandomValues(new Uint8Array(32));
+	await seedRoomKey(1, roomKey);
+	const key = await subtle.importKey('raw', roomKey, { name: 'AES-GCM' }, false, ['encrypt']);
+	const iv = crypto.getRandomValues(new Uint8Array(12));
+	const aad = enc.encode(['wabi-e2ee-payload-v1', channel, '1', 'r1', SENDER_DEVICE].join('|'));
+	const payload = JSON.stringify({ v: 1, text: 'meet at https://example.org/plan', type: 'text', options: {} });
+	const ciphertext = b64(new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, enc.encode(payload))));
+	const prepared: any = await prepareIncomingE2eeMessage(channel, message(await envelopeText({ iv: b64(iv) }, signingPair.privateKey, ciphertext)));
+	expect(prepared.text).toBe('meet at https://example.org/plan');
+	expect(prepared.e2eeVerified).toBe(true);
+	expect(isE2eeObserved(prepared)).toBe(true);
+	expect(isE2eeObserved(JSON.parse(JSON.stringify(prepared)))).toBe(false);
+});
+
 // ---- class "no-key": this device has no key for this message ------------------------------
 
 test('no cached key and the room is now on a later epoch is "no key"', async () => {
@@ -218,8 +236,9 @@ test('local keys cleared after a key was cached: the message is "no key", not a 
 // ---- unchanged behaviour -------------------------------------------------------------------
 
 test('a message without the envelope prefix is left untouched', async () => {
-	const input = message('hello');
+	const input = { ...message('hello'), encrypted: true, e2ee: true } as Message;
 	expect(await prepareIncomingE2eeMessage('dm-x', input)).toBe(input);
+	expect(isE2eeObserved(input)).toBe(false);
 });
 
 test('the prepared message keeps the id and clientMessageId it came in with', async () => {

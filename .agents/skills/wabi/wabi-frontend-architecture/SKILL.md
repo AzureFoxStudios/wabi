@@ -1,6 +1,6 @@
 ---
 name: wabi-frontend-architecture
-description: "Wabi frontend architecture patterns: surface routing, layout shell, right-panel system, and how mature standalone modules are isolated and merged into the main app. Use when refactoring the SvelteKit frontend, integrating standalone routes like `/business` into the main workspace, or renaming/resurfacing modules without duplicating state."
+description: "Use when restructuring the Wabi SvelteKit shell, center-stage workspaces, right-dock panels, DM/group/call client ownership or mobile shell wiring."
 license: MIT
 metadata:
   version: 1.0.0
@@ -45,7 +45,7 @@ When reporting findings, separate confirmed code facts from proposed fixes. If t
 - App shell is SvelteKit: `frontend/src/routes/+page.svelte` owns auth/bootstrap and mounts `LayoutRouter`.
 - `LayoutRouter.svelte` picks the main workspace surface.
 - Main chrome lives in `frontend/src/lib/components/MainLayout.svelte` (server rail, channel sidebar, right panel, mobile backdrops).
-- Right panel is tab-stacked: `MainLayout.svelte` + `RightPanel.svelte` + `rightPanelHelpers.ts`.
+- Right panel is tab-stacked: `MainLayout.svelte` + `RightPanel.svelte` (layout state in `frontend/src/lib/layoutStore*.ts`, e.g. `layoutStoreRightPanel.ts`).
 
 ## Surface routing pattern
 
@@ -91,7 +91,7 @@ This section encodes the tested path from `/business` → main-app `Planner` wor
 
 1. Create `frontend/src/lib/plannerWorkspace.ts` with `PLANNER_ADDON_ID` and `openPlannerSurface()` using `mobileTabQueue.openAddonTab(PLANNER_ADDON_ID)`.
 2. Create `frontend/src/lib/components/business/PlannerWorkspace.svelte`:
-   - Use Svelte 5 runes: `$props()` for props, `$state()` for local state, `$derived()` for derived values. Do NOT use `export let` or `$:` reactive statements; `svelte-check` fails on them.
+   - Use Svelte 5 runes: `$props()` for props, `$state()` for local state, `$derived()` for derived values. Do not mix `export let`/`$:` with runes in one component; many legacy files still use the old syntax (AGENTS.md rule 2: follow the target component's pattern).
    - Import existing business views (`Calendar`, `KanbanBoard`, `DiaryView`, `ProjectsView`, `TaskPanel`) and the new `plannerWorkspace.ts`.
    - Import scoped styles from `PlannerWorkspace.css`; map onto main app tokens, do NOT re-add a separate `--biz-*` theme.
 3. Register in `MainLayout.svelte` alongside `MapWorkspace`, `ReaderTab`, `MediaAlbumsTab`, `ModelViewportTab`:
@@ -209,9 +209,9 @@ The dock is registry-driven. Adding a panel (e.g. the lore **Code** panel) touch
 
 ## Reader design TLC — complete (2026-08-07)
 
-Reader is a full workspace view (`READER_ADDON_ID` addon tab). All 5 phases completed, pending deploy:
+Reader is a full workspace view (`READER_ADDON_ID` addon tab). Phases (2026-08-07 work record; check the code for current state):
 
-- **P1** (toolbar restructure): slim icon-only toolbar (~44px), title/meta moved into `.reader-article-header`, 3px reading progress bar, collapsible settings panel (gear icon), focus mode with `f` key toggle, Svelte 5 runes migration. Committed `2bf58ac`.
+- **P1** (toolbar restructure): slim icon-only toolbar (~44px), title/meta moved into `.reader-article-header`, 3px reading progress bar, collapsible settings panel (gear icon), focus mode with `f` key toggle, Svelte 5 runes migration.
 - **P2** (empty state): stripped explainer card to 4 import buttons only (Open File / Open Images / Paste Markdown / Paste Text), glass styling. The feature explains itself through what you can load — no "What is Reader Mode?" card.
 - **P3** (horizontal reading mode): `ReadingDirection` now includes `'horizontal'` (alongside `ltr`/`rtl`). Continuous horizontal scroll container for images with snap scrolling, wheel→horizontal translation, arrow key nav, progress bar in horizontal mode. Auto-switches to horizontal when importing images via `openReaderImagesFromFiles`. CSS: `.reader-horizontal-scroll` (flex, `overflow-x: auto`, snap-x, `height: calc(100dvh - 60px)`), `.reader-horizontal-page`, `.reader-horizontal-img`. Critical for comics/webtoons/books.
 - **P4** (typography): drop-cap on `.reader-document > p:first-of-type::first-letter`, heading rhythm (h1-h6 with clamp sizes, h1/h2 border-bottom), paragraph spacing (`1.2em 0`, `1.75`), per-theme `::selection` colors, code copy buttons on `<pre>` (Clipboard API + "Copied" feedback), softened paper card (16px radius, softer shadow), polished blockquote, stage vignette.
@@ -220,16 +220,6 @@ Reader is a full workspace view (`READER_ADDON_ID` addon tab). All 5 phases comp
 **Files:** `ReaderTabImpl.svelte`, `readerWorkspace.ts`, `reader-tab.css`
 **Plan:** `docs/plans/reader-design-tlc.md`
 **Golden rule:** sunburst gear SVG (`M19.4 15a1.65`) is FORBIDDEN — use proper cog icon with teeth (Lucide/Feather style).
-
-## OpenCode dispatch lessons (2026-08-07)
-
-**Worker scope drift is common and must be scrubbed.** OpenCode workers (deepseek-v4-flash-free) frequently modify files outside the explicitly listed scope. Observed this session:
-- P3 worker (horizontal reading) drifted into `PlannerWorkspace.css` and `PlannerWorkspace.svelte`
-- P4+P5 worker drifted into `CalendarImpl.svelte`, `DiaryView.svelte`, `KanbanBoardImpl.svelte`, and a lore doc
-
-**Recovery pattern:** after worker exits, run `git diff --stat` and compare against the expected file list. Checkout any out-of-scope files: `git checkout -- <out-of-scope-paths>`. This is a mandatory verification step before committing worker output.
-
-**Prompt discipline:** always list "Files to modify" and "Files to NOT touch" explicitly in the prompt. Even with explicit lists, workers may drift — verify after.
 
 ## Mobile shell wiring — data-shell, keyboard inset, safe-area ownership (2026-08-08)
 
@@ -241,8 +231,6 @@ Mobile is ONE SPA, two skins (no separate site). The shell branch happens on `<h
 - **Safe-area ownership rule (no double-counting):** when the bottom nav is VISIBLE it owns the home-indicator inset; the composer's `padding-bottom` is plain `0.4rem`. Only when nav is hidden (`.app-container:not(.mobile-nav-visible)`) or keyboard is open (`html[data-keyboard-open='1']`) does the composer add `env(safe-area-inset-bottom)`. `html[data-keyboard-open='1']` also hides `.mobile-bottom-nav`/`.mobile-nav-grabber` and shrinks `.app-container` by `--keyboard-inset` so the composer sits above the IME.
 - **4-tab nav lives in `MainLayout.svelte`** — handlers `openMobileChat` / `openMobileBrowse` / `openMobileMessages` / `openMobileYou` (close sheets, set `activeView` / `showMobileChannels` / `showSettings`), plus `pushState` per sheet and a `popstate` handler (Settings → Browse → right overlay → DM → exit) for Android back. i18n keys `shell.mobile.{chat,browse,messages,you}` in `en.json`/`es.json`.
 - **Deep links from push:** SW `notificationclick` posts `{type:'wabi-navigate', payload}` to the focused client OR opens `/?wabiNav=...`; `frontend/src/lib/pwa/deepLink.ts` parses and dispatches a `wabi:navigate` CustomEvent; MainLayout listens and applies view/channel/dm/settings.
-
-**Peer-wipe hazard:** these files were wiped TWICE by the concurrent peer session (untracked new files + `app.html`/`styles.css` edits revert silently). Before trusting a mobile build, verify: `ls frontend/src/lib/pwa/` (expect 5 files incl. `mobileShell.ts`), `frontend/src/styles/components/mobile-shell.css` exists, `app.html` has the `data-shell` script, `styles.css` imports `mobile-shell.css`. Ship proof in deployed bundle: `dataset.shell` in `index.html`, `data-keyboard-open` + `mobile-nav-bar` in the hashed CSS, `shell.mobile.browse` in a JS chunk.
 
 ## References
 
