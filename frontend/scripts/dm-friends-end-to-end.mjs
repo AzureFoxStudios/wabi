@@ -289,10 +289,14 @@ try {
 	const mobileBobRow = mobile.locator('.user-list-tab .prow-shell').filter({ hasText: 'dm_alice' });
 	await mobileBobRow.getByRole('button', { name: 'Actions for dm_alice' }).waitFor({ state: 'visible' });
 	await mobileBobRow.getByRole('button', { name: 'Actions for dm_alice' }).click();
-	await mobile.getByRole('menu', { name: 'Member actions' }).getByRole('menuitem', { name: 'View profile' }).waitFor();
+	// On a phone the context menu opens as a bottom sheet titled by the person (ContextMenu's
+	// sheetMode, 1c9e0a91), so it is not named "Member actions" like the desktop menu; scope to the
+	// sheet instead. The sheet (.menu-sheet) still holds the same role=menu and menuitems.
+	const mobilePeopleMenu = mobile.locator('.menu-sheet');
+	await mobilePeopleMenu.getByRole('menuitem', { name: 'View profile' }).waitFor();
 	await mobile.screenshot({ path: `${scratch}/people-mobile-actions.png` });
-	await mobile.getByRole('menu', { name: 'Member actions' }).getByRole('menuitem', { name: 'Message' }).click();
-	await mobile.getByRole('menu', { name: 'Member actions' }).waitFor({ state: 'hidden' });
+	await mobilePeopleMenu.getByRole('menuitem', { name: 'Message' }).click();
+	await mobilePeopleMenu.waitFor({ state: 'hidden' });
 	await mobile.locator('.dm-conversation').waitFor({ state: 'visible' });
 	await mobile.locator('.mobile-right-overlay.visible').waitFor({ state: 'hidden' });
 	await mobile.locator('.dm-conversation .composer__input').click();
