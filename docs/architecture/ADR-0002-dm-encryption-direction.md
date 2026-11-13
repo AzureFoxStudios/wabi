@@ -1,7 +1,7 @@
 # ADR-0002: Direction for direct-message and group encryption
 
-- **Status:** Proposed, 2026-11-13. Nothing here is decided until the owner answers §8.
-- **Inputs:** owner's position of 2026-11-13 (below); [`docs/VISION.md`](../VISION.md) (on branch `claude/awesome-galileo-0c55cb`, PR 356, not yet on `main`); [`docs/PRIVACY_STANCE.md`](../PRIVACY_STANCE.md); [`docs/SECURITY-MODEL.md`](../SECURITY-MODEL.md); `core/crates/wabi-server/src/api/e2ee.rs`; `core/crates/wabi-server/tests/dm_encryption_contract.rs`; `frontend/src/lib/e2ee.ts`, `frontend/src/lib/dm/dmE2eeState.ts`, and `frontend/src/lib/e2eeEnvelope.ts` (that last file exists only on PR 355's branch).
+- **Status:** Accepted, 2026-11-13. The owner answered §8 the same day; the decisions are in §9. Nothing in stages 1 to 3 is built yet.
+- **Inputs:** owner's position of 2026-11-13 (below); [`docs/VISION.md`](../VISION.md); [`docs/PRIVACY_STANCE.md`](../PRIVACY_STANCE.md); [`docs/SECURITY-MODEL.md`](../SECURITY-MODEL.md); `core/crates/wabi-server/src/api/e2ee.rs`; `core/crates/wabi-server/tests/dm_encryption_contract.rs`; `frontend/src/lib/e2ee.ts`, `frontend/src/lib/dm/dmE2eeState.ts`, and `frontend/src/lib/e2eeEnvelope.ts` (that last file exists only on PR 355's branch).
 - **Scope:** decision document only. It changes no code and makes no new product claim.
 
 **Owner's position (2026-11-13).** Wabi exists because Discord offers no privacy. Direct messages and groups are the protected tier. Public community content is treated as readable by the server. The owner wants long-term stability: published, standard protocols rather than home-made ones, nothing that has to be thrown away in six months, and a path toward key handshakes that do not depend on trusting the server.
@@ -114,7 +114,7 @@ Today's design also has no forward secrecy inside an epoch. One room key covers 
 | Gap | State on 2026-11-13 |
 |---|---|
 | Features with no encrypted form (forum, wiki, albums, gallery, incidents, whiteboards, bots, readable uploads) accepted readable text inside encrypted or pending rooms | **Fixed and merged, PR 354.** Covered by `feature_surfaces_refuse_readable_text_in_encrypted_and_pending_conversations`, `plaintext_is_refused_on_message_note_forum_bot_and_edit_paths_of_an_encrypted_room`, `bots_post_in_a_new_room_only_after_every_human_member_chose_server_readable` and related tests. |
-| The client sent decrypted content back out (link previews, remote media, translation, forwarding, Lore, report without disclosure) | **Open, PR 355** (`frontend/src/lib/privacy/`, `contentEgress.test.ts`). Waiting for green CI and the owner's browser checklist. |
+| The client sent decrypted content back out (link previews, remote media, translation, forwarding, Lore, report without disclosure) | **Fixed and merged, PR 355** (`frontend/src/lib/privacy/`, `contentEgress.test.ts`, browser run `kept-content-browser.yml`). The owner's browser checklist in that PR has not been run. |
 | A missing registry, or a rollback to an older valid one, reopened readable sends | **In progress, PR 357** (open): a durable per-room marker in WabiDB (`room_encryption` projection), compared against the registry on every decision. On `main` the gap is recorded by `known_gap_missing_registry_currently_readmits_plaintext`. PR 357 still documents that **rolling back to an older binary** reopens it. |
 | The wire `encrypted` flag was taken from the sender, so a plaintext message could look encrypted to recipients | **In progress, PR 357** (commit "Relay \"encrypted\" only from the server's own decision"). PR 355 separately marks client-observed decryption with a symbol the wire cannot set (`e2eeEnvelope.ts`). |
 | The server drops encrypted attachments' file list (`FileAttachmentRecord` is snake_case, the client sends camelCase) | **Open, not investigated further.** Noted in the 2026-11-12 handoff (PR 356). |
@@ -277,3 +277,54 @@ Wabi is not deployed, so no real user holds v1 rooms. That buys a clean cut: new
 7. **Web client wording:** show the code-delivery caveat on every encrypted conversation in the browser, or only in the security details panel?
 8. **v1 retirement:** read-only for one release, then removed (recommended), or removed immediately since nothing is deployed?
 9. **Stage 3 budget:** plan for a paid outside review before any non-experimental claim? Yes, or keep "experimental" indefinitely?
+
+## 9. Owner decisions, 2026-11-13
+
+The owner answered the nine questions in their own words. Each entry gives the answer, then what it means for the work. Where the answer left a choice open, the choice made here is marked **coordinator's reading** and the owner can change it.
+
+1. **First step for checking keys.** *"Whichever one feels more sane. Though I could see both: family Wabi having scan necessary, public using a simpler but heavier handshake?"*
+   - Stage 1 builds safety numbers, QR codes and loud key-change warnings (A1 with A3), as recommended. Cross-signing (A2) comes with MLS in stage 2.
+   - New requirement from this answer: **how strict verification is must be a setting.** A user can choose "only send to people I have verified" for one conversation or for everyone. A server owner can turn that on as the default for their server (a family server where everyone can scan in person). A public server leaves it off and relies on automatic checks plus warnings.
+   - A server setting can only add strictness. The user's own setting is the one that counts, because a dishonest server would simply report the strict default as off.
+
+2. **The protocol.** *"A little bit of A, B and C combined? I want something that lasts."*
+   - **Coordinator's reading: MLS (RFC 9420) is the one protocol.** Mixing parts of several protocols is how a home-made design is produced, and a home-made design is the thing that does not last: nobody else maintains it and every reviewer starts from nothing.
+   - What is combined is everything around the protocol. From today's design (B): the server rules, the pending and server-readable policy, the durable marker and the contract tests all carry over. From Signal's design (C): the way people verify each other (safety numbers, QR, key-change warnings). From MLS (A): the cryptography.
+
+3. **Old messages on a new device.** *"Maybe we leave it at exporting a chat? … give the ability to back up if you have it."*
+   - A new device sees only messages from after it joined (option a).
+   - A device that has the history can **export a conversation** to a file the user keeps, and a device can open such a file. Nothing is sent between devices automatically and the server holds no key backup by default.
+   - An export is the user's own copy on their own disk. The default export is protected by a passphrase the user picks; a plain readable export is offered with a clear warning. The export format must be a published one.
+
+4. **MLS library.** *"Give a doc giving verbose info about both, but deeply think about the longer term of both and choose that one, outlining why in said document."*
+   - Yes to the trial. Its result is a document, `docs/architecture/ADR-0003-mls-library-choice.md`: both libraries built for the browser and the desktop, measured, with their maintenance history, governance, review history and licence checked against primary sources, and one chosen for the long term with the reasons written out.
+
+5. **Losing every device.** *"Wabi being ephemeral is strong, but … we should allow people to 'discordify': keep deep history. However we need to make sure it's sane and not going to make people pull their hair out."*
+   - Default: history in encrypted conversations is gone with the last device. No recovery key at setup, so setup stays one step.
+   - Opt-in: a user who wants deep history can turn on a **recovery key**. One screen, one key to save, a check that they saved it, and no reminders after that. It is built with the MLS work in stage 2, not before, so it is built once.
+   - Community channels are a separate matter: they are server-readable and already keep history for as long as their retention setting says, including forever.
+
+6. **An unknown device appears for someone already verified.** *"A combination makes sense: a gate saying 'this was from an unknown device, pause messages?'"*
+   - For a verified person: sending to them pauses and a gate asks. The gate says which device is new and since when, and offers "check with them first" (stay paused) and "continue anyway" (send, and the person shows as unverified again until re-checked). Messages that arrive from the unknown device are shown with a mark, never as if nothing changed.
+   - For a person never verified: a notice in the conversation, and sending continues.
+
+7. **Browser wording.** *"We shouldn't go too crazy, and make sure servers can't hijack anything by just existing. We don't want bad actors destroying people's DMs or computers by just connecting."*
+   - Wording: one clear line the first time an encrypted conversation is opened in the browser, and the full note in the security details panel. Not a banner on every conversation.
+   - New requirement from this answer: **connecting to a server must not let that server harm the client or the user's other servers.** In the desktop app a server must not be able to deliver code, read another server's keys or conversations, or reach the user's files. This gets its own audit of what a hostile server can do to a client that connects to it, with tests for each boundary (Tauri navigation and content rules, addon and plugin loading, per-server storage, links and file handling).
+
+8. **Retiring today's design.** *"If it's just clean-up then yes, remove."*
+   - When MLS conversations work, the v1 code is removed in the same release. No read-only period. Nothing is deployed, and the test server is wiped.
+
+9. **Outside review.** *"Keep, however please document that testing has taken place so that AI doesn't think it's one-shot code and trips over itself."*
+   - Plan for a paid outside review before any claim without "experimental". The label stays until then.
+   - `docs/ENCRYPTION_STATUS.md` now records what "experimental" means here, what is enforced and tested, the reviews done so far, and what a review must contain to lift the label. AGENTS.md points to it.
+
+### Order of work after these decisions
+
+1. Finish stage 0: PR 357, then the attachment file-list fix.
+2. In parallel, because they touch no encryption code: the MLS library trial (answer 4) and the hostile-server audit (answer 7).
+3. Stage 1: verification, the gate from answer 6, the strictness setting from answer 1.
+4. Conversation export (answer 3).
+5. Stage 2: MLS, cross-signing, the opt-in recovery key (answer 5), removal of v1 (answer 8).
+6. Stage 3: the outside review.
+

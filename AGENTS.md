@@ -10,7 +10,7 @@ A single client can save/switch among multiple independent Wabi servers. **That 
 
 Do not quietly change these product boundaries:
 
-- new DMs/groups in the Tim release branch begin encryption-pending, then use experimental encrypted messages once participant devices are ready; a server-readable fallback requires each sender's explicit choice, while older rooms keep their earlier policy. This is **not independently verified operator-blind E2EE**;
+- new DMs/groups in the Tim release branch begin encryption-pending, then use experimental encrypted messages once participant devices are ready; a server-readable fallback requires each sender's explicit choice, while older rooms keep their earlier policy. This is **not independently verified operator-blind E2EE**. "Experimental" here describes who has reviewed it and what a cheating operator could do, not unfinished code: the path is built, enforced by the server and tested. Read `docs/ENCRYPTION_STATUS.md` before changing or describing it;
 - WabiDB network replication/warm standby is experimental, **not production HA**;
 - the legacy mesh addon is not the production topology;
 - CAD/model features are review/inspection surfaces, **not a CAD editor**;
