@@ -208,6 +208,15 @@ an explicit server-readable choice is in force. Historical plaintext remains
 server-readable. This branch is not merged; physical-phone acceptance and
 independent E2EE verification remain open.
 
+On `main` (merged with PR 357, not yet on Tim), WabiDB also keeps a durable
+per-conversation marker (pending, server-readable choices, or encrypted at a
+key epoch), so a missing or older `e2ee_state.json` refuses readable content in
+those rooms instead of silently reopening them; it cannot restore keys. A
+genuinely lost registry is recovered only by members re-registering devices and
+rekeying. The server alone decides whether a relayed or listed message is
+encrypted, and HLS playlist uploads are refused on every upload path. See the
+privacy stance and backup/recovery docs. Not independently verified E2EE.
+
 ### Shared conversation notes — deployed on Tim, pending phone acceptance
 
 `codex/dm-call-notes-followup-20260926` adds a collapsed-by-default Shared notes
