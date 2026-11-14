@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# No job writes to the repository or calls the GitHub API.
+permissions:
+  contents: read
+
 env:
   WABI_SOURCE_REVISION: ${{ github.sha }}
 
