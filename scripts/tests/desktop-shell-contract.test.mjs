@@ -119,7 +119,27 @@ test('every registered native command checks that the caller is the bundled fron
 		/^\s*if !crate::hosting::local_main_origin\(window\.label\(\), &url, cfg!\(debug_assertions\)\) \{\s*return Err/m
 	];
 	const uncomment = (body) => body.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-	const guarded = (body) => GUARDS.some((guard) => guard.test(uncomment(body)));
+	// The guard must be a statement at the top level of the command body (brace depth 1), so it
+	// cannot sit inside `if false { … }` or a closure that never runs.
+	// `#[cfg(...)] { … }` blocks are platform splits of the body, so they do not count as nesting.
+	const topLevel = (body, index) => {
+		const stack = [];
+		for (let i = 0; i < index; i++) {
+			if (body[i] === '{') stack.push(/#\[cfg\([^\]]*\)\]\s*$/.test(body.slice(Math.max(0, i - 80), i)) ? 'cfg' : 'block');
+			else if (body[i] === '}') stack.pop();
+		}
+		return stack.length >= 1 && stack.slice(1).every((kind) => kind === 'cfg');
+	};
+	const guarded = (body) => {
+		const clean = uncomment(body);
+		return GUARDS.some((guard) => {
+			const global = new RegExp(guard.source, 'gm');
+			for (let match = global.exec(clean); match; match = global.exec(clean)) {
+				if (topLevel(clean, match.index + match[0].search(/\S/))) return true;
+			}
+			return false;
+		});
+	};
 	const bodyOf = (name) => {
 		for (const source of sources.values()) {
 			const pattern = new RegExp(`#\\[tauri::command\\]\\s*pub (?:async )?fn ${name}\\s*[<(]`, 'g');
@@ -150,7 +170,8 @@ test('every registered native command checks that the caller is the bundled fron
 
 test('external links opened natively are http(s) only', () => {
 	const source = readFileSync(path.join(tauri, 'src', 'shell_commands.rs'), 'utf8');
-	assert.match(source, /"http" \| "https" => Ok\(\(\)\)/, 'open_external_url keeps its http(s)-only scheme check');
+	assert.match(source, /"http" \| "https" => Ok\(\(\)\)/, 'open_external_url keeps its http(s) scheme check');
+	assert.match(source, /"steam" if steam_run_url\(url\) => Ok\(\(\)\),\s*_ => Err/, 'the only other scheme is an exact Steam run URL');
 });
 
 test('the origin checks themselves refuse a non-bundled page, and grant() runs one', () => {
@@ -179,6 +200,13 @@ test('no window may navigate away from the bundled pages (navigation guard regis
 	const lib = readFileSync(path.join(tauri, 'src', 'lib.rs'), 'utf8').replace(/\/\/[^\n]*/g, '');
 	assert.match(lib, /^\s*let builder = builder\.plugin\(navigation_guard::init\(\)\);/m, 'lib.rs registers the navigation guard for every webview');
 	const guard = readFileSync(path.join(tauri, 'src', 'navigation_guard.rs'), 'utf8').replace(/\/\/[^\n]*/g, '');
-	assert.match(guard, /\.on_navigation\(\|_webview, url\| \{\s*let allowed = allowed_navigation\(url, cfg!\(debug_assertions\)\);/);
-	assert.match(guard, /crate::hosting::bundled_origin\(url, development\)\s*\|\| \(url\.scheme\(\) == "about" && matches!\(url\.path\(\), "blank" \| "srcdoc"\)\)/);
+	const closure = guard.slice(guard.indexOf('.on_navigation(|_webview, url| {'), guard.indexOf('.build()'));
+	assert.match(closure, /^\.on_navigation\(\|_webview, url\| \{\s*let allowed = allowed_navigation\(url, cfg!\(debug_assertions\)\);/);
+	assert.match(closure, /\ballowed\s*\}\)\s*$/, 'the closure returns the guard\'s answer');
+	assert.doesNotMatch(closure, /\btrue\b|return\b/, 'the closure has no other way out');
+	const allowedFn = guard.slice(guard.indexOf('pub(crate) fn allowed_navigation('), guard.indexOf('pub fn init<R'));
+	assert.match(allowedFn, /"blob" => url::Url::parse\(url\.path\(\)\)\s*\.is_ok_and\(\|inner\| inner\.scheme\(\) != "blob" && crate::hosting::bundled_origin\(&inner, development\)\)/);
+	assert.match(allowedFn, /_ => false,/);
+	assert.match(guard, /if crate::hosting::bundled_origin\(url, development\) \{\s*return true;\s*\}/);
+	assert.match(guard, /"about" => matches!\(url\.path\(\), "blank" \| "srcdoc"\),/);
 });

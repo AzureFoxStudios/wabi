@@ -7,6 +7,7 @@
   import BaseModal from '$lib/components/BaseModal.svelte';
   import { manualGame } from './manualGame';
   import { createGameClient } from './client';
+  import { openSteamLaunch } from './steamLaunch';
   import { board, selections, privateSelection, safeAuthorizeUrl, steamAppId, steamLaunchUrl, steamStoreUrl,
     type GameBoard, type GameSelection, type GamePublicBoard, type SteamCapabilities, type LibraryGame, type LinkFlow, type Member } from './model';
   import type { GamesRequest } from './navigation';
@@ -112,7 +113,7 @@
   async function copy(text: string) {try {await navigator.clipboard.writeText(text);notice='Copied.';} catch {error='Clipboard access failed. Select and copy the text instead.';}}
   function launch(key: string) {
     const url=steamLaunchUrl(key);if(!url) return;
-    if(window.confirm('Ask Steam to launch this game? This does not join another player.')) {window.location.href=url;notice='Launch requested. A local Steam client is required; Wabi cannot confirm it launched.';}
+    if(window.confirm('Ask Steam to launch this game? This does not join another player.')) {void openSteamLaunch(key);notice='Launch requested. A local Steam client is required; Wabi cannot confirm it launched.';}
   }
   function setTags(game: GameSelection, raw: string) {game.tags=[...new Set(raw.split(',').map(s=>s.trim()).filter(Boolean))];}
 </script>
