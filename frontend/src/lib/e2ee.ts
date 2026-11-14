@@ -1,4 +1,5 @@
 // @ts-nocheck — TS 6.0 typed-array generics vs Web Crypto BufferSource types; verified runtime-safe.
+import { inertBlobType } from './safeBlobType';
 import { browser } from '$app/environment';
 import { getAuthToken } from '$lib/authSession';
 import { tryRefresh } from '$lib/api/authRefresh';
@@ -799,7 +800,8 @@ export async function decryptAttachmentBlob(
 			name: 'AES-GCM', iv: chunkIv(prefix, index), additionalData: fileAad(channelId, epoch, fileId, index),
 		}, key, cipher));
 	}
-	return new Blob(parts, { type: metadata.mimeType || 'application/octet-stream' });
+	// The sender chose metadata.mimeType: only an inert type is kept (safeBlobType.ts, finding F4).
+	return new Blob(parts, { type: inertBlobType(metadata.mimeType) });
 }
 
 /** Web/Tauri clients can show this caveat beside the E2EE badge. */

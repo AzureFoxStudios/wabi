@@ -38,6 +38,7 @@
 		type LoreBranch
 	} from '$lib/api/lore';
 	import { saveSignedLoreFile } from '$lib/lore/linkSafety';
+	import { inertBlob } from '$lib/safeBlobType';
 	import { getAuthToken } from '$lib/authSession';
 	import { layoutStore } from '$lib/layoutStore';
 	import { currentUser } from '$lib/socket';
@@ -171,7 +172,7 @@
 			const blob = await downloadLoreFile(token, chId, file.path);
 			if (gen !== previewBlobGen) return; // stale
 			// The PDF frame must never get a server-chosen type (text/html would run as this app).
-			previewUrl = URL.createObjectURL(getFileType(file.path) === 'pdf' ? pdfPreviewBlob(blob) : blob);
+			previewUrl = URL.createObjectURL(getFileType(file.path) === 'pdf' ? pdfPreviewBlob(blob) : inertBlob(blob));
 		} catch (err) {
 			if (gen !== previewBlobGen) return;
 			console.warn('[LoreChannel] preview blob failed', err);
@@ -192,7 +193,7 @@
 		thumbInflight.add(path);
 		downloadLoreFile(token, chId, path)
 			.then((blob) => {
-				const url = URL.createObjectURL(blob);
+				const url = URL.createObjectURL(inertBlob(blob));
 				thumbUrlByPath = { ...thumbUrlByPath, [path]: url };
 			})
 			.catch((err) => {

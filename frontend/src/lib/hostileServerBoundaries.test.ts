@@ -161,3 +161,49 @@ describe('F1: placeholders are unguessable and never substituted by string', () 
 		expect(channel).toMatch(/return renderWikiBodyHtml\(markdown, wikiLinkTarget\);/);
 	});
 });
+
+describe('F4: blobs and file URLs built from server- or sender-typed bytes stay inert', () => {
+	test('only raster images, audio, video, PDF and plain text keep their type', async () => {
+		const { inertBlobType, isDisplayableImageType, inertBlob } = await import('./safeBlobType');
+		for (const type of ['image/svg+xml', 'IMAGE/SVG+XML; charset=utf-8', 'text/html', 'application/xhtml+xml', 'text/xml',
+			'application/xml', 'image/x-icon', 'multipart/x-mixed-replace', '', 'application/octet-stream', 'video/../html']) {
+			expect({ type, inert: inertBlobType(type) }).toEqual({ type, inert: 'application/octet-stream' });
+		}
+		for (const type of ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'audio/ogg', 'video/mp4', 'application/pdf', 'text/plain']) {
+			expect(inertBlobType(type)).toBe(type);
+		}
+		expect(isDisplayableImageType('image/svg+xml')).toBe(false);
+		const svg = new Blob(['<svg onload="x"/>'], { type: 'image/svg+xml' });
+		expect(inertBlob(svg).type).toBe('application/octet-stream');
+		expect(await inertBlob(svg).text()).toBe('<svg onload="x"/>');
+	});
+	test('file links from server data: no data:text/html or data:image/svg+xml, no other schemes', async () => {
+		const { safeFileHref } = await import('./safeBlobType');
+		expect(safeFileHref('data:image/png;base64,AAAA')).toBe('data:image/png;base64,AAAA');
+		expect(safeFileHref('/uploads/a.png')).toBe('/uploads/a.png');
+		expect(safeFileHref('https://wabi.example/uploads/a.png')).toBe('https://wabi.example/uploads/a.png');
+		for (const url of ['data:text/html,<script>alert(1)</script>', 'data:image/svg+xml,<svg onload=alert(1)>', 'javascript:alert(1)', 'file:///etc/passwd', 'vbscript:x']) {
+			expect(safeFileHref(url)).toBeNull();
+		}
+	});
+	test('an encrypted SVG is not treated as an inline image', async () => {
+		const { isEncryptedImageAttachment } = await import('./components/message/messageItemUtils');
+		const meta = (mimeType: string) => ({ attachmentEncryption: { scheme: 'dm-e2ee-v1', iv: 'x', mimeType } });
+		expect(isEncryptedImageAttachment(meta('image/png'))).toBe(true);
+		expect(isEncryptedImageAttachment(meta('image/svg+xml'))).toBe(false);
+		expect(isEncryptedImageAttachment(meta('text/html'))).toBe(false);
+	});
+	test('every untrusted blob site uses the rule (wiring)', async () => {
+		const { readFileSync } = await import('node:fs');
+		const read = (file: string) => readFileSync(new URL(file, import.meta.url), 'utf8');
+		expect(read('./e2ee.ts')).toMatch(/return new Blob\(parts, \{ type: inertBlobType\(metadata\.mimeType\) \}\);/);
+		const lore = read('./components/LoreChannel.svelte');
+		expect(lore).toMatch(/URL\.createObjectURL\(getFileType\(file\.path\) === 'pdf' \? pdfPreviewBlob\(blob\) : inertBlob\(blob\)\)/);
+		expect(lore).toMatch(/const url = URL\.createObjectURL\(inertBlob\(blob\)\);\s*thumbUrlByPath/);
+		expect(lore).not.toMatch(/URL\.createObjectURL\(blob\)/);
+		const files = read('./filesWorkspaceSession.ts');
+		expect(files).toMatch(/const url = deps\.createObjectUrl\(inertBlob\(blob\)\);/);
+		expect(/const IMAGE_EXT = new Set\(\[[^\]]*'svg'/.test(files)).toBe(false);
+		expect(read('./forumStore.ts')).toMatch(/return safeFileHref\(url\) \?\? '';/);
+	});
+});

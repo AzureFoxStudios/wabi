@@ -262,3 +262,29 @@ test('a server cannot switch a room this device has seen encrypted back to reada
 	const fresh = `${channel}-fresh`;
 	expect((await getE2eeRoomStatus(fresh, false)).enabled).toBe(false);
 });
+
+// Review finding F4: the sender chooses an attachment's MIME type. A decrypted blob typed
+// image/svg+xml or text/html would run as this app when opened in a new tab, so only inert types
+// survive decryption; everything else is application/octet-stream.
+test('a decrypted attachment never keeps a type that can run script when opened', async () => {
+	const { encryptAttachmentForChannel, decryptAttachmentBlob } = await import('./e2ee');
+	setStatus({ enabled: true, epoch: 1 });
+	await seedRoomKey(1, crypto.getRandomValues(new Uint8Array(32)));
+	const cases: Array<[string, string]> = [
+		['image/svg+xml', 'application/octet-stream'],
+		['text/html', 'application/octet-stream'],
+		['application/xhtml+xml', 'application/octet-stream'],
+		['text/xml', 'application/octet-stream'],
+		['image/png', 'image/png'],
+		['video/mp4', 'video/mp4'],
+		['application/pdf', 'application/pdf']
+	];
+	for (const [declared, expected] of cases) {
+		const body = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>';
+		const sealed = await encryptAttachmentForChannel(channel, new File([body], 'x', { type: declared }));
+		expect(sealed).not.toBeNull();
+		const blob = await decryptAttachmentBlob(channel, sealed!.file, sealed!.metadata as any);
+		expect({ declared, type: blob.type }).toEqual({ declared, type: expected });
+		expect(await blob.text()).toBe(body);
+	}
+});

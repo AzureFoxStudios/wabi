@@ -1,3 +1,4 @@
+import { isDisplayableImageType } from '$lib/safeBlobType';
 import type { Message } from '$lib/socket';
 import { get } from 'svelte/store';
 import { _ } from '$lib/i18n';
@@ -111,7 +112,7 @@ export function isEncryptedImageAttachment(attachment: {
 		!!encryption &&
 		encryption.scheme === 'dm-e2ee-v1' &&
 		!!encryption.iv &&
-		!!encryption.mimeType?.toLowerCase().startsWith('image/')
+		isDisplayableImageType(encryption.mimeType)
 	);
 }
 

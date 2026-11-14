@@ -1,3 +1,4 @@
+import { safeFileHref } from './safeBlobType';
 import { writable, get } from 'svelte/store';
 import { getAuthToken, onAuthSessionCleared } from '$lib/authSession';
 import { fetchChannel } from './api/channelAccess';
@@ -126,7 +127,8 @@ export function createForumWorkspace() {
 
 	function resolveForumFileUrl(url: string): string {
 		if (!url) return '';
-		if (/^(https?:|data:|blob:)/i.test(url)) return url;
+		// data: only for raster images; never a scheme that could open as a page (finding F4).
+		if (/^[a-z][a-z0-9+.-]*:/i.test(url.trim())) return safeFileHref(url) ?? '';
 		const base = getServerUrl().replace(/\/+$/, '');
 		const path = url.startsWith('/') ? url : `/${url}`;
 		return `${base}${path}`;

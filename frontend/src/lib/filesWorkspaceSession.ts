@@ -1,3 +1,4 @@
+import { inertBlob } from './safeBlobType';
 import { writable, type Writable } from 'svelte/store';
 import { getAuthToken, authSessionGeneration, onAuthSessionCleared, getStoredDbUserId } from './authSession';
 import { getServerUrl } from './serverUrl';
@@ -113,7 +114,8 @@ export interface FilesWorkspaceSession {
 	dispose: () => void;
 }
 
-const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp']);
+// No 'svg': an SVG file is offered as a download, never previewed (finding F4).
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp']);
 const TEXT_EXT = new Set([
 	'txt', 'md', 'markdown', 'json', 'ts', 'tsx', 'js', 'jsx', 'rs', 'toml',
 	'css', 'scss', 'html', 'htm', 'xml', 'yaml', 'yml', 'py', 'sh', 'bash',
@@ -724,7 +726,8 @@ export function createFilesWorkspaceSession(overrides?: Partial<FilesWorkspaceDe
 			if (disposed || my !== previewSeq || currentPreviewKey !== key) return;
 			if (!sessionAlive(scope) || !hasAccess()) return;
 			if (kind === 'image') {
-				const url = deps.createObjectUrl(blob);
+				// The server chose this blob's type; an SVG or HTML preview must not open as a page (F4).
+				const url = deps.createObjectUrl(inertBlob(blob));
 				if (disposed || my !== previewSeq || currentPreviewKey !== key) {
 					try { deps.revokeObjectUrl(url); } catch { /* best effort */ }
 					return;
