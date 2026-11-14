@@ -154,7 +154,9 @@ try {
 		const field = section.locator('#invite-link');
 		await field.waitFor();
 		const link = await field.inputValue();
-		assert.match(link, new RegExp(`^${ORIGIN.replace(/[.:/]/g, '\\$&')}/join#invite=[a-f0-9]{64}$`), 'link is built from the address the owner is using');
+		const prefix = `${ORIGIN}/join#invite=`;
+		assert.ok(link.startsWith(prefix), `link is built from the address the owner is using: ${link}`);
+		assert.match(link.slice(prefix.length), /^[a-f0-9]{64}$/, 'the link carries one 64-hex invitation token');
 		return link;
 	}
 	const link = await createLink();
