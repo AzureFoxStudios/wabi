@@ -35,6 +35,7 @@ mock.module('../src/lib/authSession', () => ({
 	onAuthSessionCleared: (listener: (server: string) => void) => { clearListeners.add(listener); return () => clearListeners.delete(listener); },
 	persistRememberedAuthAfterRefresh: (server: string) => { persistedServers.push(server); },
 	getPersistedRefreshToken: () => null,
+	getRememberedWebAuthPair: () => null,
 }));
 const { prefetchTurnCredentials, buildRTCConfig } = await import('../src/lib/turnConfig');
 const { setRefreshToken } = await import('../src/lib/api/authRefresh');
