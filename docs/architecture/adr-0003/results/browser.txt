@@ -1,0 +1,127 @@
+browser 153.0.8010.12
+
+### openmls_opt suite 1 (module load+instantiate 32.2 ms)
+OpenMLS 0.9.2, provider openmls_rust_crypto 0.6.0, suite MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: commit refused: ValidationError(WrongEpoch)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: ValidationError(WrongEpoch)
+PASS removed member who processes the log ends inactive (catch-up result: error GroupStateError(UseAfterEviction))
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (13 storage entries, 12931 bytes), reloaded, and used to send
+BENCH openmls_opt browser cs=1 {"n":2,"kp_gen_ms":3.85,"create_ms":27.9,"join_ms":5.2,"add_commit_ms":2.6,"add_process_ms":5.9,"remove_commit_ms":1.8,"remove_process_ms":1,"encrypt_ms":0.27,"decrypt_ms":0.25,"welcome_bytes":783,"add_commit_bytes":788,"state_bytes":8081}
+BENCH openmls_opt browser cs=1 {"n":2,"kp_gen_ms":0.65,"create_ms":2,"join_ms":1.1,"add_commit_ms":1.9,"add_process_ms":1.2,"remove_commit_ms":1.6,"remove_process_ms":1,"encrypt_ms":0.2,"decrypt_ms":0.19,"welcome_bytes":783,"add_commit_bytes":788,"state_bytes":8056}
+BENCH openmls_opt browser cs=1 {"n":2,"kp_gen_ms":0.25,"create_ms":1.9,"join_ms":1,"add_commit_ms":1.9,"add_process_ms":1.1,"remove_commit_ms":1,"remove_process_ms":0.8,"encrypt_ms":0.13,"decrypt_ms":0.175,"welcome_bytes":783,"add_commit_bytes":788,"state_bytes":8084}
+MEM openmls_opt cs=1 n=2 wasm_memory_before=1179648 wasm_memory_peak=1310720 js_heap_used=1950440
+BENCH openmls_opt browser cs=1 {"n":10,"kp_gen_ms":1.36,"create_ms":40.1,"join_ms":7.8,"add_commit_ms":5.9,"add_process_ms":5.1,"remove_commit_ms":6.2,"remove_process_ms":2.3,"encrypt_ms":0.395,"decrypt_ms":0.34,"welcome_bytes":3587,"add_commit_bytes":1516,"state_bytes":18103}
+BENCH openmls_opt browser cs=1 {"n":10,"kp_gen_ms":0.57,"create_ms":11.7,"join_ms":4.3,"add_commit_ms":7.3,"add_process_ms":3,"remove_commit_ms":5.3,"remove_process_ms":2.1,"encrypt_ms":0.25,"decrypt_ms":0.31,"welcome_bytes":3587,"add_commit_bytes":1516,"state_bytes":18007}
+BENCH openmls_opt browser cs=1 {"n":10,"kp_gen_ms":0.54,"create_ms":8.4,"join_ms":3,"add_commit_ms":3.7,"add_process_ms":1.5,"remove_commit_ms":3.8,"remove_process_ms":1.4,"encrypt_ms":0.135,"decrypt_ms":0.17,"welcome_bytes":3587,"add_commit_bytes":1516,"state_bytes":18018}
+MEM openmls_opt cs=1 n=10 wasm_memory_before=1179648 wasm_memory_peak=1441792 js_heap_used=2013044
+BENCH openmls_opt browser cs=1 {"n":100,"kp_gen_ms":0.398,"create_ms":89.4,"join_ms":23.4,"add_commit_ms":25.1,"add_process_ms":6.8,"remove_commit_ms":25.4,"remove_process_ms":2.9,"encrypt_ms":0.2,"decrypt_ms":0.19,"welcome_bytes":33139,"add_commit_bytes":9002,"state_bytes":105605}
+BENCH openmls_opt browser cs=1 {"n":100,"kp_gen_ms":0.32,"create_ms":61.6,"join_ms":16.5,"add_commit_ms":23.4,"add_process_ms":3.2,"remove_commit_ms":22.8,"remove_process_ms":2.8,"encrypt_ms":0.15,"decrypt_ms":0.18,"welcome_bytes":33139,"add_commit_bytes":9002,"state_bytes":105330}
+BENCH openmls_opt browser cs=1 {"n":100,"kp_gen_ms":0.291,"create_ms":61.4,"join_ms":16.6,"add_commit_ms":24.5,"add_process_ms":2.9,"remove_commit_ms":22.2,"remove_process_ms":2.8,"encrypt_ms":0.14,"decrypt_ms":0.185,"welcome_bytes":33139,"add_commit_bytes":9002,"state_bytes":105585}
+MEM openmls_opt cs=1 n=100 wasm_memory_before=1179648 wasm_memory_peak=3342336 js_heap_used=2115436
+
+### openmls_opt suite 2 (module load+instantiate 26.4 ms)
+OpenMLS 0.9.2, provider openmls_rust_crypto 0.6.0, suite MLS_128_DHKEMP256_AES128GCM_SHA256_P256
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: commit refused: ValidationError(WrongEpoch)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: ValidationError(WrongEpoch)
+PASS removed member who processes the log ends inactive (catch-up result: error GroupStateError(UseAfterEviction))
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (13 storage entries, 14876 bytes), reloaded, and used to send
+BENCH openmls_opt browser cs=2 {"n":2,"kp_gen_ms":8.45,"create_ms":29.6,"join_ms":9.8,"add_commit_ms":14.3,"add_process_ms":11.7,"remove_commit_ms":8.4,"remove_process_ms":4.7,"encrypt_ms":1.455,"decrypt_ms":1.4,"welcome_bytes":1008,"add_commit_bytes":1089,"state_bytes":9243}
+BENCH openmls_opt browser cs=2 {"n":2,"kp_gen_ms":3.95,"create_ms":13.7,"join_ms":6.1,"add_commit_ms":13.6,"add_process_ms":8.4,"remove_commit_ms":10.8,"remove_process_ms":6.6,"encrypt_ms":2.005,"decrypt_ms":1.91,"welcome_bytes":1007,"add_commit_bytes":1087,"state_bytes":9192}
+BENCH openmls_opt browser cs=2 {"n":2,"kp_gen_ms":5.2,"create_ms":18.4,"join_ms":8.7,"add_commit_ms":18.9,"add_process_ms":11.4,"remove_commit_ms":8.4,"remove_process_ms":5,"encrypt_ms":1.355,"decrypt_ms":1.32,"welcome_bytes":1007,"add_commit_bytes":1087,"state_bytes":9190}
+MEM openmls_opt cs=2 n=2 wasm_memory_before=1179648 wasm_memory_peak=1310720 js_heap_used=1953096
+BENCH openmls_opt browser cs=2 {"n":10,"kp_gen_ms":5.61,"create_ms":60.4,"join_ms":22.6,"add_commit_ms":25.8,"add_process_ms":12.4,"remove_commit_ms":20.9,"remove_process_ms":6.8,"encrypt_ms":1.435,"decrypt_ms":1.31,"welcome_bytes":4782,"add_commit_bytes":2154,"state_bytes":21776}
+BENCH openmls_opt browser cs=2 {"n":10,"kp_gen_ms":3.87,"create_ms":60.1,"join_ms":18.8,"add_commit_ms":25.6,"add_process_ms":10.8,"remove_commit_ms":23.4,"remove_process_ms":7.6,"encrypt_ms":1.57,"decrypt_ms":1.36,"welcome_bytes":4783,"add_commit_bytes":2155,"state_bytes":21907}
+BENCH openmls_opt browser cs=2 {"n":10,"kp_gen_ms":4.16,"create_ms":49.7,"join_ms":18.7,"add_commit_ms":26.1,"add_process_ms":9.5,"remove_commit_ms":20.8,"remove_process_ms":6.8,"encrypt_ms":1.345,"decrypt_ms":1.495,"welcome_bytes":4787,"add_commit_bytes":2159,"state_bytes":21853}
+MEM openmls_opt cs=2 n=10 wasm_memory_before=1179648 wasm_memory_peak=1441792 js_heap_used=2015572
+BENCH openmls_opt browser cs=2 {"n":100,"kp_gen_ms":5.716,"create_ms":461.7,"join_ms":145.7,"add_commit_ms":173.8,"add_process_ms":16.9,"remove_commit_ms":133.8,"remove_process_ms":10.6,"encrypt_ms":1.405,"decrypt_ms":1.26,"welcome_bytes":44252,"add_commit_bytes":12802,"state_bytes":132777}
+BENCH openmls_opt browser cs=2 {"n":100,"kp_gen_ms":3.663,"create_ms":392,"join_ms":177.1,"add_commit_ms":145.4,"add_process_ms":13.1,"remove_commit_ms":132.4,"remove_process_ms":10.3,"encrypt_ms":1.365,"decrypt_ms":1.25,"welcome_bytes":44255,"add_commit_bytes":12804,"state_bytes":132813}
+BENCH openmls_opt browser cs=2 {"n":100,"kp_gen_ms":4.033,"create_ms":392.3,"join_ms":148.7,"add_commit_ms":160.3,"add_process_ms":13.3,"remove_commit_ms":140.3,"remove_process_ms":10.8,"encrypt_ms":1.63,"decrypt_ms":1.44,"welcome_bytes":44249,"add_commit_bytes":12804,"state_bytes":132683}
+MEM openmls_opt cs=2 n=100 wasm_memory_before=1179648 wasm_memory_peak=3604480 js_heap_used=2087392
+
+### mlsrs_rustcrypto_opt suite 1 (module load+instantiate 30.6 ms)
+mls-rs 0.57.1, provider mls-rs-crypto-rustcrypto 0.23.0 (pure Rust), suite 1
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: stale epoch Some(1) (current 2)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: EpochNotFound
+PASS removed member who processes the log is told it was removed (catch-up result: error this device was removed by that commit)
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (snapshot 1942 bytes + 3 epoch records, 3118 bytes), loaded into a new client, used to send
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":2,"kp_gen_ms":2.65,"create_ms":12.4,"join_ms":3.1,"add_commit_ms":2.1,"add_process_ms":1.9,"remove_commit_ms":2.7,"remove_process_ms":0.9,"encrypt_ms":0.34,"decrypt_ms":0.185,"welcome_bytes":716,"add_commit_bytes":466,"state_bytes":1990}
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":2,"kp_gen_ms":0.85,"create_ms":2.6,"join_ms":0.8,"add_commit_ms":1.4,"add_process_ms":0.6,"remove_commit_ms":2.1,"remove_process_ms":0.8,"encrypt_ms":0.37,"decrypt_ms":0.185,"welcome_bytes":716,"add_commit_bytes":466,"state_bytes":1990}
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":2,"kp_gen_ms":0.95,"create_ms":2.1,"join_ms":0.7,"add_commit_ms":1.4,"add_process_ms":0.5,"remove_commit_ms":1.7,"remove_process_ms":0.6,"encrypt_ms":0.305,"decrypt_ms":0.18,"welcome_bytes":716,"add_commit_bytes":466,"state_bytes":1990}
+MEM mlsrs_rustcrypto_opt cs=1 n=2 wasm_memory_before=1114112 wasm_memory_peak=1179648 js_heap_used=1876356
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":10,"kp_gen_ms":1.36,"create_ms":28,"join_ms":3.7,"add_commit_ms":1.7,"add_process_ms":1.8,"remove_commit_ms":5.7,"remove_process_ms":1.4,"encrypt_ms":0.38,"decrypt_ms":0.2,"welcome_bytes":3060,"add_commit_bytes":467,"state_bytes":5927}
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":10,"kp_gen_ms":0.91,"create_ms":7,"join_ms":1.9,"add_commit_ms":1.6,"add_process_ms":0.7,"remove_commit_ms":4.5,"remove_process_ms":1.1,"encrypt_ms":0.315,"decrypt_ms":0.255,"welcome_bytes":3060,"add_commit_bytes":467,"state_bytes":5927}
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":10,"kp_gen_ms":0.76,"create_ms":6.9,"join_ms":1.9,"add_commit_ms":1.6,"add_process_ms":0.5,"remove_commit_ms":4.3,"remove_process_ms":1.6,"encrypt_ms":0.415,"decrypt_ms":0.17,"welcome_bytes":3060,"add_commit_bytes":467,"state_bytes":5927}
+MEM mlsrs_rustcrypto_opt cs=1 n=10 wasm_memory_before=1114112 wasm_memory_peak=1245184 js_heap_used=1895376
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":100,"kp_gen_ms":0.831,"create_ms":90.8,"join_ms":17.4,"add_commit_ms":3.2,"add_process_ms":2.1,"remove_commit_ms":35.3,"remove_process_ms":2.4,"encrypt_ms":0.37,"decrypt_ms":0.185,"welcome_bytes":29528,"add_commit_bytes":468,"state_bytes":43081}
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":100,"kp_gen_ms":0.859,"create_ms":66.1,"join_ms":16.7,"add_commit_ms":2.7,"add_process_ms":0.7,"remove_commit_ms":31,"remove_process_ms":1.8,"encrypt_ms":0.275,"decrypt_ms":0.17,"welcome_bytes":29528,"add_commit_bytes":468,"state_bytes":43081}
+BENCH mlsrs_rustcrypto_opt browser cs=1 {"n":100,"kp_gen_ms":0.749,"create_ms":65.9,"join_ms":14.4,"add_commit_ms":2.4,"add_process_ms":0.6,"remove_commit_ms":29.6,"remove_process_ms":1.7,"encrypt_ms":0.275,"decrypt_ms":0.15,"welcome_bytes":29528,"add_commit_bytes":468,"state_bytes":43081}
+MEM mlsrs_rustcrypto_opt cs=1 n=100 wasm_memory_before=1114112 wasm_memory_peak=2228224 js_heap_used=2055808
+
+### mlsrs_rustcrypto_opt suite 2 (module load+instantiate 27.3 ms)
+mls-rs 0.57.1, provider mls-rs-crypto-rustcrypto 0.23.0 (pure Rust), suite 2
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: stale epoch Some(1) (current 2)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: EpochNotFound
+PASS removed member who processes the log is told it was removed (catch-up result: error this device was removed by that commit)
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (snapshot 2406 bytes + 3 epoch records, 3956 bytes), loaded into a new client, used to send
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":2,"kp_gen_ms":6.7,"create_ms":20.4,"join_ms":4.6,"add_commit_ms":5.8,"add_process_ms":3.5,"remove_commit_ms":8.8,"remove_process_ms":3.9,"encrypt_ms":1.52,"decrypt_ms":0.76,"welcome_bytes":906,"add_commit_bytes":588,"state_bytes":2447}
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":2,"kp_gen_ms":4.15,"create_ms":8.6,"join_ms":3.1,"add_commit_ms":5.7,"add_process_ms":2.7,"remove_commit_ms":6.8,"remove_process_ms":2.9,"encrypt_ms":1.4,"decrypt_ms":0.73,"welcome_bytes":905,"add_commit_bytes":589,"state_bytes":2447}
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":2,"kp_gen_ms":3.95,"create_ms":8.3,"join_ms":2.8,"add_commit_ms":5.8,"add_process_ms":2.3,"remove_commit_ms":6.8,"remove_process_ms":3.1,"encrypt_ms":1.35,"decrypt_ms":0.975,"welcome_bytes":907,"add_commit_bytes":589,"state_bytes":2447}
+MEM mlsrs_rustcrypto_opt cs=2 n=2 wasm_memory_before=1114112 wasm_memory_peak=1179648 js_heap_used=1878896
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":10,"kp_gen_ms":4.75,"create_ms":43.1,"join_ms":10.5,"add_commit_ms":6.3,"add_process_ms":5.1,"remove_commit_ms":18.2,"remove_process_ms":4.1,"encrypt_ms":1.37,"decrypt_ms":0.89,"welcome_bytes":4123,"add_commit_bytes":589,"state_bytes":8175}
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":10,"kp_gen_ms":3.04,"create_ms":24.2,"join_ms":6.7,"add_commit_ms":4.5,"add_process_ms":1.8,"remove_commit_ms":15.8,"remove_process_ms":3.8,"encrypt_ms":1.08,"decrypt_ms":0.575,"welcome_bytes":4124,"add_commit_bytes":590,"state_bytes":8176}
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":10,"kp_gen_ms":3.04,"create_ms":23.7,"join_ms":6.7,"add_commit_ms":4.6,"add_process_ms":1.7,"remove_commit_ms":15.2,"remove_process_ms":3.9,"encrypt_ms":1.055,"decrypt_ms":0.57,"welcome_bytes":4118,"add_commit_bytes":590,"state_bytes":8172}
+MEM mlsrs_rustcrypto_opt cs=2 n=10 wasm_memory_before=1114112 wasm_memory_peak=1310720 js_heap_used=1897296
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":100,"kp_gen_ms":4.227,"create_ms":296.1,"join_ms":75.3,"add_commit_ms":7.5,"add_process_ms":3.8,"remove_commit_ms":143.3,"remove_process_ms":7.3,"encrypt_ms":1.335,"decrypt_ms":0.725,"welcome_bytes":40400,"add_commit_bytes":591,"state_bytes":64421}
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":100,"kp_gen_ms":3.868,"create_ms":282.3,"join_ms":72.6,"add_commit_ms":7,"add_process_ms":2.3,"remove_commit_ms":147.4,"remove_process_ms":7.1,"encrypt_ms":1.32,"decrypt_ms":0.715,"welcome_bytes":40407,"add_commit_bytes":593,"state_bytes":64427}
+BENCH mlsrs_rustcrypto_opt browser cs=2 {"n":100,"kp_gen_ms":3.819,"create_ms":280.4,"join_ms":68.2,"add_commit_ms":6.5,"add_process_ms":2.3,"remove_commit_ms":129.3,"remove_process_ms":7,"encrypt_ms":1.245,"decrypt_ms":0.705,"welcome_bytes":40400,"add_commit_bytes":591,"state_bytes":64418}
+MEM mlsrs_rustcrypto_opt cs=2 n=100 wasm_memory_before=1114112 wasm_memory_peak=2359296 js_heap_used=2057304
+
+### mlsrs_webcrypto_opt suite 2 (module load+instantiate 33.0 ms)
+mls-rs 0.57.1, provider mls-rs-crypto-webcrypto 0.16.0 (browser SubtleCrypto), suite 2
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: stale epoch Some(1) (current 2)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: EpochNotFound
+PASS removed member who processes the log is told it was removed (catch-up result: error this device was removed by that commit)
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (snapshot 2612 bytes + 3 epoch records, 4162 bytes), loaded into a new client, used to send
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":2,"kp_gen_ms":1.6,"create_ms":15.5,"join_ms":4.6,"add_commit_ms":3.1,"add_process_ms":2.6,"remove_commit_ms":10.6,"remove_process_ms":6.4,"encrypt_ms":0.49,"decrypt_ms":0.59,"welcome_bytes":904,"add_commit_bytes":586,"state_bytes":2658}
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":2,"kp_gen_ms":0.5,"create_ms":2.7,"join_ms":1.4,"add_commit_ms":1.7,"add_process_ms":0.9,"remove_commit_ms":2.2,"remove_process_ms":2.1,"encrypt_ms":0.31,"decrypt_ms":0.4,"welcome_bytes":903,"add_commit_bytes":587,"state_bytes":2656}
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":2,"kp_gen_ms":0.45,"create_ms":2.1,"join_ms":1.2,"add_commit_ms":2.2,"add_process_ms":25.7,"remove_commit_ms":2.4,"remove_process_ms":1.8,"encrypt_ms":0.425,"decrypt_ms":0.665,"welcome_bytes":903,"add_commit_bytes":587,"state_bytes":2656}
+MEM mlsrs_webcrypto_opt cs=2 n=2 wasm_memory_before=1114112 wasm_memory_peak=1179648 js_heap_used=3784476
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":10,"kp_gen_ms":0.92,"create_ms":36.3,"join_ms":7.7,"add_commit_ms":2.3,"add_process_ms":2.5,"remove_commit_ms":9.3,"remove_process_ms":3.1,"encrypt_ms":0.38,"decrypt_ms":0.335,"welcome_bytes":4101,"add_commit_bytes":589,"state_bytes":8367}
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":10,"kp_gen_ms":0.53,"create_ms":8.9,"join_ms":4.6,"add_commit_ms":2.6,"add_process_ms":2.1,"remove_commit_ms":18,"remove_process_ms":2.5,"encrypt_ms":0.36,"decrypt_ms":0.31,"welcome_bytes":4105,"add_commit_bytes":587,"state_bytes":8370}
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":10,"kp_gen_ms":0.54,"create_ms":14.2,"join_ms":2.7,"add_commit_ms":1.8,"add_process_ms":0.9,"remove_commit_ms":6.1,"remove_process_ms":2.1,"encrypt_ms":0.31,"decrypt_ms":0.39,"welcome_bytes":4103,"add_commit_bytes":588,"state_bytes":8368}
+MEM mlsrs_webcrypto_opt cs=2 n=10 wasm_memory_before=1114112 wasm_memory_peak=1310720 js_heap_used=6214940
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":100,"kp_gen_ms":0.537,"create_ms":164.7,"join_ms":33.3,"add_commit_ms":3,"add_process_ms":2.8,"remove_commit_ms":52.9,"remove_process_ms":4.5,"encrypt_ms":0.31,"decrypt_ms":0.3,"welcome_bytes":40204,"add_commit_bytes":591,"state_bytes":64436}
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":100,"kp_gen_ms":0.392,"create_ms":86.5,"join_ms":24.2,"add_commit_ms":2.6,"add_process_ms":1,"remove_commit_ms":40.7,"remove_process_ms":2.9,"encrypt_ms":0.3,"decrypt_ms":0.285,"welcome_bytes":40196,"add_commit_bytes":591,"state_bytes":64430}
+BENCH mlsrs_webcrypto_opt browser cs=2 {"n":100,"kp_gen_ms":0.381,"create_ms":93.2,"join_ms":29.6,"add_commit_ms":2.7,"add_process_ms":1.4,"remove_commit_ms":39.7,"remove_process_ms":3,"encrypt_ms":0.31,"decrypt_ms":0.45,"welcome_bytes":40197,"add_commit_bytes":591,"state_bytes":64430}
+MEM mlsrs_webcrypto_opt cs=2 n=100 wasm_memory_before=1114112 wasm_memory_peak=2424832 js_heap_used=12019028
+EXIT 0
