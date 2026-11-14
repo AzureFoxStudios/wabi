@@ -31,6 +31,7 @@ mock.module('../src/lib/authSession', () => ({
 	onAuthSessionCleared: () => () => {},
 	persistRememberedAuthAfterRefresh: (server: string) => { persistedServers.push(server); },
 	getPersistedRefreshToken: () => null,
+	getRememberedWebAuthPair: () => null,
 }));
 const { tryRefresh, setRefreshToken, getRefreshToken } = await import('../src/lib/api/authRefresh');
 const { fetchWithTimeout } = await import('../src/lib/api/utils');

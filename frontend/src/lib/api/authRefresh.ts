@@ -1,5 +1,5 @@
 const browser: boolean = typeof window !== 'undefined' && typeof document !== 'undefined';
-import { getAuthToken, setAuthToken, clearAuthToken, authSessionGeneration, persistRememberedAuthAfterRefresh, getPersistedRefreshToken } from '../authSession';
+import { getAuthToken, setAuthToken, clearAuthToken, authSessionGeneration, persistRememberedAuthAfterRefresh, getPersistedRefreshToken, getRememberedWebAuthPair } from '../authSession';
 import { getServerUrl, normalizeServerUrl } from '../serverUrl';
 
 // Refresh tokens are stored server-scoped, session-scoped (cleared when the
@@ -63,6 +63,16 @@ export function clearRefreshToken(serverUrl?: string | null): void {
 const inFlight = new Map<string, Promise<boolean>>();
 
 /**
+ * Refresh tokens are single-use, so tabs of the same browser take turns: one
+ * refreshes while the others wait and then adopt its result.
+ */
+function withRefreshLock(base: string, run: () => Promise<boolean>): Promise<boolean> {
+	const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+	if (!locks?.request) return Promise.resolve().then(run);
+	return locks.request(`wabi-auth-refresh:${base}`, run);
+}
+
+/**
  * Exchange the stored refresh token for a fresh access+refresh pair.
  * Returns true on success. Never throws — a false means "re-authenticate".
  */
@@ -75,15 +85,26 @@ export async function tryRefresh(serverUrl?: string | null): Promise<boolean> {
 	if (existing) return existing;
 	// Resolve and capture the server/account before yielding. Never send a token
 	// to whichever server happens to be selected when the request resumes.
-	const refreshToken = getRefreshToken(base);
-	const accessBefore = getAuthToken(base);
+	let refreshToken = getRefreshToken(base);
+	let accessBefore = getAuthToken(base);
 	if (!refreshToken || !accessBefore) return false;
 	const stillCurrent = () => authSessionGeneration(base) === generation && getAuthToken(base) === accessBefore && getRefreshToken(base) === refreshToken;
-	const pending = Promise.resolve().then(async () => {
+	const pending = withRefreshLock(base, async () => {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 15000);
 		try {
 			if (!stillCurrent()) return false;
+			// Another tab may have rotated the pair while this one waited. Replaying
+			// our used refresh token would make the server revoke every session.
+			const remembered = getRememberedWebAuthPair(base);
+			if (remembered && remembered.refreshToken !== refreshToken) {
+				setAuthToken(remembered.accessToken, base);
+				setRefreshToken(remembered.refreshToken, base);
+				const remaining = accessTokenExpiresInMs(remembered.accessToken);
+				if (remaining === null || remaining > 60_000) return true;
+				accessBefore = remembered.accessToken;
+				refreshToken = remembered.refreshToken;
+			}
 			const res = await fetch(`${base}/api/auth/refresh`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
