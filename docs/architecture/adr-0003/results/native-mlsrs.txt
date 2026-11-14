@@ -1,0 +1,42 @@
+mls-rs 0.57.1, provider mls-rs-crypto-rustcrypto 0.23.0 (pure Rust), suite 1
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: stale epoch Some(1) (current 2)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: EpochNotFound
+PASS removed member who processes the log is told it was removed (catch-up result: error this device was removed by that commit)
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (snapshot 1942 bytes + 3 epoch records, 3118 bytes), loaded into a new client, used to send
+
+mls-rs 0.57.1, provider mls-rs-crypto-rustcrypto 0.23.0 (pure Rust), suite 2
+PASS server tracks members alice,bob,carol from public commits only
+PASS three members exchange application messages
+PASS server refuses the losing commit of a race: stale epoch Some(1) (current 2)
+PASS loser retries after catching up; all at epoch 3
+PASS server refuses a commit adding a non-member, reading only public fields: commit refused: adds mallory, who is not a member in Wabi
+PASS server membership after add dave, remove carol: alice,bob,dave
+PASS removed member with pre-removal state cannot decrypt a later message: EpochNotFound
+PASS removed member who processes the log is told it was removed (catch-up result: error this device was removed by that commit)
+PASS offline member catches up over 7 log entries (4 commits) and reads ["carol can still read this", "after carol left"]
+PASS device state saved (snapshot 2407 bytes + 3 epoch records, 3957 bytes), loaded into a new client, used to send
+
+BENCH mlsrs native cs=1 {"n":2,"kp_gen_ms":0.352,"create_ms":0.947,"join_ms":0.398,"add_commit_ms":0.643,"add_process_ms":0.298,"remove_commit_ms":0.783,"remove_process_ms":0.305,"encrypt_ms":0.1338,"decrypt_ms":0.0745,"welcome_bytes":716,"add_commit_bytes":466,"state_bytes":1990}
+BENCH mlsrs native cs=1 {"n":2,"kp_gen_ms":0.337,"create_ms":1.003,"join_ms":0.355,"add_commit_ms":0.613,"add_process_ms":0.295,"remove_commit_ms":0.801,"remove_process_ms":0.324,"encrypt_ms":0.1372,"decrypt_ms":0.0738,"welcome_bytes":716,"add_commit_bytes":466,"state_bytes":1990}
+BENCH mlsrs native cs=1 {"n":2,"kp_gen_ms":0.380,"create_ms":0.942,"join_ms":0.374,"add_commit_ms":0.651,"add_process_ms":0.305,"remove_commit_ms":0.803,"remove_process_ms":0.363,"encrypt_ms":0.1350,"decrypt_ms":0.0768,"welcome_bytes":716,"add_commit_bytes":466,"state_bytes":1990}
+BENCH mlsrs native cs=1 {"n":10,"kp_gen_ms":0.369,"create_ms":3.380,"join_ms":0.919,"add_commit_ms":0.729,"add_process_ms":0.241,"remove_commit_ms":2.271,"remove_process_ms":0.593,"encrypt_ms":0.1349,"decrypt_ms":0.0744,"welcome_bytes":3060,"add_commit_bytes":467,"state_bytes":5927}
+BENCH mlsrs native cs=1 {"n":10,"kp_gen_ms":0.370,"create_ms":3.413,"join_ms":0.939,"add_commit_ms":0.809,"add_process_ms":0.266,"remove_commit_ms":2.172,"remove_process_ms":0.658,"encrypt_ms":0.1305,"decrypt_ms":0.0780,"welcome_bytes":3060,"add_commit_bytes":467,"state_bytes":5927}
+BENCH mlsrs native cs=1 {"n":10,"kp_gen_ms":0.364,"create_ms":3.229,"join_ms":0.778,"add_commit_ms":0.574,"add_process_ms":0.205,"remove_commit_ms":1.477,"remove_process_ms":0.476,"encrypt_ms":0.1000,"decrypt_ms":0.0577,"welcome_bytes":3060,"add_commit_bytes":467,"state_bytes":5927}
+BENCH mlsrs native cs=1 {"n":100,"kp_gen_ms":0.277,"create_ms":23.844,"join_ms":5.788,"add_commit_ms":1.076,"add_process_ms":0.313,"remove_commit_ms":10.956,"remove_process_ms":0.741,"encrypt_ms":0.1003,"decrypt_ms":0.0602,"welcome_bytes":29528,"add_commit_bytes":468,"state_bytes":43081}
+BENCH mlsrs native cs=1 {"n":100,"kp_gen_ms":0.276,"create_ms":28.620,"join_ms":7.555,"add_commit_ms":1.542,"add_process_ms":0.505,"remove_commit_ms":16.961,"remove_process_ms":1.033,"encrypt_ms":0.1293,"decrypt_ms":0.0808,"welcome_bytes":29528,"add_commit_bytes":468,"state_bytes":43081}
+BENCH mlsrs native cs=1 {"n":100,"kp_gen_ms":0.373,"create_ms":34.098,"join_ms":7.448,"add_commit_ms":1.592,"add_process_ms":0.490,"remove_commit_ms":16.670,"remove_process_ms":1.031,"encrypt_ms":0.1371,"decrypt_ms":0.0778,"welcome_bytes":29528,"add_commit_bytes":468,"state_bytes":43081}
+BENCH mlsrs native cs=2 {"n":2,"kp_gen_ms":1.992,"create_ms":4.378,"join_ms":1.509,"add_commit_ms":2.938,"add_process_ms":1.129,"remove_commit_ms":3.849,"remove_process_ms":1.658,"encrypt_ms":0.7090,"decrypt_ms":0.3925,"welcome_bytes":907,"add_commit_bytes":592,"state_bytes":2446}
+BENCH mlsrs native cs=2 {"n":2,"kp_gen_ms":1.794,"create_ms":3.187,"join_ms":1.064,"add_commit_ms":2.120,"add_process_ms":0.813,"remove_commit_ms":2.568,"remove_process_ms":1.039,"encrypt_ms":0.5090,"decrypt_ms":0.2745,"welcome_bytes":907,"add_commit_bytes":588,"state_bytes":2447}
+BENCH mlsrs native cs=2 {"n":2,"kp_gen_ms":1.500,"create_ms":3.152,"join_ms":1.044,"add_commit_ms":2.163,"add_process_ms":0.801,"remove_commit_ms":2.561,"remove_process_ms":1.079,"encrypt_ms":0.5231,"decrypt_ms":0.3625,"welcome_bytes":908,"add_commit_bytes":589,"state_bytes":2448}
+BENCH mlsrs native cs=2 {"n":10,"kp_gen_ms":2.071,"create_ms":16.106,"join_ms":3.185,"add_commit_ms":2.159,"add_process_ms":0.868,"remove_commit_ms":7.333,"remove_process_ms":1.831,"encrypt_ms":0.5080,"decrypt_ms":0.2747,"welcome_bytes":4124,"add_commit_bytes":590,"state_bytes":8174}
+BENCH mlsrs native cs=2 {"n":10,"kp_gen_ms":1.499,"create_ms":13.926,"join_ms":4.783,"add_commit_ms":2.167,"add_process_ms":0.850,"remove_commit_ms":7.854,"remove_process_ms":2.121,"encrypt_ms":0.5064,"decrypt_ms":0.2765,"welcome_bytes":4128,"add_commit_bytes":588,"state_bytes":8178}
+BENCH mlsrs native cs=2 {"n":10,"kp_gen_ms":1.538,"create_ms":11.777,"join_ms":3.141,"add_commit_ms":2.126,"add_process_ms":0.831,"remove_commit_ms":7.371,"remove_process_ms":1.836,"encrypt_ms":0.5046,"decrypt_ms":0.2748,"welcome_bytes":4121,"add_commit_bytes":588,"state_bytes":8171}
+BENCH mlsrs native cs=2 {"n":100,"kp_gen_ms":1.271,"create_ms":94.823,"join_ms":24.708,"add_commit_ms":2.357,"add_process_ms":0.784,"remove_commit_ms":42.826,"remove_process_ms":2.196,"encrypt_ms":0.5216,"decrypt_ms":0.2899,"welcome_bytes":40401,"add_commit_bytes":591,"state_bytes":64418}
+BENCH mlsrs native cs=2 {"n":100,"kp_gen_ms":1.218,"create_ms":85.464,"join_ms":20.865,"add_commit_ms":2.114,"add_process_ms":0.742,"remove_commit_ms":41.906,"remove_process_ms":2.175,"encrypt_ms":0.3953,"decrypt_ms":0.2140,"welcome_bytes":40401,"add_commit_bytes":592,"state_bytes":64420}
+BENCH mlsrs native cs=2 {"n":100,"kp_gen_ms":1.227,"create_ms":111.317,"join_ms":26.705,"add_commit_ms":2.722,"add_process_ms":0.922,"remove_commit_ms":53.868,"remove_process_ms":2.747,"encrypt_ms":0.5073,"decrypt_ms":0.2763,"welcome_bytes":40399,"add_commit_bytes":591,"state_bytes":64420}

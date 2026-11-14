@@ -679,7 +679,7 @@
       <div class="w-notice dm-gate" class:w-notice--info={!failedCheck} class:dm-gate--failed={failedCheck} role={failedCheck ? 'alert' : 'status'} data-gate={sendGate.kind}>
         <Icon name={failedCheck ? 'alert' : sendGate.glyph} size={16} />
         <p class="w-notice__title">{failedCheck ? failedCheck.title : sendGate.title}</p>
-        <p class="w-notice__text">{#if failedCheck}{failedCheck.text}{:else}{sendGate.text}{#if sendGate.detail} <span class="dm-gate-detail">{sendGate.detail}</span>{/if}{/if}</p>
+        <p class="w-notice__text">{#if failedCheck}{failedCheck.text}{:else}{sendGate.text}{#if sendGate.detail}{' '}<span class="dm-gate-detail">{sendGate.detail}</span>{/if}{/if}</p>
         <div class="w-notice__actions">
           {#each gateActions as action (action.id)}
             <button
