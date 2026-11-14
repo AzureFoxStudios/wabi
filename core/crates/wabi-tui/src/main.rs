@@ -44,7 +44,8 @@ async fn main() -> Result<()> {
         .with_ansi(false);
 
     if let Some(f) = log_file {
-        subscriber.with_writer(std::sync::Mutex::new(f)).init();
+        // Server text reaches log lines (errors, auth failures): scrub control and bidi characters.
+        subscriber.with_writer(std::sync::Mutex::new(ui::ScrubbingWriter(f))).init();
     } else {
         subscriber.with_writer(std::io::sink).init();
     }

@@ -322,43 +322,14 @@ pub struct ServerStats {
 }
 
 impl App {
-    pub async fn new() -> Result<Self> {
-        let mut config = if Config::config_path().exists() {
-            Config::load()?
-        } else {
-            Config::default()
-        };
-        // load() already applies env when from file; default path needs it too.
-        config.apply_env_overrides();
-        config.clamp();
-        let mut api = ApiClient::new(&config.server_url);
-        if let Some(token) = config.token.clone() {
-            api.set_token(token);
-        }
-        // Only show a "logged in" user when a token actually exists — a
-        // remembered username without a token used to render a fake `● user`
-        // header while every authenticated call failed.
-        let remembered_user = config.token.as_ref().and_then(|_| {
-            config.username.as_ref().map(|username| User {
-                id: 0,
-                username: username.clone(),
-                handle: None,
-                highest_role: None,
-            })
-        });
+    /// The app state with nothing fetched yet; `new` then contacts the server. Tests build an
+    /// `App` here without a network.
+    pub(crate) fn assemble(config: Config, api: ApiClient, user: Option<User>, mode: AppMode) -> Self {
         let (bg_tx, bg_rx) = mpsc::channel(128);
-
-        let first_run = !Config::config_path().exists() || config.server_url.is_empty();
-        let mode = if first_run {
-            AppMode::ServerSetup
-        } else {
-            AppMode::Normal
-        };
-
-        let mut app = Self {
+        Self {
             config,
             api,
-            user: remembered_user,
+            user,
             channels: Vec::new(),
             messages: HashMap::new(),
             users: Vec::new(),
@@ -410,7 +381,41 @@ impl App {
             privacy_summary_unavailable: false,
             should_quit: false,
             last_typing_ms: 0,
+        }
+    }
+
+    pub async fn new() -> Result<Self> {
+        let mut config = if Config::config_path().exists() {
+            Config::load()?
+        } else {
+            Config::default()
         };
+        // load() already applies env when from file; default path needs it too.
+        config.apply_env_overrides();
+        config.clamp();
+        let mut api = ApiClient::new(&config.server_url);
+        if let Some(token) = config.token.clone() {
+            api.set_token(token);
+        }
+        // Only show a "logged in" user when a token actually exists — a
+        // remembered username without a token used to render a fake `● user`
+        // header while every authenticated call failed.
+        let remembered_user = config.token.as_ref().and_then(|_| {
+            config.username.as_ref().map(|username| User {
+                id: 0,
+                username: username.clone(),
+                handle: None,
+                highest_role: None,
+            })
+        });
+        let first_run = !Config::config_path().exists() || config.server_url.is_empty();
+        let mode = if first_run {
+            AppMode::ServerSetup
+        } else {
+            AppMode::Normal
+        };
+
+        let mut app = Self::assemble(config, api, remembered_user, mode);
 
         if app.mode != AppMode::ServerSetup {
             match app.api.health().await {
@@ -436,7 +441,8 @@ impl App {
 
     pub fn log(&mut self, line: impl Into<String>) {
         let ts = chrono::Local::now().format("%H:%M:%S");
-        self.logs.push_back(format!("[{ts}] {}", line.into()));
+        // Log lines quote server text; the frame scrub covers the screen, this covers the buffer.
+        self.logs.push_back(format!("[{ts}] {}", crate::ui::scrub_text(&line.into())));
         while self.logs.len() > LOG_CAP {
             self.logs.pop_front();
         }

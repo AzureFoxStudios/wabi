@@ -29,7 +29,7 @@ function resolveImageUrl(src: string): string {
 	}
 }
 
-function isProtectedWhiteboardImage(src: string): boolean {
+export function isProtectedWhiteboardImage(src: string): boolean {
 	try {
 		const resolved = new URL(resolveImageUrl(src));
 		// Only this server's own board files get credentials; a lookalike path elsewhere does not.

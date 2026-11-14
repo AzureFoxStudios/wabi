@@ -210,13 +210,49 @@ pub fn render(frame: &mut Frame, app: &App) {
 ///
 /// A tab becomes a space; any other control (C0, DEL, C1) becomes U+FFFD so the reader can see
 /// that something was removed. A control that was appended to another cell's symbol is dropped.
+/// Bidi overrides and invisible characters are treated the same way: they let a name or channel
+/// title display as something it is not (review finding F6).
+/// Characters a server's text may not send to the terminal (or to the log file): every control
+/// (C0, DEL, C1), bidi embeddings, overrides and isolates, zero-width and direction marks, the
+/// Arabic letter mark, the byte-order mark and the soft hyphen.
+pub(crate) fn is_terminal_unsafe(c: char) -> bool {
+    c.is_control()
+        || matches!(c,
+            '\u{202A}'..='\u{202E}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{061C}'
+            | '\u{FEFF}'
+            | '\u{00AD}')
+}
+
+/// `text` with every unsafe character shown as U+FFFD (newlines kept), for log lines.
+pub(crate) fn scrub_text(text: &str) -> String {
+    text.chars()
+        .map(|c| if c == '\n' { c } else if c == '\t' { ' ' } else if is_terminal_unsafe(c) { '\u{FFFD}' } else { c })
+        .collect()
+}
+
+/// The log file is a terminal target too (`tail -f`): server text in log lines is scrubbed.
+pub(crate) struct ScrubbingWriter<W: std::io::Write>(pub W);
+
+impl<W: std::io::Write> std::io::Write for ScrubbingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write_all(scrub_text(&String::from_utf8_lossy(buf)).as_bytes())?;
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
 pub(crate) fn scrub_terminal_controls(buffer: &mut ratatui::buffer::Buffer) {
     for cell in buffer.content.iter_mut() {
         let symbol = cell.symbol();
-        if !symbol.chars().any(char::is_control) {
+        if !symbol.chars().any(is_terminal_unsafe) {
             continue;
         }
-        let kept: String = symbol.chars().filter(|c| !c.is_control()).collect();
+        let kept: String = symbol.chars().filter(|c| !is_terminal_unsafe(*c)).collect();
         let replacement = if !kept.is_empty() {
             kept
         } else if symbol.chars().all(|c| c == '\t') {
@@ -1092,7 +1128,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         ),
         AppMode::Normal => {
             // Typing indicator (3s TTL) prepended to the hints line.
-            let typing_fresh = app.typing_at_ms > 0 && now_ms() - app.typing_at_ms < 3_000;
+            let typing_fresh = app.typing_at_ms > 0 && now_ms().saturating_sub(app.typing_at_ms) < 3_000;
             let mut spans = vec![Span::styled(
                 if app.user.is_some() { "● " } else { "○ " },
                 Style::default().fg(if app.user.is_some() { c_ok() } else { c_muted() }),
@@ -1487,5 +1523,102 @@ mod terminal_control_tests {
         assert!(row.contains("héllo"), "{row}");
         assert!(row.contains("world"), "{row}");
         assert!(row.contains('漢'), "{row}");
+    }
+}
+
+#[cfg(test)]
+mod hostile_render_tests {
+    //! The real `render`, a real `App`, every screen and overlay, with control and bidi text in
+    //! every field a server fills in. Removing the frame scrub from `render` fails this test.
+    use super::render;
+
+    /// The test's own list, independent of the code under test.
+    fn is_terminal_unsafe(c: char) -> bool {
+        let u = c as u32;
+        u < 0x20 || (0x7f..=0x9f).contains(&u) || (0x202a..=0x202e).contains(&u) || (0x2066..=0x2069).contains(&u)
+            || (0x200b..=0x200f).contains(&u) || [0x061c, 0xfeff, 0x00ad].contains(&u)
+    }
+    use crate::api::{ApiClient, ChannelKind, ChannelPrivacy, LoreFile, LoreRepoInfo, PrivacySummary};
+    use crate::app::{App, AppMode, Channel, LorePreview, Message, RegisteredUser, Screen, User};
+    use crate::config::Config;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    const H: &str = "\x1b]52;c;cHduZWQ=\x07\x1b]0;title\x07\x1b[2J\u{9b}31m\u{202E}evil\u{2066}\u{200B}\u{FEFF}\u{00AD}\u{061C}x";
+
+    fn hostile_app() -> App {
+        let config = Config { server_url: format!("https://wabi.example/{H}"), username: Some(H.into()), ..Config::default() };
+        let user = User { id: 1, username: H.into(), handle: Some(H.into()), highest_role: Some(H.into()) };
+        let mut app = App::assemble(config, ApiClient::new("https://wabi.example"), Some(user), AppMode::Normal);
+        let channel = |id: &str, kind: ChannelKind| Channel {
+            id: id.into(), name: H.into(), channel_type: H.into(), kind, description: Some(H.into()), position: 0, parent_id: None,
+        };
+        app.channels = vec![channel("ch_1", ChannelKind::Text), channel("ch_2", ChannelKind::Lore), channel("ch_3", ChannelKind::Dm)];
+        app.active_channel = Some("ch_1".into());
+        app.messages.insert("ch_1".into(), (0..3).map(|i| Message {
+            id: format!("m{i}"), channel_id: "ch_1".into(), sender_id: 2, sender_name: H.into(), text: H.into(),
+            timestamp: 1, message_type: H.into(), encrypted: false, failed: i == 2, file_names: vec![H.into()],
+        }).collect());
+        app.users = vec![RegisteredUser { user_id: 2, username: H.into(), profile_picture: Some(H.into()), color: H.into() }];
+        app.health_blob = H.into();
+        app.status = H.into();
+        app.typing_channel = Some("ch_1".into());
+        app.typing_user = Some(H.into());
+        app.typing_at_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        app.log(H);
+        app.lore_repos.insert(2, Some(LoreRepoInfo { channel_id: 2, repo_name: H.into(), lore_server_url: H.into(), class: H.into(), imported_from: Some(H.into()) }));
+        app.lore_files.insert(2, vec![LoreFile { path: H.into(), size: 1, status: H.into() }]);
+        app.lore_preview = Some(LorePreview { path: H.into(), lines: vec![H.into(), H.into()] });
+        app.channel_privacy = Some(ChannelPrivacy { retention: H.into(), confidentiality: H.into(), e2ee: false, private_conversation: false });
+        app.privacy_summary = Some(PrivacySummary {
+            confidentiality: H.into(), e2ee_available: false, private_content_automation: false, reports_preserve_evidence: false,
+            analytics_scope: H.into(), external_processing: H.into(),
+        });
+        app.prompt = H.into();
+        app.prompt_title = H.into();
+        app.command = H.into();
+        app.input = H.into();
+        app.server_input = H.into();
+        app.login_username = H.into();
+        app
+    }
+
+    #[test]
+    fn no_control_or_bidi_character_reaches_the_terminal_on_any_screen() {
+        let mut app = hostile_app();
+        let mut drawn = 0;
+        for screen in [Screen::Chat, Screen::Users, Screen::Server, Screen::Logs, Screen::Lore] {
+            for (mode, help, error) in [
+                (AppMode::Normal, false, false), (AppMode::Input, false, false), (AppMode::Login, false, false),
+                (AppMode::ServerSetup, false, false), (AppMode::Command, false, false), (AppMode::Prompt, false, false),
+                (AppMode::Help, true, false), (AppMode::Normal, false, true),
+            ] {
+                app.screen = screen;
+                app.mode = mode;
+                app.show_help = help;
+                app.error = error.then(|| H.to_string());
+                let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let buffer = terminal.backend().buffer();
+                let bad: Vec<String> = buffer.content.iter().map(|cell| cell.symbol())
+                    .filter(|symbol| symbol.chars().any(is_terminal_unsafe)).map(|s| format!("{s:?}")).collect();
+                assert!(bad.is_empty(), "{screen:?}/{mode:?}: unsafe cells {bad:?}");
+                // Control: hostile text was actually drawn (its visible tail).
+                let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+                if text.contains("evil") { drawn += 1; }
+            }
+        }
+        assert!(drawn >= 20, "hostile text was drawn on most screens ({drawn})");
+        // The log buffer itself holds no raw controls either.
+        assert!(app.logs.iter().all(|line| !line.chars().any(is_terminal_unsafe)));
+    }
+
+    #[test]
+    fn the_log_file_writer_scrubs_server_text() {
+        use std::io::Write;
+        let mut writer = super::ScrubbingWriter(Vec::new());
+        writer.write_all(format!("live auth failed: {H}\n").as_bytes()).unwrap();
+        let written = String::from_utf8(writer.0).unwrap();
+        assert!(written.ends_with('\n'));
+        assert!(!written.trim_end_matches('\n').chars().any(is_terminal_unsafe), "{written:?}");
     }
 }
