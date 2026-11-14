@@ -12,6 +12,23 @@
 	import { desktopServerRailPinned } from '$lib/serverNavigationPreference';
 	import { channelAccessPolicyVersion } from '$lib/channelAccessPolicyVersion';
 	import { resolveServerAssetUrl } from '$lib/savedServerUtils';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import type { IconName } from '$lib/components/ui/icons';
+	import type { Channel } from '$lib/socket';
+
+	// Leading glyph per kind (spec §6, as UnifiedChannelList.channelGlyph): a text channel typesets
+	// '#', every other kind its own icon. Without this a voice room read as "#general" too.
+	function roomGlyph(ch: Channel): IconName | null {
+		switch ((ch.type as string | undefined) || 'text') {
+			case 'voice': return 'voice';
+			case 'gallery': return 'image';
+			case 'forum': return 'forum';
+			case 'wiki': return 'book';
+			case 'lore': return 'box';
+			case 'planning': return 'columns';
+			default: return null;
+		}
+	}
 
 	type CommunityRole = { id: string; name: string; description: string };
 	type GuidedRoom = { id: string; name: string; description?: string | null; roleId: string };
@@ -194,7 +211,7 @@
 				<div class="room-list">
 					{#each $channels as ch (ch.id)}
 						{#if !['dm', 'group', 'category', 'reception'].includes(ch.type)}
-							<div class="room-row" class:room-row-off={isHidden(ch.id)}><span class="room-name">#{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span><button type="button" class="room-switch" role="switch" aria-checked={!isHidden(ch.id)} aria-label={`Show ${ch.name} in sidebar`} onclick={() => toggleRoom(ch.id)}><span class="switch-track" aria-hidden="true"></span><span>{isHidden(ch.id) ? 'Off' : 'On'}</span></button></div>
+							<div class="room-row" class:room-row-off={isHidden(ch.id)}><span class="room-name">{#if roomGlyph(ch)}<Icon name={roomGlyph(ch)} size={14} />{:else}<span class="room-hash" aria-hidden="true">#</span>{/if}{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span><button type="button" class="room-switch" role="switch" aria-checked={!isHidden(ch.id)} aria-label={`Show ${ch.name} in sidebar`} onclick={() => toggleRoom(ch.id)}><span class="switch-track" aria-hidden="true"></span><span>{isHidden(ch.id) ? 'Off' : 'On'}</span></button></div>
 						{/if}
 					{/each}
 				</div>
@@ -258,7 +275,7 @@
 							role="switch" aria-checked={!isHidden(ch.id)} aria-label={`Show ${ch.name} in sidebar`}
 							onclick={() => toggleRoom(ch.id)}
 						>
-							<span class="room-name">#{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span>
+							<span class="room-name">{#if roomGlyph(ch)}<Icon name={roomGlyph(ch)} size={14} />{:else}<span class="room-hash" aria-hidden="true">#</span>{/if}{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span>
 							<span class="switch-track" class:enabled={!isHidden(ch.id)} aria-hidden="true"></span><span class="room-status">{isHidden(ch.id) ? 'Off' : 'On'}</span>
 						</button>
 					{/if}
@@ -394,6 +411,9 @@
 	.rules-button{appearance:none;border:1px solid var(--w-line-strong,var(--border-default));border-radius:9px;background:transparent;color:var(--w-text,var(--text-heading));padding:10px 13px;cursor:pointer}
 	@media(max-width:720px){.reception-body,.desk-overview{grid-template-columns:1fr}.view-section,.desk-room-section{grid-column:auto}.role-card{flex-direction:column}.role-card button{align-self:flex-start}}
 	.room-name { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+	/* The leading kind glyph (# for text, an icon for voice/forum/wiki/…) sits on the name's line. */
+	.room-name > :is(svg, .room-hash) { margin-right: 4px; vertical-align: -2px; color: var(--w-faint, var(--text-secondary)); }
+	.room-name > .room-hash { margin-right: 2px; vertical-align: baseline; }
 	.room-row { gap: 16px; border: 1px solid var(--border-default); }
 	.room-row-off { opacity: 1; }
 	.room-switch { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; flex: none; border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }

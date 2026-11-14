@@ -89,7 +89,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import MobileNav from '$lib/components/MobileNav.svelte';
 	import YouPage from '$lib/components/YouPage.svelte';
 	import type { SettingsRequest } from '$lib/components/settings/settingsFrame';
-	import { showToast } from '$lib/toast';
+	import { showToast, toast, type ToastHandle } from '$lib/toast';
 	import { workspaceViewSelect, workspaceActivityBadge } from '$lib/workspaceViewBridge';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
@@ -131,6 +131,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let unsubscribeFriendshipSync: (() => void) | null = null;
 	let unsubscribeFriendRequestNotices: (() => void) | null = null;
 	let knownIncomingRequestIds: Set<string> | null = null;
+	// The "Friend request from …" toasts, so a toast can be taken down once the request it announced
+	// is no longer incoming (accepted or declined), instead of lingering for its full timeout.
+	let friendRequestToasts: { handle: ToastHandle; ids: Set<string> }[] = [];
 	$: activityCount = $friendships.incoming.length + Object.values($remoteFriendRequests).reduce((sum, entry) => sum + entry.requests.length, 0) + Object.values($followUnreadCountsByServer).reduce((sum, count) => sum + count, 0) + totalUnreadDMs;
 	$: activityBadge = formatMobileUnreadBadge(activityCount);
 
@@ -392,6 +395,18 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (!dockPeeking || event.key !== 'Escape' || event.defaultPrevented) return;
 		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
 		if (endPeek()) event.preventDefault();
+	}
+
+	// The phone side-panel sheet (People, pins, search, any right-dock panel) closes on Escape too,
+	// like the scrim and Back. isMobile is width-only, so a narrow desktop window shows this sheet
+	// with a keyboard present. A menu or dialog on top of the sheet (the Member-actions bottom
+	// sheet) owns Escape first.
+	function handleMobileOverlayKeydown(event: KeyboardEvent): void {
+		if (!$layoutStore.isMobile || $layoutStore.rightPanelMode === 'none') return;
+		if (event.key !== 'Escape' || event.defaultPrevented) return;
+		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+		event.preventDefault();
+		layoutStore.closeRightPanel();
 	}
 
 	/** Width from the pointer to the rail edge the panel hangs from, clamped to what fits. */
@@ -900,13 +915,28 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				return;
 			}
 			const nextIds = new Set(state.incoming.map((request) => request.id));
+			// Take down any announced request that is no longer incoming (accepted or declined), so its
+			// toast does not sit on screen after the request is gone. A toast drops only once every
+			// request it named is resolved (the aggregate toast names several).
+			friendRequestToasts = friendRequestToasts.filter((entry) => {
+				for (const id of entry.ids) {
+					if (!nextIds.has(id)) entry.ids.delete(id);
+				}
+				if (entry.ids.size === 0) {
+					entry.handle.dismiss();
+					return false;
+				}
+				return true;
+			});
 			if (knownIncomingRequestIds !== null) {
 				const newRequests = state.incoming.filter((request) => !knownIncomingRequestIds?.has(request.id));
 				if (newRequests.length === 1) {
 					const person = newRequests[0];
-					showToast(`Friend request from ${person.handle ? `@${person.handle}` : person.username}. Open Friends to respond.`, 'info', 8000);
+					const handle = toast(`Friend request from ${person.handle ? `@${person.handle}` : person.username}. Open Friends to respond.`, { tone: 'info', timeout: 8000 });
+					friendRequestToasts.push({ handle, ids: new Set([person.id]) });
 				} else if (newRequests.length > 1) {
-					showToast(`${newRequests.length} new friend requests. Open Friends to respond.`, 'info', 8000);
+					const handle = toast(`${newRequests.length} new friend requests. Open Friends to respond.`, { tone: 'info', timeout: 8000 });
+					friendRequestToasts.push({ handle, ids: new Set(newRequests.map((request) => request.id)) });
 				}
 			}
 			knownIncomingRequestIds = nextIds;
@@ -1338,6 +1368,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	on:resize={measureRailWidth}
 	on:keydown={handleStagePeekKeydown}
 	on:keydown={handleCompactDrawerKeydown}
+	on:keydown={handleMobileOverlayKeydown}
 	on:mousemove={handleMouseMove}
 	on:mouseup={stopResize}
 	on:touchstart={handleTouchStart}
@@ -1561,6 +1592,17 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		<div class="mobile-right-overlay" class:visible={$layoutStore.rightPanelMode !== 'none'}>
 			{#if RightPanelCmp}
 				<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+			{:else if $layoutStore.rightPanelMode !== 'none'}
+				<!-- Like the desktop dock: the first open loads the panel lazily, so the sheet shows a
+				     real loading state instead of rising empty (§7.16). -->
+				<div class="companion-loading" aria-busy="true">
+					<span class="w-loadline" role="progressbar" aria-label={$_('shell.loading_panel')}></span>
+					<div class="companion-loading-rows" aria-hidden="true">
+						{#each [0, 1, 2, 3, 4] as row (row)}
+							<div class="w-skel-row"><span class="w-skel w-skel--disc"></span><span class="w-skel-stack"><span class="w-skel"></span><span class="w-skel"></span></span></div>
+						{/each}
+					</div>
+				</div>
 			{/if}
 		</div>
 	{/if}
