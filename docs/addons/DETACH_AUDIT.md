@@ -132,6 +132,13 @@ core breaks, misbehaves, or shows UI that cannot work without it.
    does. *Test:* a `#[cfg(feature = "wabi-lore")]` case in
    `addons_absent_contract.rs` that boots a Lore build with the switch off;
    CI's `features-full` job now runs that file.
+   *One existing test changed:* `lore_credential_contract.rs`
+   (`scoped_write_rechecks_revocation_after_a_stalled_request_body`) called a
+   Lore route with the service absent and asserted the 500, using it as proof
+   that the request got past authorization into the handler. That 500 was this
+   weld. The test now asserts 404 **and** the handler's own sentence, which is
+   the stronger proof: the router fallback for a missing route is also a 404,
+   but says `not_found`. Nothing an enabled Lore does was changed.
 
 4. **Settings → Add-ons could never switch anything.** `addonDetection.ts` has
    its own copy of the inventory mapper, and that copy dropped `runtimeSwitch`,

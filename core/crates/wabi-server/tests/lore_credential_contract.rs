@@ -1076,17 +1076,24 @@ async fn scoped_write_rechecks_revocation_after_a_stalled_request_body() {
         let path = format!("/addons/lore/repos/{channel}{suffix}");
         // The valid capability reaches the absent optional service. This
         // distinguishes actual post-body denial from a broken route fixture.
+        // An absent Lore service used to answer 500; it now answers 404 with
+        // the handler's own sentence (docs/addons/DETACH_AUDIT.md, weld 3).
+        // The message, not the status alone, is what proves the handler ran:
+        // the router fallback for a missing route also says 404, but
+        // `{"error":"not_found"}`.
+        let (status, body) = request(
+            &app,
+            method.clone(),
+            &path,
+            &token,
+            json!({"message":"guard fixture"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
         assert_eq!(
-            request(
-                &app,
-                method.clone(),
-                &path,
-                &token,
-                json!({"message":"guard fixture"})
-            )
-            .await
-            .0,
-            StatusCode::INTERNAL_SERVER_ERROR
+            body["error"],
+            json!("The Lore add-on is not enabled on this server"),
+            "the request must reach the Lore handler, not the route fallback: {body}"
         );
         // File uploads authorize against the Lore repo before reading the
         // body, so the stalled body is only reached once a service exists.

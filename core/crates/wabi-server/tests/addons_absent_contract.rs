@@ -45,6 +45,8 @@ const OWNER: (&str, &str) = ("addon_audit_owner", "Owner-Passphrase-2026");
 struct Server {
     child: Child,
     origin: String,
+    // Read only by the default-build test (the Tailcat pipe-port check).
+    #[cfg_attr(feature = "wabi-lore", allow(dead_code))]
     port: u16,
     install: PathBuf,
 }
@@ -203,6 +205,10 @@ fn says_not_enabled(value: &Value) -> bool {
         || text.contains("not enabled in this build")
 }
 
+// Its premise is a build without the optional add-ons, so it is compiled only
+// where Lore is absent. CI's `features-full` job runs this file with
+// `--features wabi-lore` for the Lore half below; this half runs in `test`.
+#[cfg(not(feature = "wabi-lore"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_default_build_runs_with_every_addon_off() {
     let root = tempfile::tempdir().unwrap();
