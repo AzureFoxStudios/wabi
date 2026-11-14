@@ -112,7 +112,13 @@ function now(): number {
 	return lastTimestamp;
 }
 
+let fallbackIdCounter = 0;
+
 function randomHex(byteCount: number): string {
+	// Without Web Crypto the ID stays unique within this tab, not unguessable.
+	if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+		return (fallbackIdCounter += 1).toString(16);
+	}
 	const bytes = crypto.getRandomValues(new Uint8Array(byteCount));
 	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
