@@ -145,6 +145,17 @@ export function getPersistedRefreshToken(serverUrl?: string | null): string | nu
 	return normalizeSecret(safeLocalGet(persistentRefreshKey(serverUrl)));
 }
 
+/**
+ * The remembered browser pair as the most recent tab left it. Tabs share
+ * localStorage but each keeps its own sessionStorage copy, so this is how a
+ * tab learns that another tab already rotated the refresh token.
+ */
+export function getRememberedWebAuthPair(serverUrl?: string | null): { accessToken: string; refreshToken: string } | null {
+	const refreshToken = getPersistedRefreshToken(serverUrl);
+	const accessToken = refreshToken ? normalizeSecret(safeLocalGet(persistentTokenKey(serverUrl))) : null;
+	return accessToken && refreshToken ? { accessToken, refreshToken } : null;
+}
+
 /** Native bootstrap uses this only to migrate old plaintext remember-me state. */
 export function getPlaintextPersistentAuthTokenForMigration(serverUrl?: string | null): string | null {
 	if (!browser) return null;
