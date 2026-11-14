@@ -86,7 +86,9 @@ export type FeelerDemoRequest = {
 };
 
 export const DEFAULT_FEELER_SETTINGS: FeelerSettings = {
-	enabled: true,
+	// Opt-in: the effect redraws every frame while the pointer moves, which
+	// costs most of a CPU core on WebKitGTK's software rendering path.
+	enabled: false,
 	pattern: 'triangles',
 	customEffectId: null,
 	radius: 190,
@@ -129,7 +131,7 @@ export function normalizeFeelerSettings(input: Partial<FeelerSettings> | null | 
 	const storedPattern: unknown = input?.pattern;
 	const pattern = storedPattern === 'water-ripples' ? 'water' : storedPattern;
 	return {
-		enabled: input?.enabled !== false,
+		enabled: typeof input?.enabled === 'boolean' ? input.enabled : DEFAULT_FEELER_SETTINGS.enabled,
 		pattern: isFeelerPattern(pattern) ? pattern : DEFAULT_FEELER_SETTINGS.pattern,
 		customEffectId:
 			typeof input?.customEffectId === 'string' && input.customEffectId.trim()

@@ -4,7 +4,7 @@
   "nodes": [
     {
       "label": "Ronin",
-      "sshTarget": "Ronin@100.87.255.66",
+      "sshTarget": "operator@192.0.2.30",
       "actualHostname": "bazzite",
       "session": 10277,
       "actualExit": 0,
@@ -12,8 +12,8 @@
     },
     {
       "label": "Iyoku",
-      "sshTarget": "Iyoku@100.104.166.42",
-      "actualHostname": "192.168.1.11",
+      "sshTarget": "operator@192.0.2.20",
+      "actualHostname": "198.51.100.20",
       "session": 75229,
       "actualExit": 0,
       "tmpAvailableBytes": 7711309824

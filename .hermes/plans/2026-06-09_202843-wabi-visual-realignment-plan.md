@@ -14,9 +14,9 @@
 
 Current inspected screenshot: `/tmp/wabi-ui-smoke/verify-desktop.png`
 Reference screenshots inspected:
-- `/home/Ronin/Desktop/Screenshot_20260502-131716.png`
-- `/home/Ronin/Desktop/Screenshot_20260502-113209.png`
-- `/home/Ronin/Desktop/image (2).png`
+- `/home/operator/Desktop/Screenshot_20260502-131716.png`
+- `/home/operator/Desktop/Screenshot_20260502-113209.png`
+- `/home/operator/Desktop/image (2).png`
 
 Observed current regressions:
 
@@ -72,17 +72,17 @@ Observed current regressions:
 - No edits yet.
 
 **Steps:**
-1. Save a pre-pass patch/status backup under `/home/Ronin/wabi-backups/`.
-2. Verify dev server is serving `/home/Ronin/wabi/frontend` and HTTP 200.
+1. Save a pre-pass patch/status backup under `/home/operator/wabi-backups/`.
+2. Verify dev server is serving `/home/operator/wabi/frontend` and HTTP 200.
 3. Capture baseline desktop screenshot at 1440x1000.
 4. Capture baseline mobile screenshot at 390x1200.
 5. Keep screenshots named with `before-visual-realign` so final comparison is clear.
 
 **Commands:**
 ```bash
-cd /home/Ronin/wabi
-git diff > /home/Ronin/wabi-backups/pre-visual-realign-$(date +%Y%m%d-%H%M%S).patch
-git status --short > /home/Ronin/wabi-backups/pre-visual-realign-status-$(date +%Y%m%d-%H%M%S).txt
+cd /home/operator/wabi
+git diff > /home/operator/wabi-backups/pre-visual-realign-$(date +%Y%m%d-%H%M%S).patch
+git status --short > /home/operator/wabi-backups/pre-visual-realign-status-$(date +%Y%m%d-%H%M%S).txt
 cd frontend
 curl -sS -o /tmp/wabi-health.html -w 'http_code=%{http_code} size=%{size_download} time=%{time_total}\n' --max-time 5 http://127.0.0.1:5173/
 ```
@@ -343,7 +343,7 @@ curl -sS -o /tmp/wabi-health.html -w 'http_code=%{http_code} size=%{size_downloa
 Run after each implementation phase, not just at the end:
 
 ```bash
-cd /home/Ronin/wabi/frontend
+cd /home/operator/wabi/frontend
 bun run check
 bun run build:only
 curl -sS -o /tmp/wabi-health.html -w 'http_code=%{http_code} size=%{size_download} time=%{time_total}\n' --max-time 5 http://127.0.0.1:5173/

@@ -16,7 +16,7 @@ Hermes's normal configuration selected an unusable SSH terminal even when a shel
 
 The model identifier is the **free router**, not a fixed underlying model. Hermes reported estimated cost zero with cost status `unknown`; OpenCode step events reported zero. These runtime reports do not independently certify account billing or a durable free quota. No paid-model fallback or purchase was requested.
 
-The V2 package was identified in the [official installation documentation](https://opencode.ai/v2/docs) and pinned to `@opencode/cli@2.0.18`. It lives under `/home/ironin/.local/share/wabi-opencode-v2`. The `opencode2` launcher uses its own persistent configuration/data/cache/state directories; the original `opencode` remains 1.18.32. The inference trials used temporary profiles, so the ordinary V2 profile still needs its own provider connection. V1 and V2 use different [permission/configuration names](https://opencode.ai/v2/docs/permissions); copying the V1 configuration verbatim into V2 is not the tested setup.
+The V2 package was identified in the [official installation documentation](https://opencode.ai/v2/docs) and pinned to `@opencode/cli@2.0.18`. It lives under `/home/operator/.local/share/wabi-opencode-v2`. The `opencode2` launcher uses its own persistent configuration/data/cache/state directories; the original `opencode` remains 1.18.32. The inference trials used temporary profiles, so the ordinary V2 profile still needs its own provider connection. V1 and V2 use different [permission/configuration names](https://opencode.ai/v2/docs/permissions); copying the V1 configuration verbatim into V2 is not the tested setup.
 
 Codex implemented and exercised this workspace; a separate Codex CLI connector invocation is not claimed. Claude was not found on Ronin's inspected command path. Zcode was present, but a version probe could not start its application inside the command sandbox; no GLM inference test was made. Nous Portal and secondary providers were not exercised. The user's preferred stack remains OpenCode, Codex and Hermes.
 
@@ -54,7 +54,7 @@ After acceptance, the disposable Iyoku server was stopped and the SSH tunnel clo
 
 ## Tim audit
 
-A read-only inspection found a healthy `wabi-server` container, `/health` reporting role `authority`, and setup completed. Compose is the WabiDB single-binary stack. The binary is read-only bind-mounted from `/home/tim/Desktop/Wabi/target/release/wabi-server`; data, uploads, plugins and optional Lore have separate mounts. Its SHA-256 at inspection was `57452407550d192214e6d4362325b84b689aea169a508f9e0e0ce0e2b87e565c`. That deployment directory did not contain a Git checkout, so no deployed commit SHA was inferred. No binary, container, live data or configuration was changed.
+A read-only inspection found a healthy `wabi-server` container, `/health` reporting role `authority`, and setup completed. Compose is the WabiDB single-binary stack. The binary is read-only bind-mounted from `/home/operator/Desktop/Wabi/target/release/wabi-server`; data, uploads, plugins and optional Lore have separate mounts. Its SHA-256 at inspection was `57452407550d192214e6d4362325b84b689aea169a508f9e0e0ce0e2b87e565c`. That deployment directory did not contain a Git checkout, so no deployed commit SHA was inferred. No binary, container, live data or configuration was changed.
 
 ## Limits of this evidence
 

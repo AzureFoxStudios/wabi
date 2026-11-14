@@ -39,7 +39,7 @@
     {
       "node": 3,
       "site": "Iyoku",
-      "host": "192.168.1.11",
+      "host": "198.51.100.20",
       "python": "3.14.7",
       "artifactSha256": "52455067953e0d2d67f04dff308caca01cc2d4715a17f60828f6eee3a17dd3ec"
     }

@@ -1,7 +1,7 @@
 # Signed checkpoint source and local material acceptance
 
 **Scope:** main Wabi before ERP; local candidate, uncommitted and undeployed.
-**Execution:** dotRonin, `/home/ironin/wabi`,
+**Execution:** dotRonin, `/home/operator/wabi`,
 `codex/security-boundary-hardening-20260930`, base
 `138abe39e08e400188d1812ed3bfd378df435315`.
 

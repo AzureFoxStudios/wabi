@@ -114,7 +114,7 @@ pub struct MessageEntity {
 
 Regenerate TS:
 ```bash
-cd /var/home/Ronin/wabi
+cd /var/home/operator/wabi
 # follow packages/wabi-protocol README / wabi-core ts feature
 cargo test -p wabi-core --features ts
 # ensure packages/wabi-protocol/src/generated/MessageEntity*.ts updated
@@ -297,12 +297,12 @@ Do not invent a second “share message type”. It is a normal text message wit
 
 Protocol:
 ```bash
-cd /var/home/Ronin/wabi && cargo test -p wabi-core --features ts
+cd /var/home/operator/wabi && cargo test -p wabi-core --features ts
 ```
 
 Frontend:
 ```bash
-cd /var/home/Ronin/wabi/frontend && npm run check
+cd /var/home/operator/wabi/frontend && npm run check
 ```
 
 Manual smoke:
@@ -339,7 +339,7 @@ Do **not** start full Forum/Wiki/Gallery product UIs until Phase 1–4 of this p
 
 Channel-type plan should reference:
 - `docs/plans/2026-07-18-chat-object-refs.md`
-- mockups: `/var/home/Ronin/wabi-channel-specs/*_mockup_v2.html`
+- mockups: `/var/home/operator/wabi-channel-specs/*_mockup_v2.html`
 - gallery prototype: `frontend/static/gallery-prototype.html`
 
 ---

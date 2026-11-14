@@ -6,8 +6,8 @@ This runbook is the fastest reliable path for syncing the current Wabi tree to `
 
 ## Hosts
 
-- `tim@100.96.11.45`
-- `Iyoku@100.104.166.42`
+- `operator@192.0.2.10`
+- `operator@192.0.2.20`
 
 ## Remote Path
 
@@ -18,8 +18,8 @@ Both machines use:
 ## Quick Connect
 
 ```bash
-ssh tim@100.96.11.45
-ssh Iyoku@100.104.166.42
+ssh operator@192.0.2.10
+ssh operator@192.0.2.20
 ```
 
 ## Sync Current Tree
@@ -27,9 +27,9 @@ ssh Iyoku@100.104.166.42
 From the local machine:
 
 ```bash
-cd /home/Ronin/Desktop/Wabi/dotronin-worktree/wabi
-rsync -az --delete --exclude 'data/' ./ tim@100.96.11.45:~/Desktop/Wabi/
-rsync -az --delete --exclude 'data/' ./ Iyoku@100.104.166.42:~/Desktop/Wabi/
+cd /home/operator/Desktop/Wabi/dotronin-worktree/wabi
+rsync -az --delete --exclude 'data/' ./ operator@192.0.2.10:~/Desktop/Wabi/
+rsync -az --delete --exclude 'data/' ./ operator@192.0.2.20:~/Desktop/Wabi/
 ```
 
 This mirrors the current local worktree onto both hosts and removes files on the remote that no longer exist locally, while preserving deployment data.
@@ -39,7 +39,7 @@ This mirrors the current local worktree onto both hosts and removes files on the
 After syncing, rebuild and restart the live stack on `tim`:
 
 ```bash
-ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose up -d --build'
+ssh operator@192.0.2.10 'cd ~/Desktop/Wabi && docker compose up -d --build'
 ```
 
 ## Verify Tim
@@ -47,19 +47,19 @@ ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose up -d --build'
 Check container state:
 
 ```bash
-ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && docker compose ps'
+ssh operator@192.0.2.10 'cd ~/Desktop/Wabi && docker compose ps'
 ```
 
 Check backend health:
 
 ```bash
-ssh tim@100.96.11.45 'curl -fsS http://127.0.0.1:8080/health'
+ssh operator@192.0.2.10 'curl -fsS http://127.0.0.1:8080/health'
 ```
 
 Check frontend response:
 
 ```bash
-ssh tim@100.96.11.45 'curl -I http://127.0.0.1:3000'
+ssh operator@192.0.2.10 'curl -I http://127.0.0.1:3000'
 ```
 
 ## Verify Iyoku
@@ -67,7 +67,7 @@ ssh tim@100.96.11.45 'curl -I http://127.0.0.1:3000'
 Iyoku is currently a synced machine, not the live rebuilt host in this runbook. Verify the tree landed:
 
 ```bash
-ssh Iyoku@100.104.166.42 'cd ~/Desktop/Wabi && test -f docs-history branch: CODEBASE_CLEANUP_STATUS.md && echo ok'
+ssh operator@192.0.2.20 'cd ~/Desktop/Wabi && test -f docs-history branch: CODEBASE_CLEANUP_STATUS.md && echo ok'
 ```
 
 ## Current Cleanup Reference

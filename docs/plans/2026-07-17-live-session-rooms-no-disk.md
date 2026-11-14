@@ -128,7 +128,7 @@ Also surface UI badge: `LIVE` / “session only · lost on restart”.
 
 **Run:**
 ```bash
-cd /var/home/Ronin/wabi
+cd /var/home/operator/wabi
 cargo test -p wabi-server --test live_session_room_contract -- --nocapture
 ```
 

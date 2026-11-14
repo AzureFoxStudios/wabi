@@ -7,7 +7,7 @@
 //
 // Usage:
 //   node scripts/probe-init-payload.mjs [https://wabi.chat]
-//   WABI_BASE=http://100.96.11.45:3001 node scripts/probe-init-payload.mjs
+//   WABI_BASE=http://192.0.2.10:3001 node scripts/probe-init-payload.mjs
 import { io } from 'socket.io-client';
 
 const BASE = process.env.WABI_BASE || process.argv[2] || 'https://wabi.chat';

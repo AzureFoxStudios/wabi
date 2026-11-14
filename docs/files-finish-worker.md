@@ -1,5 +1,5 @@
 # GF07 Files implementation closure
-Work ONLY at /var/home/Ronin/wabi-production-finish-union. User requests finishing campaign implementation, leaving hard quality acceptance separate. Read AGENTS.md. Parent owns Gallery, boot, PR integration. No push/merge/deploy, no accounts, no live browser/data/secrets.
+Work ONLY at /var/home/operator/wabi-production-finish-union. User requests finishing campaign implementation, leaving hard quality acceptance separate. Read AGENTS.md. Parent owns Gallery, boot, PR integration. No push/merge/deploy, no accounts, no live browser/data/secrets.
 
 Allowed changes: frontend/src/lib/components/FilesWorkspace.svelte, new frontend/src/lib/filesWorkspaceSession.ts and filesWorkspaceSession.test.ts, new frontend/scripts/files-workspace-regression.mjs if useful, docs/reviews/files-implementation.md. Read-only references: frontend/src/lib/api/lore.ts, authSession.ts, apiRequest.ts, groupAccess.ts, groupMembership.ts, serverUrl.ts, galleryFeedbackStore.ts, components/lore/LoreFileTree.svelte. Do not edit shared APIs or other components.
 

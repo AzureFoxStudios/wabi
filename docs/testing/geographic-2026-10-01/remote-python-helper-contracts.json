@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "recordedAtUtc": "2026-10-01T11:25:35.058161+00:00",
   "executionComputer": "dotRonin",
-  "checkout": "/home/ironin/wabi",
+  "checkout": "/home/operator/wabi",
   "scope": "Released synthetic Python helper remote runtime compatibility",
   "runnerSourceSha256": "6712acd889caf9ac2af8f965b901907d5aecd7318abf01dfbedf5769d54bede4",
   "remoteRunnerSourceSha256": "3ea4a2fc2a2397c1583dc5c1e4ced1ba90073b2ded6eac290ca0f039c6bbf328",
@@ -65,7 +65,7 @@
     {
       "schemaVersion": 1,
       "site": "Iyoku",
-      "host": "192.168.1.11",
+      "host": "198.51.100.20",
       "python": "3.14.7",
       "architecture": "x86_64",
       "recordedAtUtc": "2026-10-01T11:25:34.984957+00:00",

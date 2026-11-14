@@ -378,7 +378,10 @@ html[data-shell='mobile'] body {
 		border-radius: var(--w-pill);
 		background: var(--w-line-strong);
 	}
+	/* Open, the sheet is on screen: without this reset it keeps the closed translateY(100%) and
+	   only the scrim shows (d833d9ab). */
 	.mobile-right-overlay.visible {
+		transform: none;
 		visibility: visible;
 		box-shadow: var(--w-shadow);
 		transition: transform var(--w-dur-3) var(--w-ease);

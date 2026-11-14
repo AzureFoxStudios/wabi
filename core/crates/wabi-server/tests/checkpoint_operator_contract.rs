@@ -146,7 +146,7 @@ async fn full_router_requires_loopback_and_secret_and_keeps_control_reachable_du
             StatusCode::FORBIDDEN
         );
         assert_eq!(
-            call(&app, method, "100.87.255.66:33001", Some(SECRET))
+            call(&app, method, "100.64.0.30:33001", Some(SECRET))
                 .await
                 .0,
             StatusCode::FORBIDDEN
@@ -798,7 +798,7 @@ async fn source_route_refuses_forwarded_peer_account_token_unknown_jobs_and_defa
         context_call(
             &app,
             &id,
-            "100.87.255.66:32001",
+            "100.64.0.30:32001",
             &[
                 ("x-operator-secret", SECRET),
                 ("x-forwarded-for", "127.0.0.1"),
