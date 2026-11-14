@@ -1,0 +1,132 @@
+== suite 1: group created with OpenMLS: devices alice=OpenMLS, bob=mls-rs, carol=OpenMLS, dave=OpenMLS | server checks commits with mls-rs ExternalClient
+PASS OpenMLS adds bob (mls-rs) and carol (OpenMLS) from their key packages
+PASS server accepts the creator's add commit
+PASS mls-rs joins from a OpenMLS welcome
+PASS OpenMLS joins from a OpenMLS welcome
+PASS alice encrypts
+PASS server accepts application message
+PASS bob encrypts
+PASS server accepts application message
+PASS carol encrypts
+PASS server accepts application message
+PASS alice (OpenMLS) decrypts the others
+     alice read ["hello from mls-rs", "hello from OpenMLS"]
+PASS bob (mls-rs) decrypts the others
+     bob read ["hello from OpenMLS", "hello from OpenMLS"]
+PASS carol (OpenMLS) decrypts the others
+     carol read ["hello from OpenMLS", "hello from mls-rs"]
+PASS mls-rs makes an update commit
+PASS server accepts it
+PASS mls-rs adds dave (OpenMLS)
+PASS server accepts it
+PASS OpenMLS joins from a mls-rs welcome
+PASS carol processes both commits
+PASS mls-rs removes carol (OpenMLS)
+PASS server accepts it
+PASS OpenMLS creator processes three commits made by mls-rs
+PASS dave (OpenMLS) processes the removal made by mls-rs
+PASS dave encrypts
+PASS server accepts it
+PASS alice reads dave
+PASS bob reads dave
+PASS alice and bob read dave, removed carol cannot (ValidationError(WrongEpoch)), epochs [4, 4, 4], server members ["alice", "bob", "dave"]
+
+== suite 1: group created with mls-rs: devices alice=mls-rs, bob=OpenMLS, carol=mls-rs, dave=mls-rs | server checks commits with OpenMLS PublicGroup
+PASS mls-rs adds bob (OpenMLS) and carol (mls-rs) from their key packages
+PASS server accepts the creator's add commit
+PASS OpenMLS joins from a mls-rs welcome
+PASS mls-rs joins from a mls-rs welcome
+PASS alice encrypts
+PASS server accepts application message
+PASS bob encrypts
+PASS server accepts application message
+PASS carol encrypts
+PASS server accepts application message
+PASS alice (mls-rs) decrypts the others
+     alice read ["hello from OpenMLS", "hello from mls-rs"]
+PASS bob (OpenMLS) decrypts the others
+     bob read ["hello from mls-rs", "hello from mls-rs"]
+PASS carol (mls-rs) decrypts the others
+     carol read ["hello from mls-rs", "hello from OpenMLS"]
+PASS OpenMLS makes an update commit
+PASS server accepts it
+PASS OpenMLS adds dave (mls-rs)
+PASS server accepts it
+PASS mls-rs joins from a OpenMLS welcome
+PASS carol processes both commits
+PASS OpenMLS removes carol (mls-rs)
+PASS server accepts it
+PASS mls-rs creator processes three commits made by OpenMLS
+PASS dave (mls-rs) processes the removal made by OpenMLS
+PASS dave encrypts
+PASS server accepts it
+PASS alice reads dave
+PASS bob reads dave
+PASS alice and bob read dave, removed carol cannot (EpochNotFound), epochs [4, 4, 4], server members ["alice", "bob", "dave"]
+
+== suite 2: group created with OpenMLS: devices alice=OpenMLS, bob=mls-rs, carol=OpenMLS, dave=OpenMLS | server checks commits with mls-rs ExternalClient
+PASS OpenMLS adds bob (mls-rs) and carol (OpenMLS) from their key packages
+PASS server accepts the creator's add commit
+PASS mls-rs joins from a OpenMLS welcome
+PASS OpenMLS joins from a OpenMLS welcome
+PASS alice encrypts
+PASS server accepts application message
+PASS bob encrypts
+PASS server accepts application message
+PASS carol encrypts
+PASS server accepts application message
+PASS alice (OpenMLS) decrypts the others
+     alice read ["hello from mls-rs", "hello from OpenMLS"]
+PASS bob (mls-rs) decrypts the others
+     bob read ["hello from OpenMLS", "hello from OpenMLS"]
+PASS carol (OpenMLS) decrypts the others
+     carol read ["hello from OpenMLS", "hello from mls-rs"]
+PASS mls-rs makes an update commit
+PASS server accepts it
+PASS mls-rs adds dave (OpenMLS)
+PASS server accepts it
+PASS OpenMLS joins from a mls-rs welcome
+PASS carol processes both commits
+PASS mls-rs removes carol (OpenMLS)
+PASS server accepts it
+PASS OpenMLS creator processes three commits made by mls-rs
+PASS dave (OpenMLS) processes the removal made by mls-rs
+PASS dave encrypts
+PASS server accepts it
+PASS alice reads dave
+PASS bob reads dave
+PASS alice and bob read dave, removed carol cannot (ValidationError(WrongEpoch)), epochs [4, 4, 4], server members ["alice", "bob", "dave"]
+
+== suite 2: group created with mls-rs: devices alice=mls-rs, bob=OpenMLS, carol=mls-rs, dave=mls-rs | server checks commits with OpenMLS PublicGroup
+PASS mls-rs adds bob (OpenMLS) and carol (mls-rs) from their key packages
+PASS server accepts the creator's add commit
+PASS OpenMLS joins from a mls-rs welcome
+PASS mls-rs joins from a mls-rs welcome
+PASS alice encrypts
+PASS server accepts application message
+PASS bob encrypts
+PASS server accepts application message
+PASS carol encrypts
+PASS server accepts application message
+PASS alice (mls-rs) decrypts the others
+     alice read ["hello from OpenMLS", "hello from mls-rs"]
+PASS bob (OpenMLS) decrypts the others
+     bob read ["hello from mls-rs", "hello from mls-rs"]
+PASS carol (mls-rs) decrypts the others
+     carol read ["hello from mls-rs", "hello from OpenMLS"]
+PASS OpenMLS makes an update commit
+PASS server accepts it
+PASS OpenMLS adds dave (mls-rs)
+PASS server accepts it
+PASS mls-rs joins from a OpenMLS welcome
+PASS carol processes both commits
+PASS OpenMLS removes carol (mls-rs)
+PASS server accepts it
+PASS mls-rs creator processes three commits made by OpenMLS
+PASS dave (mls-rs) processes the removal made by OpenMLS
+PASS dave encrypts
+PASS server accepts it
+PASS alice reads dave
+PASS bob reads dave
+PASS alice and bob read dave, removed carol cannot (EpochNotFound), epochs [4, 4, 4], server members ["alice", "bob", "dave"]
+
