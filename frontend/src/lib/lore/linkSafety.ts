@@ -20,14 +20,41 @@ export function checkedSignedLoreUrl(value: unknown, base: string): string | nul
 	}
 }
 
+/** Largest Lore file saved through the app (bytes). Bigger files: use the Lore client or CLI. */
+export const LORE_SAVE_LIMIT_BYTES = 512 * 1024 * 1024;
+
 /**
  * Save a Lore file without navigating: fetch the (same-origin, checked) signed URL, then save the
  * bytes from a blob typed application/octet-stream, so nothing the server sent is shown as a page.
+ * The body is read in chunks and refused once it passes LORE_SAVE_LIMIT_BYTES, so a server cannot
+ * make the app buffer without bound (review finding N7).
  */
-export async function saveSignedLoreFile(url: string, fileName: string): Promise<void> {
+export async function saveSignedLoreFile(url: string, fileName: string, limit = LORE_SAVE_LIMIT_BYTES): Promise<void> {
 	const response = await fetch(url);
 	if (!response.ok) throw new Error(`Download failed (${response.status})`);
-	const blob = new Blob([await response.blob()], { type: 'application/octet-stream' });
+	const tooLarge = () => new Error(`This file is larger than ${Math.round(limit / (1024 * 1024))} MB, the most Wabi saves directly. Use the Lore client to fetch it.`);
+	const declared = Number(response.headers.get('content-length') ?? '');
+	if (Number.isFinite(declared) && declared > limit) throw tooLarge();
+	const parts: BlobPart[] = [];
+	let total = 0;
+	const reader = response.body?.getReader();
+	if (reader) {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			total += value.byteLength;
+			if (total > limit) {
+				await reader.cancel().catch(() => {});
+				throw tooLarge();
+			}
+			parts.push(value);
+		}
+	} else {
+		const whole = await response.arrayBuffer();
+		if (whole.byteLength > limit) throw tooLarge();
+		parts.push(whole);
+	}
+	const blob = new Blob(parts, { type: 'application/octet-stream' });
 	const objectUrl = URL.createObjectURL(blob);
 	try {
 		const anchor = document.createElement('a');

@@ -231,7 +231,8 @@
 
 	function getFileType(name: string): 'image' | 'video' | 'audio' | 'text' | 'pdf' | 'archive' | 'model' | 'other' {
 		const ext = getFileExtension(name);
-		if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext)) return 'image';
+		// No svg/ico: their types are not shown inline (safeBlobType.ts), so they are files to download (N6).
+		if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'].includes(ext)) return 'image';
 		if (['mp4', 'webm', 'avi', 'mov', 'mkv'].includes(ext)) return 'video';
 		if (['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(ext)) return 'audio';
 		if (['txt', 'md', 'json', 'xml', 'yaml', 'toml', 'js', 'ts', 'rs', 'py', 'go', 'java', 'c', 'cpp', 'h', 'css', 'html', 'sh', 'bash'].includes(ext)) return 'text';
@@ -391,12 +392,12 @@
 			try {
 				const blob = await downloadLoreFile(token, chId, file.path);
 				// Saved, never shown: the server's Content-Type is not kept (F4).
-				const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
+				const objectUrl = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
 				const a = document.createElement('a');
-				a.href = url;
+				a.href = objectUrl;
 				a.download = file.path.split('/').pop() || file.path;
 				a.click();
-				URL.revokeObjectURL(url);
+				URL.revokeObjectURL(objectUrl);
 			} catch (err2) {
 				alert(err2 instanceof Error ? err2.message : 'Download failed');
 			}

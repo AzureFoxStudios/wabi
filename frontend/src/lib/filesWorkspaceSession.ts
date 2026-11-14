@@ -199,7 +199,8 @@ function defaultAccountId(server: string): string | null {
 function defaultSaveBlob(blob: Blob, filename: string): void {
 	if (typeof document === 'undefined') return;
 	try {
-		const url = URL.createObjectURL(blob);
+		// Saved, never shown (findings F4/N2).
+		const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
 		const a = document.createElement('a');
 		a.href = url;
 		a.download = filename;

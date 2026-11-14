@@ -43,6 +43,9 @@ export function inertBlob(blob: Blob, declaredType?: string | null): Blob {
  * including `data:text/html` and `data:image/svg+xml`, is refused (null).
  */
 export function safeFileHref(url: string): string | null {
+	// Control characters never belong in a link; browsers also drop tab/newline inside a URL, so
+	// `java\tscript:` is a scheme. Both are refused rather than passed on as "relative" (N7).
+	if (/[\u0000-\u001f\u007f]/.test(url)) return null;
 	const trimmed = url.trim();
 	if (/^data:/i.test(trimmed)) {
 		const type = trimmed.slice(5).split(/[;,]/)[0];

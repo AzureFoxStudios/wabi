@@ -1,0 +1,23 @@
+/*
+ * Math is written by members and servers. KaTeX's maxSize option caps positive sizes, but negative
+ * \kern, \hspace and \raisebox, or many stacked rows, can still place glyphs far outside the
+ * formula. Each formula is therefore its own clipped box: nothing it draws can cover the rest of
+ * the app (docs/audits/2026-11-hostile-server-audit.md, review finding N5).
+ */
+.katex {
+	display: inline-block;
+	max-width: 100%;
+	max-height: 8em;
+	overflow: hidden;
+	contain: paint;
+	vertical-align: middle;
+}
+.katex-display {
+	max-width: 100%;
+	max-height: 30em;
+	overflow: auto;
+	contain: paint;
+}
+.katex-display > .katex {
+	max-height: none;
+}

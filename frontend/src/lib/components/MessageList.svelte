@@ -1589,7 +1589,8 @@
 		const blobDownload = await downloadWithBoosters(resolvedUrl);
 
 		if (!attachmentEncryption || attachmentEncryption.scheme !== 'dm-e2ee-v1') {
-			const blob = blobDownload;
+			// Saved, never shown: the server's type is not kept (findings F4/N2).
+			const blob = new Blob([blobDownload], { type: 'application/octet-stream' });
 			const url = window.URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;

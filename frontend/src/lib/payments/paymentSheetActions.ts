@@ -1,3 +1,4 @@
+import { inertBlob } from '$lib/safeBlobType';
 import QRCode from 'qrcode';
 import { brandName } from '$lib/branding';
 import { formatMinorAmount, parseMajorAmountInput } from '$lib/payments/paymentAmounts';
@@ -64,7 +65,7 @@ export async function savePaymentQrImage(source: string, intentId?: string): Pro
 
 		const response = await fetch(source);
 		if (!response.ok) throw new Error('download_failed');
-		const blob = await response.blob();
+		const blob = inertBlob(await response.blob());
 		const objectUrl = URL.createObjectURL(blob);
 		anchor.href = objectUrl;
 		anchor.click();

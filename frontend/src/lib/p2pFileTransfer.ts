@@ -571,7 +571,8 @@ function assembleAndDownload(transferId: string): void {
 	const meta = receiveMetadata.get(transferId);
 	if (!chunks || !meta) return;
 
-	const blob = new Blob(chunks);
+	// A peer sent these bytes; a typeless blob can be sniffed as HTML if opened (findings F4/N2).
+	const blob = new Blob(chunks, { type: 'application/octet-stream' });
 	const url = URL.createObjectURL(blob);
 
 	// Trigger download

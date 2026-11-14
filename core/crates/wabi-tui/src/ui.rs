@@ -213,14 +213,17 @@ pub fn render(frame: &mut Frame, app: &App) {
 /// Bidi overrides and invisible characters are treated the same way: they let a name or channel
 /// title display as something it is not (review finding F6).
 /// Characters a server's text may not send to the terminal (or to the log file): every control
-/// (C0, DEL, C1), bidi embeddings, overrides and isolates, zero-width and direction marks, the
-/// Arabic letter mark, the byte-order mark and the soft hyphen.
+/// (C0, DEL, C1), bidi embeddings, overrides and isolates, the zero-width space, direction
+/// marks, the Arabic letter mark, the byte-order mark and the soft hyphen. ZWNJ and ZWJ stay.
 pub(crate) fn is_terminal_unsafe(c: char) -> bool {
     c.is_control()
         || matches!(c,
             '\u{202A}'..='\u{202E}'
             | '\u{2066}'..='\u{2069}'
-            | '\u{200B}'..='\u{200F}'
+            // U+200C/U+200D (ZWNJ/ZWJ) are ordinary text shaping (Persian, emoji sequences): kept.
+            | '\u{200B}'
+            | '\u{200E}'
+            | '\u{200F}'
             | '\u{061C}'
             | '\u{FEFF}'
             | '\u{00AD}')
@@ -234,15 +237,40 @@ pub(crate) fn scrub_text(text: &str) -> String {
 }
 
 /// The log file is a terminal target too (`tail -f`): server text in log lines is scrubbed.
-pub(crate) struct ScrubbingWriter<W: std::io::Write>(pub W);
+/// A character split across two writes is held until its last byte arrives, so it is not turned
+/// into replacement characters (review finding N7).
+pub(crate) struct ScrubbingWriter<W: std::io::Write> {
+    inner: W,
+    pending: Vec<u8>,
+}
+
+impl<W: std::io::Write> ScrubbingWriter<W> {
+    pub(crate) fn new(inner: W) -> Self {
+        Self { inner, pending: Vec::new() }
+    }
+    #[cfg(test)]
+    pub(crate) fn into_inner(self) -> W {
+        self.inner
+    }
+}
 
 impl<W: std::io::Write> std::io::Write for ScrubbingWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.write_all(scrub_text(&String::from_utf8_lossy(buf)).as_bytes())?;
+        self.pending.extend_from_slice(buf);
+        // Keep an incomplete trailing sequence (at most 3 bytes) for the next write.
+        let keep = match std::str::from_utf8(&self.pending) {
+            Ok(_) => 0,
+            Err(error) if error.error_len().is_none() => self.pending.len() - error.valid_up_to(),
+            Err(_) => 0,
+        };
+        let ready = self.pending.len() - keep;
+        let text = String::from_utf8_lossy(&self.pending[..ready]).into_owned();
+        self.inner.write_all(scrub_text(&text).as_bytes())?;
+        self.pending.drain(..ready);
         Ok(buf.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
-        self.0.flush()
+        self.inner.flush()
     }
 }
 
@@ -1536,7 +1564,7 @@ mod hostile_render_tests {
     fn is_terminal_unsafe(c: char) -> bool {
         let u = c as u32;
         u < 0x20 || (0x7f..=0x9f).contains(&u) || (0x202a..=0x202e).contains(&u) || (0x2066..=0x2069).contains(&u)
-            || (0x200b..=0x200f).contains(&u) || [0x061c, 0xfeff, 0x00ad].contains(&u)
+            || [0x200b, 0x200e, 0x200f, 0x061c, 0xfeff, 0x00ad].contains(&u)
     }
     use crate::api::{ApiClient, ChannelKind, ChannelPrivacy, LoreFile, LoreRepoInfo, PrivacySummary};
     use crate::app::{App, AppMode, Channel, LorePreview, Message, RegisteredUser, Screen, User};
@@ -1615,10 +1643,62 @@ mod hostile_render_tests {
     #[test]
     fn the_log_file_writer_scrubs_server_text() {
         use std::io::Write;
-        let mut writer = super::ScrubbingWriter(Vec::new());
+        let mut writer = super::ScrubbingWriter::new(Vec::new());
         writer.write_all(format!("live auth failed: {H}\n").as_bytes()).unwrap();
-        let written = String::from_utf8(writer.0).unwrap();
+        let written = String::from_utf8(writer.into_inner()).unwrap();
         assert!(written.ends_with('\n'));
         assert!(!written.trim_end_matches('\n').chars().any(is_terminal_unsafe), "{written:?}");
+    }
+}
+
+#[cfg(test)]
+mod text_shaping_and_log_tests {
+    use super::{scrub_terminal_controls, scrub_text, ScrubbingWriter};
+    use ratatui::{backend::TestBackend, text::Line, widgets::Paragraph, Terminal};
+    use std::io::Write;
+
+    const PERSIAN: &str = "می\u{200C}خواهم"; // "I want", needs ZWNJ
+    const FAMILY: &str = "👨\u{200D}👩\u{200D}👧";
+
+    #[test]
+    fn zwnj_and_zwj_are_text_not_hazards() {
+        assert_eq!(scrub_text(PERSIAN), PERSIAN);
+        assert_eq!(scrub_text(FAMILY), FAMILY);
+        let mut terminal = Terminal::new(TestBackend::new(40, 2)).unwrap();
+        terminal
+            .draw(|frame| {
+                frame.render_widget(Paragraph::new(Line::from(format!("{PERSIAN} {FAMILY}"))), frame.area());
+                scrub_terminal_controls(frame.buffer_mut());
+            })
+            .unwrap();
+        let row: String = terminal.backend().buffer().content.iter().take(40).map(|c| c.symbol().to_string()).collect();
+        assert!(row.contains('\u{200C}'), "{row:?}");
+        assert!(row.contains('\u{200D}'), "{row:?}");
+        assert!(!row.contains('\u{FFFD}'), "{row:?}");
+        // The neighbours stay refused.
+        assert_eq!(scrub_text("a\u{200B}b\u{200E}c\u{202E}d"), "a\u{FFFD}b\u{FFFD}c\u{FFFD}d");
+    }
+
+    #[test]
+    fn a_character_split_across_writes_survives_the_log_writer() {
+        let mut writer = ScrubbingWriter::new(Vec::new());
+        let text = format!("user {PERSIAN} {FAMILY} é\n");
+        let bytes = text.as_bytes();
+        for chunk in bytes.chunks(1) {
+            writer.write_all(chunk).unwrap();
+        }
+        assert_eq!(String::from_utf8(writer.into_inner()).unwrap(), text);
+        // An invalid byte is still replaced, not held forever.
+        let mut writer = ScrubbingWriter::new(Vec::new());
+        writer.write_all(b"a\xffb\n").unwrap();
+        assert_eq!(String::from_utf8(writer.into_inner()).unwrap(), "a\u{FFFD}b\n");
+    }
+
+    #[test]
+    fn the_log_file_is_written_through_the_scrubbing_writer() {
+        let main = include_str!("main.rs");
+        let code: String = main.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        assert!(code.contains("subscriber.with_writer(std::sync::Mutex::new(ui::ScrubbingWriter::new(f))).init();"), "main.rs must wrap the log file");
+        assert_eq!(code.matches(".with_writer(").count(), 2, "only the file writer and the sink");
     }
 }

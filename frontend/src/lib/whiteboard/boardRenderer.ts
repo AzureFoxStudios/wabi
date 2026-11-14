@@ -1,3 +1,4 @@
+import { inertBlob } from '$lib/safeBlobType';
 import type { WhiteboardViewport } from './boardTypes';
 import type { BoardElement, Point, StrokeElement, MathElement } from './elementTypes';
 import type { BBox, Handle } from './coords';
@@ -58,7 +59,7 @@ async function loadProtectedImage(img: HTMLImageElement, src: string): Promise<v
 	if (!response.ok) {
 		throw new Error(`Failed to load protected whiteboard image (${response.status})`);
 	}
-	const blob = await response.blob();
+	const blob = inertBlob(await response.blob());
 	const objectUrl = URL.createObjectURL(blob);
 	img.onload = () => {
 		URL.revokeObjectURL(objectUrl);

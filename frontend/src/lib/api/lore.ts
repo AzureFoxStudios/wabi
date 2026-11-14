@@ -163,7 +163,8 @@ export async function downloadLoreProject(token: string, channelId: number): Pro
 	}
 	const disposition = res.headers.get('Content-Disposition') ?? '';
 	const match = disposition.match(/filename="?([^";]+)"?/);
-	const blob = await res.blob();
+	// Saved, never shown: the server's type is not kept (findings F4/N2).
+	const blob = new Blob([await res.blob()], { type: 'application/octet-stream' });
 	const objectUrl = URL.createObjectURL(blob);
 	const a = document.createElement('a');
 	a.href = objectUrl;

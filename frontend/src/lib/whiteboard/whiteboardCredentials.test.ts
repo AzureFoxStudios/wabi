@@ -25,6 +25,7 @@ beforeEach(() => {
 });
 
 const { hydrateRasterLayer } = await import('./rasterLayers');
+const { loadFontsForBoard } = await import('./fontAssets');
 const { isProtectedWhiteboardImage } = await import('./boardRenderer');
 
 test('a raster layer on another host is fetched without the viewer\'s token', async () => {
@@ -44,4 +45,26 @@ test('only this server\'s own board files count as protected (they get the token
 	for (const src of ['https://evil.example/api/whiteboard/boards/1/files/1', '//evil.example/api/whiteboard/boards/1/files/1', 'http://wabi.example/api/whiteboard/boards/1/files/1']) {
 		expect({ src, protected: isProtectedWhiteboardImage(src) }).toEqual({ src, protected: false });
 	}
+});
+
+test('fonts listed by the board are fetched with the token only from this server', async () => {
+	(globalThis as any).document = { fonts: { add() {} } };
+	(globalThis as any).FontFace = class { load() { return Promise.resolve(); } };
+	(globalThis as any).fetch = async (input: string | URL, init?: RequestInit) => {
+		const url = String(input);
+		sent.push({ url, authorization: new Headers(init?.headers).get('authorization') });
+		if (url.endsWith('/fonts')) {
+			return new Response(JSON.stringify({ fonts: [
+				{ fontId: 'evil', family: 'Evil', fileUrl: 'https://evil.example/api/whiteboard/boards/b1/fonts/evil' },
+				{ fontId: 'own', family: 'Own', fileUrl: '/api/whiteboard/boards/b1/fonts/own' }
+			] }));
+		}
+		return new Response(new ArrayBuffer(4));
+	};
+	await loadFontsForBoard('b1');
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	const byUrl = Object.fromEntries(sent.map((entry) => [entry.url, entry.authorization]));
+	expect(byUrl[`${SERVER}/api/whiteboard/boards/b1/fonts`]).toBe('Bearer viewer-token');
+	expect(byUrl['https://evil.example/api/whiteboard/boards/b1/fonts/evil']).toBeNull();
+	expect(byUrl[`${SERVER}/api/whiteboard/boards/b1/fonts/own`]).toBe('Bearer viewer-token');
 });

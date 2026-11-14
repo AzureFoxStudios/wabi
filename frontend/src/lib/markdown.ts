@@ -9,6 +9,8 @@ import katex from 'katex';
 // Phase 4 boot optimization: these stylesheets ship with THIS module (off the
 // login boot path) instead of +layout.svelte's eager graph.
 import 'katex/dist/katex.min.css';
+// Each formula is a clipped box (finding N5); must load after KaTeX's own sheet.
+import '$lib/katexContain.css';
 import '$lib/prism-theme.css';
 import { emojis } from './emoji-store';
 import type { MessageEntity } from './socket-types';
@@ -217,7 +219,8 @@ function renderMathSlot(slot: MathSlot): string {
 			displayMode: slot.displayMode,
 			output: 'html',
 			strict: 'ignore',
-			// \rule, \kern and sizing cannot draw a box larger than this over the app (in em).
+			// Caps positive sizes (\rule, \kern, sizing) in em. Negative offsets are not capped
+			// here; katexContain.css clips every formula to its own box (finding N5).
 			maxSize: 20,
 			maxExpand: 200
 		});

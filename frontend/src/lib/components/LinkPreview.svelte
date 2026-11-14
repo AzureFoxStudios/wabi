@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { inertBlob } from '$lib/safeBlobType';
 	import { onMount, onDestroy } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
@@ -79,7 +80,8 @@
 			if (!response.ok) return;
 			const blob = await response.blob();
 			if (disposed || !current || current !== preview) return;
-			const objectUrl = URL.createObjectURL(blob);
+			// The server chose this type; only a displayable raster image is kept (finding N3/F4).
+			const objectUrl = URL.createObjectURL(inertBlob(blob));
 			objectUrls.push(objectUrl);
 			heroImage = objectUrl;
 		} catch {

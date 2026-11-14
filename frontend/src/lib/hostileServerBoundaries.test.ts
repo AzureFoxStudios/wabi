@@ -182,7 +182,8 @@ describe('F4: blobs and file URLs built from server- or sender-typed bytes stay 
 		expect(safeFileHref('data:image/png;base64,AAAA')).toBe('data:image/png;base64,AAAA');
 		expect(safeFileHref('/uploads/a.png')).toBe('/uploads/a.png');
 		expect(safeFileHref('https://wabi.example/uploads/a.png')).toBe('https://wabi.example/uploads/a.png');
-		for (const url of ['data:text/html,<script>alert(1)</script>', 'data:image/svg+xml,<svg onload=alert(1)>', 'javascript:alert(1)', 'file:///etc/passwd', 'vbscript:x']) {
+		for (const url of ['data:text/html,<script>alert(1)</script>', 'data:image/svg+xml,<svg onload=alert(1)>', 'javascript:alert(1)', 'file:///etc/passwd', 'vbscript:x',
+			'java\tscript:alert(1)', 'java\nscript:alert(1)', '\u0001javascript:alert(1)', 'uploads/a.png\u0000', ' \u001fjavascript:x']) {
 			expect(safeFileHref(url)).toBeNull();
 		}
 	});
@@ -205,5 +206,66 @@ describe('F4: blobs and file URLs built from server- or sender-typed bytes stay 
 		expect(files).toMatch(/const url = deps\.createObjectUrl\(inertBlob\(blob\)\);/);
 		expect(/const IMAGE_EXT = new Set\(\[[^\]]*'svg'/.test(files)).toBe(false);
 		expect(read('./forumStore.ts')).toMatch(/return safeFileHref\(url\) \?\? '';/);
+		expect(/\['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'\]\.includes\(ext\)\) return 'image';/.test(lore)).toBe(true);
+		// N3: the link-preview image from the server's proxy, and every download of server or peer bytes.
+		expect(read('./components/LinkPreview.svelte')).toMatch(/const objectUrl = URL\.createObjectURL\(inertBlob\(blob\)\);/);
+		expect(read('./components/MessageList.svelte')).toMatch(/const blob = new Blob\(\[blobDownload\], \{ type: 'application\/octet-stream' \}\);/);
+		expect(read('./api/lore.ts')).toMatch(/const blob = new Blob\(\[await res\.blob\(\)\], \{ type: 'application\/octet-stream' \}\);/);
+		expect(read('./p2pFileTransfer.ts')).toMatch(/new Blob\(chunks, \{ type: 'application\/octet-stream' \}\)/);
+		expect(read('./payments/paymentSheetActions.ts')).toMatch(/const blob = inertBlob\(await response\.blob\(\)\);/);
+		expect(read('./whiteboard/rasterLayers.ts')).toMatch(/const blob = inertBlob\(await response\.blob\(\)\);/);
+		expect(read('./whiteboard/boardRenderer.ts')).toMatch(/const blob = inertBlob\(await response\.blob\(\)\);/);
+		expect(files).toMatch(/URL\.createObjectURL\(new Blob\(\[blob\], \{ type: 'application\/octet-stream' \}\)\)/);
 	});
+});
+
+describe('N4/N7: Lore downloads save, never navigate, never keep the server type, and are bounded', () => {
+	const clicks: Array<{ href: string; download: string }> = [];
+	const created: Blob[] = [];
+	function fakeDom() {
+		(globalThis as any).document = { createElement: () => { const a: any = { click() { clicks.push({ href: a.href, download: a.download }); } }; return a; } };
+		(globalThis as any).URL.createObjectURL = (blob: Blob) => { created.push(blob); return `blob:local/${created.length}`; };
+		(globalThis as any).URL.revokeObjectURL = () => {};
+	}
+	test('the bytes are saved from an octet-stream blob; the server URL is never the link', async () => {
+		fakeDom();
+		clicks.length = 0; created.length = 0;
+		(globalThis as any).fetch = async () => new Response('<svg onload="x"/>', { headers: { 'content-type': 'image/svg+xml' } });
+		const { saveSignedLoreFile } = await import('./lore/linkSafety');
+		await saveSignedLoreFile('https://wabi.example/api/addons/lore/f', 'a.svg');
+		expect(clicks).toEqual([{ href: 'blob:local/1', download: 'a.svg' }]);
+		expect(created[0].type).toBe('application/octet-stream');
+		expect(await created[0].text()).toBe('<svg onload="x"/>');
+	});
+	test('a body past the limit is refused with a plain message, declared or streamed', async () => {
+		fakeDom();
+		clicks.length = 0;
+		const { saveSignedLoreFile } = await import('./lore/linkSafety');
+		(globalThis as any).fetch = async () => new Response('x'.repeat(10), { headers: { 'content-length': '999999' } });
+		await expect(saveSignedLoreFile('https://wabi.example/f', 'a', 100)).rejects.toThrow(/larger than/);
+		(globalThis as any).fetch = async () => new Response(new ReadableStream({ start(c) { for (let i = 0; i < 5; i++) c.enqueue(new Uint8Array(64)); c.close(); } }));
+		await expect(saveSignedLoreFile('https://wabi.example/f', 'a', 100)).rejects.toThrow(/larger than/);
+		expect(clicks).toEqual([]);
+	});
+	test('every Lore download call site saves through it (wiring)', async () => {
+		const { readFileSync } = await import('node:fs');
+		for (const [file, call] of [
+			['./components/lore/LoreFileViewer.svelte', /await saveSignedLoreFile\(url, filePath\.split\('\/'\)\.pop\(\) \?\? 'file'\);/],
+			['./components/lore/LoreProjectWorkspace.svelte', /await saveSignedLoreFile\(url, path\.split\('\/'\)\.pop\(\) \?\? 'file'\);/],
+			['./components/lore/LoreHistoryBrowser.svelte', /await saveSignedLoreFile\(url, requestedPath\.split\('\/'\)\.pop\(\) \?\? 'revision'\);/],
+			['./components/LoreChannel.svelte', /await saveSignedLoreFile\(signedUrl, file\.path\.split\('\/'\)\.pop\(\) \|\| file\.path\);/]
+		] as const) {
+			const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+			expect({ file, saves: call.test(source) }).toEqual({ file, saves: true });
+			// No link to a server-chosen URL is clicked anywhere in Lore.
+			expect({ file, navigates: /\.href = (url|signedUrl)\b/.test(source) }).toEqual({ file, navigates: false });
+		}
+	});
+});
+
+test('N4: the kept Reader path is sanitized again after media neutralization (wiring)', async () => {
+	const { readFileSync } = await import('node:fs');
+	const source = readFileSync(new URL('./components/readerTabHelpers.ts', import.meta.url), 'utf8');
+	expect(source).toMatch(/if \(options\.remoteMedia !== false\) return clean;\s*(\/\/[^\n]*\s*)*return DOMPurify\.sanitize\(neutralizeRemoteMediaHtml\(clean, \{ noAudioVideo: true \}\), KEPT_FINAL_CONFIG\);/);
+	expect(source).toMatch(/const KEPT_FINAL_CONFIG = \{ \.\.\.SANITIZE_CONFIG, ADD_ATTR: \[\.\.\.SANITIZE_CONFIG\.ADD_ATTR, 'target', 'rel'\] \};/);
 });

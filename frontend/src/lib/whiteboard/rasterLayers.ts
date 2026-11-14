@@ -1,3 +1,4 @@
+import { inertBlob } from '$lib/safeBlobType';
 import { get } from 'svelte/store';
 import { boardStore } from './boardStore';
 import { uploadWhiteboardImage } from './imageImports';
@@ -250,7 +251,7 @@ export function hydrateRasterLayer(layerId: string, assetUrl: string): Promise<v
 		const headers = serverAssetHeaders(assetUrl, serverUrl, token, token ? null : getGuestSessionId());
 		const response = await fetch(new URL(assetUrl, serverUrl), { headers });
 		if (!response.ok) throw new Error(`Raster layer asset load failed (${response.status})`);
-		const blob = await response.blob();
+		const blob = inertBlob(await response.blob());
 		const objectUrl = URL.createObjectURL(blob);
 		try {
 			const image = new Image();

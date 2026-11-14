@@ -91,11 +91,14 @@ await build({
 });
 
 const script = await readFile(bundle, 'utf8');
+// The real stylesheets the chat renderer ships with (bundling drops CSS), so boxes measure true.
+const mathCss = (await readFile(path.join(frontend, 'node_modules/katex/dist/katex.min.css'), 'utf8')).replace(/url\([^)]*\)/g, 'none')
+	+ '\n' + await readFile(path.join(lib, 'katexContain.css'), 'utf8');
 const server = createServer((request, response) => {
 	const url = new URL(request.url, 'http://local');
 	if (url.pathname === '/') {
 		response.writeHead(200, { 'content-type': 'text/html' });
-		response.end('<!doctype html><meta charset="utf-8"><title>hostile</title><body><div id="out"></div>'
+		response.end('<!doctype html><meta charset="utf-8"><title>hostile</title><style>' + mathCss + '#out > div { width: 600px; margin: 40px auto; }</style><body><div id="out"></div>'
 			+ '<script>window.__pwned = []; window.pwn = (tag) => window.__pwned.push(String(tag));'
 			+ 'sessionStorage.setItem("wabi.serverUrlSession", location.origin)</script><script src="/bundle.js"></script></body>');
 	} else if (url.pathname === '/bundle.js') {
@@ -152,6 +155,10 @@ const PAYLOADS = {
 	mathInLinkTitle: '[x](https://ok.test "$x$")',
 	katexGlyphs: '$\\sqrt{x^2} + \\overrightarrow{AB} + \\frac{a}{b}$',
 	katexHugeRule: '$\\rule{100000em}{100000em}$ $\\kern{99999em}$',
+	katexNegativeKern: 'a $x\\kern-5000em y$ b',
+	katexNegativeHspace: '$$x\\hspace{-9000em}y$$',
+	katexRaisebox: '$\\raisebox{-900em}{x}$ and $\\raisebox{900em}{y}$',
+	katexStackedRules: '$$' + Array.from({ length: 60 }, () => '\\rule{20em}{20em}').join('\\\\') + '$$',
 	mathInLinkHref: '[x](https://ok.test/$x$)',
 	mathInImageAlt: '![$x$](/uploads/a.png)',
 	mathErrorInTitle: `[x](https://ok.test "$\\frac{onmouseover=${P('mathErrorInTitle')}$")`,
@@ -237,6 +244,7 @@ const result = await page.evaluate(async ({ payloads, renderers }) => {
 			}
 			rendered[key] = html;
 			const host = document.createElement('div');
+			host.dataset.key = key;
 			host.innerHTML = html;
 			out.append(host);
 			for (const element of host.querySelectorAll('*')) {
@@ -254,6 +262,20 @@ const result = await page.evaluate(async ({ payloads, renderers }) => {
 					if (!/^[a-z][a-z0-9:_-]*$/.test(attr)) findings.push(`${key}: malformed attribute name ${JSON.stringify(attr)} (markup broke out of a quoted value)`);
 				}
 			}
+		}
+	}
+	// N5: every formula is a clipping box inside its message, whatever offsets its TeX asks for.
+	const mathEscapes = [];
+	let mathBoxes = 0;
+	for (const host of out.children) {
+		const outer = host.getBoundingClientRect();
+		for (const root of host.querySelectorAll('.katex-display, .katex:not(.katex-display .katex)')) {
+			mathBoxes += 1;
+			const box = root.getBoundingClientRect();
+			const style = getComputedStyle(root);
+			const clips = style.overflow !== 'visible' && /paint|strict|content/.test(style.contain);
+			const inside = box.left >= outer.left - 1 && box.right <= outer.right + 1 && box.top >= outer.top - 1 && box.bottom <= outer.bottom + 1;
+			if (!clips || !inside) mathEscapes.push(`${host.dataset.key}: clips=${clips} box=${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.width)}x${Math.round(box.height)} message=${Math.round(outer.left)},${Math.round(outer.top)},${Math.round(outer.width)}x${Math.round(outer.height)}`);
 		}
 	}
 	// Give any onload/onerror/timer a chance to fire.
@@ -274,7 +296,7 @@ const result = await page.evaluate(async ({ payloads, renderers }) => {
 		if (raw && !web) await new Promise((resolve) => setTimeout(resolve, 25));
 	}
 	await new Promise((resolve) => setTimeout(resolve, 500));
-	return { findings, pwned: [...window.__pwned], rendered, clicked };
+	return { findings, pwned: [...window.__pwned], rendered, clicked, mathEscapes, mathBoxes };
 }, { payloads: PAYLOADS, renderers: RENDERERS });
 
 await browser.close();
@@ -298,6 +320,8 @@ assert.match(result.rendered['chat:katexGlyphs'] ?? '', /class="katex"[\s\S]*sty
 for (const size of (result.rendered['chat:katexHugeRule'] ?? '').matchAll(/(-?[\d.]+)em/g)) {
 	assert.ok(Math.abs(Number(size[1])) <= 21, `KaTeX sizes are capped (saw ${size[0]})`);
 }
+assert.ok(result.mathBoxes > 30, `control: formulas were measured (${result.mathBoxes})`);
+assert.deepEqual(result.mathEscapes, [], 'no formula draws outside its own clipped box or its message');
 assert.ok(result.clicked > 200, `the smoke clicked every link and button (${result.clicked})`);
 
 assert.deepEqual(result.pwned, [], 'no hostile payload ran script');
