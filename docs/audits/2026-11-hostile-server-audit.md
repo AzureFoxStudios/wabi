@@ -1,62 +1,96 @@
-# What a hostile Wabi server can do to a client that connects to it — 2026-11-13
+# What a hostile Wabi server can do to a client that connects to it — 2026-11-13/14
 
 Asked for by ADR-0002 §9, answer 7: *"make sure servers can't hijack anything by just existing. We don't want bad actors destroying people's DMs or computers by just connecting."*
 
-Branch `claude/hostile-server-audit`, started from `main` at `3633302`. The attacker runs one of the servers a user has saved and controls every byte it sends: HTTP responses, Socket.IO events, uploaded files, Lore files, server settings, the launch page, redirects. The user only added the server and opened it.
+Branch `claude/hostile-server-audit`, started from `main` at `3633302`, with `main` merged in again on 2026-11-14. The attacker runs one of the servers a user has saved, and controls every byte it sends: HTTP responses, Socket.IO events, uploaded files, Lore files, server settings, the launch page and redirects. The user only added the server and opened it. Some findings are about a hostile *member* of an honest server; they are marked as such.
 
-## Read this first: the findings that reached another server's credentials
+This document has had one independent review (by the coordinating session, at `ba6e3f1`). That review found that a change in the first round of this branch introduced a script injection (F1), and that several claims below were wrong. Both are corrected here. Where this page once said something that turned out to be false, the section says so.
 
-These were the most serious findings. All three are **fixed in this branch**, and each fix has a test.
+## Read this first: what reached another server's credentials, or ran script in the app
 
-| ID | What the hostile server could do | Clients | Severity | State |
+Every finding in this table is **fixed in this branch**, and each fix has a test that fails when the fix is removed. "Browser client" means the web app used with more than one saved server. A server can always change the web app it hosts itself (known limit 3 in `ENCRYPTION_STATUS.md`). These findings let a *different* saved server, or a member, do the same, and so reach the user's other servers.
+
+| ID | What could happen | Where it came from | Clients | Severity |
 |---|---|---|---|---|
-| **R1** | **Make the client send another saved server's login token to the attacker.** Server A served a signed "community roster" listing server B's address and an attacker host. The client saved that roster under B's address as well as A's. The next time B's connection dropped, the failover code read the planted roster, copied B's token to the attacker host and switched to it. Requirement: the user's account number on B equals the one A reports. Account numbers are small sequential integers, so this is easy to guess. | Desktop and browser | **High** | Fixed: a roster is pinned only under the address it was fetched from. Tests: `communityRoster.test.ts` |
-| **L1** | **Run script inside the app and read every saved server's tokens and encryption keys (browser client).** The Lore "signed download URL" came back from the server and was clicked with no scheme check, so `{"url":"javascript:…"}` ran when the user clicked Download on a Lore file. | Browser: script runs. Desktop: blocked by its CSP (read from config, not run) | **High** (browser) | Fixed: http(s) only. Test: `hostileServerBoundaries.test.ts` (L1) |
-| **L2** | **The same through the Lore PDF preview.** A "PDF" served as `text/html` or SVG became a `blob:` URL with the app's own origin and was shown in an iframe with no sandbox. Selecting the file ran its script. | Browser: script runs. Desktop: blocked by its CSP (read from config, not run) | **High** (browser) | Fixed: the preview blob is always `application/pdf`. Test: `hostileServerBoundaries.test.ts` (L2) |
+| **R1** | A hostile server's signed "community roster" made the client send **another saved server's login token** to an attacker host, on that server's next reconnect. | on `main` | desktop and browser | High |
+| **F1** | Chat messages could carry a working `javascript:` link: `<a href="ja$x$vascript:…">`. Any member could send one; clicking it ran script in the app. | **introduced by the first round of this branch** (the M1 change) and removed in the second; it never reached `main` | browser; desktop by reading | High |
+| **F1b** | The same in wiki pages: `<a href="javawabiwikilinkx9xscript:…">`. | on `main` | browser; desktop by reading | High |
+| **L1 / F2** | The Lore "signed download URL" was not checked. `javascript:` ran script in the app (browser). Any other host turned a Lore download into a navigation of the **app window itself** to the server's page. In the desktop app, that page would have had Wabi's native commands (D1 below). | on `main` | browser: script and navigation; desktop: navigation, by reading | High |
+| **L2** | A Lore "PDF" served as HTML or SVG ran as a page of the app, inside the preview frame. | on `main` | browser; desktop blocked by its CSP | High (browser) |
+| **F4** | An encrypted attachment typed `image/svg+xml` by its sender ran its script, as the app, when the recipient opened the image in a new tab. Lore previews, the files workspace and forum file links had the same pattern. | on `main` | browser; desktop by reading | High |
+| **W1** | Board data, which members write, made every whiteboard viewer send their login token to any host. | on `main` | desktop and browser (hostile member) | High |
 
-"Browser client" here means the web app, used with more than one saved server. When a server hosts the web app itself, that server can already change the app's code (known limit 3 in `ENCRYPTION_STATUS.md`). L1 and L2 still mattered: they let a *different* saved server do the same, and so reach the user's other servers.
-
-**No way was found for a server to run code in the desktop app, or to reach the user's files through it.** Those boundaries are listed under question 1, with their tests.
+What "by reading" means: the desktop app cannot be run in this sandbox, so a desktop claim marked "by reading" comes from its code and config and was not run.
 
 ## Plain summary
 
-**What a hostile server can no longer do, and what holds:**
-- **Code in the desktop app.** The desktop app runs only the code it was installed with. Its content rules (CSP) allow scripts only from the app itself. No window ever opens a server's page, and the add-on loader only loads add-ons built into the app. A server cannot send it code.
-- **The user's files and programs.** The app's native commands (save a file, start the private tunnel, open a folder) now check that the request comes from the app's own pages. A test fails if a new command skips that check.
-- **Data stored on the device.** Each server's tokens, encryption keys, drafts and outgoing-message queue are stored under the address the user typed, not a name the server picks. One server cannot point the client at another server's storage. No server event makes the client wipe local storage.
-- **Microphone, camera and screen.** These only start after a click, never from a server message.
-- **Encrypted conversations.** Once a device has seen a conversation encrypted, a server saying "this conversation is not encrypted" is ignored. The client keeps encrypting.
-- **Messages and documents.** Chat, Reader, Notes and Lore documents were rendered in a real Chromium with 49 script-injection payloads. None ran.
-- **The terminal client.** It now removes terminal control codes from everything it draws. A server message can no longer write the clipboard, change the window title or redraw the screen.
+**What a hostile server cannot do after this branch:**
+- **Send code to the desktop app.** The app runs only the code it was installed with. Its content rules allow scripts only from the app itself, and the add-on loader only loads add-ons built into it.
+- **Get a server page into a desktop window.** A navigation guard now refuses any page that is not the app's own (read from code; not run on a desktop). Before this branch nothing stopped it: a Lore download link pointing elsewhere would have done it.
+- **Reach the user's files and programs.** Every native command that saves a file, starts the private tunnel or opens a folder checks that the request comes from the app's own pages. A test fails if a new command skips that check, or calls the check and ignores the answer.
+- **Read or reuse another server's stored data.** Each server's tokens, encryption keys, drafts and outgoing-message queue are stored under the address the user typed, not a name the server picks. One server's settings can no longer move another server's token. Nothing a server sends makes the client wipe local storage.
+- **Switch on the microphone, camera or screen.** These start only after a click.
+- **Turn an encrypted conversation back to readable.** Once a device has seen a conversation encrypted, a server saying "not encrypted" is ignored.
+- **Run script through messages, wikis, notes, Reader and Lore documents.** These were rendered in a real Chromium with 121 attack inputs, and every link and button was clicked. Nothing ran.
+- **Pass control codes to the terminal.** The terminal client removes them, and the invisible or right-to-left characters used to fake names, before drawing or logging.
 
-**What a hostile server can still do (written up below, not fixed here):**
-- **Fake parts of the screen.** A server can restyle parts of the app, for example a fake overlay or login box, through colours and custom CSS that are not checked strictly enough (S1).
+**What a hostile server can still do (written up, not fixed):**
+- **Restyle parts of the app.** Colours and custom CSS are not checked strictly enough, so a server could draw a fake overlay or login box (S1).
 - **Learn the user's local network address** during a call (S5).
-- **Make the client slow or run out of memory**, mainly in the terminal client (S6).
-- **Leave a stale login.** It can make the client copy its own login onto another saved server that has no login yet. This confuses which account the client thinks it has there until the user logs in again (R2).
+- **Make the client slow or run out of memory**, mainly the terminal client (S6).
+- **Use the browser client without a page CSP** (S2). This is defence in depth, not a known hole.
+- **Rely on a popup window for `target=_blank` links on the desktop app.** That popup has no access to the app; checklist item 1.
 
 ## How this was checked
 
-- **Run in a real Chromium in this sandbox** (`/opt/pw-browsers/chromium`):
-  - `frontend/scripts/hostile-server-browser-smoke.mjs` (new): 49 payloads × 7 renderers, inserted into a live page. It fails on any script that runs, any event-handler attribute, any `javascript:`, `vbscript:` or `data:text/html` URL, any dangerous element, or broken attribute quoting. It records every request to another host.
-  - The existing `kept-content-browser-smoke.mjs` still passes after the markdown change.
-  - A one-off check confirmed that Chromium does not run a `javascript:` URL opened with `window.open(url, '_blank', 'noopener')`.
-- **Unit tests (bun):**
-  - `frontend/src/lib/hostileServerBoundaries.test.ts` (new).
-  - `communityRoster.test.ts` and `e2ee.test.ts` (new cases).
-  - Full `bun test --isolate src/lib`: 3013 pass. 6 fail, all in the spreadsheet suite, because this sandbox cannot download `xlsx` and a local stub stood in for it. CI installs the real package.
-  - `svelte-check`: 0 errors.
-- **Rust:**
-  - `cargo test -p wabi-tui`: 21 pass, including 2 new tests.
-  - The desktop crate (`src-tauri`) cannot be built here (no WebKitGTK). Its new origin check was compiled and tested on its own in a scratch crate, together with the existing `local_main_origin` test; both pass.
-  - The full desktop crate is compiled by CI (`build.yml`, which also runs `hosting::` tests, including the new one).
-- **Desktop contract** (new): `node --test scripts/tests/desktop-shell-contract.test.mjs`, 5 pass. A mutation run removed the new guards and the test named exactly the six unguarded commands.
-- **Mutation runs:**
-  - Reverting the math fix gives 15 smoke findings.
-  - Removing the encryption downgrade guard fails the new e2ee test.
-- **Read from code only:** everything else, marked as such below.
-- **Also read:** Tauri 2.10.3 and wry 0.54.4 source (`webview/mod.rs` `on_message`, `manager/webview.rs`), to learn how Tauri treats IPC from a page that is not the app's own.
-- **Not runnable here:** the Tauri shell itself. A checklist for a real desktop is at the end.
+**Run in a real Chromium** in this sandbox (`/opt/pw-browsers/chromium`):
+- `frontend/scripts/hostile-server-browser-smoke.mjs`: 121 inputs through 9 renderers. The renderers are chat, chat with kept content, chat with tables, wiki, Reader markdown/html/kept, Notes and Lore documents. The inputs include every placeholder spelling (`$x$`, `$$x$$`, `\(x\)`, `\[x\]`, `\begin…\end`, old literal markers) in `href`, `src`, `xlink:href`, `action`, `formaction` and `style`. The smoke fails if any script runs (every link and button is clicked), and on any event attribute, script URL, dangerous element, placeholder left in an attribute, or KaTeX size over 20em.
+  - Against this branch's first-round `markdown.ts`, 56 inputs ran script.
+  - Against `main`'s wiki substitution, 2 ran script.
+  - Against the final code, 0 ran.
+- `kept-content-browser-smoke.mjs` still passes.
+- A one-off check: Chromium does not run a `javascript:` URL opened with `window.open(url, '_blank', 'noopener')`.
+- The reviewer reproduced F1, F1b, F2 and F4 in Chromium on their side.
+
+**Unit and component tests (bun):**
+- New: `hostileServerBoundaries.test.ts`, `api/loreSignedUrl.test.ts` (the real `getSignedLoreUrl`), `communityFailover.test.ts` (the real pin store, roster signatures and reconnection manager), `whiteboard/whiteboardCredentials.test.ts`, `components/login/launchPanel.render.test.ts` (the real component, rendered).
+- New cases in `communityRoster.test.ts` and `e2ee.test.ts`.
+- Full `bun test --isolate src/lib` after merging `main`: 3038 pass, 6 fail. All 6 are the spreadsheet suite, because this sandbox cannot download `xlsx` and a local, uncommitted stub stood in for it.
+- `svelte-check`: 0 errors.
+
+**Rust:**
+- `cargo test -p wabi-tui`: 23 pass. That includes a test that renders a real `App` on all 5 screens and 8 overlay modes, with control and bidi text in every field a server fills.
+- The desktop crate (`src-tauri`) cannot be built here (no WebKitGTK). Its origin and navigation logic (`bundled_origin_on`, `allowed_navigation`) and their tests were compiled and run on their own in a scratch crate; all pass. CI compiles the full crate and now runs both `hosting::` and `navigation_guard::` tests (`build.yml`).
+
+**Desktop contract** (`node --test scripts/tests/desktop-shell-contract.test.mjs`): 7 pass. Each mutation below fails it.
+
+**Other checks:** `python3 scripts/security/private_details_check.py` reports clean.
+
+**Mutation runs** (remove or weaken one check, confirm a test fails). Every one listed fails a test:
+- markdown: string substitution instead of DOM substitution; marker without nonce; final sanitize pass removed.
+- wiki: string replace with a fixed marker.
+- `getSignedLoreUrl` returning the raw URL.
+- `LoreChannel` using the raw blob for the PDF, the other previews or the thumbnails.
+- `LaunchPanel` with the raw `href`, or the raw condition.
+- `rasterLayers` always sending the token; `boardRenderer` matching the path only.
+- e2ee keeping the sender's type; an encrypted SVG treated as an image.
+- files workspace with the raw blob; forum passing `data:` through.
+- roster:
+  - no pin carried (the second hop);
+  - saved-server rule removed;
+  - identity rule removed;
+  - carried pin not bound to its token;
+  - version rollback allowed;
+  - pin source check removed.
+- desktop:
+  - `let _ = require_bundled_window(…)` (result discarded);
+  - the guard commented out;
+  - the check removed from `grant()`;
+  - the navigation guard unregistered;
+  - `require_bundled_window` always allowing.
+- terminal: the scrub call removed from `render()`; the bidi range removed.
+
+**Read from code only:** everything else, marked as such below.
 
 ---
 
@@ -66,131 +100,128 @@ These were the most serious findings. All three are **fixed in this branch**, an
 
 | Checked | Result | How we know |
 |---|---|---|
-| CSP `src-tauri/tauri.conf.json:27`: `default-src 'self'`; `script-src 'self' 'wasm-unsafe-eval'`; no `frame-src`/`child-src` | **Holds.** No remote script, no inline script and no `javascript:` URL. No frame from `blob:`, `data:` or a server. `connect-src`, `img-src` and `media-src` allow any http(s); that is privacy, not code (see S5). | `scripts/tests/desktop-shell-contract.test.mjs` fails if this widens |
-| `frontendDist: ../frontend/build`; no window `url`; no `withGlobalTauri`; asset CSP modification on | **Holds.** The app shows only its bundled pages. | same test (all `tauri*.conf.json`) |
-| Capabilities `capabilities/default.json`, `mobile.json` | **Holds.** No `remote` origins. Only window and notification permissions. No fs, shell, opener, http, updater or process permission, even though the fs/shell/dialog plugins are initialised (`lib.rs:14-24`). Tauri checks every plugin command against these capabilities, so a page that is not the app's own gets none. | same test; Tauri source `webview/mod.rs` `on_message` |
-| **D1.** Wabi's own `#[tauri::command]`s | **Did not hold; fixed.** Tauri checks app commands against no permission list unless the app ships an app manifest; Wabi does not. Tauri injects its IPC bridge into every page loaded in the main frame (`manager/webview.rs`, `for_main_frame_only`). So if a server page ever loaded in a window, it could call every command that does not check its caller. Credentials, hosting, Planner, export and Lore already checked (`hosting/mod.rs` `local_main_origin`, `workspace_export.rs` `trusted`). These did not: `save_call_recording` (writes into Documents/WabiRecordings with no dialog), `tailcat_connect` / `tailcat_register_key` (start a process), `open_model_viewer`, `open_external_url`, `lore_local_choose` (folder picker); `grant()` also checked only the window label. All now call `hosting::require_bundled_window` (`hosting/mod.rs:56`, `bundled_origin` at `:84`). Severity **Medium**: no way to load a server page in a window was found (next row), so this is depth, not a live hole. | `scripts/tests/desktop-shell-contract.test.mjs` (every registered command must call an origin check; four harmless ones are listed with reasons); Rust test `hosting::tests::bundled_origin_accepts_only_the_app_frontend_in_any_window` |
-| Can the main window be navigated to a server URL? | **Holds as far as the code goes; not checked on a real desktop.** No code assigns `location` to a server value. Every in-app `<a>` without `target` points to a fixed path. Message links get `target="_blank"` (`markdown.ts` link renderer). **But the shell installs no navigation or new-window handler.** So the result of clicking a `_blank` link is whatever each OS webview does by default: WebKitGTK ignores it; WebView2 opens a plain popup with no IPC; WKWebView ignores it. `open_external_url` exists but nothing in the frontend calls it. | read from code (frontend) and wry 0.54.4 source; **checklist item 1–2** |
-| Proposed (not done, needs a real desktop): **D2** | Add an `on_navigation` guard that keeps the main frame on the bundled origin, plus a new-window handler that sends http(s) links to `open_external_url`. Or ship a Tauri app manifest so Tauri itself denies app commands to remote pages. Both change visible behaviour (how links open) and cannot be tried here. WebKitGTK and WKWebView call the navigation handler for iframes too, so a naive guard would break YouTube and map embeds. | — |
+| CSP `src-tauri/tauri.conf.json:27`: `default-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'`, no `frame-src`/`child-src` | **Holds.** No remote script, inline script or `javascript:` URL. No frame from `blob:`, `data:` or another host. `connect-src`/`img-src`/`media-src` allow any http(s); that is privacy (S5), not code. | `desktop-shell-contract.test.mjs` fails if this widens |
+| `frontendDist`, window URLs, `withGlobalTauri`, asset CSP modification, in every `tauri*.conf.json` | **Holds.** | same |
+| Capabilities `capabilities/*.json` | **Holds.** No `remote` origins. Only window and notification permissions, so pages that are not the app's own get no plugin command (fs, shell, dialog are initialised but not granted). | same; Tauri 2.10.3 source, `webview/mod.rs` `on_message` |
+| **D1.** Wabi's own `#[tauri::command]`s are not checked against Tauri's permission list (no app manifest). Tauri gives the IPC bridge to any page in a window's main frame. | **Did not hold; fixed.** These commands had no origin check: `save_call_recording`, `tailcat_connect`, `tailcat_register_key`, `tailcat_status`, `tailcat_disconnect`, `open_model_viewer`, `open_external_url` and `lore_local_choose`; Lore `grant()` checked only the window label. All now call `hosting::require_bundled_window` (`hosting/mod.rs:56`). The quit path uses an internal `tailcat::disconnect`. **Correction:** the first round called this "depth, not a live hole". That was wrong: F2 gave a way to load a server page in the main window. Severity **High** together with F2. | contract test (each guard must be an uncommented `…?;` statement); the guards' own bodies are checked too |
+| **D2.** Navigation of a window away from the bundle | **Did not hold; fixed (read from code, not run).** No navigation handler was installed, so a no-target link to another origin (F2) loaded that page in the main window. `src-tauri/src/navigation_guard.rs` is now a plugin registered for every webview. Its `on_navigation` refuses anything but the bundled origin and `about:blank`/`about:srcdoc`. On Linux and macOS the hook also sees iframes; those were already blocked by the CSP, so nothing that worked is lost. **Still open:** `target=_blank` links open as the platform decides (a bare popup on WebView2, nothing on WebKitGTK/WKWebView); a popup has no IPC. Proposed: a new-window handler that sends http(s) to `open_external_url`. That needs the main window created in code; checklist item 1. | Rust `navigation_guard::tests`; contract test checks registration |
+| Bundle origin per platform `hosting/mod.rs:91-93` | **Fixed.** `http(s)://tauri.localhost` is accepted only on Windows and Android, and `tauri://localhost` only elsewhere. Elsewhere `http://tauri.localhost` is a loopback name another local program could serve. `workspace_export.rs` `trusted` uses the same check. | Rust `hosting::tests::bundled_origin_accepts_only_the_app_frontend_in_any_window` (both platform settings) |
 
-### Browser client and the shared web frontend (also what the desktop runs)
+### Shared web frontend (browser, and what the desktop runs)
 
 | Checked | Result | How we know |
 |---|---|---|
-| Chat markdown `markdown.ts` `parseMessage`: marked → DOMPurify allow-list → KaTeX | **Holds** for script. **M1 did not hold; fixed.** KaTeX's HTML replaced math placeholders after sanitizing, by plain string replacement. A placeholder inside a link `href`/`title` or an image `alt` (`[x](https://a "$x$")`) let KaTeX's quotes break out of the attribute, adding stray attributes and a `style`. No script ran, but this was one change away from an injection. `renderMathSlots` (`markdown.ts:236`) now replaces placeholders in text nodes only: TeX becomes plain text in `title`/`alt` and is removed from URL attributes. Severity **Low**. | `hostile-server-browser-smoke.mjs` (Chromium); mutation: old code gives 15 findings |
-| Reader `readerTabHelpers.ts:52-60`, Notes `notes/render.ts`, Lore documents `lore/documentMarkdown.ts`, community rules (Reader), documents `DocumentsWorkspace.svelte:67-72`, forum, diary (parseMessage) | **Holds.** DOMPurify runs last, or its output is only re-parsed in an inert `<template>`. | browser smoke for Reader (markdown and html), Notes, Lore and chat; the rest read from code |
-| Prism / KaTeX sinks: `CodeBlockEditor.svelte:114`, `LoreDiffViewer.svelte:165`, `WhiteboardToolbar.svelte:671`, `WhiteboardMathRecognize.svelte:80`, `whiteboard/mathRender.ts:150`, `readerDocumentTools.ts:185`, `Icon.svelte:55` | **Holds.** Prism escapes, KaTeX runs with `trust: false`, and icon bodies come from a static table. | read from code; KaTeX `\href`/`\url`/`\htmlData` and error cases are in the browser smoke |
-| Wiki `WikiChannel.svelte:607-618`: link placeholder `wabiwikilinkx{n}x` substituted after parseMessage | **Holds for script; fragile** (same pattern as M1, but the inserted `<a>` closes the tag and its label is escaped). Proposed: use the DOM substitution from `renderMathSlots`. **Low**, open. | read from code |
-| **L1** Lore signed URL `api/lore.ts` `getSignedLoreUrl` → `anchor.click()` in `LoreFileViewer.svelte:157`, `LoreProjectWorkspace.svelte:233`, `LoreHistoryBrowser.svelte:71`; also `window.open` in `LoreRefChips.svelte:33` | **Did not hold; fixed.** See the top table. Now `lore/linkSafety.ts` `checkedSignedLoreUrl`, called at `api/lore.ts:416`. | `hostileServerBoundaries.test.ts` "L1" |
-| **L2** Lore PDF preview `LoreChannel.svelte:173`, iframe `:919` | **Did not hold; fixed.** See the top table. Side effect noted: in the desktop app the CSP blocks `blob:` frames, so the PDF preview probably shows nothing there today (checklist item 5). | `hostileServerBoundaries.test.ts` "L2" |
-| **L3** Launch page call to action `login/LaunchPanel.svelte` (`heroPrimaryCtaUrl`) | **Did not hold; fixed.** A raw server `href`. Chromium does not run `javascript:` in a `noopener` popup (checked), so **Low**; still now http(s) only via `safeExternalUrl.ts`. | `hostileServerBoundaries.test.ts` "L3" |
-| Add-on loader `addons/loader.ts:21-31,62-71` | **Holds.** Add-on IDs map to fixed, bundled `import()`s. A server manifest's `frontendEntry` is never imported. | `hostileServerBoundaries.test.ts` "C1" |
-| Any other dynamic `import()`, `eval`, `new Function`, scripts or workers built from server data | **Holds.** Six computed imports exist. Five load pinned three.js or OpenCascade builds from esm.sh/jsDelivr (constants in the file). These are trusted CDNs, not the server, and the desktop CSP blocks them anyway. The sixth is the user's own local file (`EffectsTab.svelte:156`). The only injected `<script>` is YouTube's fixed `iframe_api`. | `hostileServerBoundaries.test.ts` "C1" fails on any new computed import |
-| Service worker `static/sw.js`, registered at `routes/+layout.svelte:246-267` only outside Tauri | **Holds.** It caches only same-origin app-shell and immutable files, keyed by URL. It does not touch `/uploads/` or `/api/`, so one server's response is never served for another's. | read from code |
-| iframes | **Holds** apart from L2. `GlanceHost.svelte:113` is http(s) only, sandboxed without `allow-same-origin`. YouTube, Spotify, Sketchfab and OpenStreetMap embeds have a fixed host (`allow` has at most `clipboard-write`, `fullscreen`). None grants camera, microphone or display capture. | read from code |
-| `postMessage` | **Holds.** There is no `window` `message` listener. The service worker, BroadcastChannel and worker listeners cannot receive messages from another origin. | read from code |
-| **S1** Server-styled UI: unvalidated colours in `style="background: {…}"` (`GalleryChannel.svelte:377,558,629`; `CalendarDayModal.svelte:67`; `KanbanColumnManagement.svelte:42`); `MainLayout.svelte:1384` `--w-sig` from `accentColor` (`sanitizeAccentColor` exists but is not used there); launch `customCss` filtered by a block list (`cssSanitize.ts:45`) | **Does not hold. Medium, open.** A value such as `red;position:fixed;inset:0;z-index:2147483647` lets a server or member cover the app with a fake screen (for example a fake login), and `image-set(...)`/`url(...)` beacons out. No script. Proposed: run every colour through `sanitizeAccentColor`, and use an allow-list for custom CSS (properties and values), not a block list. Not done here: a dozen components and visible styling are affected. | read from code |
-| **S2** No CSP for the browser client: the embedded index is served with only `Referrer-Policy` (`core/crates/wabi-server/src/app_router.rs:735-741`) | **Does not hold. Medium, open.** Nothing contains a future injection in the browser, and the browser has no `frame-src`. Proposed: a server-sent CSP matching the desktop's (`script-src 'self' 'wasm-unsafe-eval'`, plus the YouTube origin the web build uses). It changes which embeds load, so it needs the owner's decision and a browser pass. | read from code |
-
-### Terminal client
-
-Nothing in the terminal client runs or loads code. Its terminal-escape problem is under question 7.
+| **M1 / F1.** Chat markdown: KaTeX inserted after sanitising | **On `main`:** placeholders were string-replaced with KaTeX HTML after DOMPurify, so a placeholder in an attribute broke its quoting (no script found). **First round of this branch:** substitution moved to text nodes, but the placeholder was *cut out* of other attributes. `href="ja$x$vascript:…"` passed DOMPurify as a relative URL and came out as `javascript:` (**F1, introduced here**). **Now:** `htmlPlaceholders.ts:36` uses a per-render random marker, so typed text never matches. It substitutes in text nodes only; in `title`/`alt` the TeX becomes plain text, and any other attribute holding a real marker is removed whole. `sanitizeMessageHtml` (`markdown.ts:451`) runs last. KaTeX runs with `maxSize: 20` and `maxExpand: 200`, so `\rule`/`\kern` cannot cover the app. | Chromium smoke; `hostileServerBoundaries.test.ts` "F1" |
+| **F1b.** Wiki `[[links]]` (`WikiChannel.svelte`, now `wiki/renderWikiBody.ts`) | **Did not hold on `main`; fixed.** A fixed `wabiwikilinkx{n}x` was string-replaced over sanitised HTML, attributes included. **Correction:** the first round called this "holds for script; fragile, Low" and proposed copying the M1 change, which was F1. Now it uses the same helper and sanitises last. | Chromium smoke (`wiki` renderer) |
+| Other "substitute after sanitising" sites | Swept: `grep` for `.replace`/`.split` after `sanitize`/`parseMessage`/`renderReaderHtml`/`renderNote`/`renderLoreDocument`, and for `{@html …replace}`. Notes (`notes/render.ts`) and entity/emoji/code placeholders (`markdown.ts`) substitute **before** DOMPurify: hold. Lore documents: no substitution, hold. **Reader kept content** (`readerTabHelpers.ts`): `neutralizeRemoteMediaHtml` rewrites media into links after sanitising, and a `data:` `img src` could become an `href`. **Fixed:** sanitised again afterwards (`target`/`rel` kept). The chat kept path is covered by the final pass. | Chromium smoke (`readerKept`, `chatKept`) |
+| Reader, Notes, Lore documents, community rules, documents, forum, diary | **Holds.** DOMPurify runs last. | Chromium smoke for Reader, Notes, Lore, chat and wiki; the rest by reading |
+| Prism/KaTeX/icon sinks (`CodeBlockEditor.svelte:114`, `LoreDiffViewer.svelte:165`, whiteboard math, `readerDocumentTools.ts:185`, `Icon.svelte:55`) | **Holds.** Prism escapes, KaTeX runs with `trust: false`, icons come from a static table. | read from code; KaTeX `\href`/`\url`/`\htmlData` in the smoke |
+| **L1 / F2.** Lore signed URL (`lore/linkSafety.ts:9`) → downloads in `LoreFileViewer`, `LoreProjectWorkspace`, `LoreHistoryBrowser`, `LoreChannel`; previews; `LoreRefChips`; `LoreCodePanel` fetch | **Did not hold; fixed.** The first round allowed any http(s) host, which was not enough: `//evil`, `/\evil` and `https:\\evil` all reach another host. `getSignedLoreUrl` now requires the server's own origin (the honest server returns a path, `core/crates/wabi-server/src/api/lore.rs`). Downloads fetch the bytes and save an octet-stream blob (`saveSignedLoreFile`, `:27`); no link to a server URL is clicked. | `api/loreSignedUrl.test.ts` (real function, mocked server answers) |
+| **L2.** Lore PDF preview | **Fixed.** Always `application/pdf` (`pdfPreviewBlob`, `:48`). On the desktop the CSP blocks `blob:` frames, so the PDF preview probably shows nothing there; that was true before this branch too (checklist item 5). | `hostileServerBoundaries.test.ts` "F4" wiring |
+| **F4.** Blobs whose type the server or sender chose | **Did not hold on `main`; fixed.** `safeBlobType.ts:26` keeps only raster images (no SVG), audio, video, PDF and plain text; everything else becomes `application/octet-stream`. It is applied in: <br>• `e2ee.ts:804` (decrypted attachments) <br>• the encrypted-image check (`messageItemUtils.ts`) <br>• Lore previews and thumbnails <br>• the files workspace preview (SVG is no longer previewed) <br>• forum file links (`safeFileHref`: `data:` only for raster images). | `e2ee.test.ts` (real encrypt→decrypt), `hostileServerBoundaries.test.ts` "F4" |
+| **L3.** Launch page call to action `login/LaunchPanel.svelte` | **Fixed.** http(s) only (`safeExternalUrl.ts`). **Low**: Chromium does not run `javascript:` in a `noopener` popup. | `launchPanel.render.test.ts` |
+| Add-on loader `addons/loader.ts:21-71`; computed `import()`; scripts and workers | **Holds.** Add-on IDs map to bundled modules. Six computed imports exist: five load pinned three.js/OpenCascade builds from esm.sh/jsDelivr (blocked on desktop by its CSP), and one is the user's own local file. | `hostileServerBoundaries.test.ts` "C1" |
+| Service worker `static/sw.js` (not registered in Tauri), iframes, `postMessage` | **Holds.** Caches same-origin shell files only. Iframes use fixed hosts, or are sandboxed without `allow-same-origin`. No `window` `message` listener. | read from code |
+| **S1.** Server or member styling: unvalidated colours in `style="background: {…}"` (`GalleryChannel.svelte:377,558,629`, `CalendarDayModal.svelte:67`, `KanbanColumnManagement.svelte:42`), `--w-sig` (`MainLayout.svelte`), block-list `customCss` (`cssSanitize.ts:45`) | **Does not hold. Medium, open.** It allows fake overlays and beacons, but no script. Proposed: `sanitizeAccentColor` on every colour; an allow-list for custom CSS. | read from code |
+| **S2.** No CSP for the browser client (`core/crates/wabi-server/src/app_router.rs:735-741`) | **Does not hold. Medium, open.** Proposed: a server-sent CSP matching the desktop's. It changes which embeds load, so it is the owner's call. | read from code |
 
 ## Question 2: Reaching the user's computer
 
 | Checked | Result | How we know |
 |---|---|---|
-| Native file writes: `recording.rs` (client-built name, `/` `\` and controls stripped; now origin-checked), `workspace_export_io.rs:15-30` `safe_name` (reserved Windows names, bidi controls, separators; always behind a save dialog), `lore_local.rs:45-77` `valid_path`/`checked` (rejects `..`, `\`, `:`, controls, reserved names, symlinks at every step; re-checked before replacing) | **Holds.** A server-chosen name cannot leave the chosen folder. Minor: `lore_local` does not reject `CONIN$` or superscript `COM¹`. Pulled files may have any extension, but are written, never opened. | existing Rust tests `workspace_export`, `lore_local` (lines 404, 415); read from code |
-| Auto-open / execute | **Holds.** `open::that` is used only for http(s) URLs (`shell_commands.rs`, now origin-checked), the Lore folder the user picked, the logs folder, and the hosting folder. Nothing opens a download. | read from code; contract test pins the http(s) check |
-| "Open externally" on a server-chosen scheme (`file:`, `smb:`, `ms-msdt:`, custom handlers) | **Holds in code**, with these checks: `open_external_url` is http(s) only; markdown links allow `https:`, `http:`, `mailto:`, `tel:`, `#` and `/` only (`markdown.ts` `isSafeUrl`); Steam `steam://` asks first (`SteamJoinButton.svelte:5`). How each desktop webview treats `target=_blank` with odd schemes was **not checked** (checklist item 2). | `hostileServerBoundaries.test.ts` (L1/L3 refuse `smb:`, `ms-msdt:`, `file:`, `steam:`); read from code |
-| Chat attachments `message/MessageFileContent.svelte:294…`: `download={fileName}` | **Holds in Chromium** (it strips separators and `..` from `download`). **Not checked** in WebKitGTK, WebView2 or WKWebView (checklist item 3). | read from code |
-| OS permission prompts that look like Wabi's | **Holds.** Notification permission is asked on page load (`routes/+page.svelte:185-189`), never from a server event. Clipboard writes happen only in click handlers, and nothing reads the clipboard. Microphone, camera and screen: see question 6. | read from code |
+| Native file writes | **Holds.** <br>• `recording.rs`: client-built name, now origin-checked. <br>• `workspace_export_io.rs:15-30` `safe_name`: behind a save dialog. <br>• `lore_local.rs:45-77`: rejects `..`, separators, reserved names and symlinks. Minor gap: `CONIN$` and `COM¹` are not rejected. | existing Rust tests; read from code |
+| Auto-open or execute | **Holds.** `open::that` is used only for http(s) (origin-checked), the Lore folder the user picked, logs, and the hosting folder. | read from code; contract test |
+| Server-chosen schemes (`file:`, `smb:`, `ms-msdt:`, custom handlers) | **Holds in code.** Markdown links: http(s), mailto, tel, `#`, `/` only. `open_external_url`: http(s) only. Lore URLs: same origin only. Steam asks first. Desktop `target=_blank` with odd schemes was **not run** (checklist item 2). | `hostileServerBoundaries.test.ts`; read from code |
+| Download names (`message/MessageFileContent.svelte`) | **Holds in Chromium.** Not run in WebKitGTK, WebView2 or WKWebView (checklist item 3). | read from code |
+| OS permission prompts | **Holds.** Notification permission is asked on page load, never from a server event. Clipboard writes happen only on click. | read from code |
 
 ## Question 3: Reaching the user's other servers
 
 | Checked | Result | How we know |
 |---|---|---|
-| Storage namespaces. Tokens: `authSession.ts:68-74`, `api/authRefresh.ts:15-20`. E2EE keys and room status: `e2ee.ts:154-199`, keyed by server URL and JWT `sub`. Drafts: `composerDraftState.ts:13-17`. Reader copies: `readerDocumentScope.ts:13-20`. Settings DB: `storage.ts:15-26`. Outbound queue: realm checks in `wabidb/queue/manager.ts:24-31,91-96` and `groupPolicy.ts:31-32`. | **Holds.** Every namespace is the server URL the client saved, not one the server reports. A server reporting another server's id or URL changes nothing. | read from code |
-| Tauri secure credentials `nativeAuthPersistence.ts:18-57` → `secure_auth_*` | **Holds.** The scope is the client-owned URL; the command checks the main window's origin. | read from code; contract test |
-| **R1** Community roster pins (`communityRoster.ts`) | **Did not hold; fixed.** See the top table. `pinCommunityRoster` (`communityRoster.ts:136`) pins under the source only. `getPinnedCommunityRoster` (`:177`) ignores pins written by another address, including ones stored before this fix. | `communityRoster.test.ts`: three new tests |
-| **R2** Session carry on switch/failover (`savedServerActions.ts:262-273`, `socketConnectionReconnect.ts:156-161`) | **Does not hold. Low–Medium, open.** A's own roster may list B. If B has no token at that moment, switching from A to B (or A failing over) writes A's token, username and account id into B's slot and sends A's token to B. A's token is no use to the user, so nothing of B's leaks, but the user's identity for B is confused until they log in again. The e2ee realm for B can briefly take A's account id. Proposed fix: carry a session only to an address the user approved as part of the same community, and never onto an address saved as a separate server. That changes how experimental Anchor failover behaves, so it is left for the owner. | read from code |
-| Credentials to other hosts. `apiRequest.ts:88-93` refreshes/replays only for the same server root. Attachments are plain `<img>` with no header. TURN, socket and helpers all use `getServerUrl()` (`turnConfig.ts:15`, `socketConnectionCore.ts:455-467`). | **Holds**, except W1. | read from code |
-| **W1** Whiteboard assets: `whiteboard/rasterLayers.ts`, `fontAssets.ts` and `boardRenderer.ts` sent the bearer token (or guest session) to any URL named in board data; `boardRenderer` matched only the path | **Did not hold; fixed.** This is the "hostile member on an honest server" variant. Any member could put `https://evil.example/api/whiteboard/boards/1/files/1` on a board and collect every viewer's token. Severity **High** for that server. Now `whiteboard/sameServerAuth.ts` sends credentials only to the server's own origin. | `hostileServerBoundaries.test.ts` "W1" |
-| Redirects | **Low.** There are no auth cookies (only `anchor.rs` sets any), so a redirect can only carry A's own header. Modern webviews drop `Authorization` on cross-origin redirects; old WebKitGTK builds were not checked. | read from code |
-| Events from A acting on B | **Holds.** A user switch reloads the page (`savedServerActions.ts:279-281`). Socket listeners are fenced by socket identity, realm and auth generation (`socketConnectionCore.ts:664-676`). | read from code |
-| Dead code noted: `dm/dmKeyring.ts` (IndexedDB keyed by uid only), `backendEndpoints.ts:64-77` (server-written endpoint cache for any URL) | Not reachable today. **Unsafe if revived**; delete or namespace before reuse. | read from code |
+| Storage namespaces: tokens (`authSession.ts`), e2ee keys (`e2ee.ts`), drafts, Reader, settings, outbound queue | **Holds.** Keyed by the saved URL, never a value the server reports. | read from code |
+| Tauri credentials (`nativeAuthPersistence.ts` → `secure_auth_*`) | **Holds.** The scope is the client-owned URL; the command checks the main window's origin. | read from code; contract test |
+| **R1.** Roster pins (`communityRoster.ts:141`) | **Did not hold on `main`; fixed.** A roster is pinned only under the address that served it. Pins written by other addresses (including old ones) are ignored. | `communityRoster.test.ts`; `communityFailover.test.ts` R1 |
+| **F3.** The R1 fix broke the second failover hop inside one community | **Fixed.** When a session is carried to a listed address, `prepareSessionCarry` (`:239`) carries the pin too, bound to a hash of that exact token. A later, different login there ignores the pin. Two hops work offline, and a session can come back. | `communityFailover.test.ts` F3 (real pin store and manager) |
+| **R2.** One server's session written over another saved server's slot (`savedServerActions.ts`, `socketConnectionReconnect.ts`) | **Did not hold on `main`; fixed. Corrected severity: Medium.** The first round rated it Low–Medium and said B must have no token. On the desktop, after a restart an inactive server's token is in the OS store, not visible, so a switch or failover from A wrote A's token, username and account id over B's slot. Now a carry is refused onto an address that holds another token, has its own stored account id or username, or is saved as a separate server, unless it already holds this exact session. | `communityFailover.test.ts` R1/R2 |
+| **W1.** Whiteboard credentials (`whiteboard/sameServerAuth.ts`) | **Fixed.** Credentials go to the server's own origin only. | `whiteboardCredentials.test.ts` (real `hydrateRasterLayer`, real board-image gate) |
+| Other credential sends; socket, TURN and helper URLs; redirects | **Holds.** Built from the saved URL. No auth cookies exist. | read from code |
+| A's events acting on B | **Holds.** A switch reloads the page; socket listeners are fenced by realm. | read from code |
+| Dead code: `dm/dmKeyring.ts`, `backendEndpoints.ts:64-77` | Unsafe if revived: delete or namespace first. | read from code |
 
 ## Question 4: Destroying local data
 
 | Checked | Result | How we know |
 |---|---|---|
-| Deletions a server can trigger | **Holds.** There is no `localStorage.clear`, `sessionStorage.clear` or `deleteDatabase` anywhere. A refresh 401/403 clears only that server's tokens (`api/authRefresh.ts:97-101`). `auth-revoked` and `auth-failed` only trigger a refresh (`socketConnectionCore.ts:650-651`). `wabidb` `clearScope` is never called. | read from code |
-| Encryption state | **Holds.** The client keeps a room's "encrypted" status even if the server later says otherwise (question 5). | `e2ee.test.ts` (new case) |
-| Bounds on server files: zip preview (25 MiB, 200 entries, per-entry inflate limits, on click, `zip/zipPreview.ts`); xlsx/ods (12 MB in, 4096 entries, 64 MB total, `sheets/fileAdapter.ts:17-45`); DXF/DWG 20 MB, OCCT 60 MB, click to activate | **Holds.** | read from code |
-| **S6** Bounds that are missing | **Do not hold. Low–Medium, open (denial of service, nothing destroyed).** Missing bounds, file by file: <br>• `ThreeMFViewer.svelte:49-60`: no size or decompressed-size limit, and the viewport tab loads without a click. <br>• `ZipPreviewPanel.svelte:96`: when there is no `Content-Length`, the whole body is read before the size check. <br>• `markdown.ts`: no length cap; some regexes are quadratic on unterminated input. <br>• Images: no dimension cap. <br>• Terminal client: per-channel `messages` grow without limit (`app.rs:1247,1251`), and `lore_download` reads the whole body (`api.rs:869`) after trusting the server's claimed size. <br>Proposed: one size cap before each parse, and a ring buffer for the terminal message list. | read from code |
-| Crash loops from a malformed event replayed on start | **Not found.** The outbound queue holds only the client's own intents. Server events are not persisted raw, apart from the e2ee status cache, which is parsed in a try/catch. | read from code |
+| Deletions a server can trigger | **Holds.** No `localStorage.clear`, `sessionStorage.clear` or `deleteDatabase` anywhere. Refresh failures clear only that server's tokens. | read from code |
+| Encryption state | **Holds.** No client-side downgrade. | `e2ee.test.ts` |
+| Bounds on server files (zip, xlsx/ods, DXF/DWG, OCCT) | **Holds.** | read from code |
+| **S6.** Missing bounds | **Open. Low–Medium (denial of service only).** <br>• 3MF has no size limit. <br>• Zip previews without `Content-Length` read the whole body first. <br>• Markdown has no length cap. <br>• Images have no dimension cap. <br>• The terminal client's per-channel message list and Lore downloads are unbounded. | read from code |
+| Crash loops from a malformed event replayed on every start | **Not found.** | read from code |
 
 ## Question 5: Encryption-specific
 
-The three known limits (the server supplies keys; the browser gets its code from the server; no outside review) are not repeated here.
+(The three known limits are not repeated.)
 
 | Checked | Result | How we know |
 |---|---|---|
-| Can a server make a room this device saw encrypted fall back to readable? `e2ee.ts:363` `cacheRoomStatus` | **Holds.** A "disabled" answer is ignored once the device has stored "enabled". Encryption, content gates and labels keep using the stored status. | `e2ee.test.ts` "a server cannot switch a room this device has seen encrypted back to readable"; mutation fails it |
-| A room this device never saw | **The server decides**, as for any first contact. It can call a new DM an "older room" with no encryption policy. The UI then labels it server-readable. This belongs with known limit 2, not a new hole; key verification (ADR-0002 stage 1) is where it gets fixed. | read from code |
-| Decrypted content leaving through something PR 355 did not cover | **None found** among the paths in this audit. The whiteboard and other workspaces are refused by an honest server in encrypted rooms (`ENCRYPTION_STATUS.md`); albums, Lore and forwarding are also switched off by the client there (`privacy/contentEgress.ts`). Against a hostile server the whiteboard refusal is the server's own choice, so it protects nothing; whether the client warns before a member types into a workspace inside an encrypted DM was **not checked** and is worth a follow-up. L1/L2 were script-in-origin problems: in the browser they could have read decrypted messages and keys of every saved server. Both are fixed. | read from code |
-| Terminal client | Shows encrypted messages as a placeholder and sends none. Not affected. | ADR-0002 §1.7 |
+| A room this device saw encrypted, reported "disabled" | **Holds** (`e2ee.ts` `cacheRoomStatus`). | `e2ee.test.ts`; mutation fails it |
+| A room never seen on this device | The server decides, as for any first contact; the UI labels it server-readable. Belongs with known limit 2 (ADR-0002 stage 1). | read from code |
+| Decrypted content leaving the device | **F4** let a member's encrypted SVG run as the app and read every saved server's tokens and keys (browser); fixed. L1/L2/F1/F1b were script-in-origin paths with the same reach; fixed. The whiteboard and workspaces are refused in encrypted rooms only by an honest server. Whether the client warns before a member types into a workspace inside an encrypted DM was **not checked**. | see the rows above |
 
 ## Question 6: Calls and media
 
 | Checked | Result | How we know |
 |---|---|---|
-| Can the server switch on the microphone, camera or screen share? | **Holds.** `call-incoming` only sets a store; Answer is a click (`IncomingCallModal.svelte:47`). `getDisplayMedia` runs only inside a user action (`callingScreenShare.ts:121`, `callingWabidb.ts:189`). Rejoin after reconnect (`calling_impl_core.ts:1420-1449`) acts only on a call the user already joined. **Design note:** `voice-self-moved` (`calling_impl_core.ts:1771-1781`) lets the server move a live microphone into another voice channel of the same server. The server already relays that audio, so it learns nothing new, but the people listening change. Worth a visible notice (**Low**, open). | read from code; earlier headful call tests (`SECURITY-MODEL.md`) cover admission and teardown |
-| **S5** ICE/TURN configuration | **Does not fully hold for privacy. Low–Medium, open.** <br>• `turnCredentials.ts:14-25` accepts a TURN URL on any host, including LAN or loopback addresses (a small probe of the local network). <br>• `turnConfig.ts:72-77` sets no `iceTransportPolicy`, so once a call starts, WebRTC sends **the device's local network addresses** to the server and to peers. That is normal WebRTC behaviour; it means a server learns your home network address. <br>• Proposed: a "relay only" call setting, and refusing private-range TURN hosts unless the server itself is on a private range. | read from code |
-| LiveKit: `callingLivekit.ts:581` uses the server-supplied URL with that server's own token | **Holds.** No other server's credential is involved. | read from code |
+| Microphone, camera, screen without a click | **Holds.** Answer is a click; capture starts in user actions only; rejoin only for calls already joined. Design note: `voice-self-moved` lets a server move a live microphone to another channel of the same server (**Low**, open: show a notice). | read from code |
+| **S5.** ICE/TURN | **Open. Low–Medium.** Any TURN host is accepted (a small LAN probe). There is no `iceTransportPolicy`, so **the device's local network addresses** reach the server and peers once a call starts. Proposed: a "relay only" option, and refusing private-range TURN hosts from public servers. | read from code |
 
 ## Question 7: Terminal client (`core/crates/wabi-tui`)
 
 | Checked | Result | How we know |
 |---|---|---|
-| **T1** Escape sequences in server text (messages, names, channel names, Lore previews, errors) | **Did not hold; fixed. High for terminal users.** ratatui 0.29 writes each cell's symbol verbatim, and nothing removed control characters. A message `\x1b]52;c;…\x07` could write the user's clipboard. Others could set the window title, add OSC 8 hyperlinks or move the cursor and redraw the screen. Now `ui::scrub_terminal_controls` (`ui.rs:213`) runs on the finished frame (`ui.rs:201`), so every widget is covered, including future ones. Tabs become spaces; other controls become `�`. | `ui::terminal_control_tests` (2 tests; one is a control showing ratatui really passes the bytes through) |
-| Unbounded output | Logs are capped at 200. Messages and Lore downloads are not: see S6. | read from code |
-| File writes | Only its own config and a fixed log file `$TMPDIR/wabi-tui.log` (`main.rs:31-36`). That path is predictable and follows symlinks, which is a local-user issue (**Low**), not a server one. | read from code |
+| **T1.** Escape sequences in server text | **Did not hold; fixed. High for terminal users.** ratatui writes cell symbols verbatim. `ui::scrub_terminal_controls` (`ui.rs:249`) runs on every finished frame (`ui.rs:201`). | `ui::terminal_control_tests`; `ui::hostile_render_tests` (real `render`, real `App`, every screen) |
+| **F6.** Bidi and invisible characters (U+202A–202E, U+2066–2069, U+200B–200F, U+061C, U+FEFF, U+00AD) | **Fixed.** Shown as `�`, the same as controls (`is_terminal_unsafe`, `ui.rs:218`). Side effect: emoji joined with U+200D show as separate emoji. | same tests, with an independent character list |
+| **F6.** Server text in the log file (`tracing` lines such as "live auth failed: {reason}") | **Fixed.** The log file writer and the in-app log buffer scrub the same characters. | `ui::hostile_render_tests::the_log_file_writer_scrubs_server_text` |
+| Unbounded output, file writes | See S6. The only file writes are the config and `$TMPDIR/wabi-tui.log` (predictable path, follows symlinks; a local issue, **Low**). | read from code |
 
 ---
 
-## Fixed in this branch
-
-| ID | Change | Test |
-|---|---|---|
-| R1 | `communityRoster.ts`: a roster is pinned only under the address that served it; old cross-pins are ignored | `communityRoster.test.ts` (3 new) |
-| L1 | `lore/linkSafety.ts` `checkedSignedLoreUrl`, used by `getSignedLoreUrl` | `hostileServerBoundaries.test.ts` |
-| L2 | `lore/linkSafety.ts` `pdfPreviewBlob`, used by `LoreChannel.svelte` | `hostileServerBoundaries.test.ts` |
-| L3 | `safeExternalUrl.ts`, used by `login/LaunchPanel.svelte` | `hostileServerBoundaries.test.ts` |
-| W1 | `whiteboard/sameServerAuth.ts`, used by raster layers, fonts and board images | `hostileServerBoundaries.test.ts` |
-| M1 | `markdown.ts` `renderMathSlots` substitutes in text nodes only | `scripts/hostile-server-browser-smoke.mjs` (Chromium), CI `hostile-server-browser.yml` |
-| D1 | `hosting::require_bundled_window` on `save_call_recording`, `open_model_viewer`, `open_external_url`, `tailcat_register_key`, `tailcat_connect`, `lore_local_choose`, and Lore `grant()` | `scripts/tests/desktop-shell-contract.test.mjs` (in `desktop-host-safety.yml`), Rust `hosting::tests` |
-| T1 | `wabi-tui` frame scrub | `ui::terminal_control_tests` |
-| — | Tests for boundaries that already held: desktop CSP, config and capabilities; no computed code imports; the add-on allow-list; no client-side encryption downgrade | contract test, `hostileServerBoundaries.test.ts` "C1", `e2ee.test.ts` |
-
-## Needs the owner's decision (open findings, proposed fixes)
+## Needs the owner's decision (open)
 
 | ID | Severity | Proposed fix |
 |---|---|---|
-| S1 | Medium | Validate every server/member colour with `sanitizeAccentColor`; allow-list custom CSS |
-| S2 | Medium | Send a CSP with the browser client from `app_router.rs` that matches the desktop |
-| D2 | Medium (depth) | Desktop navigation/new-window handler, or a Tauri app manifest. Needs a real desktop to try |
-| R2 | Low–Medium | Carry a session only to user-approved community addresses, never onto a separately saved server |
-| S5 | Low–Medium | "Relay only" call option; refuse private-range TURN hosts from public servers |
-| S6 | Low–Medium | Size caps before parsing (3MF, zip without length, markdown length, images); terminal message ring buffer |
-| — | Low | Wiki link placeholder: use the DOM substitution from M1. `voice-self-moved` notice. Delete dead `dmKeyring.ts`/endpoint cache |
+| S1 | Medium | `sanitizeAccentColor` on every colour; an allow-list for custom CSS |
+| S2 | Medium | A browser CSP from `app_router.rs`, matching the desktop |
+| D2 (rest) | Low–Medium | A desktop new-window handler that sends http(s) links to the system browser |
+| S5 | Low–Medium | A "relay only" call option; refuse private-range TURN hosts |
+| S6 | Low–Medium | Size caps before parsing; a ring buffer for terminal messages |
+| — | Low | A `voice-self-moved` notice; delete dead `dmKeyring.ts` and the endpoint cache; reject `CONIN$`/`COM¹` in Lore paths |
+
+Behaviour changes in this branch that the owner may notice:
+- SVG files are offered as downloads instead of being previewed (Lore, files workspace, encrypted images).
+- Lore downloads save directly instead of opening a link.
+- Experimental Anchor failover no longer carries a session onto an address saved as its own server.
+- The terminal client shows `�` for control, bidi and zero-width characters.
+
+## Possible CodeQL alerts
+
+The "CodeQL" check failed on `ba6e3f1`, while every "Analyze" job passed. The alerts themselves are not visible from this session. These are what this diff added that a scanner is likely to flag, for the owner's triage:
+
+1. `js/insecure-randomness` on `htmlPlaceholders.ts` `placeholderNonce`. In the second round it had a `Math.random` fallback, now removed (it uses `crypto.getRandomValues` only). If an alert remains there, it is a real fix to keep.
+2. `js/xss-through-dom` or `js/html-constructed-from-input` on `template.innerHTML = …` in `htmlPlaceholders.ts` (`substitutePlaceholders`) and `markdown.ts`. The input is the sanitiser's output, re-parsed in an inert `<template>` and sanitised again before use. If flagged: dismiss as "used in tests / false positive", citing the Chromium smoke.
+3. `js/xss-through-dom` / DOM sinks in `frontend/scripts/hostile-server-browser-smoke.mjs` (`host.innerHTML = html`, and payload strings containing `javascript:` and `<script>`). This is a test fixture that deliberately feeds attack strings to a throwaway page. Dismiss as test code.
+4. `js/incomplete-url-scheme-check` or `js/bad-tag-filter` on regexes in the smoke and in tests (`/^(javascript|vbscript|data:text\/html)/i`, `/<template\b/i`). These are assertions over rendered output, not filters. Dismiss as test code.
+5. `js/request-forgery` on `lore/linkSafety.ts` `saveSignedLoreFile` (`fetch(url)` with a URL from a response). The URL is checked same-origin first (`checkedSignedLoreUrl`). Probably a false positive; dismiss with that reason.
+6. Rust: no new logging of secrets. `navigation_guard.rs` logs only the blocked URL's scheme.
 
 ## What the owner should try on a real desktop
 
-1. In the desktop app, post `[x](https://example.com)` and click it, on Linux, Windows and macOS. Does it open the system browser, a bare popup window, or nothing? The main Wabi window must stay on Wabi.
-2. Do the same with `<a href="smb://example/x" target="_blank">`-style links that a server could put in an embed, and with `mailto:`. No OS handler should start without a prompt.
-3. Download an attachment named `..\..\evil.lnk` / `../../.bashrc`. The saved file must land in Downloads with a harmless name.
-4. Start a call recording and confirm it still saves to Documents/WabiRecordings (the command now checks its caller's origin).
-5. Open a Lore PDF. If the preview is blank on desktop, that is the existing CSP blocking `blob:` frames (not new); the download still works.
-6. Connect through Tailcat, and open a model in the native viewer. Both commands now check their caller's origin and must still work.
-7. With `wabi-tui`, receive a message containing `ESC ] 52 ; c ; aGk= BEL`. The clipboard must stay unchanged, and the message shows `�` characters instead.
+1. Click a message link `[x](https://example.com)` on Linux, Windows and macOS. Note whether it opens the system browser, a bare popup, or nothing; the main window must stay on Wabi. Then use a Lore download, which must save a file, not open a page.
+2. Try `smb:`, `mailto:` and other unusual links that a server could put in an embed. No OS handler may start without a prompt.
+3. Download an attachment named `..\..\evil.lnk` or `../../.bashrc`. It must land in Downloads with a harmless name.
+4. A call recording still saves to Documents/WabiRecordings.
+5. Tailcat connect, status and disconnect still work, and the native model viewer still opens. All of them now check their caller's origin.
+6. Open a Lore PDF. A blank preview is the CSP blocking `blob:` frames, which was already the case before this branch. Downloads still work.
+7. In `wabi-tui`, send a message with `ESC ] 52 ; c ; aGk= BEL` and a name with U+202E. The clipboard must stay unchanged, and both show `�`.
+8. Navigation guard: the YouTube, map and Sketchfab embeds were already blocked by the desktop CSP. Confirm nothing that worked before stopped working.

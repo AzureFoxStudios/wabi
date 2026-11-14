@@ -16,9 +16,8 @@ const TEXT_ATTRIBUTES = new Set(['title', 'alt', 'aria-label']);
 
 /** A fresh nonce of letters and digits only, so markdown, mentions and emoji parsing leave it alone. */
 export function placeholderNonce(): string {
-	const bytes = new Uint8Array(8);
-	if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
-	else for (let index = 0; index < bytes.length; index++) bytes[index] = Math.floor(Math.random() * 256);
+	// getRandomValues works in insecure (plain-http) contexts too; no weaker fallback.
+	const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
 	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
