@@ -165,3 +165,78 @@ test('a pin is never rolled back to an older version of the same roster', async 
 	const pins = JSON.parse(localStorage.getItem('wabi.communityRosterPins.v1')!);
 	expect(Object.values(pins).map((pin: any) => pin.version)).toEqual([3]);
 });
+
+test('N1: after a restart the anchor a carry created is not mistaken for a separate server', async () => {
+	const community = await signed([A, ANCHOR1, ANCHOR2]);
+	signIn(A, 'member-token');
+	roster.pinCommunityRoster(community, A, 7);
+	// Outage 1: carry to anchor1, connect (the app saves the address it connected to).
+	expect(await manager().rotateToNextFailoverCandidate(A)).toEqual({ rotated: true, nextUrl: ANCHOR1 });
+	saved.add(ANCHOR1);
+	// Back on A; restart: anchor1's session-only token is gone, its username, account id and
+	// saved entry remain.
+	active = A;
+	tokens.delete(ANCHOR1);
+	expect(accounts.get(ANCHOR1)).toBe(7);
+	// Outage 2 rotates again, as main's code did.
+	expect(await manager().rotateToNextFailoverCandidate(A)).toEqual({ rotated: true, nextUrl: ANCHOR1 });
+	expect(tokens.get(ANCHOR1)).toBe('member-token');
+});
+
+test('N1: the carried provenance never lets a different community or account in', async () => {
+	const community = await signed([A, ANCHOR1]);
+	signIn(A, 'member-token');
+	roster.pinCommunityRoster(community, A, 7);
+	expect(await manager().rotateToNextFailoverCandidate(A)).toEqual({ rotated: true, nextUrl: ANCHOR1 });
+	saved.add(ANCHOR1);
+	tokens.delete(ANCHOR1);
+	// Someone signs in at anchor1 directly with another account: that identity is its own now.
+	accounts.set(ANCHOR1, 8);
+	expect(await roster.prepareSessionCarry(community, A, ANCHOR1, 7, 'member-token', env)).toBe(false);
+	accounts.set(ANCHOR1, 7);
+	// A roster with another key (another server listing anchor1) gets no benefit from that pin.
+	const other = await signed([B, ANCHOR1]);
+	signIn(B, 'b-token');
+	expect(await roster.prepareSessionCarry(other, B, ANCHOR1, 7, 'b-token', env)).toBe(false);
+	// The real community still may.
+	expect(await roster.prepareSessionCarry(community, A, ANCHOR1, 7, 'member-token', env)).toBe(true);
+});
+
+test('R1/R2: B with its identity in storage and its token only in the OS store is never written over', async () => {
+	const hostile = await signed([A, B, EVIL]);
+	signIn(A, 'a-token');
+	signIn(B, 'b-token');
+	tokens.delete(B);
+	roster.pinCommunityRoster(hostile, A, 7);
+	expect(await roster.prepareSessionCarry(hostile, A, B, 7, 'a-token', env)).toBe(false);
+	saved.delete(B);
+	expect(await roster.prepareSessionCarry(hostile, A, B, 7, 'a-token', env)).toBe(false);
+	expect(await manager().rotateToNextFailoverCandidate(A)).toEqual({ rotated: true, nextUrl: EVIL });
+	expect(accounts.get(B)).toBe(7);
+	expect(tokens.get(B)).toBeUndefined();
+});
+
+test('N4: a carry never replaces the address\'s own pin of another key', async () => {
+	const community = await signed([A, ANCHOR1]);
+	const anchorsOwn = await signed([ANCHOR1]);
+	signIn(A, 'member-token');
+	roster.pinCommunityRoster(community, A, 7);
+	expect(roster.pinCommunityRoster(anchorsOwn, ANCHOR1, 7)).toBe(true);
+	expect(await roster.prepareSessionCarry(community, A, ANCHOR1, 7, 'member-token', env)).toBe(false);
+	const pins = JSON.parse(localStorage.getItem('wabi.communityRosterPins.v1')!);
+	const anchorPin = pins[`${encodeURIComponent(ANCHOR1)}|7`];
+	expect(anchorPin.publicKey).toBe(anchorsOwn.publicKey);
+	expect(anchorPin.carriedFrom).toBeUndefined();
+});
+
+test('N4: the manual switch goes through prepareSessionCarry before writing any session (wiring)', async () => {
+	const { readFileSync } = await import('node:fs');
+	const source = readFileSync(new URL('./savedServerActions.ts', import.meta.url), 'utf8').replace(/\/\/[^\n]*/g, '');
+	const body = source.slice(source.indexOf('export function switchToSavedServer('), source.indexOf('export function switchToSavedServerChannel('));
+	const carry = body.indexOf('await prepareSessionCarry(roster, fromUrl, normalizedUrl, accountId, token)');
+	const write = body.indexOf('setAuthToken(token, normalizedUrl)');
+	expect(carry).toBeGreaterThan(0);
+	expect(write).toBeGreaterThan(carry);
+	expect(body.slice(carry, write)).toMatch(/if \(carry &&/);
+	expect(body.match(/setAuthToken\(/g)?.length).toBe(1);
+});

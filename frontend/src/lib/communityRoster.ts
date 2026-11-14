@@ -233,7 +233,9 @@ export function canCarrySessionTo(roster: SignedCommunityRoster, url: string): b
  * - is not a signed HTTPS entry of the roster the source pinned;
  * - holds a different token, or (with no token, e.g. after a desktop restart) has an identity of
  *   its own: a stored account id or username (finding R2);
- * - is saved as a separate server, unless it already holds this very session.
+ * - is saved as a separate server, unless it already holds this very session;
+ * where an identity or saved entry there came from an earlier carry of the same community and
+ * account (the carried pin records it), it is not counted as the destination's own.
  * The carried pin is bound to the carried token, so a later, different login there ignores it.
  */
 export async function prepareSessionCarry(
@@ -250,11 +252,20 @@ export async function prepareSessionCarry(
 	const existingToken = env.getAuthToken(to);
 	const sameSession = existingToken === token;
 	if (existingToken && !sameSession) return false;
-	if (!sameSession && (env.getStoredDbUserId(to) !== null || env.getStoredUsername(to) !== null)) return false;
-	if (!sameSession && env.isSavedServer(to)) return false;
 	const pins = readPins();
 	const scope = pinScope(to, accountId);
 	const existing = pins[scope];
+	// An identity or "saved" mark at the destination is its own, unless an earlier carry from this
+	// same community (same roster key) for this same account put it there: after a restart the
+	// carried session-only token is gone but its username/account id and saved entry remain
+	// (review finding N1). The provenance is the carried pin in localStorage; another server's
+	// roster has another key and cannot have written one here (a carry onto an address with its
+	// own identity is refused).
+	const storedAccount = env.getStoredDbUserId(to);
+	const carriedHere = Boolean(existing && existing.source === to && existing.carriedFrom &&
+		existing.publicKey === roster.publicKey && (storedAccount === null || storedAccount === accountId));
+	if (!sameSession && !carriedHere && (storedAccount !== null || env.getStoredUsername(to) !== null)) return false;
+	if (!sameSession && !carriedHere && env.isSavedServer(to)) return false;
 	if (existing && existing.source === to && !existing.carriedFrom &&
 		(existing.publicKey !== roster.publicKey || existing.version > roster.body.version)) return false;
 	if (!existing || existing.carriedFrom || existing.version < roster.body.version) {
