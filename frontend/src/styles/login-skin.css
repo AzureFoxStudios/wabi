@@ -582,6 +582,15 @@ html[data-neutral-branding] .login-container .login-brand-lockup {
 		min-width: 44px;
 		min-height: 44px;
 	}
+	/* The sentence's link ("Create a registered account", "Sign in") is a touch target too: it keeps
+	   its place in the line and grows to the 44px row. */
+	.login-container .auth-link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+		padding-block: 0;
+		vertical-align: middle;
+	}
 }
 
 @media (max-width: 900px) {
@@ -690,14 +699,17 @@ html[data-neutral-branding] .login-container .login-brand-lockup {
 	}
 }
 
-/* The show-password button fills the field's inner height, so a 44px touch field keeps a 44px-wide,
-   full-height target inside its edge. */
+/* The show-password button is the field's full-height right end, so a 44px touch field keeps a
+   44×44 target. It reaches over the field's own top, right and bottom edge: inside the edge it was
+   only 42px tall (44 minus the two borders). */
 @media (pointer: coarse) {
 	.login-container .login-password {
 		padding-right: 0;
 	}
 	.login-container .login-password > .password-toggle {
+		align-self: stretch;
 		width: 44px;
-		height: 100%;
+		height: auto;
+		margin: calc(-1 * var(--w-bw)) calc(-1 * var(--w-bw)) calc(-1 * var(--w-bw)) 0;
 	}
 }

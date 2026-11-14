@@ -10,7 +10,7 @@ ERP. It does not activate a Wabi Authority or recover application state.
 |---|---:|---|
 | dotRonin | 1 | Local Linux, Python 3.12.3 |
 | Ronin (`bazzite`) | 2 | Remote Linux, Python 3.14.7 |
-| Iyoku (`192.168.1.11`) | 3 | Remote Linux, Python 3.14.7 |
+| Iyoku (`198.51.100.20`) | 3 | Remote Linux, Python 3.14.7 |
 
 All three used the same frozen Rust fixture: 85,751,720 bytes, SHA-256
 `52455067953e0d2d67f04dff308caca01cc2d4715a17f60828f6eee3a17dd3ec`.

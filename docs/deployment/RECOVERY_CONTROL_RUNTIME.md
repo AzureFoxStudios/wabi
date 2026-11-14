@@ -516,7 +516,7 @@ The [fifth run](../testing/geographic-2026-10-02/publication-authority-remote-ac
 compiled both Authority and recovery-library test executables. All ten
 publication-library cases failed during initial private-root setup, reporting
 `Ownership`, before their intended behaviors ran. The runner's temporary path
-used `/home/Ronin`; its resolved physical path is `/var/home/Ronin`, and the
+used `/home/operator`; its resolved physical path is `/var/home/operator`, and the
 runtime correctly refuses symbolic-link ancestry. The new server unit/sweep
 groups and configured integration did not execute. The
 [complete saved evidence](../testing/geographic-2026-10-02/publication-authority-remote-saved5.json)

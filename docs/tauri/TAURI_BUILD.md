@@ -73,7 +73,7 @@ await invoke('open_external_url', { url: 'https://wabi.chat' })
   "build": {
     "frontendDist": "../frontend/build",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "cd /home/Ronin/Desktop/Wabi/dotronin-worktree/wabi/frontend && npm run build"
+    "beforeBuildCommand": "cd /home/operator/Desktop/Wabi/dotronin-worktree/wabi/frontend && npm run build"
   },
   "app": {
     "windows": [{
@@ -99,7 +99,7 @@ await invoke('open_external_url', { url: 'https://wabi.chat' })
 
 ### Run in dev mode
 ```bash
-cd /home/Ronin/Desktop/Wabi/dotronin-worktree/wabi
+cd /home/operator/Desktop/Wabi/dotronin-worktree/wabi
 npx tauri dev
 ```
 

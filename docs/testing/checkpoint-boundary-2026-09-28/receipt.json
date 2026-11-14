@@ -307,42 +307,42 @@
     "exclusive_nonblocking_cargo_artifact_lock": true,
     "removed": [
       {
-        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257",
+        "path": "/home/operator/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257",
         "logical_bytes": 470266760,
         "allocated_bytes": 469913600,
         "link_count_before_removal": 1,
         "sha256": "101853062cc188136b023fec8f2f0772b87a6a42d0a1c329c75e22571a51e28c"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257.d",
+        "path": "/home/operator/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257.d",
         "logical_bytes": 357,
         "allocated_bytes": 4096,
         "link_count_before_removal": 1,
         "sha256": "30021b6a363e003bb75b6021ea8210eeff4cd3e26258e5cf58e585be1b0017f5"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76",
+        "path": "/home/operator/wabi/target/debug/deps/account_recovery_contract-36de912130581d76",
         "logical_bytes": 515203576,
         "allocated_bytes": 514244608,
         "link_count_before_removal": 1,
         "sha256": "8177d8888bd4927fb8262b551a8cfe33b29fee77ad85ca0928bcd0c42b96ee87"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76.d",
+        "path": "/home/operator/wabi/target/debug/deps/account_recovery_contract-36de912130581d76.d",
         "logical_bytes": 342,
         "allocated_bytes": 4096,
         "link_count_before_removal": 1,
         "sha256": "2f33253052b928f552ed51cf3a38afd921aa544e04894a41945f1a3d4fdbce53"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
+        "path": "/home/operator/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
         "logical_bytes": 509059640,
         "allocated_bytes": 508104704,
         "link_count_before_removal": 1,
         "sha256": "a1e56acb3d9c20b999017a5687ec18f139c8ffa2dccf382cfc845a60d55ee4a7"
       },
       {
-        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
+        "path": "/home/operator/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
         "logical_bytes": 382,
         "allocated_bytes": 4096,
         "link_count_before_removal": 1,

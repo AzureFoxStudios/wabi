@@ -1,7 +1,7 @@
 {
   "passed": true,
   "runtime": "Linux Tauri/WebKit, actual IPC and matching staged sidecar",
-  "source": "/home/ironin/wabi/src-tauri/target/debug/wabi-desktop",
+  "source": "/home/operator/wabi/src-tauri/target/debug/wabi-desktop",
   "scratch": "/tmp/wabi-personal-native-B4I7qH",
   "profiles": [
     "chat.wabi.hosttest"

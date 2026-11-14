@@ -12,7 +12,7 @@ test('connection cannot redirect credentials or select remote plaintext', () => 
  assert.throws(() => validateConfig({ ...config, channelId: '../two' }));
 });
 test('runtime labels are explicit, unverified and cannot imply command forwarding', async () => {
- const runtime = { harness: 'codex', mode: 'existing_harness', name: 'Ronin design chat', computer: 'dotRonin', workspace: '/home/ironin/wabi', botToken: 'do-not-return', commands: ['/anything'] };
+ const runtime = { harness: 'codex', mode: 'existing_harness', name: 'Ronin design chat', computer: 'dotRonin', workspace: '/home/operator/wabi', botToken: 'do-not-return', commands: ['/anything'] };
  const call = createConnector({ ...config, runtime }, async () => response({ tasks: [], pages: [] }));
  const brief = await call('project_brief');
  assert.equal(brief.runtime.harness, 'codex'); assert.equal(brief.runtime.mode, 'existing_harness');

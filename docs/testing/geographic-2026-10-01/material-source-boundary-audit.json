@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "recordedAtUtc": "2026-10-01T15:19:29.870754+00:00",
   "executionComputer": "dotRonin",
-  "checkout": "/home/ironin/wabi",
+  "checkout": "/home/operator/wabi",
   "scope": "read-only source-boundary audit, not implementation acceptance",
   "sourceDigests": {
     "core/crates/wabi-server/src/instance_archive/live.rs": "678f4f09119824bd5f57e857e8862ced7d7cbb03d42cb2770740b27a62f312ef",

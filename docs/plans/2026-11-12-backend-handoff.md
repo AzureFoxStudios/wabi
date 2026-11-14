@@ -53,6 +53,9 @@ Last updated 2026-11-13.
 | 340 | 4.8g | `wabi-sync` state records whose folder it is (server + channel) and refuses a mismatch; `link` moves old state aside; mass-delete guard (`--allow-mass-delete`); refusals (400/403/413/422) remembered per file, 5xx retried; one sync per folder (OS lock). |
 | 362 | (voice) | Community voice could reach direct P2P, where server mute, deafen and listen-only do not apply: by the manual route switch, and by a modified client, because the server relayed `call-offer` / `call-answer-sdp` / `call-ice-candidate` for voice channels. Both are refused now (server: `scoped_call_p2p_consent`; test `community_voice_never_relays_p2p_call_signaling`). **Owner decision open:** screen share over `webrtc-*` in voice channels on webviews without WebCodecs still goes direct. |
 | 363 | (ops) | `/metrics` was public although `INSTALL.md` said it was admin-gated. Now: server admin, or `WABI_METRICS_TOKEN`, or `WABI_METRICS_PUBLIC=1` (warns at startup). The metrics carry no per-user labels. |
+| 364 | (CI) | Browser smokes: six repaired and run on every push to `main` and weekly (`core-browser-smokes.yml`). Found three frontend regressions, fixed in 368. |
+| 365 | (docs) | ADR-0002 accepted with the owner's nine answers (its §9); `docs/ENCRYPTION_STATUS.md`. |
+| 366 | (install) | `docs/testing/INSTALL_FROM_NOTHING.md` (the measurement) and `install_from_nothing_contract.rs` (the journey in CI, with a budget of zero required variables and files). `INSTALL.md` no longer tells anyone to delete `wabidb/.lock`. |
 
 ## Open PRs
 
@@ -60,8 +63,11 @@ Last updated 2026-11-13.
 |---|---|---|---|
 | 348 | 3.5.4 | Users to the read model (schema 4, generation 5; case-folded login column with the Unicode version recorded; `secure_delete`; 729-pair restart matrix). Green; independent review done and fixed. **On hold:** CodeQL reports 5 new alerts (1 critical, 4 high) that no available tool can list; the visible one is a test fixture (`rust/hard-coded-cryptographic-value`, `auth_revocations.rs`). | Owner looks at the alert list on GitHub; if all are test fixtures or the intended `password_hash` storage, dismiss and merge. Trying to satisfy the scanner with generated test values made it worse (6 alerts); that attempt was reverted. |
 | 353 | 2.7c | `p256` 0.14 / `ecdsa` 0.17: Wabi's own P-256 code leaves the affected `crypto-bigint`; golden tests for signatures and key files added first. Green. **On hold:** one CodeQL alert, a fixed key in a golden test (`community_roster.rs`), for the owner to dismiss. RUSTSEC-2026-0387 stays reported through `age` 0.12 (Wabi uses only its x25519 part). | Owner dismisses the alert; merge. |
-| 357 | (DM) | Durable per-room encryption marker in WabiDB (projection `room_encryption`, record tag `RENC` v1) so a missing or rolled-back `e2ee_state.json` cannot reopen readable sends; the server sets `encrypted` itself; `#EXTM3U` uploads refused. Independent review found four should-fix items (a rolled-back registry could still drop the recorded consent to a server-readable fallback; eleven mutations no test caught; bots and history did not get the server-owned flag; gaps in the playlist refusal). Round 2 in progress in session `session_012VCxQLQKEp9pfEBxcSnvNc`. | Coordinator re-checks the fixes with its own mutation run, then merges. |
-| 364 | (CI) | Browser smokes other than voice and kept-content: six pass again and get a workflow (`core-browser-smokes.yml`); six more are diagnosed, not fixed. It found three frontend regressions and left them failing on purpose: phone side panels never slide in (first bad commit d833d9ab), the 404 page is black text on near-black (885b3712), login touch targets under 44 px (25e8a4e2; which size rule is intended is the owner's call). | Coordinator review, then merge. A separate PR fixes the first two regressions. |
+| 357 | (DM) | Durable per-room encryption marker in WabiDB (projection `room_encryption`, record tag `RENC`) so a missing or rolled-back `e2ee_state.json` cannot reopen readable sends; the server sets `encrypted` itself; `#EXTM3U` uploads refused. Two independent review rounds. Round 2 found the decision logic sound (63-case matrix) and asked for: a bound check so too many recorded consents cannot make a marker unreadable, tests for three fixes no test pinned, two places that trusted the registry unvalidated, and deleting the staged file when a completion is refused. Round 3 in progress in session `session_012VCxQLQKEp9pfEBxcSnvNc`. | Coordinator re-runs the surviving mutants, then merges. |
+| 367 | (public) | Private addresses and host names removed from tracked files; a check in CI keeps them out. Red: the check flags its own source and fixtures. Sent back. | Merge on green. Owner rotates anything it lists. |
+| 368 | (frontend) | Fixes the three regressions 364 found (phone side panels never opened; 404 page unreadable; login touch targets) and three small UI faults. | Merge on green. Owner runs its phone checklist. |
+| 372 | (DM) | ADR-0003: the MLS library is `mls-rs`, behind one Wabi-owned wrapper crate. Accepted by the owner 2026-11-13. OpenMLS and mls-rs clients interoperated in one group (112 of 112 checks), so a later switch is one crate. | Merge once the prototype code is out of the tree tip. |
+| (sessions, no PR yet) | | Browser invitations and invite-only as the setup default (`claude/browser-invites`); startup message, honest page when the frontend is missing, logs under the data directory (`claude/startup-line-and-missing-frontend`); hostile-server audit of the clients (`claude/hostile-server-audit`); add-on detach audit (`claude/addons-detach-audit`). | Review each when it opens. |
 | 329 | 4.8b | Green. **On hold.** | Needs the owner's result for `q1` from the real-`lore` checks (does a review-branch upload leave the mainline's files alone). If yes: merge `main` in, re-check CI, merge. If no: do Task 4.9 first. |
 
 ## Remaining tasks, in order
@@ -101,8 +107,27 @@ Phase 5 is new features, not hardening; stop and ask the owner before starting i
 
 ## For a session on the owner's desktop
 
-- This note, the overlay plan and `docs/testing/LORE_REAL_BINARY_CHECKS.md` are the shared state. Cloud sessions keep working on `core/crates/wabi-server/src/api/e2ee.rs`, the upload and message paths, `frontend/src/lib/privacy/`, `frontend/src/lib/components/message/` and `frontend/src/lib/e2ee*.ts`; avoid those files or expect conflicts.
-- Overlay work belongs in `src-tauri/` and new frontend files. One PR per step of the plan's build order.
+Updated 2026-11-13. Cloud sessions keep running and the coordinator keeps merging while the owner works locally. Pull `main` before starting and again before opening a PR.
+
+**Files cloud sessions are editing now; avoid them or expect conflicts:**
+
+- Encryption and uploads: `core/crates/wabi-server/src/api/e2ee.rs`, `api/upload.rs`, `upload_registry.rs`, the message paths under `api/` and `socketio/`, `core/crates/wabidb/src/projections/room_encryption.rs`, `frontend/src/lib/privacy/`, `frontend/src/lib/components/message/`, `frontend/src/lib/e2ee*.ts`.
+- First run: `frontend/src/lib/components/Login.svelte` and the login styles, `core/crates/wabi-server/src/app_router.rs`, `src/main.rs` startup and logging, `api/invites.rs`, `docs/deployment/INSTALL.md`.
+- Shell: `frontend/src/lib/components/MainLayout.svelte`, `frontend/src/styles/surfaces/mobile.css` (until 368 merges).
+- Add-ons: `frontend/src/lib/addons/`, `core/addons/`, the add-on feature list in `core/crates/wabi-server/Cargo.toml`.
+- Client hardening found by the hostile-server audit may touch `src-tauri/tauri.conf.json` and Tauri command validation. Check that branch before changing the same lines.
+
+**Free for desktop work:** the game overlay (`docs/plans/2026-11-13-game-overlay-plan.md`): new files under `src-tauri/src/` and new frontend files. One PR per step of the plan's build order. The owner still has to name the games.
+
+**Things only a real machine can do (owner):**
+
+1. Wipe the test server's data directory. Data from before PR 334 is not supported.
+2. Install from nothing by following `docs/deployment/INSTALL.md`, on Linux and on Windows, and compare with `docs/testing/INSTALL_FROM_NOTHING.md`. Docker was never run in the cloud sandbox.
+3. The browser checklist at the end of PR 355 (decrypted content stays on the device).
+4. The phone checklist at the end of PR 368, on a real phone and in the Tauri shell.
+5. A voice channel with two accounts: a server-muted member cannot be heard, and the direct-connection switch is gone (PR 362).
+6. The real-`lore` checks (`docs/testing/LORE_REAL_BINARY_CHECKS.md`), which unblock PR 329.
+7. On GitHub: look at the code-scanning alerts on PRs 348 and 353 and dismiss them if they are test fixtures; rotate the two passwords found in the history of the skill files, and anything PR 367 lists.
 
 ## Things nobody has verified
 

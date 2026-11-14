@@ -114,10 +114,11 @@ try {
 	await page.keyboard.press('Enter');
 	await page.getByRole('heading', { name: 'Terms', exact: true }).waitFor({ state: 'visible' });
 	await page.getByRole('link', { name: 'Back to Wabi' }).click();
-	await page.getByPlaceholder('Username or @handle').waitFor({ state: 'visible' });
+	// 1ac33fe1 (wave 1c) replaced the "Username or @handle" placeholder with a visible field label.
+	await page.getByLabel('Username or handle', { exact: true }).waitFor({ state: 'visible' });
 	await page.goto(origin, { waitUntil: 'domcontentloaded' });
 	await page.locator('#wabi-boot-shell').waitFor({ state: 'detached' });
-	await page.getByPlaceholder('Username or @handle').waitFor({ state: 'visible' });
+	await page.getByLabel('Username or handle', { exact: true }).waitFor({ state: 'visible' });
 	await page.screenshot({ path: `${evidence}/login-mobile.png`, fullPage: true });
 	assert.deepEqual(errors, [], 'public routes and anonymous startup have no page errors');
 

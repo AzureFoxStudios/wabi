@@ -110,7 +110,7 @@ reconnect delivery exactly once, and queue label clearing. The public Tim route
 then returned the page without browser errors, health and Socket.IO passed, and
 the precache manifest listed 201 embedded assets. A cold backup of Tim's
 predeployment runtime data and previous binary was saved at
-`/home/tim/Desktop/Wabi/.deploy-backups/2026-09-25-friends-dm-1660fea3`.
+`/home/operator/Desktop/Wabi/.deploy-backups/2026-09-25-friends-dm-1660fea3`.
 Physical phone PWA acceptance is still required before claiming reliable mobile
 delivery on real devices. The older binary cannot safely be restored after new
 friendship events have been written, because it cannot replay that new event.
@@ -129,7 +129,7 @@ The addon-enabled release binary (SHA-256
 booted against disposable data on Iyoku, then deployed to Tim on 2026-09-25.
 The stopped data, retention sidecar, uploads, configuration and prior binary
 were saved at
-`/home/tim/wabi-backups/authority-20260925-followup-7cfed649` before the
+`/home/operator/wabi-backups/authority-20260925-followup-7cfed649` before the
 swap. The Tim service is healthy; the public page, health endpoint, embedded
 precache and Socket.IO handshake passed. A physical-phone PWA check remains
 open. Do not roll back only the binary after new friendship or retention epoch
@@ -173,7 +173,7 @@ acceptance by Ronin and Tim remains open.
 The release was deployed to Tim on 2026-09-26 after stopping the Wabi server
 and refreshing a cold backup of WabiDB data, privacy/retention sidecars,
 uploads, configuration and the previous binary at
-`/home/tim/wabi-backups/authority-20260926-friends-dm-e2ee`. Tim's deployed
+`/home/operator/wabi-backups/authority-20260926-friends-dm-e2ee`. Tim's deployed
 binary matches the SHA-256 above. Its database readiness and container health
 passed; Lore remained compiled and enabled; the anonymous admin and Friends
 endpoints returned 401; and the public page, health and Socket.IO polling

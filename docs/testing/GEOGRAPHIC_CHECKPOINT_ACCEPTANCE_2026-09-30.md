@@ -6,7 +6,7 @@ ownership remain unproven.
 
 ## Source and scope
 
-Execution computer: dotRonin. Checkout: `/home/ironin/wabi`. Base commit:
+Execution computer: dotRonin. Checkout: `/home/operator/wabi`. Base commit:
 `138abe39e08e400188d1812ed3bfd378df435315`; shared branch at verification:
 `codex/security-boundary-hardening-20260930`. Concurrent security and organizer
 edits are present. Base HEAD alone does not identify the tested source.
