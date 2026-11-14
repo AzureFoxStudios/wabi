@@ -18,6 +18,11 @@
       "reason": "Placeholder showing the shape of a MagicDNS name; 'tailnet-name' is literal placeholder text."
     },
     {
+      "path": "docs/deployment/INSTALL.md",
+      "values": ["192.168.1.20"],
+      "reason": "Sample of the server's startup block, which shows this machine's home-network address for other devices; a private LAN address is the point of the example."
+    },
+    {
       "path": "docs/deployment/IPV6-CGNAT-DESIGN.md",
       "values": ["192.168.1.42"],
       "reason": "Generic same-Wi-Fi LAN example; the same value is the LAN fixture in the server's mDNS/LAN code."
