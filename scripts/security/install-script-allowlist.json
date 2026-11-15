@@ -37,13 +37,6 @@
       "script": "install: node install/check.js || npm run build",
       "rationale": "Root-level image tooling (sharp 0.34.5); native libvips binding check/build. Direct dependency, version pinned in package.json.",
       "review": "2026-11-03"
-    },
-    {
-      "lockfile": "sabi/package-lock.json",
-      "path": "node_modules/fsevents",
-      "script": "install: node-gyp rebuild",
-      "rationale": "macOS-only optional dependency in the Sabi subtree; not installed on Linux.",
-      "review": "2026-11-03"
     }
   ]
 }
