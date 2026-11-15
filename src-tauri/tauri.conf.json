@@ -68,5 +68,12 @@
       "appimage": {}
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZBODZGN0RBOTdGRkFDMkUKUldRdXJQK1gydmVHK2daYXk1Qjc5amdGcFo4MWo3MUFlZWVVY0JpeWVVcHlWVXdYREFLZzNVeEkK",
+      "endpoints": [
+        "https://github.com/AzureFoxStudios/wabi/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }
