@@ -446,9 +446,9 @@
 	<div class="notes-workspace" class:narrow class:compact class:centered={ownsHeader} style:--note-list-width={`${sidebarWidth}px`}>
 		{#if !$notebookOwner.owner}
 			<div class="note-blank">
-				<h3 class="note-blank-title">Your personal notebook</h3>
+				<h3 class="note-blank-title">{$_('notebook.blank_title')}</h3>
 				<p class="note-blank-text">{$notebookOwner.error || 'Opening your notebook…'}</p>
-				{#if $notebookOwner.error}<button type="button" class="w-btn" onclick={() => chooseOfflineNotebook().catch(failure => fail(failure, 'A separate offline notebook could not be opened. Nothing was changed.'))}>Use a separate offline notebook</button>{/if}
+				{#if $notebookOwner.error}<button type="button" class="w-btn" onclick={() => chooseOfflineNotebook().catch(failure => fail(failure, $_('notebook.offline_failed')))}>{$_('notebook.use_offline')}</button>{/if}
 				{#if error}<Notice title={error} error={errorDetail} />{/if}
 			</div>
 		{:else}
@@ -459,17 +459,17 @@
 						<Notice tone="warn" title={recoveryDrafts.length === 1 ? 'An unsaved draft is still in this window.' : `${recoveryDrafts.length} unsaved drafts are still in this window.`}>
 							{#snippet actions()}
 								{#each recoveryDrafts as draft}
-									<button type="button" class="w-btn w-btn--sm" onclick={() => recoverDraft(draft)}>Save recovery copy</button>
-									<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => download('unsaved-note.md', draft.downloadText())}>Download draft</button>
+									<button type="button" class="w-btn w-btn--sm" onclick={() => recoverDraft(draft)}>{$_('notebook.save_recovery')}</button>
+									<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => download('unsaved-note.md', draft.downloadText())}>{$_('notebook.download_draft')}</button>
 								{/each}
 							{/snippet}
 						</Notice>
 					{/if}
 					{#each recoveredDrafts as draft}
-						<Notice tone="warn" title={`Recovered unsaved draft: ${draft.title}`}>
+						<Notice tone="warn" title={$_('notebook.recovered_draft', { values: { title: draft.title } })}>
 							{#snippet actions()}
-								<button type="button" class="w-btn w-btn--sm" disabled={busy} onclick={() => recoverStored(draft)}>Save as a new note</button>
-								<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => download('recovered-draft.md', `# ${draft.title}\n\n${draft.text}`)}>Download draft</button>
+								<button type="button" class="w-btn w-btn--sm" disabled={busy} onclick={() => recoverStored(draft)}>{$_('notebook.save_as_new')}</button>
+								<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => download('recovered-draft.md', `# ${draft.title}\n\n${draft.text}`)}>{$_('notebook.download_draft')}</button>
 							{/snippet}
 						</Notice>
 					{/each}
@@ -477,20 +477,20 @@
 			{/if}
 			<div class="notebook-body">
 				{#if !narrow || showList || !editor}
-					<aside class="note-list" aria-label="Notebook">
+					<aside class="note-list" aria-label={$_('notebook.notebook_label')}>
 						{@render listTools()}
-						<div class="note-tabs" role="group" aria-label="Show">
-							<button type="button" class="note-tab" aria-pressed={!trash} onclick={() => { trash = false; }}>Notes</button>
-							<button type="button" class="note-tab" aria-pressed={trash} onclick={() => { trash = true; }}><Icon name="trash" size={14} />Trash</button>
+						<div class="note-tabs" role="group" aria-label={$_('notebook.show_label')}>
+							<button type="button" class="note-tab" aria-pressed={!trash} onclick={() => { trash = false; }}>{$_('notebook.tab_notes')}</button>
+							<button type="button" class="note-tab" aria-pressed={trash} onclick={() => { trash = true; }}><Icon name="trash" size={14} />{$_('notebook.trash')}</button>
 						</div>
 						<div class="note-list-rows">
 							{#if loading}
-								<Skeleton variant="row" rows={3} label="Opening local notes" />
+								<Skeleton variant="row" rows={3} label={$_('notebook.opening_local')} />
 							{:else if !visible.length}
 								<div class="note-list-empty">
 									<p class="note-list-empty-title">{trash ? 'Trash is empty.' : search ? `No notes match “${search.trim()}”.` : 'No notes yet'}</p>
 									{#if !trash && !search}<p class="note-list-empty-text">{emptyMessage} {ownsHeader ? 'Start one with New note.' : 'Start one with the + above.'}</p>{/if}
-									{#if search}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={() => { search = ''; }}>Clear search</button>{/if}
+									{#if search}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={() => { search = ''; }}>{$_('notebook.clear_search')}</button>{/if}
 								</div>
 							{/if}
 							{#each visible as note (note.id)}
@@ -508,23 +508,23 @@
 							{/each}
 						</div>
 						<div class="note-list-foot">
-							<button type="button" class="w-btn w-btn--quiet w-btn--sm note-settings-btn" aria-haspopup="dialog" onclick={() => settingsOpen = true}><Icon name="gear" size={14} />Notes settings</button>
+							<button type="button" class="w-btn w-btn--quiet w-btn--sm note-settings-btn" aria-haspopup="dialog" onclick={() => settingsOpen = true}><Icon name="gear" size={14} />{$_('notebook.notes_settings')}</button>
 						</div>
 					</aside>
 				{/if}
 				{#if !narrow}<!-- Keyboard-adjustable WAI-ARIA window splitter. -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<div class="note-splitter" role="separator" aria-label="Resize note list" aria-orientation="vertical" aria-valuemin={listMin} aria-valuemax={listMax} aria-valuenow={sidebarWidth} tabindex="0" use:splitter></div>{/if}
+				<div class="note-splitter" role="separator" aria-label={$_('notebook.resize_list')} aria-orientation="vertical" aria-valuemin={listMin} aria-valuemax={listMax} aria-valuenow={sidebarWidth} tabindex="0" use:splitter></div>{/if}
 				{#if !narrow || (!showList && editor)}
-					<main class="note-editor" class:ink-open={inkOpen} aria-label="Note editor" aria-busy={opening} inert={opening}>
+					<main class="note-editor" class:ink-open={inkOpen} aria-label={$_('notebook.note_editor')} aria-busy={opening} inert={opening}>
 						{#if editor && $draftStore}
 							<div class="note-tools">
-								{#if narrow}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={() => { showList = true; }}><Icon name="chevLeft" size={14} />All notes</button>{/if}
+								{#if narrow}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={() => { showList = true; }}><Icon name="chevLeft" size={14} />{$_('notebook.all_notes')}</button>{/if}
 								{#if history.length}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={() => { const id = history.at(-1)!; history = history.slice(0, -1); void openNote(id, false); }}><Icon name="arrowLeft" size={14} />Back</button>{/if}
 								<span class="note-tools-gap"></span>
-								<div class="w-seg note-mode" role="group" aria-label="Writing mode">
-									<button type="button" aria-pressed={!reading} disabled={inkOpen} onclick={() => { reading = false; }}>Write</button>
-									<button type="button" aria-pressed={reading} disabled={inkOpen} onclick={() => { reading = true; }}>Read</button>
+								<div class="w-seg note-mode" role="group" aria-label={$_('notebook.writing_mode')}>
+									<button type="button" aria-pressed={!reading} disabled={inkOpen} onclick={() => { reading = false; }}>{$_('notebook.write')}</button>
+									<button type="button" aria-pressed={reading} disabled={inkOpen} onclick={() => { reading = true; }}>{$_('notebook.read')}</button>
 								</div>
 								<Menu class="w-ibtn" label={$_('panels.note_actions')} triggerLabel={$_('panels.note_actions')} heading={$draftStore.title || 'Note'} align="end" items={noteMenu}><Icon name="more" /></Menu>
 							</div>
@@ -532,37 +532,37 @@
 								<div class="note-notices note-notices--editor">
 									<Notice title={draftProblem.title} text={draftProblem.text}>
 										{#snippet actions()}
-											<button type="button" class="w-btn w-btn--sm" disabled={busy} onclick={() => recoverDraft()}>Save recovery copy</button>
-											{#if $draftStore.status === 'failed'}<button type="button" class="w-btn w-btn--sm" onclick={() => editor?.save()}>Retry save</button>{/if}
-											<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={useSavedVersion}>Use saved version</button>
+											<button type="button" class="w-btn w-btn--sm" disabled={busy} onclick={() => recoverDraft()}>{$_('notebook.save_recovery')}</button>
+											{#if $draftStore.status === 'failed'}<button type="button" class="w-btn w-btn--sm" onclick={() => editor?.save()}>{$_('notebook.retry_save')}</button>{/if}
+											<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={useSavedVersion}>{$_('notebook.use_saved_version')}</button>
 										{/snippet}
 									</Notice>
 								</div>
 							{/if}
 							{#if $draftStore.note.trashedAt !== null}
 								<div class="note-notices note-notices--editor">
-									<Notice tone="info" title="This note is in Trash.">
+									<Notice tone="info" title={$_('notebook.in_trash')}>
 										{#snippet actions()}
-											<button type="button" class="w-btn w-btn--sm" onclick={() => changeNote('restore')}>Restore note</button>
-											<button type="button" class="w-btn w-btn--sm w-btn--danger" onclick={() => changeNote('delete')}>Delete permanently</button>
+											<button type="button" class="w-btn w-btn--sm" onclick={() => changeNote('restore')}>{$_('notebook.restore_note')}</button>
+											<button type="button" class="w-btn w-btn--sm w-btn--danger" onclick={() => changeNote('delete')}>{$_('notebook.delete_permanently')}</button>
 										{/snippet}
 									</Notice>
 								</div>
 							{/if}
 							<div class="note-page" bind:clientWidth={pageWidth}>
 								<div class="note-column">
-									<input class="note-heading" bind:this={headingEl} aria-label="Note title" placeholder="Give this note a title" value={$draftStore.title} maxlength="200" disabled={locked} oninput={event => editor?.update({ title: event.currentTarget.value })}/>
+									<input class="note-heading" bind:this={headingEl} aria-label={$_('notebook.note_title')} placeholder={$_('notebook.note_title_placeholder')} value={$draftStore.title} maxlength="200" disabled={locked} oninput={event => editor?.update({ title: event.currentTarget.value })}/>
 									<p class="note-meta">
-										{#if $draftStore.note.pinned}<span class="note-meta-pin"><Icon name="pin" size={12} />Pinned</span><span aria-hidden="true">·</span>{/if}
+										{#if $draftStore.note.pinned}<span class="note-meta-pin"><Icon name="pin" size={12} />{$_('notebook.pinned')}</span><span aria-hidden="true">·</span>{/if}
 										<span>Edited {noteListDate($draftStore.note.updatedAt)}</span>
 									</p>
 									{#if hasDrawing || inkOpen}
 										<div class="note-ink" role="group" aria-label={$_('panels.ink')}>
 											<span class="w-kicker">{$_('panels.ink')}</span>
-											<div class="w-seg" role="group" aria-label="Drawing tools">
-												<button type="button" aria-pressed={inkOpen && inkTool === 'pen'} disabled={locked} onclick={() => openInk('pen')}>Pen</button>
-												<button type="button" aria-pressed={inkOpen && inkTool === 'eraser'} disabled={locked} onclick={() => openInk('eraser')}>Eraser</button>
-												<button type="button" aria-pressed={inkOpen && inkTool === 'line'} disabled={locked} onclick={() => openInk('line')}>Shapes</button>
+											<div class="w-seg" role="group" aria-label={$_('notebook.drawing_tools')}>
+												<button type="button" aria-pressed={inkOpen && inkTool === 'pen'} disabled={locked} onclick={() => openInk('pen')}>{$_('notebook.pen')}</button>
+												<button type="button" aria-pressed={inkOpen && inkTool === 'eraser'} disabled={locked} onclick={() => openInk('eraser')}>{$_('notebook.eraser')}</button>
+												<button type="button" aria-pressed={inkOpen && inkTool === 'line'} disabled={locked} onclick={() => openInk('line')}>{$_('notebook.shapes')}</button>
 											</div>
 										</div>
 									{/if}
@@ -573,10 +573,10 @@
 										{/key}
 									</div>
 									{#if reading}<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-									<article class="note-read w-prose" aria-label="Note reading view" onclick={followRenderedLink}>{@html renderedNote}</article>{/if}
+									<article class="note-read w-prose" aria-label={$_('notebook.reading_view')} onclick={followRenderedLink}>{@html renderedNote}</article>{/if}
 									{#if outgoing.length || incoming.length}
 									<div class="note-links-row">
-										{#if outgoing.length}<span class="note-links-hint">Links</span>{/if}
+										{#if outgoing.length}<span class="note-links-hint">{$_('notebook.links')}</span>{/if}
 										{#each outgoing as link}
 											{@const target = notes.find(note => note.id === link.targetId)}
 											<button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={!target || target.trashedAt !== null} onclick={() => target && openNote(target.id)}>{target?.title || link.normalizedTitle}{!target ? ' · missing' : target.trashedAt !== null ? ' · in Trash' : ''}</button>
@@ -584,7 +584,7 @@
 											{#if !target && link.targetId}{@const replacement = notes.find(note => note.normalizedTitle === link.normalizedTitle && note.trashedAt === null)}{#if replacement}<button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={locked} onclick={() => reconnectLink(link, replacement)}>Reconnect to {replacement.title}</button>{/if}{/if}
 										{/each}
 										{#if incoming.length}
-											<span class="note-links-hint">Linked from</span>
+											<span class="note-links-hint">{$_('notebook.linked_from')}</span>
 											{#each incoming as link}{@const source = notes.find(note => note.id === link.sourceId)}{#if source && source.trashedAt === null}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={() => openNote(source.id)}>{source.title}</button>{/if}{/each}
 										{/if}
 									</div>
@@ -597,8 +597,8 @@
 						{:else}
 							<div class="note-blank note-blank--editor">
 								<Icon name="note" size={28} />
-								<h3 class="note-blank-title">A place to think</h3>
-								<p class="note-blank-text">Open a note from the list, or start a new one with New note.</p>
+								<h3 class="note-blank-title">{$_('notebook.blank_title_think')}</h3>
+								<p class="note-blank-text">{$_('notebook.blank_text')}</p>
 							</div>
 						{/if}
 					</main>
@@ -611,12 +611,12 @@
 
 {#if settingsOpen}
  <div use:portal>
-  <BaseModal isOpen={settingsOpen} title="Notes settings" note="Saved on this device · not shared" size="md" padded overlayZIndex={1700} onClose={closeSettings}>
+  <BaseModal isOpen={settingsOpen} title={$_('notebook.notes_settings')} note={$_('notebook.settings_note')} size="md" padded overlayZIndex={1700} onClose={closeSettings}>
    <div class="notes-settings-body">
-    <p class="notes-settings-lead">Backups include saved notes from this notebook. Export Markdown to use your writing in another notes app.</p>
-    <div class="notebook-transfer"><button type="button" class="w-btn" onclick={() => exportNotebook()}><Icon name="download" size={16} />Back up saved notes</button><button type="button" class="w-btn" onclick={() => exportNotebook(true)}>Export Markdown archive</button></div>
-    <button type="button" class="w-disclosure" aria-expanded={recoverOpen} onclick={() => { recoverOpen = !recoverOpen; }}><Icon name="chevRight" size={16} />Import and recovery</button>
-    {#if recoverOpen}<section class="recovery-panel w-disclosure__body" aria-label="Import and recovery"><h4>Import notes</h4><p>Bring Markdown files from Obsidian or another notes app. This copies saved files; it does not watch or synchronize your vault. Wiki links by title are retained. Images and app plugins are not imported.</p><label class="recovery-file">Markdown files <input type="file" multiple accept=".md,.markdown" onchange={previewMarkdown}/></label><label class="recovery-file">Markdown folder <input type="file" webkitdirectory multiple onchange={previewMarkdown}/></label><h4>Restore a Wabi backup</h4><p>Copies notes into this account’s notebook. Existing notes stay intact. Conversation associations from other notebooks stay detached. Backups contain saved notes; download unsaved drafts separately.</p><label class="recovery-file">Wabi notebook backup <input type="file" accept=".json,application/json" onchange={previewBackup}/></label>{#if backupPreview}<p>{backupPreview.notes.length} notes, including Trash. Conflicting titles receive a suffix.</p><button type="button" class="w-btn w-btn--primary" disabled={busy} onclick={importBackup}>Import into this notebook</button>{/if}{#if legacy.length}<h4>Recover older notes</h4><p>Older storage does not identify its server reliably. Choose a source you own to copy into this account’s local notebook. Conversation notes are recovered without assigning a conversation. Originals stay intact.</p><select class="w-field" aria-label="Older notes source" bind:value={selectedLegacy}><option value="">Choose a source</option>{#each legacy as source}<option value={source.key}>{source.key} · {source.rows.length} notes</option>{/each}</select>{#if legacySelection}<p>{legacySelection.rows.slice(0, 3).map(row => row.title).join(' · ')}</p>{#each legacySelection.issues as issue}<p>{issue}</p>{/each}<div class="notebook-transfer"><button type="button" class="w-btn" onclick={() => download('original-notes.json', legacySelection!.raw, 'application/json')}>Download original</button><button type="button" class="w-btn" disabled={busy || legacySelection.kind === 'profile'} onclick={importSelected}>Copy into this notebook</button></div>{/if}{/if}{#if recoveredMessage}<p role="status">{recoveredMessage}</p>{/if}</section>{/if}
+    <p class="notes-settings-lead">{$_('notebook.settings_lead')}</p>
+    <div class="notebook-transfer"><button type="button" class="w-btn" onclick={() => exportNotebook()}><Icon name="download" size={16} />{$_('notebook.back_up')}</button><button type="button" class="w-btn" onclick={() => exportNotebook(true)}>{$_('notebook.export_archive')}</button></div>
+    <button type="button" class="w-disclosure" aria-expanded={recoverOpen} onclick={() => { recoverOpen = !recoverOpen; }}><Icon name="chevRight" size={16} />{$_('notebook.import_recovery')}</button>
+    {#if recoverOpen}<section class="recovery-panel w-disclosure__body" aria-label={$_('notebook.import_recovery')}><h4>{$_('notebook.import_notes')}</h4><p>{$_('notebook.import_text')}</p><label class="recovery-file">{$_('notebook.markdown_files')} <input type="file" multiple accept=".md,.markdown" onchange={previewMarkdown}/></label><label class="recovery-file">{$_('notebook.markdown_folder')} <input type="file" webkitdirectory multiple onchange={previewMarkdown}/></label><h4>{$_('notebook.restore_backup')}</h4><p>{$_('notebook.restore_backup_text')}</p><label class="recovery-file">{$_('notebook.wabi_backup')} <input type="file" accept=".json,application/json" onchange={previewBackup}/></label>{#if backupPreview}<p>{backupPreview.notes.length} notes, including Trash. Conflicting titles receive a suffix.</p><button type="button" class="w-btn w-btn--primary" disabled={busy} onclick={importBackup}>Import into this notebook</button>{/if}{#if legacy.length}<h4>Recover older notes</h4><p>Older storage does not identify its server reliably. Choose a source you own to copy into this account’s local notebook. Conversation notes are recovered without assigning a conversation. Originals stay intact.</p><select class="w-field" aria-label="Older notes source" bind:value={selectedLegacy}><option value="">Choose a source</option>{#each legacy as source}<option value={source.key}>{source.key} · {source.rows.length} notes</option>{/each}</select>{#if legacySelection}<p>{legacySelection.rows.slice(0, 3).map(row => row.title).join(' · ')}</p>{#each legacySelection.issues as issue}<p>{issue}</p>{/each}<div class="notebook-transfer"><button type="button" class="w-btn" onclick={() => download('original-notes.json', legacySelection!.raw, 'application/json')}>Download original</button><button type="button" class="w-btn" disabled={busy || legacySelection.kind === 'profile'} onclick={importSelected}>Copy into this notebook</button></div>{/if}{/if}{#if recoveredMessage}<p role="status">{recoveredMessage}</p>{/if}</section>{/if}
    </div>
   </BaseModal>
  </div>
