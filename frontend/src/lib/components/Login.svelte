@@ -43,7 +43,8 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let promptReturnDomain: string | null = null;
 	let privateTunnelActive = false;
 	let serverDomain = '';
-	let rememberMe = false;
+	// Staying signed in is what people expect; shared computers can untick it.
+	let rememberMe = true;
 	let showQR = false;
 	let selectedLocale = 'en';
 	let launchPageConfig: LaunchPageConfig | null = null;

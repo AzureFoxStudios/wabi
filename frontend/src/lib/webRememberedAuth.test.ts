@@ -103,6 +103,33 @@ test('a rejected refresh token ends the remembered session everywhere', async ()
 	expect(getRefreshToken(scope)).toBeNull();
 });
 
+test('a tab holding a used refresh token adopts the pair another tab rotated', async () => {
+	login(true, jwt(-600), 'refresh-1');
+	// Another tab refreshed: localStorage moved on, this tab's session copy did not.
+	const rotated = jwt(900);
+	localStorage.setItem(key('wabi_persisted_auth_token:'), rotated);
+	localStorage.setItem(key('wabi_persisted_refresh_token:'), 'refresh-2');
+	const server = stubRefresh(() => new Response('{}', { status: 401 }));
+	try { expect(await tryRefresh(scope)).toBe(true); } finally { server.restore(); }
+	expect(server.calls).toEqual([]);
+	expect(getAuthToken(scope)).toBe(rotated);
+	expect(getRefreshToken(scope)).toBe('refresh-2');
+});
+
+test('an adopted pair that is itself expired is refreshed with the newer token', async () => {
+	login(true, jwt(-600), 'refresh-1');
+	localStorage.setItem(key('wabi_persisted_auth_token:'), jwt(-60));
+	localStorage.setItem(key('wabi_persisted_refresh_token:'), 'refresh-2');
+	const server = stubRefresh(({ refreshToken }) => {
+		expect(refreshToken).toBe('refresh-2');
+		return pair('access-3', 'refresh-3');
+	});
+	try { expect(await tryRefresh(scope)).toBe(true); } finally { server.restore(); }
+	expect(server.calls.length).toBe(1);
+	expect(getAuthToken(scope)).toBe('access-3');
+	expect(getPersistedRefreshToken(scope)).toBe('refresh-3');
+});
+
 test('logout removes the remembered pair', () => {
 	login(true); clearAuthSession(scope); killApp();
 	expect(localStorage.getItem(key('wabi_persisted_auth_token:'))).toBeNull();
