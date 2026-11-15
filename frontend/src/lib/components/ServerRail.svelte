@@ -433,12 +433,12 @@
 
 	{#if !mobile}
 		<div class="rail-foot">
-			<Tooltip text="Admin dashboard" placement={$railSide === 'right' ? 'left' : 'right'}>
+			<Tooltip text={$_('rail.admin_dashboard')} placement={$railSide === 'right' ? 'left' : 'right'}>
 				<button type="button" class="w-ibtn rail-manage" aria-label={$_('rail.admin_dashboard')} on:click={() => centerPanelView.set('admin')}>
 					<Icon name="shield" />
 				</button>
 			</Tooltip>
-			<Tooltip text="Add or switch servers" placement={$railSide === 'right' ? 'left' : 'right'}>
+			<Tooltip text={$_('rail.add_or_switch')} placement={$railSide === 'right' ? 'left' : 'right'}>
 				<button type="button" class="w-ibtn rail-manage" aria-label={$_('rail.add_or_switch')} on:click={() => dispatch('manage')}>
 					<Icon name="plus" />
 				</button>
