@@ -1116,6 +1116,9 @@
   "rail": {
     "servers": "Servidores",
     "add_or_switch": "Añadir o cambiar de servidor",
-    "admin_dashboard": "Panel de administración"
+    "admin_dashboard": "Panel de administración",
+    "saved_servers": "Servidores guardados",
+    "current_server": "servidor actual",
+    "unread": "{count} sin leer"
   }
 }

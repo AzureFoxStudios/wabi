@@ -1116,6 +1116,9 @@
   "rail": {
     "servers": "Servers",
     "add_or_switch": "Add or switch servers",
-    "admin_dashboard": "Admin dashboard"
+    "admin_dashboard": "Admin dashboard",
+    "saved_servers": "Saved servers",
+    "current_server": "current server",
+    "unread": "{count} unread"
   }
 }

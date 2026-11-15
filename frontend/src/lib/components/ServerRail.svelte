@@ -23,7 +23,6 @@
 	import { _ } from '$lib/i18n';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
-	import { serverUnreadLabel } from '$lib/serverSwitcherLabels';
 	import { desktopServerRailWidth } from '$lib/serverSwitcherLayout';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
@@ -116,7 +115,8 @@
 
 	/** The tile's name for tooltips and assistive tech: "Common Ground, current server, 3 unread". */
 	function tileLabel(name: string, active: boolean, unread: number): string {
-		return [name, active ? 'current server' : '', serverUnreadLabel(unread)].filter(Boolean).join(', ');
+		const unreadText = unread > 0 ? $_('rail.unread', { values: { count: Math.floor(unread) } }) : '';
+		return [name, active ? $_('rail.current_server') : '', unreadText].filter(Boolean).join(', ');
 	}
 
 	function toggleFolder(folderId: string): void {
@@ -249,7 +249,7 @@
 	}
 </script>
 
-<aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers" bind:offsetWidth={renderedWidth}>
+<aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label={$_('rail.saved_servers')} bind:offsetWidth={renderedWidth}>
 	<div class="rail-primary" class:mobile>
 		<div class="rail-head">
 			<span class="w-kicker rail-kicker" aria-hidden="true">{$_('rail.servers')}</span>
