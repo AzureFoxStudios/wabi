@@ -18,6 +18,8 @@
 	--w-sans: 'Zen Kaku Gothic New', 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--w-serif: 'Wabi Ellipsis', 'Shippori Mincho', 'Noto Serif Thai', Georgia, serif;
 	--w-lh: 1.7;
+	/* Thai glyphs in mono text (counts, codes) fall back to Noto; the Latin mono face is kept first. */
+	--w-mono: 'IBM Plex Mono', 'Noto Sans Thai', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* Legacy typeface tokens follow the roles, so older components inherit the new faces. */
