@@ -204,6 +204,15 @@ pub extern "system" fn Java_chat_wabi_app_MainActivity_initNdkContext(
     use jni::objects::GlobalRef;
     use std::ffi::c_void;
 
+    // Tauri's window layer (tao) already gives ndk-context the Activity while
+    // `super.onCreate` runs, and ndk-context asserts that it is set only
+    // once. A second call here panicked across the JNI boundary and killed
+    // the app at launch. `android_context` panics when nothing is set, which
+    // is the only way ndk-context exposes that state.
+    if std::panic::catch_unwind(ndk_context::android_context).is_ok() {
+        return;
+    }
+
     static CONTEXT_REF: OnceLock<Option<GlobalRef>> = OnceLock::new();
     CONTEXT_REF.get_or_init(|| match env.new_global_ref(&context) {
         Ok(reference) => {
