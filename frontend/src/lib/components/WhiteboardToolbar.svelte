@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, tick } from 'svelte';
 	import { renderToString } from 'katex';
 	import {
@@ -302,7 +303,7 @@
 	class:open={toolbarOpen}
 	class:pinned={toolbarPinned}
 	role="toolbar"
-	aria-label="Whiteboard tools"
+	aria-label={$_('wb.tools_label')}
 	on:mouseenter={() => (toolbarHover = true)}
 	on:mouseleave={() => (toolbarHover = false)}
 >
@@ -317,7 +318,7 @@
 		</div>
 	{/if}
 	<div class="wb-toolbar-section tools">
-		<span class="wb-toolbar-group-label">Tools</span>
+		<span class="wb-toolbar-group-label">{$_('wb.group_tools')}</span>
 		{#each tools as tool}
 			<button
 				class="wb-tool-btn"
@@ -357,12 +358,12 @@
 	<div class="wb-toolbar-divider"></div>
 
 	<div class="wb-toolbar-section actions">
-		<span class="wb-toolbar-group-label">Edit</span>
+		<span class="wb-toolbar-group-label">{$_('wb.group_edit')}</span>
 		<button
 			class="wb-tool-btn"
 			on:click={() => boardStore.undo()}
 			disabled={readOnly || !$canUndo}
-			title="Undo (Ctrl+Z)"
+			title={$_('wb.undo')}
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 8l-3 3 3 3"/><path d="M2 11h11a4 4 0 000-8H8"/></svg>
 		</button>
@@ -370,7 +371,7 @@
 			class="wb-tool-btn"
 			on:click={() => boardStore.redo()}
 			disabled={readOnly || !$canRedo}
-			title="Redo (Ctrl+Shift+Z)"
+			title={$_('wb.redo')}
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 8l3 3-3 3"/><path d="M18 11H7a4 4 0 010-8h5"/></svg>
 		</button>
@@ -378,14 +379,14 @@
 			class="wb-tool-btn"
 			on:click={() => onImportImages?.()}
 			disabled={readOnly || importDisabled || !onImportImages}
-			title="Add images to the board" aria-label="Add images to the board"
+			title={$_('wb.add_images')} aria-label={$_('wb.add_images')} data-wb-action="add-images"
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
 				<path d="M4 5.5A1.5 1.5 0 015.5 4h9A1.5 1.5 0 0116 5.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 014 14.5z"/>
 				<path d="M7 12l2-2 2 2 2.5-3 1.5 2"/>
 				<circle cx="8" cy="7.5" r="1"/>
 			</svg>
-		<span class="wb-export-label">Image</span></button>
+		<span class="wb-export-label">{$_('wb.export_image')}</span></button>
 	</div>
 
 	<div class="wb-toolbar-divider"></div>
@@ -393,35 +394,35 @@
 	<!-- Align tools (visible when ≥2 elements selected) -->
 	{#if $selection.size >= 2}
 		<div class="wb-toolbar-section aligns">
-			<button class="wb-tool-btn" title="Align left" on:click={() => alignElements('x', 'min')} disabled={readOnly}>
+			<button class="wb-tool-btn" title={$_('wb.align_left')} on:click={() => alignElements('x', 'min')} disabled={readOnly}>
 				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="5" y1="15" x2="15" y2="15"/></svg>
 			</button>
-			<button class="wb-tool-btn" title="Align center" on:click={() => alignElements('x', 'center')} disabled={readOnly}>
+			<button class="wb-tool-btn" title={$_('wb.align_center')} on:click={() => alignElements('x', 'center')} disabled={readOnly}>
 				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="10" y1="4" x2="10" y2="16"/></svg>
 			</button>
-			<button class="wb-tool-btn" title="Align right" on:click={() => alignElements('x', 'max')} disabled={readOnly}>
+			<button class="wb-tool-btn" title={$_('wb.align_right')} on:click={() => alignElements('x', 'max')} disabled={readOnly}>
 				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="15" y1="4" x2="5" y2="16"/></svg>
 			</button>
 			<div class="wb-toolbar-divider-sm"></div>
-			<button class="wb-tool-btn" title="Align top" on:click={() => alignElements('y', 'min')} disabled={readOnly}>
+			<button class="wb-tool-btn" title={$_('wb.align_top')} on:click={() => alignElements('y', 'min')} disabled={readOnly}>
 				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="5" x2="16" y2="5"/></svg>
 			</button>
-			<button class="wb-tool-btn" title="Align middle" on:click={() => alignElements('y', 'center')} disabled={readOnly}>
+			<button class="wb-tool-btn" title={$_('wb.align_middle')} on:click={() => alignElements('y', 'center')} disabled={readOnly}>
 				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="10" x2="16" y2="10"/></svg>
 			</button>
-			<button class="wb-tool-btn" title="Align bottom" on:click={() => alignElements('y', 'max')} disabled={readOnly}>
+			<button class="wb-tool-btn" title={$_('wb.align_bottom')} on:click={() => alignElements('y', 'max')} disabled={readOnly}>
 				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="15" x2="16" y2="5"/></svg>
 			</button>
 		</div>
 	{/if}
 
 	<div class="wb-toolbar-section exports">
-		<span class="wb-toolbar-group-label">File</span>
+		<span class="wb-toolbar-group-label">{$_('wb.group_file')}</span>
 		<button
 			class="wb-tool-btn wb-export-btn"
 			on:click={() => onExportPng?.()}
 			disabled={exportBusy || !onExportPng}
-			title="Export PNG"
+			title={$_('wb.export_png')}
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3v9"/><path d="M6.5 8.5L10 12l3.5-3.5"/><path d="M4 14.5h12"/></svg>
 		</button>
@@ -429,24 +430,24 @@
 			class="wb-tool-btn wb-export-btn"
 			on:click={() => onExportJson?.()}
 			disabled={exportBusy || !onExportJson}
-			title="Download board backup (editable JSON)" aria-label="Download board backup"
+			title={$_('wb.download_backup_title')} aria-label={$_('wb.download_backup')}
 		>
-			<span class="wb-export-label">Backup</span>
+			<span class="wb-export-label">{$_('wb.export_backup')}</span>
 		</button>
 	</div>
 
 	<div class="wb-toolbar-divider"></div>
 
 	<div class="wb-toolbar-section colors">
-		<label class="wb-color-quick" title="Stroke color">
-			<span>Ink</span>
+		<label class="wb-color-quick" title={$_('wb.stroke_color')}>
+			<span>{$_('wb.ink')}</span>
 			<input type="color" value={$currentStyle.strokeColor} on:input={(e) => pickStrokeColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Stroke color" />
 		</label>
-		<label class="wb-color-quick" title="Fill color">
-			<span>Fill</span>
+		<label class="wb-color-quick" title={$_('wb.fill_color')}>
+			<span>{$_('wb.fill')}</span>
 			<input type="color" value={$currentStyle.fillColor === 'transparent' ? '#ffffff' : $currentStyle.fillColor} on:input={(e) => pickFillColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Fill color" />
 		</label>
-		<div class="wb-swatch-row" role="group" aria-label="Ink swatches">
+		<div class="wb-swatch-row" role="group" aria-label={$_('wb.ink_swatches')}>
 			{#each colorSwatches as color}
 				<button type="button" class="wb-color-swatch" class:active={$currentStyle.strokeColor === color} style="--swatch-color: {color}" on:click={() => pickStrokeColor(color)} disabled={readOnly} title={color}></button>
 			{/each}
@@ -457,7 +458,7 @@
 
 	<!-- Canvas background color -->
 			<div class="wb-toolbar-section canvas-bg">
-			<button class="wb-tool-btn" title="Canvas background" on:click={() => canvasBgInput = $boardState.canvasBgColor || ''} disabled={readOnly}>
+			<button class="wb-tool-btn" title={$_('wb.canvas_bg')} on:click={() => canvasBgInput = $boardState.canvasBgColor || ''} disabled={readOnly}>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="14" height="14" rx="2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>
 			</button>
 			<input
@@ -466,9 +467,9 @@
 			value={canvasBgInput}
 			on:input={(e) => setCanvasBgColorInStore((e.currentTarget as HTMLInputElement).value)}
 			disabled={readOnly}
-			title="Canvas background color"
+			title={$_('wb.canvas_bg_color')}
 			/>
-			<button class="wb-tool-btn wb-clear-bg" title="Clear background" on:click={() => setCanvasBgColorInStore('')} disabled={readOnly || !$boardState.canvasBgColor}>
+			<button class="wb-tool-btn wb-clear-bg" title={$_('wb.clear_bg')} on:click={() => setCanvasBgColorInStore('')} disabled={readOnly || !$boardState.canvasBgColor}>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 5l10 10M15 5L5 15" stroke-linecap="round"/></svg>
 			</button>
 			</div>
@@ -477,9 +478,9 @@
 
 			{#if $activeTool === 'pen'}
 		<div class="wb-brush-settings">
-			<span class="wb-toolbar-group-label">Brush</span>
+			<span class="wb-toolbar-group-label">{$_('wb.group_brush')}</span>
 			<label class="wb-brush-control">
-				<span class="wb-brush-label">Size</span>
+				<span class="wb-brush-label">{$_('wb.size')}</span>
 				<span class="wb-brush-row">
 					<input
 						type="range"
@@ -490,13 +491,13 @@
 						on:input={(e) => setWidth(Number((e.currentTarget as HTMLInputElement).value))}
 						class="wb-brush-slider"
 						disabled={readOnly}
-						aria-label="Brush size"
+						aria-label={$_('wb.brush_size')}
 					/>
 					<span class="wb-brush-value">{$currentStyle.strokeWidth}px</span>
 				</span>
 			</label>
 			<label class="wb-brush-control">
-				<span class="wb-brush-label">Hardness</span>
+				<span class="wb-brush-label">{$_('wb.hardness')}</span>
 				<span class="wb-brush-row">
 					<input
 						type="range"
@@ -507,13 +508,13 @@
 						on:input={(e) => setHardness(Number((e.currentTarget as HTMLInputElement).value))}
 						class="wb-brush-slider"
 						disabled={readOnly}
-						aria-label="Brush hardness"
+						aria-label={$_('wb.brush_hardness')}
 					/>
 					<span class="wb-brush-value">{Math.round(($currentStyle.hardness ?? 1) * 100)}%</span>
 				</span>
 			</label>
 			<label class="wb-brush-control">
-				<span class="wb-brush-label">Opacity</span>
+				<span class="wb-brush-label">{$_('wb.opacity')}</span>
 				<span class="wb-brush-row">
 					<input
 						type="range"
@@ -524,7 +525,7 @@
 						on:input={(e) => setOpacity(Number((e.currentTarget as HTMLInputElement).value))}
 						class="wb-brush-slider"
 						disabled={readOnly}
-						aria-label="Brush opacity"
+						aria-label={$_('wb.brush_opacity')}
 					/>
 					<span class="wb-brush-value">{Math.round(($currentStyle.opacity ?? 1) * 100)}%</span>
 				</span>
@@ -532,7 +533,7 @@
 
 			{#if $activeTool === 'pen' || $activeTool === 'line' || $activeTool === 'arrow'}
 				<label class="wb-brush-control">
-					<span class="wb-brush-label">Dash</span>
+					<span class="wb-brush-label">{$_('wb.dash')}</span>
 					<span class="wb-brush-row">
 						<select
 							class="wb-brush-select"
@@ -542,11 +543,11 @@
 								setStrokeDash(v === 'none' ? undefined : v === 'dashed' ? [8, 4] : v === 'dotted' ? [2, 4] : undefined);
 							}}
 							disabled={readOnly}
-							aria-label="Stroke dash style"
+							aria-label={$_('wb.stroke_dash_style')}
 						>
-							<option value="none">Solid</option>
-							<option value="dashed">Dashed</option>
-							<option value="dotted">Dotted</option>
+							<option value="none">{$_('wb.dash_solid')}</option>
+							<option value="dashed">{$_('wb.dash_dashed')}</option>
+							<option value="dotted">{$_('wb.dash_dotted')}</option>
 						</select>
 					</span>
 				</label>
@@ -571,7 +572,7 @@
 	{#if $activeTool === 'rect'}
 		<div class="wb-toolbar-section context-settings">
 			<label class="wb-brush-control">
-				<span class="wb-brush-label">Radius</span>
+				<span class="wb-brush-label">{$_('wb.radius')}</span>
 				<span class="wb-brush-row">
 					<input type="range" min="0" max="120" step="1" value={$currentStyle.borderRadius ?? 0} on:input={(e) => boardStore.setStyle({ borderRadius: Number((e.currentTarget as HTMLInputElement).value) })} class="wb-brush-slider" disabled={readOnly} aria-label="Corner radius" />
 					<span class="wb-brush-value">{$currentStyle.borderRadius ?? 0}px</span>
@@ -583,7 +584,7 @@
 	{#if $activeTool === 'text'}
 		<div class="wb-toolbar-section context-settings">
 			<label class="wb-brush-control">
-				<span class="wb-brush-label">Text size</span>
+				<span class="wb-brush-label">{$_('wb.text_size')}</span>
 				<span class="wb-brush-row">
 					<input type="range" min="8" max="120" step="1" value={fontSizeInput} on:input={(e) => setFontSize(Number((e.currentTarget as HTMLInputElement).value))} class="wb-brush-slider" disabled={readOnly} aria-label="Text size" />
 					<span class="wb-brush-value">{fontSizeInput}px</span>
@@ -595,27 +596,27 @@
 	{#if fontPickerVisible}
 		<div class="wb-toolbar-section context-settings">
 			<label class="wb-brush-control">
-				<span class="wb-brush-label">Font</span>
+				<span class="wb-brush-label">{$_('wb.font')}</span>
 				<span class="wb-brush-row">
 					<select
 						class="wb-brush-select"
 						value={fontSelectValue}
 						on:change={(e) => applyFontChoice((e.currentTarget as HTMLSelectElement).value)}
 						disabled={readOnly}
-						aria-label="Font family"
+						aria-label={$_('wb.font_family')}
 					>
 						{#each BUILT_IN_FONTS as font (font.css)}
 							<option value={`builtin:${font.css}`}>{font.label}</option>
 						{/each}
 						{#if boardFonts.length > 0}
-							<optgroup label="Board fonts">
+							<optgroup label={$_('wb.board_fonts')}>
 								{#each boardFonts as font (font.fontId)}
 									<option value={`custom:${font.fontId}`}>{font.family}</option>
 								{/each}
 							</optgroup>
 						{/if}
 						{#if boardId && !readOnly}
-							<option value="__add__">+ Add font…</option>
+							<option value="__add__">{$_('wb.add_font')}</option>
 						{/if}
 					</select>
 					<input
@@ -624,9 +625,9 @@
 						bind:this={fontUploadInput}
 						on:change={handleFontUpload}
 						class="wb-font-upload-input"
-						aria-label="Upload font file"
+						aria-label={$_('wb.upload_font')}
 					/>
-					{#if fontUploadBusy}<span class="wb-brush-value">Uploading…</span>{/if}
+					{#if fontUploadBusy}<span class="wb-brush-value">{$_('wb.uploading')}</span>{/if}
 					{#if fontError}<span class="wb-brush-value wb-font-error" role="alert">{fontError}</span>{/if}
 				</span>
 			</label>
@@ -651,12 +652,12 @@
 </div>
 
 {#if mathEditorOpen}
-	<div class="wb-math-overlay" role="dialog" aria-modal="true" aria-label="Insert math" tabindex="-1">
-		<button class="wb-math-backdrop" aria-label="Cancel math insertion" on:click={closeMath}></button>
+	<div class="wb-math-overlay" role="dialog" aria-modal="true" aria-label={$_('wb.insert_math')} tabindex="-1">
+		<button class="wb-math-backdrop" aria-label={$_('wb.cancel_math')} on:click={closeMath}></button>
 		<div class="wb-math-popover">
 			<div class="wb-math-header">
-				<span class="wb-math-title">Insert math</span>
-				<button class="wb-math-close" on:click={closeMath} aria-label="Close math editor">×</button>
+				<span class="wb-math-title">{$_('wb.insert_math')}</span>
+				<button class="wb-math-close" on:click={closeMath} aria-label={$_('wb.close_math')}>×</button>
 			</div>
 			<input
 				class="wb-math-input"
@@ -664,18 +665,18 @@
 				bind:this={mathInputEl}
 				bind:value={latexDraft}
 				on:keydown={handleMathKeydown}
-				aria-label="LaTeX expression"
+				aria-label={$_('wb.latex_expression')}
 			/>
 			<div class="wb-math-preview">
 				{#if mathPreviewHtml}
 					{@html mathPreviewHtml}
 				{:else}
-					<span class="wb-math-preview-empty">Preview appears here</span>
+					<span class="wb-math-preview-empty">{$_('wb.math_preview_empty')}</span>
 				{/if}
 			</div>
 			<div class="wb-math-actions">
-				<button class="wb-math-btn wb-math-cancel" on:click={closeMath}>Cancel</button>
-				<button class="wb-math-btn wb-math-commit" on:click={commitMath} disabled={!latexDraft.trim()}>Commit</button>
+				<button class="wb-math-btn wb-math-cancel" on:click={closeMath}>{$_('common.cancel')}</button>
+				<button class="wb-math-btn wb-math-commit" on:click={commitMath} disabled={!latexDraft.trim()}>{$_('wb.commit')}</button>
 			</div>
 		</div>
 	</div>
@@ -1292,5 +1293,5 @@
  .wb-width-btn { color: var(--text-heading); }
  .wb-tool-btn:focus-visible, .wb-width-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
- .wb-tool-btn[aria-label="Add images to the board"] { width: auto; padding-inline: 10px; gap: 6px; }
+ .wb-tool-btn[data-wb-action="add-images"] { width: auto; padding-inline: 10px; gap: 6px; }
 </style>
