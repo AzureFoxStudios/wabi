@@ -1,5 +1,9 @@
-//! Desktop shell. Closing minimizes; only explicit Quit drains owned services.
-use std::sync::Mutex;
+//! Desktop shell. Closing keeps Wabi running in the background unless the
+//! person chose "quit when closed"; Quit always drains owned services.
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -13,7 +17,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let about = PredefinedMenuItem::about(app, Some("About Wabi"), Some(AboutMetadata {
         name: Some(app.package_info().name.clone()),
         version: Some(app.package_info().version.to_string()),
-        comments: Some("Close minimizes Wabi and keeps calls, transfers and hosted communities running. Quit stops this application and its owned services.".into()),
+        comments: Some("Closing the window keeps calls, transfers and hosted communities running unless you choose to quit when it is closed. Quit stops this application and its owned services.".into()),
         ..Default::default()
     }))?;
     let logs = MenuItem::with_id(app, "logs", "Open Logs Folder", true, None::<&str>)?;
@@ -92,7 +96,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let hide = MenuItem::with_id(app, "hide", "Hide to Tray", true, None::<&str>)?;
     let tray_menu = Menu::with_items(app, &[&show, &hide, &settings, &quit])?;
     let mut tray = TrayIconBuilder::with_id("wabi")
-        .tooltip("Wabi — Close minimizes; Quit stops Wabi")
+        .tooltip("Wabi — Quit stops Wabi")
         .menu(&tray_menu)
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
@@ -110,16 +114,38 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     }
     // GNOME and other Linux sessions may not provide an indicator host.
     // Menus, taskbar restore and second-launch restore must work without it.
-    if let Err(error) = tray.build(app) {
-        log::warn!("System tray unavailable: {error}");
-    }
+    let tray_available = match tray.build(app) {
+        Ok(_) => true,
+        Err(error) => {
+            log::warn!("System tray unavailable: {error}");
+            false
+        }
+    };
+    app.manage(CloseBehavior {
+        quit_on_close: AtomicBool::new(load_quit_on_close(app.handle())),
+        tray_available,
+    });
     if let Some(window) = app.get_webview_window("main") {
         let handle = window.clone();
+        let app_handle = app.handle().clone();
+        // The title bar X, Alt+F4 and the taskbar's Close all arrive as this
+        // one event, so the choice has to be a setting.
         window.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                if let Err(error) = handle.minimize() {
-                    log::warn!("Could not minimize Wabi: {error}");
+                let behavior = app_handle.state::<CloseBehavior>();
+                if behavior.quit_on_close.load(Ordering::Relaxed) {
+                    app_handle.exit(0);
+                    return;
+                }
+                // Without a tray there is nothing to restore a hidden window from.
+                let result = if behavior.tray_available {
+                    handle.hide()
+                } else {
+                    handle.minimize()
+                };
+                if let Err(error) = result {
+                    log::warn!("Could not send Wabi to the background: {error}");
                 }
             }
         });
@@ -128,6 +154,44 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub struct DesktopShellState(Mutex<f64>);
+
+/// What closing the main window does. The choice is kept in the app config
+/// directory so it survives restarts.
+pub struct CloseBehavior {
+    quit_on_close: AtomicBool,
+    tray_available: bool,
+}
+
+fn close_behavior_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("close-behavior"))
+}
+
+fn load_quit_on_close(app: &tauri::AppHandle) -> bool {
+    close_behavior_path(app)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .is_some_and(|saved| saved.trim() == "quit")
+}
+
+pub fn quit_on_close(app: &tauri::AppHandle) -> bool {
+    app.state::<CloseBehavior>()
+        .quit_on_close
+        .load(Ordering::Relaxed)
+}
+
+pub fn set_quit_on_close(app: &tauri::AppHandle, quit: bool) -> Result<(), String> {
+    let path = close_behavior_path(app).ok_or("App config folder unavailable")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, if quit { "quit" } else { "background" }).map_err(|e| e.to_string())?;
+    app.state::<CloseBehavior>()
+        .quit_on_close
+        .store(quit, Ordering::Relaxed);
+    Ok(())
+}
 
 // Both the tray/native menu and custom titlebar use the same lifecycle actions.
 pub fn perform_action(app: &tauri::AppHandle, action: &str) -> Result<f64, String> {
@@ -143,7 +207,7 @@ pub fn perform_action(app: &tauri::AppHandle, action: &str) -> Result<f64, Strin
             window.eval("if (document.querySelector('.app-container')) { window.dispatchEvent(new CustomEvent('wabi:open-settings')); } else { alert('Open a community and sign in to access Settings.'); }").map_err(|e| e.to_string())?;
         }
         "about" => {
-            app.dialog().message(format!("Wabi {}\nA place for your people.\n\nClose keeps Wabi running in the background. Choose Quit Wabi to stop the app and its hosted community.", app.package_info().version)).title("About Wabi").show(|_| {});
+            app.dialog().message(format!("Wabi {}\nA place for your people.\n\nClosing the window keeps Wabi running in the background unless you choose to quit when it is closed. Choose Quit Wabi to stop the app and its hosted community.", app.package_info().version)).title("About Wabi").show(|_| {});
         }
         "logs" => {
             let path = app.path().app_log_dir().map_err(|e| e.to_string())?;
