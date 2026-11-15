@@ -91,6 +91,9 @@ struct ListAlbumsQuery {
     limit: u32,
 }
 
+/// Each listed album costs one item lookup, so a caller cannot ask for more.
+const MAX_ALBUM_LIST_LIMIT: u32 = 500;
+
 fn default_limit() -> u32 {
     100
 }
@@ -145,7 +148,7 @@ async fn list_albums(
         .await?;
     let mut albums: Vec<wabidb::domain::Album> = albums;
     albums.sort_by(|a, b| b.updated_at_micros.cmp(&a.updated_at_micros));
-    albums.truncate(query.limit as usize);
+    albums.truncate(query.limit.min(MAX_ALBUM_LIST_LIMIT) as usize);
     let mut result: Vec<Value> = Vec::with_capacity(albums.len());
     for album in &albums {
         let items = state.wdb.list_items(&album.album_id).await?;
