@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { channels, currentUser, users, serverMembers } from '$lib/socket';
@@ -319,9 +320,9 @@
 			<span class="whiteboard-channel-pill">{channelLabel}</span>
 			<span class="whiteboard-activity-pill">{presence.length} Active</span>
 			{#if !syncReady && !desktopRequired}
-				<span class="whiteboard-connecting-pill" aria-live="polite">Joining board...</span>
+				<span class="whiteboard-connecting-pill" aria-live="polite">{$_('wb.joining')}</span>
 			{/if}
-			<div class="whiteboard-jam-strip" aria-label="People on this board">
+			<div class="whiteboard-jam-strip" aria-label={$_('wb.people_on_board')}>
 				<div class="jam-avatars">
 					{#each boardVisibleParticipants as person (person.userId)}
 						<span
@@ -344,30 +345,30 @@
 					class="whiteboard-settings-btn"
 					class:active={boardSettingsOpen}
 					onclick={() => (boardSettingsOpen = !boardSettingsOpen)}
-					aria-label="Board settings"
+					aria-label={$_('wb.board_settings')}
 					aria-expanded={boardSettingsOpen}
 					aria-haspopup="dialog"
-					title="Board settings"
+					title={$_('wb.board_settings')}
 				>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
 				</button>
 			{/if}
-			<details class="paper-settings"><summary>Paper</summary><div>
-				<small>Appearance for your view</small>
-				<label>Background<select aria-label="Paper background" bind:value={paperColor}><option value="">Board default</option><option value="#ffffff">White</option><option value="#e5e7eb">Gray</option><option value="#172326">Dark</option><option value="#fff8e7">Cream</option><option value="#fce7f3">Blush</option></select></label><label>Custom background<input type="color" aria-label="Custom paper color" value={paperColor || '#ffffff'} oninput={event => paperColor = event.currentTarget.value} /></label>
-				<label>Pattern<select aria-label="Paper pattern" bind:value={paperPattern}><option value="grid">Grid</option><option value="dots">Dots</option><option value="lines">Ruled lines</option><option value="none">None</option></select></label>
-				<label>Guide spacing · {paperSpacing}px<input aria-label="Guide spacing" type="range" min="8" max="120" step="4" bind:value={paperSpacing}/></label><label>Guide color<input aria-label="Guide color" type="color" bind:value={paperGuideColor}/></label><label>Guide opacity · {Math.round(paperGuideOpacity * 100)}%<input aria-label="Guide opacity" type="range" min="0" max="1" step="0.05" bind:value={paperGuideOpacity}/></label>
+			<details class="paper-settings"><summary>{$_('wb.paper')}</summary><div>
+				<small>{$_('wb.paper_hint')}</small>
+				<label>{$_('wb.background')}<select aria-label={$_('wb.paper_background')} bind:value={paperColor}><option value="">{$_('wb.board_default')}</option><option value="#ffffff">{$_('wb.color_white')}</option><option value="#e5e7eb">{$_('wb.color_gray')}</option><option value="#172326">{$_('wb.color_dark')}</option><option value="#fff8e7">{$_('wb.color_cream')}</option><option value="#fce7f3">{$_('wb.color_blush')}</option></select></label><label>{$_('wb.custom_background')}<input type="color" aria-label={$_('wb.custom_paper_color')} value={paperColor || '#ffffff'} oninput={event => paperColor = event.currentTarget.value} /></label>
+				<label>{$_('wb.pattern')}<select aria-label={$_('wb.paper_pattern')} bind:value={paperPattern}><option value="grid">{$_('wb.pattern_grid')}</option><option value="dots">{$_('wb.pattern_dots')}</option><option value="lines">{$_('wb.pattern_lines')}</option><option value="none">{$_('wb.pattern_none')}</option></select></label>
+				<label>{$_('wb.guide_spacing', { values: { px: paperSpacing } })}<input aria-label={$_('wb.guide_spacing_aria')} type="range" min="8" max="120" step="4" bind:value={paperSpacing}/></label><label>{$_('wb.guide_color')}<input aria-label={$_('wb.guide_color')} type="color" bind:value={paperGuideColor}/></label><label>{$_('wb.guide_opacity', { values: { pct: Math.round(paperGuideOpacity * 100) } })}<input aria-label={$_('wb.guide_opacity_aria')} type="range" min="0" max="1" step="0.05" bind:value={paperGuideOpacity}/></label>
 			</div></details>
 			<button type="button" class="whiteboard-grid-toggle" onclick={toggleFullscreen}>{fullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
 			{#if selectedStrokeCount > 0 && !desktopRequired && !readOnly}
 				<button
 					type="button"
 					class="whiteboard-recognize-btn"
-					title="Recognize the selected strokes as a math formula"
+					title={$_('wb.recognize_math_tip')}
 					onclick={handleRecognizeMath}
 				>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8V5H6l6 7-6 7h12v-3"/></svg>
-					<span>Recognize as math</span>
+					<span>{$_('wb.recognize_math')}</span>
 				</button>
 			{/if}
 		</div>
@@ -376,7 +377,7 @@
 	{#if (errorMessage || syncErrorToShow) && !desktopRequired}
 		<div class="whiteboard-banner error">
 			<span>{errorMessage || syncErrorToShow}</span>
-			{#if errorMessage}<button type="button" class="banner-dismiss" onclick={() => { errorMessage = ''; if (errorTimer) { clearTimeout(errorTimer); errorTimer = null; } }} aria-label="Dismiss error">×</button>{/if}
+			{#if errorMessage}<button type="button" class="banner-dismiss" onclick={() => { errorMessage = ''; if (errorTimer) { clearTimeout(errorTimer); errorTimer = null; } }} aria-label={$_('wb.dismiss_error')}>×</button>{/if}
 		</div>
 	{/if}
 
@@ -387,11 +388,11 @@
 					<div class="whiteboard-desktop-gate-icon">
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/><path d="M12 14v2"/></svg>
 					</div>
-					<h3 class="whiteboard-desktop-gate-title">This board is desktop-only</h3>
+					<h3 class="whiteboard-desktop-gate-title">{$_('wb.desktop_only_title')}</h3>
 					<p class="whiteboard-desktop-gate-body">
 						This whiteboard is restricted to the Wabi desktop app. Open Wabi on your computer to view and edit it.
 					</p>
-					<p class="whiteboard-desktop-gate-note">Web viewing has been disabled by the board owner.</p>
+					<p class="whiteboard-desktop-gate-note">{$_('wb.desktop_only_note')}</p>
 				</div>
 			</div>
 		{:else}
@@ -399,7 +400,7 @@
 				{#if readOnly}
 					<div class="whiteboard-banner read-only" role="status" aria-live="polite">
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
-						<span>View-only — desktop app required to edit this board</span>
+						<span>{$_('wb.view_only')}</span>
 					</div>
 				{/if}
 				<WhiteboardCanvas
@@ -433,8 +434,8 @@
 					<circle cx="36" cy="12" r="3" fill="currentColor" stroke="none"/>
 				</svg>
 			</div>
-			<h3 class="whiteboard-empty-title">No Channel Selected</h3>
-			<p class="whiteboard-empty-desc">Open a channel and switch to its whiteboard tab to start drawing together.</p>
+			<h3 class="whiteboard-empty-title">{$_('wb.no_channel_title')}</h3>
+			<p class="whiteboard-empty-desc">{$_('wb.no_channel_desc')}</p>
 		</div>
 	{/if}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import WhiteboardLayerThumbnail from './WhiteboardLayerThumbnail.svelte';
 	import { boardStore, layers, selection, activeLayerId } from '$lib/whiteboard/boardStore';
 	import { sortWhiteboardLayers, WHITEBOARD_BLEND_MODES, blendModeLabel } from '$lib/whiteboard/layers';
@@ -93,48 +94,48 @@
 	}
 </script>
 
-<div class="layer-panel" aria-label="Whiteboard layers">
+<div class="layer-panel" aria-label={$_('wb.layers_label')}>
 	<header class="layer-panel-header">
 		<div>
-			<div class="layer-panel-title">Layers</div>
+			<div class="layer-panel-title">{$_('wb.layers')}</div>
 			<div class="layer-panel-subtitle">{stackLayers.length} {stackLayers.length === 1 ? 'layer' : 'layers'}</div>
 		</div>
-		<div class="layer-add-actions" role="group" aria-label="Add layer">
-			<button type="button" class="layer-add-seg" on:click={() => createLayer('vector')}>+ Vector</button>
-			<button type="button" class="layer-add-seg raster" on:click={() => createLayer('raster')}>+ Paint</button>
+		<div class="layer-add-actions" role="group" aria-label={$_('wb.add_layer')}>
+			<button type="button" class="layer-add-seg" on:click={() => createLayer('vector')}>{$_('wb.add_vector')}</button>
+			<button type="button" class="layer-add-seg raster" on:click={() => createLayer('raster')}>{$_('wb.add_paint')}</button>
 		</div>
 	</header>
 
 	{#if activeLayer}
-		<section class="layer-inspector" aria-label="Selected layer">
+		<section class="layer-inspector" aria-label={$_('wb.selected_layer')}>
 			<div class="inspector-topline">
 				<span class="inspector-name">{activeLayer.name}</span>
 				<span class="inspector-kind">{activeLayer.mode === 'raster' ? 'Paint' : 'Vector'}</span>
 			</div>
 			<label class="inspector-row">
-				<span>Opacity</span>
+				<span>{$_('wb.opacity')}</span>
 				<input type="range" min="0" max="1" step="0.01" value={activeLayer.opacity} on:input={(e) => setLayerOpacity(activeLayer.id, Number((e.currentTarget as HTMLInputElement).value))} />
-				<input class="opacity-number" aria-label="Layer opacity percent" type="number" min="0" max="100" step="1" value={Math.round(activeLayer.opacity * 100)} on:change={(e) => { const value = (e.currentTarget as HTMLInputElement).valueAsNumber; if (Number.isFinite(value)) setLayerOpacity(activeLayer.id, Math.max(0, Math.min(100, value)) / 100); }} /><span>%</span>
+				<input class="opacity-number" aria-label={$_('wb.layer_opacity_percent')} type="number" min="0" max="100" step="1" value={Math.round(activeLayer.opacity * 100)} on:change={(e) => { const value = (e.currentTarget as HTMLInputElement).valueAsNumber; if (Number.isFinite(value)) setLayerOpacity(activeLayer.id, Math.max(0, Math.min(100, value)) / 100); }} /><span>%</span>
 			</label>
 			<label class="inspector-row">
-				<span>Blend</span>
+				<span>{$_('wb.blend')}</span>
 				<select value={activeLayer.blendMode || 'source-over'} on:change={(e) => setLayerBlendMode(activeLayer.id, (e.currentTarget as HTMLSelectElement).value)}>
 					{#each WHITEBOARD_BLEND_MODES as mode}
 						<option value={mode}>{blendModeLabel(mode)}</option>
 					{/each}
 				</select>
 			</label>
-			<div class="layer-locks" role="group" aria-label="Layer editing locks">
-                <button type="button" aria-pressed={!!activeLayer.lockPosition} on:click={() => boardStore.updateLayer(activeLayer.id, { lockPosition: !activeLayer.lockPosition })} title="Keep objects in place; prevent move, resize and rotation">Position</button>
-                <button type="button" aria-pressed={!!activeLayer.lockPixels} on:click={() => boardStore.updateLayer(activeLayer.id, { lockPixels: !activeLayer.lockPixels })} title="Prevent painting, erasing and changing content">Content</button>
-                {#if activeLayer.mode === 'raster'}<button type="button" aria-pressed={!!activeLayer.lockAlpha} on:click={() => boardStore.updateLayer(activeLayer.id, { lockAlpha: !activeLayer.lockAlpha })} title="Paint inside existing pixels and preserve transparency">Transparency</button>{/if}
+			<div class="layer-locks" role="group" aria-label={$_('wb.layer_locks')}>
+                <button type="button" aria-pressed={!!activeLayer.lockPosition} on:click={() => boardStore.updateLayer(activeLayer.id, { lockPosition: !activeLayer.lockPosition })} title={$_('wb.lock_position_tip')}>{$_('wb.lock_position')}</button>
+                <button type="button" aria-pressed={!!activeLayer.lockPixels} on:click={() => boardStore.updateLayer(activeLayer.id, { lockPixels: !activeLayer.lockPixels })} title={$_('wb.lock_content_tip')}>{$_('wb.lock_content')}</button>
+                {#if activeLayer.mode === 'raster'}<button type="button" aria-pressed={!!activeLayer.lockAlpha} on:click={() => boardStore.updateLayer(activeLayer.id, { lockAlpha: !activeLayer.lockAlpha })} title={$_('wb.lock_transparency_tip')}>{$_('wb.lock_transparency')}</button>{/if}
             </div>
 			<div class="inspector-actions">
 				<button type="button" class:active={activeLayer.locked} aria-pressed={activeLayer.locked} on:click={() => toggleLayerLocked(activeLayer.id, !activeLayer.locked)}>{activeLayer.locked ? 'Unlock layer' : 'Lock layer'}</button>
-				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'up')} title="Bring forward">↑</button>
-				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'down')} title="Send backward">↓</button>
-				{#if selectedCount > 0}<button type="button" on:click={() => assignSelection(activeLayer.id)} title={`Move ${selectedCount} selected objects to ${activeLayer.name}`}>Move selection here</button>{/if}
-				<button type="button" class="danger" on:click={() => deleteLayer(activeLayer.id)} disabled={stackLayers.length <= 1} title="Delete layer">Delete</button>
+				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'up')} title={$_('wb.bring_forward')}>↑</button>
+				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'down')} title={$_('wb.send_backward')}>↓</button>
+				{#if selectedCount > 0}<button type="button" on:click={() => assignSelection(activeLayer.id)} title={$_('wb.move_selection_tip', { values: { count: selectedCount, layer: activeLayer.name } })}>{$_('wb.move_selection_here')}</button>{/if}
+				<button type="button" class="danger" on:click={() => deleteLayer(activeLayer.id)} disabled={stackLayers.length <= 1} title={$_('wb.delete_layer')}>{$_('wb.delete')}</button>
 			</div>
 		</section>
 	{/if}
@@ -166,7 +167,7 @@
 						}}
 					/>
 				{:else}
-					<button type="button" class="layer-name-btn" title="Double-click to rename" on:click={() => selectLayer(layer.id)} on:dblclick={() => startRename(layer)}>
+					<button type="button" class="layer-name-btn" title={$_('wb.double_click_rename')} on:click={() => selectLayer(layer.id)} on:dblclick={() => startRename(layer)}>
 						{layer.name}
 					</button>
 				{/if}

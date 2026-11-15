@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { roleDefinitions } from '$lib/presenceStore';
 	import BaseModal from './BaseModal.svelte';
 	import { portal } from '$lib/actions/portal';
@@ -44,11 +45,11 @@
 
 {#if open}
  <div use:portal={(document.fullscreenElement as HTMLElement) || document.body}>
- <BaseModal isOpen={open} title="Board settings" {onClose} width="440px" overlayZIndex={1700}>
+ <BaseModal isOpen={open} title={$_('wb.board_settings')} {onClose} width="440px" overlayZIndex={1700}>
  <div class="board-settings-body">
 		<div class="wb-settings-section">
-			<span class="wb-settings-label">Client preference for viewing</span>
-			<div class="wb-settings-segmented" role="radiogroup" aria-label="Board access">
+			<span class="wb-settings-label">{$_('wb.pref_viewing')}</span>
+			<div class="wb-settings-segmented" role="radiogroup" aria-label={$_('wb.board_access')}>
 				<button
 					type="button"
 					class:active={draftAccess === 'open'}
@@ -78,8 +79,8 @@
 		</div>
 
 		<div class="wb-settings-section">
-			<span class="wb-settings-label">Client preference for drawing</span>
-			<div class="wb-settings-segmented" role="radiogroup" aria-label="Devices that can draw">
+			<span class="wb-settings-label">{$_('wb.pref_drawing')}</span>
+			<div class="wb-settings-segmented" role="radiogroup" aria-label={$_('wb.devices_can_draw')}>
 				<button
 					type="button"
 					class:active={draftWriteAccess === 'anyone'}
@@ -108,22 +109,22 @@
 			</span>
 		</div>
 
-		<div class="wb-settings-section"><label class="wb-settings-label" for="board-draw-role">Who can draw <span tabindex="0" class="policy-help" aria-label="About drawing permissions" title="Channel permissions control who can open this board. Drawing is checked against current server roles. Only the server owner can change this policy. Device preferences are not a security boundary.">ⓘ</span></label><select id="board-draw-role" bind:value={draftDrawRole}><option value="participants">Everyone with channel access</option><option value="moderators">Moderators, admins and owner</option><option value="admins">Admins and owner</option><option value="owner">Owner only</option><option value="custom">Selected roles</option></select><p class="wb-settings-description">Everyone with channel access can view. Drawing uses each person's current server role.</p></div>
+		<div class="wb-settings-section"><label class="wb-settings-label" for="board-draw-role">{$_('wb.who_can_draw')} <span tabindex="0" class="policy-help" aria-label={$_('wb.draw_permissions_help')} title={$_('wb.draw_permissions_tip')}>ⓘ</span></label><select id="board-draw-role" bind:value={draftDrawRole}><option value="participants">Everyone with channel access</option><option value="moderators">Moderators, admins and owner</option><option value="admins">Admins and owner</option><option value="owner">Owner only</option><option value="custom">Selected roles</option></select><p class="wb-settings-description">Everyone with channel access can view. Drawing uses each person's current server role.</p></div>
         {#if draftDrawRole === 'custom'}
          <div class="custom-roles">
-          <input type="search" aria-label="Search drawing roles" placeholder="Search server roles" bind:value={roleSearch} />
+          <input type="search" aria-label={$_('wb.search_roles')} placeholder={$_('wb.search_server_roles')} bind:value={roleSearch} />
           <div class="role-inventory">
            {#each filteredRoles as role (role.roleName)}<label><input type="checkbox" checked={draftRoles.includes(role.roleName)} on:change={(event) => { draftRoles = event.currentTarget.checked ? [...new Set([...draftRoles,role.roleName])] : draftRoles.filter(name => name !== role.roleName); }} />{role.displayName}</label>{/each}
-           {#if !filteredRoles.length}<p>No matching assignable roles.</p>{/if}
+           {#if !filteredRoles.length}<p>{$_('wb.no_matching_roles')}</p>{/if}
           </div>
           {#each draftRoles.filter(name => !availableRoles.some(role => role.roleName.toLowerCase() === name.toLowerCase())) as name}<label><input type="checkbox" checked on:change={() => draftRoles = draftRoles.filter(role => role !== name)} />{name} · unavailable role</label>{/each}
           <p>{draftRoles.length} selected · roles follow each member’s current server assignment. The owner can always manage this board.</p>
-          {#if !$roleDefinitions.length}<p class="role-help">No server roles have been received on this connection. Reconnect, then reopen these settings.</p>{/if}
+          {#if !$roleDefinitions.length}<p class="role-help">{$_('wb.no_roles_received')}</p>{/if}
          </div>
         {/if}
 		<div class="wb-settings-actions">
-			<button type="button" class="wb-settings-save" disabled={draftDrawRole === 'custom' && draftRoles.length === 0} on:click={handleSave}>Save</button>
-			<button type="button" class="wb-settings-cancel" on:click={onClose}>Cancel</button>
+			<button type="button" class="wb-settings-save" disabled={draftDrawRole === 'custom' && draftRoles.length === 0} on:click={handleSave}>{$_('common.save')}</button>
+			<button type="button" class="wb-settings-cancel" on:click={onClose}>{$_('common.cancel')}</button>
 		</div>
 	</div></BaseModal></div>
 {/if}

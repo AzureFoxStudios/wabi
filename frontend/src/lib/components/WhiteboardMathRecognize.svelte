@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { renderToString } from 'katex';
 	import { formatConfidence } from '$lib/whiteboard/recognitionUi';
 
@@ -59,14 +60,14 @@
 	class="wr-overlay"
 	role="dialog"
 	aria-modal="true"
-	aria-label="Recognized math"
+	aria-label={$_('wb.recognized_math')}
 	tabindex="-1"
 	onkeydown={handleKeydown}
 >
 	<div class="wr-panel">
 		<header class="wr-header">
-			<h2 class="wr-title">Recognized math</h2>
-			<span class="wr-badge wr-badge-{confidenceLevel}" title="Recognition confidence">
+			<h2 class="wr-title">{$_('wb.recognized_math')}</h2>
+			<span class="wr-badge wr-badge-{confidenceLevel}" title={$_('wb.recognition_confidence')}>
 				{confidenceLabel}
 			</span>
 		</header>
@@ -90,7 +91,7 @@
 		></textarea>
 
 		<footer class="wr-footer">
-			<button type="button" class="wr-btn wr-btn-ghost" onclick={onDismiss}>Dismiss</button>
+			<button type="button" class="wr-btn wr-btn-ghost" onclick={onDismiss}>{$_('common.dismiss')}</button>
 			<button
 				type="button"
 				class="wr-btn wr-btn-primary"

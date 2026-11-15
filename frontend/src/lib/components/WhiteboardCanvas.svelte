@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
 	import { boardStore, elements, layers, viewport, activeTool, selection, canUndo, canRedo, policy } from '$lib/whiteboard/boardStore';
@@ -699,7 +700,7 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 
 <svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
 
-<div class="whiteboard-canvas-container" bind:this={containerEl} role="region" aria-label="Whiteboard canvas" on:paste={handlePaste} on:dragenter={handleDragEnter} on:dragover={handleDragOver} on:dragleave={handleDragLeave} on:drop={handleDrop} tabindex="-1">
+<div class="whiteboard-canvas-container" bind:this={containerEl} role="region" aria-label={$_('wb.canvas_label')} on:paste={handlePaste} on:dragenter={handleDragEnter} on:dragover={handleDragOver} on:dragleave={handleDragLeave} on:drop={handleDrop} tabindex="-1">
 	<canvas bind:this={baseCanvas} class="whiteboard-layer base-layer"></canvas>
 	<canvas bind:this={interactionCanvas} class="whiteboard-layer interaction-layer" style="cursor: {cursorStyle}" on:pointerdown={handlePointerDown} on:pointermove={handlePointerMove} on:pointerup={handlePointerUp} on:pointercancel={handlePointerCancel} on:wheel|preventDefault={handleWheel} on:dblclick={handleDoubleClick} on:contextmenu|preventDefault></canvas>
 
@@ -709,7 +710,7 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 
 	{#if importPreviewCards.length > 0 || importError || isDragHover}
 		<div class="whiteboard-import-hud">
-			{#if isDragHover}<div class="whiteboard-import-overlay" role="status" aria-live="polite"><div>Drop images to add them to the board</div></div>{/if}
+			{#if isDragHover}<div class="whiteboard-import-overlay" role="status" aria-live="polite"><div>{$_('wb.drop_images')}</div></div>{/if}
 			{#if importError}<div class="whiteboard-import-overlay is-error" role="alert"><div>{importError}</div></div>{/if}
 			{#if importPreviewCards.length > 0}
 				<div class="whiteboard-import-queue" role="status" aria-live="polite">
