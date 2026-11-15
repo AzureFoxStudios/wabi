@@ -69,6 +69,7 @@ pub fn run() {
             hosting::host_open_folder,
             hosting::host_quit,
             shell_commands::desktop_action,
+            shell_commands::desktop_close_behavior,
             shell_commands::greet,
             shell_commands::get_platform,
             shell_commands::open_external_url,

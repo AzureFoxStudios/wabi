@@ -36,6 +36,8 @@ try {
 	const patterns = await page.evaluate(() => window.__pointerSmoke.patterns);
 	check(patterns.length === 40, 'all40 built-ins are present');
 	check(await page.locator('#feeler-pattern optgroup').evaluateAll(nodes => nodes.map(node => node.label)).then(names => ['Basics', 'Little Worlds', 'Connected Worlds'].every(name => names.includes(name))), 'settings keep all three families separate');
+	check(!(await stats()).enabled, 'pointer effects stay off until the person turns them on');
+	await page.getByRole('switch', { name: 'Enable pointer effects' }).click();
 	for (const [key, label] of [['intensity', 'Glow strength'], ['textureOpacity', 'Texture / effect strength'], ['radius', 'Radius'], ['patternScale', 'Spacing / pattern scale'], ['idleDelayMs', 'Idle delay'], ['fadeMs', 'Fade duration'], ['trailMs', 'Trail duration'], ['trailStrength', 'Trail strength']]) {
 		const before = (await stats()).settings[key];
 		await page.getByLabel(label, { exact: true }).focus(); await page.keyboard.press('ArrowRight');

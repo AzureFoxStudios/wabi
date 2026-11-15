@@ -216,7 +216,8 @@ try {
   wm('-e', '0,-1,-1,1200,800');
   // A real window-manager close request exercises the same path as native X.
   await clickControl('Close window to background');
-  await waitFor(() => state('is_minimized'), 'close minimizes');
+  // Hidden when a tray can restore it, minimized otherwise.
+  await waitFor(async () => (await state('is_minimized')) || !(await state('is_visible')), 'close sends the window to the background');
   assert.equal((await fetch(localUrl + '/readyz')).ok, true, 'close preserves owned server');
   if (idleSeconds > 0) {
     await sleep(3000);

@@ -13,6 +13,7 @@
 	let menuOpen = $state(false);
 	let fullscreen = $state(false);
 	let zoom = $state(1);
+	let quitOnClose = $state(false);
 	let version = $state('');
 	let error = $state('');
 	let menuButton = $state<HTMLButtonElement>();
@@ -45,6 +46,11 @@
 			zoom = await invoke<number>('desktop_action', { action: name });
 			fullscreen = await native?.isFullscreen() ?? false;
 		} catch (e) { error = String(e); }
+	}
+	async function toggleQuitOnClose() {
+		error = '';
+		try { quitOnClose = await invoke<boolean>('desktop_close_behavior', { quitOnClose: !quitOnClose }); }
+		catch (e) { error = String(e); }
 	}
 	function closeMenu(restoreFocus = true) {
 		menuOpen = false;
@@ -92,6 +98,7 @@
 				const { getVersion } = await import('@tauri-apps/api/app');
 				version = await getVersion();
 				zoom = await invoke<number>('desktop_action', { action: 'zoom-level' });
+				quitOnClose = await invoke<boolean>('desktop_close_behavior');
 				maximized = await native.isMaximized();
 				focused = await native.isFocused();
 				await register(native.onResized(async () => {
@@ -150,7 +157,7 @@
 		<div class="desktop-window-controls" aria-label="Window controls">
 			<button aria-label="Minimize window" title="Minimize" onclick={() => windowAction('minimize')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 13h10"/></svg></button>
 			<button aria-label={maximized ? 'Restore window' : 'Maximize window'} title={maximized ? 'Restore' : 'Maximize'} onclick={() => windowAction('maximize')}><svg viewBox="0 0 20 20" aria-hidden="true">{#if maximized}<path d="M7 6V4.5h8.5V13H14M4.5 7.5h8v8h-8z"/>{:else}<rect x="4.5" y="4.5" width="11" height="11" rx="2"/>{/if}</svg></button>
-			<button class="desktop-close" aria-label="Close window to background" title="Close to background · Quit is in the Wabi menu" onclick={() => windowAction('close')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8M14 6l-8 8"/></svg></button>
+			<button class="desktop-close" aria-label={quitOnClose ? 'Close window and quit Wabi' : 'Close window to background'} title={quitOnClose ? 'Close and quit Wabi' : 'Close to background · Quit is in the Wabi menu'} onclick={() => windowAction('close')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8M14 6l-8 8"/></svg></button>
 		</div>
 	</header>
 	{#if menuOpen}
@@ -167,6 +174,7 @@
 			<button class="desktop-menu-item" aria-pressed={$desktopServerRailPinned} onclick={() => desktopServerRailPinned.update((pinned) => !pinned)}><span>Pin server rail</span><span aria-hidden="true">{$desktopServerRailPinned ? '✓' : ''}</span></button>
 			<div class="desktop-menu-divider"></div>
 			<button class="desktop-menu-item" onclick={() => action('settings')}><span>Settings</span><kbd>⌘ / Ctrl ,</kbd></button>
+			<button class="desktop-menu-item" aria-pressed={quitOnClose} onclick={toggleQuitOnClose}><span>Quit when window is closed</span><span aria-hidden="true">{quitOnClose ? '✓' : ''}</span></button>
 			<button class="desktop-menu-item" onclick={() => action('fullscreen')}><span>{fullscreen ? 'Leave fullscreen' : 'Fullscreen'}</span><kbd>F11</kbd></button>
 			<div class="desktop-zoom-row"><span>Zoom</span><div><button aria-label="Zoom out" disabled={zoom <= 0.5} onclick={() => action('zoom-out', true)}>−</button><button class="desktop-zoom-value" aria-label="Reset zoom" title="Reset zoom" onclick={() => action('zoom-reset', true)}>{Math.round(zoom * 100)}%</button><button aria-label="Zoom in" disabled={zoom >= 3} onclick={() => action('zoom-in', true)}>+</button></div></div>
 			<div class="desktop-menu-divider"></div>
@@ -174,7 +182,7 @@
 			<button class="desktop-menu-item" onclick={() => action('about')}><span>About Wabi</span></button>
 			<div class="desktop-menu-divider"></div>
 			<button class="desktop-menu-item desktop-quit" onclick={() => action('quit')}><span>Quit Wabi</span><kbd>⌘ / Ctrl Q</kbd></button>
-			<p class="desktop-menu-note">Closing the window keeps Wabi running.<br />Quitting stops your hosted community too.</p>
+			<p class="desktop-menu-note">{quitOnClose ? 'Closing the window quits Wabi.' : 'Closing the window keeps Wabi running.'}<br />Quitting stops your hosted community too.</p>
 		</div>
 	{/if}
 	{#if error}<div class="desktop-shell-error" role="alert">{error}<button aria-label="Dismiss window error" onclick={() => error = ''}>×</button></div>{/if}

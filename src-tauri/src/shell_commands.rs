@@ -76,3 +76,28 @@ pub fn desktop_action(
         Err("Desktop actions are not available on mobile".into())
     }
 }
+
+/// Read, and optionally change, whether closing the main window quits Wabi.
+#[tauri::command]
+pub fn desktop_close_behavior(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    quit_on_close: Option<bool>,
+) -> Result<bool, String> {
+    let url = window.url().map_err(|e| e.to_string())?;
+    if !crate::hosting::local_main_origin(window.label(), &url, cfg!(debug_assertions)) {
+        return Err("Desktop actions require Wabi's local main window".into());
+    }
+    #[cfg(not(mobile))]
+    {
+        if let Some(quit) = quit_on_close {
+            crate::desktop::set_quit_on_close(&app, quit)?;
+        }
+        Ok(crate::desktop::quit_on_close(&app))
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, quit_on_close);
+        Err("Desktop actions are not available on mobile".into())
+    }
+}
