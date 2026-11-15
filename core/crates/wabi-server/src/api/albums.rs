@@ -149,7 +149,7 @@ async fn list_albums(
     let mut albums: Vec<wabidb::domain::Album> = albums;
     albums.sort_by(|a, b| b.updated_at_micros.cmp(&a.updated_at_micros));
     albums.truncate(query.limit.min(MAX_ALBUM_LIST_LIMIT) as usize);
-    let mut result: Vec<Value> = Vec::with_capacity(albums.len());
+    let mut result: Vec<Value> = Vec::new();
     for album in &albums {
         let items = state.wdb.list_items(&album.album_id).await?;
         result.push(album_json(album, items.len(), preview_items(&items)));
