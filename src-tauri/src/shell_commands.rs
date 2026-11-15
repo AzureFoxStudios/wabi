@@ -101,3 +101,38 @@ pub fn desktop_close_behavior(
         Err("Desktop actions are not available on mobile".into())
     }
 }
+
+/// Self-update actions for the local main window: `check`, `install`, and
+/// reading or setting the development channel (`channel`, `channel-dev`,
+/// `channel-stable`). The webview gets no direct updater permission.
+#[tauri::command]
+pub async fn desktop_update(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    action: String,
+) -> Result<serde_json::Value, String> {
+    let url = window.url().map_err(|e| e.to_string())?;
+    if !crate::hosting::local_main_origin(window.label(), &url, cfg!(debug_assertions)) {
+        return Err("Desktop actions require Wabi's local main window".into());
+    }
+    #[cfg(not(mobile))]
+    {
+        use crate::updater;
+        let value = match action.as_str() {
+            "check" => serde_json::to_value(updater::check(&app).await?),
+            "install" => serde_json::to_value(updater::install(&app).await?),
+            "channel" => serde_json::to_value(updater::dev_channel(&app)),
+            "channel-dev" | "channel-stable" => {
+                updater::set_dev_channel(&app, action == "channel-dev")?;
+                serde_json::to_value(updater::dev_channel(&app))
+            }
+            _ => return Err("Unknown update action".into()),
+        };
+        value.map_err(|e| e.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, action);
+        Err("Desktop actions are not available on mobile".into())
+    }
+}

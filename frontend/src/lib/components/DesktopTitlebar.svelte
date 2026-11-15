@@ -14,6 +14,10 @@
 	let fullscreen = $state(false);
 	let zoom = $state(1);
 	let quitOnClose = $state(false);
+	let devBuilds = $state(false);
+	let updateBusy = $state(false);
+	let updateStatus = $state('');
+	let updateVersion = $state('');
 	let version = $state('');
 	let error = $state('');
 	let menuButton = $state<HTMLButtonElement>();
@@ -51,6 +55,30 @@
 		error = '';
 		try { quitOnClose = await invoke<boolean>('desktop_close_behavior', { quitOnClose: !quitOnClose }); }
 		catch (e) { error = String(e); }
+	}
+	async function checkForUpdate() {
+		if (updateBusy) return;
+		updateBusy = true; updateStatus = 'Checking for updates…'; updateVersion = '';
+		try {
+			const found = await invoke<{ version: string } | null>('desktop_update', { action: 'check' });
+			updateVersion = found?.version ?? '';
+			updateStatus = found ? `Version ${found.version} is available.` : 'Wabi is up to date.';
+		} catch (e) { updateStatus = String(e); }
+		finally { updateBusy = false; }
+	}
+	async function installUpdate() {
+		if (updateBusy) return;
+		updateBusy = true; updateStatus = `Downloading version ${updateVersion}… Wabi will restart.`;
+		// On success the app restarts and this never resolves.
+		try { await invoke('desktop_update', { action: 'install' }); }
+		catch (e) { updateStatus = String(e); updateBusy = false; }
+	}
+	async function toggleDevBuilds() {
+		error = '';
+		try {
+			devBuilds = await invoke<boolean>('desktop_update', { action: devBuilds ? 'channel-stable' : 'channel-dev' });
+			updateStatus = ''; updateVersion = '';
+		} catch (e) { error = String(e); }
 	}
 	function closeMenu(restoreFocus = true) {
 		menuOpen = false;
@@ -99,6 +127,7 @@
 				version = await getVersion();
 				zoom = await invoke<number>('desktop_action', { action: 'zoom-level' });
 				quitOnClose = await invoke<boolean>('desktop_close_behavior');
+				devBuilds = await invoke<boolean>('desktop_update', { action: 'channel' }).catch(() => false);
 				maximized = await native.isMaximized();
 				focused = await native.isFocused();
 				await register(native.onResized(async () => {
@@ -180,6 +209,14 @@
 			<div class="desktop-menu-divider"></div>
 			<button class="desktop-menu-item" onclick={() => action('logs')}><span>Open logs folder</span><span aria-hidden="true">↗</span></button>
 			<button class="desktop-menu-item" onclick={() => action('about')}><span>About Wabi</span></button>
+			<div class="desktop-menu-divider"></div>
+			{#if updateVersion}
+				<button class="desktop-menu-item" disabled={updateBusy} onclick={installUpdate}><span>Install version {updateVersion} and restart</span><span aria-hidden="true">↓</span></button>
+			{:else}
+				<button class="desktop-menu-item" disabled={updateBusy} onclick={checkForUpdate}><span>Check for updates</span></button>
+			{/if}
+			<button class="desktop-menu-item" aria-pressed={devBuilds} onclick={toggleDevBuilds}><span>Get development builds</span><span aria-hidden="true">{devBuilds ? '✓' : ''}</span></button>
+			{#if updateStatus}<p class="desktop-menu-note" role="status">{updateStatus}</p>{/if}
 			<div class="desktop-menu-divider"></div>
 			<button class="desktop-menu-item desktop-quit" onclick={() => action('quit')}><span>Quit Wabi</span><kbd>⌘ / Ctrl Q</kbd></button>
 			<p class="desktop-menu-note">{quitOnClose ? 'Closing the window quits Wabi.' : 'Closing the window keeps Wabi running.'}<br />Quitting stops your hosted community too.</p>

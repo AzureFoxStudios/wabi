@@ -33,6 +33,8 @@ pub fn run() {
 
             #[cfg(not(mobile))]
             desktop::setup(app)?;
+            #[cfg(not(mobile))]
+            updater::setup(app.handle())?;
 
             // The optional viewer self-test must never open a second native
             // window in a release build or on mobile.
@@ -70,6 +72,7 @@ pub fn run() {
             hosting::host_quit,
             shell_commands::desktop_action,
             shell_commands::desktop_close_behavior,
+            shell_commands::desktop_update,
             shell_commands::greet,
             shell_commands::get_platform,
             shell_commands::open_external_url,
@@ -125,6 +128,8 @@ pub fn run() {
 mod commands;
 #[cfg(not(mobile))]
 mod desktop;
+#[cfg(not(mobile))]
+mod updater;
 #[cfg(not(mobile))]
 mod lore_local;
 #[cfg(mobile)]
