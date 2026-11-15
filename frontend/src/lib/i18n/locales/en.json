@@ -1112,5 +1112,10 @@
     "gate": {
       "turn_on": "Turn on {tool}"
     }
+  },
+  "rail": {
+    "servers": "Servers",
+    "add_or_switch": "Add or switch servers",
+    "admin_dashboard": "Admin dashboard"
   }
 }

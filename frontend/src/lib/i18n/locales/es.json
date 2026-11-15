@@ -1112,5 +1112,10 @@
     "gate": {
       "turn_on": "Activar {tool}"
     }
+  },
+  "rail": {
+    "servers": "Servidores",
+    "add_or_switch": "Añadir o cambiar de servidor",
+    "admin_dashboard": "Panel de administración"
   }
 }
