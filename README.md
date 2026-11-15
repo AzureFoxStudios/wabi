@@ -1,6 +1,6 @@
 # Wabi
 
-The separate [Sabi app](sabi/README.md) lives under `sabi/`. It is a self-hosted work-management and ERP project for small businesses, with its own build, tests, and deployment.
+Sabi, the self-hosted work-management and ERP app for small businesses, is now a separate project and is no longer part of this repository.
 
 > **A place to talk, create, and work together.**
 
