@@ -612,7 +612,7 @@
 			const text = escapeWikiText((label || title).trim());
 			links.push(target
 				? `<a href="#wikipage-${escapeWikiText(String(target.pageId))}" class="wiki-link">${text}</a>`
-				: `<a href="#wikipage-missing" class="wiki-link wiki-link-missing" title="No page with this title yet">${text}</a>`);
+				: `<a href="#wikipage-missing" class="wiki-link wiki-link-missing" title="${$_('wiki.missing_link_title')}">${text}</a>`);
 			return `wabiwikilinkx${links.length - 1}x`;
 		});
 		const staged = markdown.split(/(```[\s\S]*?```|`[^`\n]*`)/g).map((part, index) => (index % 2 === 1 ? part : stage(part))).join('');
@@ -754,11 +754,11 @@
 {#snippet writingTools(primaryLabel: string, primaryBusy: string, onPrimary: () => void, primaryDisabled: boolean, onCancel: () => void, busy: boolean)}
 	<div class="wiki-crumb-actions wiki-write-actions">
 		<Menu class="w-btn w-btn--quiet wiki-insert" label="Insert" triggerLabel="Insert" heading="Insert" items={insertItems} align="end" disabled={busy}>
-			<Icon name="plus" size={16} /><span class="wiki-action-words">Insert</span>
+			<Icon name="plus" size={16} /><span class="wiki-action-words">{$_('wiki.insert')}</span>
 		</Menu>
-		<div class="w-seg wiki-mode" role="group" aria-label="Writing mode">
-			<button type="button" aria-pressed={!previewing} on:click={() => { previewing = false; void tick().then(() => writer?.focus()); }}>Write</button>
-			<button type="button" aria-pressed={previewing} on:click={() => { previewing = true; }}>Preview</button>
+		<div class="w-seg wiki-mode" role="group" aria-label={$_('wiki.writing_mode')}>
+			<button type="button" aria-pressed={!previewing} on:click={() => { previewing = false; void tick().then(() => writer?.focus()); }}>{$_('wiki.write')}</button>
+			<button type="button" aria-pressed={previewing} on:click={() => { previewing = true; }}>{$_('wiki.preview')}</button>
 		</div>
 		<button type="button" class="w-btn w-btn--quiet wiki-cancel" aria-label={$_('common.cancel')} disabled={busy} on:click={onCancel}><Icon name="x" size={16} class="wiki-cancel-icon" /><span class="wiki-action-words" aria-hidden="true">{$_('common.cancel')}</span></button>
 		<button type="button" class="w-btn w-btn--primary" aria-busy={busy} disabled={primaryDisabled} on:click={onPrimary}>
@@ -799,10 +799,10 @@
 			<LoadLine active={isLoading} label="Loading pages" class="wiki-loadline" />
 			{#if showNewPage}
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-				<section class="wiki-writing" aria-label="New page draft" on:keydown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) handleCancelNewPage(); }}>
+				<section class="wiki-writing" aria-label={$_('wiki.new_page_draft')} on:keydown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) handleCancelNewPage(); }}>
 					<div class="wiki-crumbs-row wiki-crumbs-row--writing"><div class="wiki-crumbs-inner">
 						{@render pagesToggle()}
-						<nav class="wiki-crumbs" aria-label="Breadcrumb">
+						<nav class="wiki-crumbs" aria-label={$_('wiki.breadcrumb')}>
 							<ol>
 								<li><button type="button" class="wiki-crumb" on:click={goToOverview}>{$_('places.wiki')}</button></li>
 								{#each newPageCrumbs as crumb (crumb.pageId)}
@@ -821,7 +821,7 @@
 					<div class="wiki-page">
 						<div class="wiki-article wiki-article--writing">
 							<header class="wiki-article-head">
-								<input class="wiki-title-input" type="text" aria-label="Page title" placeholder="Page title" bind:value={newPageTitle} disabled={creatingPage} />
+								<input class="wiki-title-input" type="text" aria-label={$_('wiki.page_title')} placeholder={$_('wiki.page_title')} bind:value={newPageTitle} disabled={creatingPage} />
 								<p class="wiki-meta">
 									<span>{newPageParent ? `Under ${newPageParent.title}` : 'Top-level page'}</span>
 									<span class="wiki-meta-sep" aria-hidden="true">·</span>
@@ -829,7 +829,7 @@
 								</p>
 							</header>
 							{#if previewing}
-								<div class="w-prose wiki-prose wiki-preview">{#if newPageBody.trim()}{@html renderWikiBody(newPageBody)}{:else}<p class="wiki-preview-empty">Nothing to preview yet.</p>{/if}</div>
+								<div class="w-prose wiki-prose wiki-preview">{#if newPageBody.trim()}{@html renderWikiBody(newPageBody)}{:else}<p class="wiki-preview-empty">{$_('wiki.nothing_to_preview')}</p>{/if}</div>
 							{:else}
 								{#key editorEpoch}
 									<WritingEditor bind:this={writer} value={newPageBody} onchange={(value) => { newPageBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={creatingPage} hang={hangMarkers} onimage={() => imageInput?.click()} imageBusy={imageUploading} class="wiki-writer" />
@@ -843,30 +843,30 @@
 					<div class="wiki-page"><div class="wiki-article"><Skeleton variant="text" rows={3} label="Loading pages" /></div></div>
 				{:else if error && allPages.length === 0}
 					<div class="wiki-page"><div class="wiki-article wiki-notice">
-						<Notice title="This wiki could not be loaded" text="Nothing you were writing here was lost." error={error} onretry={() => effectiveChannel && loadWiki(effectiveChannel)} />
+						<Notice title={$_('wiki.could_not_load')} text={$_('wiki.nothing_lost')} error={error} onretry={() => effectiveChannel && loadWiki(effectiveChannel)} />
 					</div></div>
 				{:else if allPages.length === 0}
 					<div class="wiki-page"><div class="wiki-article">
-						<EmptyState variant="top" title="No pages yet" text={canWrite ? 'Pages keep what this community wants to remember: guides, plans and answers. Start one with New page.' : 'Pages written here will show up in this list.'} as="h2" />
+						<EmptyState variant="top" title={$_('wiki.no_pages_title')} text={canWrite ? $_('wiki.empty_can_write') : $_('wiki.empty_read_only')} as="h2" />
 					</div></div>
 				{:else}
 					{#if error}
 						<div class="wiki-page wiki-page--notice"><div class="wiki-article">
-							<Notice title="Part of this wiki could not be loaded" text="The pages below are the last ones this view received." error={error} onretry={() => effectiveChannel && loadWiki(effectiveChannel)} ondismiss={() => wikiErrorStore.set(null)} />
+							<Notice title={$_('wiki.part_could_not_load')} text={$_('wiki.pages_below_last_received')} error={error} onretry={() => effectiveChannel && loadWiki(effectiveChannel)} ondismiss={() => wikiErrorStore.set(null)} />
 						</div></div>
 					{/if}
 					<div class="wiki-page">
 						<section class="wiki-article wiki-start" aria-labelledby={`wiki-start-title-${draftSurface}`}>
-							<h1 class="wiki-start-title" id={`wiki-start-title-${draftSurface}`} tabindex="-1" bind:this={startTitleEl}>Explore this wiki</h1>
-							<p class="wiki-start-hint">Browse a topic, search page titles and contents, or pick up a recently updated page.</p>
-							<p class="w-kicker wiki-start-kicker">Topics</p>
+							<h1 class="wiki-start-title" id={`wiki-start-title-${draftSurface}`} tabindex="-1" bind:this={startTitleEl}>{$_('wiki.explore_title')}</h1>
+							<p class="wiki-start-hint">{$_('wiki.explore_hint')}</p>
+							<p class="w-kicker wiki-start-kicker">{$_('wiki.topics')}</p>
 							<ul class="wiki-start-list">
 								{#each allPages.filter(page => !page.parentPageId || !allPages.some(parent => parent.pageId === page.parentPageId)) as page (page.pageId)}
 									{@const children = allPages.filter(child => child.parentPageId === page.pageId).length}
 									<li><button type="button" class="wiki-start-row" on:click={() => selectPage(page)}><span class="wiki-start-row-title">{page.title}</span>{#if children > 0}<span class="w-count">{children} {children === 1 ? 'page' : 'pages'}</span>{/if}</button></li>
 								{/each}
 							</ul>
-							<p class="w-kicker wiki-start-kicker">Recently updated</p>
+							<p class="w-kicker wiki-start-kicker">{$_('wiki.recently_updated')}</p>
 							<ul class="wiki-start-list">
 								{#each [...allPages].sort((a,b) => b.updatedAtMicros-a.updatedAtMicros).slice(0,5) as page (page.pageId)}
 									<li><button type="button" class="wiki-start-row" on:click={() => selectPage(page)}><span class="wiki-start-row-title">{page.title}</span><span class="wiki-start-time">{formatWikiTime(page.updatedAtMicros)}</span></button></li>
@@ -878,7 +878,7 @@
 			{:else}
 				<div class="wiki-crumbs-row" class:wiki-crumbs-row--writing={editMode}><div class="wiki-crumbs-inner">
 					{@render pagesToggle()}
-					<nav class="wiki-crumbs" aria-label="Breadcrumb">
+					<nav class="wiki-crumbs" aria-label={$_('wiki.breadcrumb')}>
 						<ol>
 							<li><button type="button" class="wiki-crumb" on:click={goToOverview}>{$_('places.wiki')}</button></li>
 							{#each ancestorCrumbs as crumb (crumb.pageId)}
@@ -892,7 +892,7 @@
 					{:else}
 						<div class="wiki-crumb-actions">
 							{#if canWrite}
-								<button type="button" class="w-btn w-btn--quiet wiki-edit-btn" aria-label="Edit page" on:click={handleEdit}><Icon name="pencil" size={16} /><span class="wiki-action-words" aria-hidden="true">Edit</span></button>
+								<button type="button" class="w-btn w-btn--quiet wiki-edit-btn" aria-label={$_('wiki.edit_page')} on:click={handleEdit}><Icon name="pencil" size={16} /><span class="wiki-action-words" aria-hidden="true">{$_('wiki.edit')}</span></button>
 							{/if}
 							<Tooltip text={expandedReading ? 'Exit fullscreen' : 'Fullscreen'} placement="bottom">
 								<button type="button" class="w-ibtn" aria-label={expandedReading ? 'Exit fullscreen' : 'Fullscreen'} on:click={toggleReading}><Icon name={expandedReading ? 'collapse' : 'expand'} /></button>
@@ -911,7 +911,7 @@
 				{/if}
 				{#if error && !editMode}
 					<div class="wiki-page wiki-page--notice"><div class="wiki-article">
-						<Notice title="Part of this wiki could not be loaded" text="The page below is the last version this view received." error={error} onretry={() => effectiveChannel && loadWiki(effectiveChannel)} ondismiss={() => wikiErrorStore.set(null)} />
+						<Notice title={$_('wiki.part_could_not_load')} text={$_('wiki.page_below_last_version')} error={error} onretry={() => effectiveChannel && loadWiki(effectiveChannel)} ondismiss={() => wikiErrorStore.set(null)} />
 					</div></div>
 				{/if}
 
@@ -919,15 +919,15 @@
 					<div class="wiki-page">
 						<div class="wiki-article wiki-article--writing">
 							<header class="wiki-article-head">
-								<input class="wiki-title-input" type="text" aria-label="Page title" placeholder="Page title" bind:value={editTitle} aria-invalid={saveProblem ? 'true' : undefined} />
+								<input class="wiki-title-input" type="text" aria-label={$_('wiki.page_title')} placeholder={$_('wiki.page_title')} bind:value={editTitle} aria-invalid={saveProblem ? 'true' : undefined} />
 								<p class="wiki-meta">
-									<span>Editing</span>
+									<span>{$_('wiki.editing')}</span>
 									<span class="wiki-meta-sep" aria-hidden="true">·</span>
 									<span class="wiki-meta-status" class:problem={saveState === 'failed'} role="status">{#if saveState === 'failed'}<span class="w-dot w-dot--danger" aria-hidden="true"></span>{:else if editIsDirty && saveState !== 'saving'}<span class="w-dot w-dot--warn" aria-hidden="true"></span>{/if}{editStatus}</span>
 								</p>
 							</header>
 							{#if previewing}
-								<div class="w-prose wiki-prose wiki-preview">{#if editBody.trim()}{@html renderWikiBody(editBody)}{:else}<p class="wiki-preview-empty">Nothing to preview yet.</p>{/if}</div>
+								<div class="w-prose wiki-prose wiki-preview">{#if editBody.trim()}{@html renderWikiBody(editBody)}{:else}<p class="wiki-preview-empty">{$_('wiki.nothing_to_preview')}</p>{/if}</div>
 							{:else}
 								{#key editorEpoch}
 									<WritingEditor bind:this={writer} value={editBody} onchange={(value) => { editBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={saveState === 'saving'} hang={hangMarkers} onimage={() => imageInput?.click()} imageBusy={imageUploading} class="wiki-writer" />
@@ -942,8 +942,8 @@
 								<div class="wiki-revision-banner" role="status">
 									<Icon name="history" size={16} />
 									<span class="wiki-revision-words">Viewing the version from {formatWikiTime(viewRevision.createdAtMicros)}</span>
-									<button type="button" class="w-btn w-btn--sm" on:click={() => viewRevision && handleRestoreRevision(viewRevision)}>Restore this version</button>
-									<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={handleDismissRevision}>Back to current</button>
+									<button type="button" class="w-btn w-btn--sm" on:click={() => viewRevision && handleRestoreRevision(viewRevision)}>{$_('wiki.restore_version')}</button>
+									<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={handleDismissRevision}>{$_('wiki.back_to_current')}</button>
 								</div>
 							{/if}
 							<header class="wiki-article-head">
@@ -954,7 +954,7 @@
 									</span>
 									<span class="wiki-meta-name" title={displayAuthor ? undefined : 'This author is not in the server member directory.'}>{authorName}</span>
 									<span class="wiki-meta-sep" aria-hidden="true">·</span>
-									<span>Updated <time class="wiki-meta-time">{displayTime}</time></span>
+									<span>{$_('wiki.updated')} <time class="wiki-meta-time">{displayTime}</time></span>
 									{#if !viewRevision}
 										<span class="wiki-meta-sep" aria-hidden="true">·</span>
 										{#if displayRevisionCount > 0}
@@ -977,8 +977,8 @@
 							<div class="w-prose wiki-prose" bind:this={proseEl} on:click={handleBodyClick}>{@html renderedBody}</div>
 							{#if mentionOpen}<UserPopout user={mentionedUser} bind:isOpen={mentionOpen} anchorElement={mentionAnchor} isOwnProfile={mentionedUser?.dbUserId === $presenceCurrentUser?.dbUserId} />{/if}
 							{#if backlinks.length > 0 && !viewRevision}
-								<aside class="wiki-backlinks" aria-label="Linked from">
-									<p class="w-kicker">Linked from</p>
+								<aside class="wiki-backlinks" aria-label={$_('wiki.linked_from')}>
+									<p class="w-kicker">{$_('wiki.linked_from')}</p>
 									<ul>
 										{#each backlinks as page (page.pageId)}
 											<li><button type="button" class="wiki-backlink" on:click={() => selectPage(page)}>{page.title}</button></li>
