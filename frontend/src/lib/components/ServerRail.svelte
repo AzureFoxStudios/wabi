@@ -20,6 +20,7 @@
 	  beside it instead of over it.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { serverUnreadLabel } from '$lib/serverSwitcherLabels';
@@ -251,7 +252,7 @@
 <aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers" bind:offsetWidth={renderedWidth}>
 	<div class="rail-primary" class:mobile>
 		<div class="rail-head">
-			<span class="w-kicker rail-kicker" aria-hidden="true">Servers</span>
+			<span class="w-kicker rail-kicker" aria-hidden="true">{$_('rail.servers')}</span>
 		</div>
 
 		<div class="rail-list">
@@ -384,7 +385,7 @@
 		</div>
 
 		{#if mobile}
-			<button type="button" class="w-ibtn rail-manage rail-manage-mobile" aria-label="Add or switch servers" on:click={() => dispatch('manage')}>
+			<button type="button" class="w-ibtn rail-manage rail-manage-mobile" aria-label={$_('rail.add_or_switch')} on:click={() => dispatch('manage')}>
 				<Icon name="plus" />
 			</button>
 		{/if}
@@ -433,12 +434,12 @@
 	{#if !mobile}
 		<div class="rail-foot">
 			<Tooltip text="Admin dashboard" placement={$railSide === 'right' ? 'left' : 'right'}>
-				<button type="button" class="w-ibtn rail-manage" aria-label="Admin dashboard" on:click={() => centerPanelView.set('admin')}>
+				<button type="button" class="w-ibtn rail-manage" aria-label={$_('rail.admin_dashboard')} on:click={() => centerPanelView.set('admin')}>
 					<Icon name="shield" />
 				</button>
 			</Tooltip>
 			<Tooltip text="Add or switch servers" placement={$railSide === 'right' ? 'left' : 'right'}>
-				<button type="button" class="w-ibtn rail-manage" aria-label="Add or switch servers" on:click={() => dispatch('manage')}>
+				<button type="button" class="w-ibtn rail-manage" aria-label={$_('rail.add_or_switch')} on:click={() => dispatch('manage')}>
 					<Icon name="plus" />
 				</button>
 			</Tooltip>
