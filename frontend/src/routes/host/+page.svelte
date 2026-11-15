@@ -9,6 +9,7 @@
 	import { savedServers } from '$lib/savedServerStore';
 	import { makeInvitation, parseInvitation, parseJoinAddress } from '$lib/hostInvites';
 	import { initializeTheme } from '$lib/theme/initTheme';
+	import { currentLocale, getAvailableLocales, setAppLocale } from '$lib/i18n';
 	import BaseModal from '$lib/components/BaseModal.svelte';
 	import '../../styles/components/desktop-hosting.css';
 
@@ -216,7 +217,13 @@
 <svelte:head><title>My communities — Wabi</title><meta name="description" content="Host a Wabi community on your computer or join an existing community." /></svelte:head>
 
 <main class="desktop-communities">
-	<header><p class="eyebrow">Wabi · Your communities</p><h1>A place for your people.</h1><p>Run a community on this computer, or join one someone has shared with you.</p></header>
+	<header><p class="eyebrow">Wabi · Your communities</p><h1>A place for your people.</h1><p>Run a community on this computer, or join one someone has shared with you.</p>
+		<label class="host-locale"><span>Language</span>
+			<select aria-label="Language" value={$currentLocale || 'en'} onchange={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
+				{#each getAvailableLocales() as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
+			</select>
+		</label>
+	</header>
 	<nav class="community-nav" aria-label="Community actions">
 		<button aria-pressed={view === 'host'} onclick={() => { view = 'host'; settings = false; }}>Host a community</button>
 		<button aria-pressed={view === 'join'} onclick={() => view = 'join'}>Join a community</button>
