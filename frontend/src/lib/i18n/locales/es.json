@@ -914,12 +914,31 @@
     "original_version": "Versión original",
     "edited_times": "Editado {count} veces",
     "empty_title": "Aún no hay hilos en {channel}",
-    "empty_body": "Aquí viven las conversaciones largas, para que no se pierdan al desplazarse."
+    "empty_body": "Aquí viven las conversaciones largas, para que no se pierdan al desplazarse.",
+    "vote_locked": "Tu voto está contado. Un voto no se puede cambiar ni retirar.",
+    "search_placeholder": "Buscar hilos",
+    "search_in_channel": "Buscar hilos en {channel}",
+    "category": "Categoría",
+    "sort": "Ordenar",
+    "category_name_placeholder": "Nombre de la categoría",
+    "empty_match_title": "Ningún hilo coincide",
+    "empty_match_text": "Prueba otra categoría o borra la búsqueda.",
+    "clear_filters": "Borrar filtros",
+    "reply_start_placeholder": "Escribe de qué quieres hablar. Aquí funciona Markdown.",
+    "choose_thread_title": "Elige un hilo",
+    "choose_thread_text": "Los hilos se abren aquí, junto a la lista. Las respuestas y los votos se quedan en cada hilo.",
+    "votes_label": "Votos de este hilo",
+    "write_reply_placeholder": "Escribe una respuesta"
   },
   "wiki": {
     "pages": "Páginas",
     "new_page": "Nueva página",
-    "on_this_page": "En esta página"
+    "on_this_page": "En esta página",
+    "revisions": "Revisiones",
+    "close_revisions": "Cerrar historial de revisiones",
+    "no_revisions": "Sin revisiones",
+    "search_pages": "Buscar páginas",
+    "clear_search": "Borrar búsqueda"
   },
   "planner": {
     "new_task": "Nueva tarea",

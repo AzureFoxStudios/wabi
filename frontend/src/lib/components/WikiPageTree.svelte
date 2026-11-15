@@ -240,8 +240,8 @@
 			<Icon name="search" size={16} />
 			<input
 				type="search"
-				placeholder="Search pages"
-				aria-label="Search pages"
+				placeholder={$_('wiki.search_pages')}
+				aria-label={$_('wiki.search_pages')}
 				bind:value={searchQuery}
 				on:input={() => onSearch?.(searchQuery)}
 				on:keydown={(event) => {
@@ -262,7 +262,7 @@
 		{#if normalizedQuery || emptyStateLabel}
 			<div class="wiki-tree-empty">
 				<p role="status">{emptyStateLabel ?? `No pages match “${searchQuery.trim()}”.`}</p>
-				{#if normalizedQuery && !emptyStateLabel}<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={clearSearch}>Clear search</button>{/if}
+				{#if normalizedQuery && !emptyStateLabel}<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={clearSearch}>{$_('wiki.clear_search')}</button>{/if}
 			</div>
 		{/if}
 	{:else}

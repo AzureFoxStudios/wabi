@@ -914,12 +914,31 @@
     "original_version": "ฉบับดั้งเดิม",
     "edited_times": "แก้ไข {count} ครั้ง",
     "empty_title": "ยังไม่มีเธรดใน {channel}",
-    "empty_body": "บทสนทนายาว ๆ อยู่ที่นี่ จะได้ไม่เลื่อนหายไป"
+    "empty_body": "บทสนทนายาว ๆ อยู่ที่นี่ จะได้ไม่เลื่อนหายไป",
+    "vote_locked": "ระบบนับโหวตของคุณแล้ว โหวตไม่สามารถเปลี่ยนหรือยกเลิกได้",
+    "search_placeholder": "ค้นหากระทู้",
+    "search_in_channel": "ค้นหากระทู้ใน {channel}",
+    "category": "หมวดหมู่",
+    "sort": "เรียงตาม",
+    "category_name_placeholder": "ชื่อหมวดหมู่",
+    "empty_match_title": "ไม่พบกระทู้ที่ตรงกัน",
+    "empty_match_text": "ลองหมวดหมู่อื่น หรือล้างการค้นหา",
+    "clear_filters": "ล้างตัวกรอง",
+    "reply_start_placeholder": "บอกสิ่งที่อยากคุยได้เลย รองรับ Markdown",
+    "choose_thread_title": "เลือกกระทู้",
+    "choose_thread_text": "กระทู้จะเปิดที่นี่ข้างรายการ คำตอบและโหวตจะอยู่กับแต่ละกระทู้",
+    "votes_label": "โหวตในกระทู้นี้",
+    "write_reply_placeholder": "เขียนคำตอบ"
   },
   "wiki": {
     "pages": "หน้า",
     "new_page": "หน้าใหม่",
-    "on_this_page": "ในหน้านี้"
+    "on_this_page": "ในหน้านี้",
+    "revisions": "ประวัติการแก้ไข",
+    "close_revisions": "ปิดประวัติการแก้ไข",
+    "no_revisions": "ยังไม่มีประวัติการแก้ไข",
+    "search_pages": "ค้นหาหน้า",
+    "clear_search": "ล้างการค้นหา"
   },
   "planner": {
     "new_task": "งานใหม่",

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { forumAuthors } from '$lib/forumIdentity';
 	import type { ForumPost } from '$lib/forumStore';
 	import { formatForumTime, categorizeThread, extractForumAttachments, resolveForumFileUrl, stripForumImageMarkdown } from '$lib/forumStore';
@@ -39,7 +40,7 @@
 		{#if showCategory || thread.is_solution}
 			<span class="forum-post-row-kicker">
 				{#if showCategory}<span class="w-kicker">{category}</span>{/if}
-				{#if thread.is_solution}<span class="forum-solved"><Icon name="checkCircle" size={14} />Solved</span>{/if}
+				{#if thread.is_solution}<span class="forum-solved"><Icon name="checkCircle" size={14} />{$_('forum.solved')}</span>{/if}
 			</span>
 		{/if}
 		<span class="forum-post-row-title">{thread.title}</span>

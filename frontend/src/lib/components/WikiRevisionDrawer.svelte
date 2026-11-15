@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { findWikiAuthor, formatWikiTime, type WikiRevision } from '$lib/wikiStore';
 
 	export let revisions: WikiRevision[] = [];
@@ -9,15 +10,15 @@
 
 <div class="wiki-drawer-pane">
 	<div class="wiki-drawer-header">
-		<span class="wiki-drawer-header-label">Revisions</span>
+		<span class="wiki-drawer-header-label">{$_('wiki.revisions')}</span>
 		{#if onClose}
-			<button type="button" class="wiki-drawer-close" aria-label="Close revision history" on:click={onClose}>&#10005;</button>
+			<button type="button" class="wiki-drawer-close" aria-label={$_('wiki.close_revisions')} on:click={onClose}>&#10005;</button>
 		{/if}
 	</div>
 	<div class="wiki-drawer-list">
 		{#if revisions.length === 0}
 			<div class="wiki-empty" style="padding: var(--space-8);">
-				<p>No revisions</p>
+				<p>{$_('wiki.no_revisions')}</p>
 			</div>
 		{:else}
 			{#each revisions as revision (revision.revisionId)}

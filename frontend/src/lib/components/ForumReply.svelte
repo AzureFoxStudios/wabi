@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import ProfileMedia from './ProfileMedia.svelte';
 	import { mediaUrl } from '$lib/mediaUrl';
 	import ForumBody from './ForumBody.svelte';
@@ -74,7 +75,7 @@
 			<span class="forum-reply-author" style={$inkFor(author?.color || author?.roleColor)} title={author ? undefined : 'This author is not in the server member directory.'}>{authorName}</span>
 			<time class="forum-reply-time" datetime={new Date(forumMillis(reply.created_at_micros)).toISOString()}>{formatForumTime(reply.created_at_micros)}</time>
 			{#if reply.edited_at_micros}<span class="forum-reply-edited">{edited}</span>{/if}
-			{#if isSolution}<span class="forum-solved"><Icon name="checkCircle" size={14} />Solved</span>{/if}
+			{#if isSolution}<span class="forum-solved"><Icon name="checkCircle" size={14} />{$_('forum.solved')}</span>{/if}
 		</p>
 		<div class="forum-reply-body"><ForumBody text={textBody} /></div>
 		{#if attachments.length > 0}
@@ -133,7 +134,7 @@
 					disabled={!canVote}
 					on:click={() => onVote('down')}
 				><Icon name="chevDown" size={16} /></button>
-				{#if myVote}<span id={noteId} hidden>Your vote is counted. A vote cannot be changed or taken back.</span>{/if}
+				{#if myVote}<span id={noteId} hidden>{$_('forum.vote_locked')}</span>{/if}
 			</div>
 			{#if canMarkSolution && !isSolution}
 				<button type="button" class="w-btn w-btn--quiet forum-mark-solution" aria-busy={marking} aria-disabled={marking ? 'true' : undefined} on:click={() => { if (!marking) onMarkSolution(); }}>

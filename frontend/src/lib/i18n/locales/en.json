@@ -914,12 +914,31 @@
     "original_version": "Original version",
     "edited_times": "Edited {count} times",
     "empty_title": "No threads in {channel} yet",
-    "empty_body": "Longer conversations live here, so they don’t scroll away."
+    "empty_body": "Longer conversations live here, so they don’t scroll away.",
+    "vote_locked": "Your vote is counted. A vote cannot be changed or taken back.",
+    "search_placeholder": "Search threads",
+    "search_in_channel": "Search threads in {channel}",
+    "category": "Category",
+    "sort": "Sort",
+    "category_name_placeholder": "Category name",
+    "empty_match_title": "No threads match",
+    "empty_match_text": "Try another category, or clear the search.",
+    "clear_filters": "Clear filters",
+    "reply_start_placeholder": "Say what you would like to talk about. Markdown works here.",
+    "choose_thread_title": "Choose a thread",
+    "choose_thread_text": "Threads open here, beside the list. Replies and votes stay with each thread.",
+    "votes_label": "Votes on this thread",
+    "write_reply_placeholder": "Write a reply"
   },
   "wiki": {
     "pages": "Pages",
     "new_page": "New page",
-    "on_this_page": "On this page"
+    "on_this_page": "On this page",
+    "revisions": "Revisions",
+    "close_revisions": "Close revision history",
+    "no_revisions": "No revisions",
+    "search_pages": "Search pages",
+    "clear_search": "Clear search"
   },
   "planner": {
     "new_task": "New task",

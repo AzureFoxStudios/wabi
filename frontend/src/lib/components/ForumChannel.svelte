@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import ProfileMedia from './ProfileMedia.svelte';
 	import { mediaUrl } from '$lib/mediaUrl';
 	import ForumBody from './ForumBody.svelte';
@@ -554,7 +555,7 @@
 				triggerLabel={`Category: ${activeCategory ?? 'All threads'}`}
 				items={categoryItems}
 			>
-				<span class="w-select__label">Category</span>
+				<span class="w-select__label">{$_('forum.category')}</span>
 				<span class="w-select__value">{activeCategory ?? 'All'}</span>
 				<Icon name="chevDown" size={16} />
 			</Menu>
@@ -562,14 +563,14 @@
 			<Tooltip text={`Sort: ${sortLabel}`} disabled={!sortIconOnly}>
 				<Menu class="w-select forum-sort" label="Sort threads" heading="Sort threads" triggerLabel={`Sort: ${sortLabel}`} items={sortItems}>
 					<Icon name="chevUpDown" size={16} class="forum-sort-glyph" />
-					<span class="w-select__label">Sort</span>
+					<span class="w-select__label">{$_('forum.sort')}</span>
 					<span class="w-select__value" use:watchHidden={(hidden) => (sortIconOnly = hidden)}>{sortLabel}</span>
 					<Icon name="chevDown" size={16} class="forum-select-chev" />
 				</Menu>
 			</Tooltip>
 			<label class="w-field w-field--chrome forum-search">
 				<Icon name="search" size={16} />
-				<input type="search" bind:value={searchQuery} placeholder="Search threads" aria-label={`Search threads in ${channelName}`} />
+				<input type="search" bind:value={searchQuery} placeholder={$_('forum.search_placeholder')} aria-label={$_('forum.search_in_channel', { values: { channel: channelName } })} />
 			</label>
 		</div>
 		{#if canCurrentUserPost && !showNewThread}
@@ -582,7 +583,7 @@
 					on:click={() => void handleNewThread()}
 				>
 					<Icon name="plus" size={16} />
-					<span class="forum-new-label" use:watchHidden={(hidden) => (newIconOnly = hidden)}>New thread</span>
+					<span class="forum-new-label" use:watchHidden={(hidden) => (newIconOnly = hidden)}>{$_('forum.new_thread')}</span>
 				</button>
 			</Tooltip>
 		{/if}
@@ -599,11 +600,11 @@
 				class="w-field w-field--chrome"
 				bind:this={categoryInput}
 				bind:value={categoryDraft}
-				placeholder="Category name"
+				placeholder={$_('forum.category_name_placeholder')}
 				on:keydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); closeCategoryEditor(true); } }}
 			/>
 			<button type="submit" class="w-btn w-btn--sm" disabled={!categoryDraft.trim()}>{categoryEditor.mode === 'rename' ? 'Rename' : 'Add'}</button>
-			<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={() => closeCategoryEditor(true)}>Cancel</button>
+			<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={() => closeCategoryEditor(true)}>{$_('common.cancel')}</button>
 			<span class="forum-category-editor-hint">
 				{categoryEditor.mode === 'rename' ? 'Every thread in this category moves to the new name.' : 'Kept on this device until a thread uses it.'}
 			</span>
@@ -649,9 +650,9 @@
 						text="Longer conversations live here, so they don't scroll away."
 					/>
 				{:else if categorizedThreads.length === 0}
-					<EmptyState class="forum-empty" icon="search" as="p" title="No threads match" text="Try another category, or clear the search." />
+					<EmptyState class="forum-empty" icon="search" as="p" title={$_('forum.empty_match_title')} text={$_('forum.empty_match_text')} />
 					<div class="forum-empty-actions">
-						<button type="button" class="w-btn w-btn--sm" on:click={clearFilters}>Clear filters</button>
+						<button type="button" class="w-btn w-btn--sm" on:click={clearFilters}>{$_('forum.clear_filters')}</button>
 					</div>
 				{:else}
 					<ul class="forum-post-rows">
@@ -680,7 +681,7 @@
 							categoryOptions={categories}
 							initialCategory={activeCategory ?? ''}
 							channelId={effectiveChannel}
-							placeholder="Say what you would like to talk about. Markdown works here."
+							placeholder={$_('forum.reply_start_placeholder')}
 							onSubmit={handleCreateNewThread}
 							onCancel={handleCancelNewThread}
 						/>
@@ -688,7 +689,7 @@
 					</div>
 				{:else if !selectedThread}
 					<div class="forum-reading-empty">
-						<EmptyState icon="forum" title="Choose a thread" text="Threads open here, beside the list. Replies and votes stay with each thread." />
+						<EmptyState icon="forum" title={$_('forum.choose_thread_title')} text={$_('forum.choose_thread_text')} />
 					</div>
 				{:else}
 					<div class="forum-reading-content">
@@ -705,7 +706,7 @@
 										<span class="w-kicker">{starterCategory}</span>
 										{#each starterTags as tag}<span class="w-tag">{tag}</span>{/each}
 										{#if hasSolution}
-											<span class="forum-solved"><Icon name="checkCircle" size={14} />Solved</span>
+											<span class="forum-solved"><Icon name="checkCircle" size={14} />{$_('forum.solved')}</span>
 										{/if}
 									</p>
 									<h1 class="forum-article-title" id="forum-article-title-{draftSurface}">{threadStarter.title}</h1>
@@ -755,7 +756,7 @@
 									{/if}
 								{/if}
 								<div class="forum-actions" bind:this={starterActionsEl}>
-									<div class="forum-vote" role="group" aria-label="Votes on this thread" aria-busy={starterVoting}>
+									<div class="forum-vote" role="group" aria-label={$_('forum.votes_label')} aria-busy={starterVoting}>
 										<button
 											type="button"
 											class="forum-vote-btn"
@@ -777,7 +778,7 @@
 											disabled={!canCurrentUserPost}
 											on:click={() => threadStarter && void handleVote(threadStarter, 'down')}
 										><Icon name="chevDown" size={16} /></button>
-										{#if starterVote}<span id="forum-vote-note-{draftSurface}" hidden>Your vote is counted. A vote cannot be changed or taken back.</span>{/if}
+										{#if starterVote}<span id="forum-vote-note-{draftSurface}" hidden>{$_('forum.vote_locked')}</span>{/if}
 									</div>
 									<Menu class="w-ibtn forum-more" label="Thread actions" triggerLabel="Thread actions" align="end" items={threadMenuItems}>
 										<Icon name="more" />
@@ -826,7 +827,7 @@
 							draftKey={`reply:${selectedThreadId}`}
 							bind:this={replyComposer}
 							replyTo={starterName}
-							placeholder="Write a reply"
+							placeholder={$_('forum.write_reply_placeholder')}
 							channelId={effectiveChannel}
 							onSubmit={handleReply}
 							onExpandedChange={(open) => (replyDockOpen = open)}
