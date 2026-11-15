@@ -112,7 +112,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	$: launchContainerStyle = launchStyles.launchContainerStyle;
 	// The operator's title font reaches the login too (curated ids only; the theme's own type outranks it).
 	$: communityFont = neutralBranding ? null : communityDisplayFont(launchPageConfig?.displayFont, $currentTheme?.character);
-	$: loginTitleFont = communityFont ? ` --w-serif: ${communityFont};` : '';
+	$: loginTitleFont = communityFont ? ` --w-serif: ${communityFont}, 'Noto Serif Thai', serif;` : '';
 	$: launchCardStyle = launchStyles.launchCardStyle;
 	$: launchCustomCss = launchStyles.launchCustomCss;
 

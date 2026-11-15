@@ -161,7 +161,7 @@
 
 		if (themeState.uniformFontEnabled) {
 			if (themeState.uniformFontFamily && themeState.uniformFontFamily !== 'inherit') {
-				style += `font-family: ${themeState.uniformFontFamily};`;
+				style += `font-family: ${themeState.uniformFontFamily}, var(--w-sans);`;
 			}
 			if (themeState.uniformFontSize && themeState.uniformFontSize !== 'inherit') {
 				style += `font-size: ${themeState.uniformFontSize};`;

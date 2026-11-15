@@ -186,7 +186,7 @@
       "branding_custom_css_placeholder": "/* Move the sign-in card, change fonts, etc. */\n.login-card '{' ... '}'",
       "done_title": "พร้อมใช้งานแล้ว!",
       "done_subtitle": "คุณคือเจ้าของเซิร์ฟเวอร์",
-      "done_tip_admin": "ดูการตั้งค่าผู้ดูแลได้ที่ การตั้งค่า › ผู้ดูแลระบบ",
+      "done_tip_admin": "ดูการตั้งค่าของผู้ดูแลระบบได้ที่ การตั้งค่า › ผู้ดูแลระบบ",
       "done_tip_invite": "แชร์ URL ของเซิร์ฟเวอร์เพื่อเชิญผู้ใช้",
       "done_enter": "เข้าสู่ Wabi"
     }
@@ -196,7 +196,7 @@
       "drop_to_upload": "ลากไฟล์มาวางที่นี่เพื่ออัปโหลด"
     },
     "dm": {
-      "badge": "ข้อความส่วนตัว",
+      "badge": "ข้อความโดยตรง",
       "call": "โทร",
       "video": "วิดีโอ",
       "voice_call_title": "สายเสียงกับ {user}",
@@ -487,7 +487,7 @@
     "load_more": "โหลดเพิ่ม (เหลืออีก {remaining})"
   },
   "admin": {
-    "title": "แดชบอร์ดผู้ดูแล",
+    "title": "แดชบอร์ดผู้ดูแลระบบ",
     "you": "คุณ",
     "subtitle": {
       "manage": "จัดการบทบาท การเข้าถึงช่อง และระบบอัตโนมัติของบทบาทได้จากแผงเดียว",
@@ -561,7 +561,7 @@
         "queue_label": "ส่งเมื่อเชื่อมต่อใหม่",
         "pending": "รอดำเนินการ",
         "failed": "ล้มเหลว",
-        "synced": "ซิงก์แล้ว"
+        "synced": "ซิงค์แล้ว"
       },
       "retry": {
         "button": "ลองทำการกระทำที่ล้มเหลวอีกครั้ง"
@@ -591,7 +591,7 @@
       "search": "ค้นหา"
     },
     "open_side_panel": "เปิดแผงด้านข้าง",
-    "unread_dms": "ข้อความส่วนตัวที่ยังไม่ได้อ่าน",
+    "unread_dms": "ข้อความโดยตรงที่ยังไม่ได้อ่าน",
     "open_group": "เปิด {name}",
     "open_dm_with": "เปิด DM กับ {user}",
     "user_fallback": "ผู้ใช้",
@@ -620,8 +620,8 @@
     "toggle_call_diagnostics": "เปิดหรือปิดการวินิจฉัยการโทร",
     "close_call_diagnostics": "ปิดการวินิจฉัยการโทร",
     "calling_debug": "การวินิจฉัยการโทร",
-    "open_voice_whiteboard": "เปิดไวต์บอร์ดของช่องเสียงนี้",
-    "scratchpad": "สมุดทด"
+    "open_voice_whiteboard": "เปิดไวท์บอร์ดของช่องเสียงนี้",
+    "scratchpad": "กระดาษทด"
   },
   "user": {
     "online": "ออนไลน์ ({count})",
@@ -723,8 +723,8 @@
       "experimental_encryption": "ยังไม่ผ่านการตรวจสอบโดยอิสระ"
     },
     "phone": {
-      "server_readable": "ผู้ดูแลอ่านช่องนี้ได้",
-      "server_readable_conversation": "ผู้ดูแลอ่านบทสนทนานี้ได้",
+      "server_readable": "ผู้ดูแลเซิร์ฟเวอร์อ่านช่องนี้ได้",
+      "server_readable_conversation": "ผู้ดูแลเซิร์ฟเวอร์อ่านบทสนทนานี้ได้",
       "server_readable_by_choice": "คุณเลือกให้เซิร์ฟเวอร์อ่านได้",
       "encryption_pending": "กำลังรออุปกรณ์",
       "experimental_encryption": "ยังไม่ผ่านการตรวจสอบโดยอิสระ"
@@ -908,7 +908,7 @@
     "write": "เขียน",
     "preview": "ดูตัวอย่าง",
     "mark_solution": "ทำเครื่องหมายเป็นคำตอบ",
-    "solved": "แก้ไขแล้ว",
+    "solved": "แก้ปัญหาแล้ว",
     "upvote": "โหวตขึ้น {count} คะแนน",
     "downvote": "โหวตลง {count} คะแนน",
     "original_version": "ฉบับดั้งเดิม",

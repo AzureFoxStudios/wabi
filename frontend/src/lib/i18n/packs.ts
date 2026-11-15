@@ -25,6 +25,20 @@ export interface LanguagePack {
 	loadFonts?: () => Promise<unknown>;
 }
 
+/**
+ * Font files each non-Latin script's pack loads. The loaders in the registrations below import these
+ * same paths (Vite needs static import strings); src/lib/i18n/fontCoverage.test.ts checks both.
+ */
+export const SCRIPT_FONT_FILES: Partial<Record<LanguageScript, string[]>> = {
+	thai: [
+		'@fontsource/noto-sans-thai/thai-400.css',
+		'@fontsource/noto-sans-thai/thai-500.css',
+		'@fontsource/noto-sans-thai/thai-700.css',
+		'@fontsource/noto-serif-thai/thai-400.css',
+		'@fontsource/noto-serif-thai/thai-600.css'
+	]
+};
+
 export const BASE_LOCALE = 'en';
 
 const packs = new Map<string, LanguagePack>();

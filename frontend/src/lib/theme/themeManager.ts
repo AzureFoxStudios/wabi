@@ -186,7 +186,10 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 
 	// === 6. Apply uniform font settings ===
 	if (uniformFontSettings?.enabled) {
-		root.style.setProperty('--uniform-font-family', uniformFontSettings.family);
+		root.style.setProperty(
+			'--uniform-font-family',
+			uniformFontSettings.family === 'inherit' ? 'inherit' : `${uniformFontSettings.family}, var(--w-sans)`
+		);
 		root.style.setProperty('--uniform-font-size', uniformFontSettings.size);
 		root.style.setProperty('--uniform-font-weight', uniformFontSettings.weight);
 		root.style.setProperty('--uniform-font-style', uniformFontSettings.style);
