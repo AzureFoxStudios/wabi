@@ -1,6 +1,6 @@
 [package]
 name = "wabi-desktop"
-version = "0.1.0"
+version = "0.8.0"
 description = "Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review."
 authors = ["Ronin"]
 license = "MIT"
