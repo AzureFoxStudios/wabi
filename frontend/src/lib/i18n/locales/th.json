@@ -1136,5 +1136,32 @@
     "servers": "เซิร์ฟเวอร์",
     "add_or_switch": "เพิ่มหรือสลับเซิร์ฟเวอร์",
     "admin_dashboard": "แดชบอร์ดผู้ดูแลระบบ"
+  },
+  "voice": {
+    "stop_recording": "หยุดบันทึก",
+    "close_connection_details": "ปิดรายละเอียดการเชื่อมต่อ",
+    "stat_route": "เส้นทาง",
+    "stat_latency": "ความหน่วง",
+    "stat_jitter": "ความผันผวนของการหน่วง",
+    "stat_packet_loss": "การสูญหายของแพ็กเก็ต",
+    "stat_rate": "อัตรา",
+    "your_screen": "หน้าจอของคุณ",
+    "empty_title": "ยังไม่มีห้องเสียง",
+    "empty_text": "ห้องเสียงจะแสดงที่นี่เมื่อมีคนในชุมชนนี้สร้างขึ้น"
+  },
+  "gallery": {
+    "search_placeholder": "ค้นหาผลงาน...",
+    "loading": "กำลังโหลดแกลเลอรี...",
+    "empty_title": "ยังไม่มีผลงาน",
+    "empty_text": "อัปโหลดรูปภาพหรือวิดีโอลงอัลบั้มในช่องนี้เพื่อเติมแกลเลอรี",
+    "recently_uploaded": "อัปโหลดล่าสุด",
+    "unknown_creator": "ไม่ทราบ",
+    "no_match_title": "ไม่มีผลงานที่ตรงกับตัวกรองเหล่านี้",
+    "no_match_text": "ลองค้นหา ประเภทสื่อ หรือผู้สร้างอื่น",
+    "clear_filters": "ล้างตัวกรอง",
+    "filter_all": "ทั้งหมด",
+    "filter_images": "รูปภาพ",
+    "filter_video": "วิดีโอ",
+    "filter_documents": "เอกสาร"
   }
 }

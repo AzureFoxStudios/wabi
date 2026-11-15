@@ -409,7 +409,7 @@
 			<input
 				type="text"
 				class="gallery-search"
-				placeholder="Search works..."
+				placeholder={$_('gallery.search_placeholder')}
 				bind:value={searchQuery}
 			/>
 		</div>
@@ -431,7 +431,7 @@
 	{#if warning}
 		<div class="gallery-warning" role="status">
 			<span>{warning}</span>
-			<button on:click={() => effectiveChannel && loadGallery(effectiveChannel)}>Retry</button>
+			<button on:click={() => effectiveChannel && loadGallery(effectiveChannel)}>{$_('common.retry')}</button>
 		</div>
 	{/if}
 
@@ -452,12 +452,12 @@
 		{#if isLoading}
 			<div class="gallery-loading">
 				<div class="loading-spinner"></div>
-				<span>Loading gallery...</span>
+				<span>{$_('gallery.loading')}</span>
 			</div>
 		{:else if error}
 			<div class="gallery-error">
 				<span>{error}</span>
-				<button on:click={() => effectiveChannel && loadGallery(effectiveChannel)}>Retry</button>
+				<button on:click={() => effectiveChannel && loadGallery(effectiveChannel)}>{$_('common.retry')}</button>
 			</div>
 		{:else if viewState === 'empty'}
 			<div class="gallery-empty">
@@ -468,14 +468,14 @@
 						<path d="M21 15l-5-5L5 21"/>
 					</svg>
 				</div>
-				<h3>No works yet</h3>
-				<p>Upload images or videos to albums in this channel to populate the gallery.</p>
+				<h3>{$_('gallery.empty_title')}</h3>
+				<p>{$_('gallery.empty_text')}</p>
 			</div>
 		{:else}
 			{#if !activeCreatorFilter && recentItems.length > 0}
 				<section class="recent-section">
 					<div class="section-header">
-						<h2>Recently Uploaded</h2>
+						<h2>{$_('gallery.recently_uploaded')}</h2>
 						<span class="section-count">{recentItems.length} new</span>
 					</div>
 					<div class="recent-scroll">
@@ -645,7 +645,7 @@
 											</button>
 										{:else}
 											<div class="card-avatar">?</div>
-											<span class="card-creator-name">Unknown</span>
+											<span class="card-creator-name">{$_('gallery.unknown_creator')}</span>
 										{/if}
 										<span class="card-time">{formatGalleryTime(item.uploadedAt)}</span>
 									</div>
@@ -656,9 +656,9 @@
 				</section>
 			{:else}
 				<div class="gallery-empty">
-					<h3>No works match these filters</h3>
-					<p>Try a different search, media type, or creator.</p>
-					<button class="creator-banner-clear" on:click={clearFilters}>Clear filters</button>
+					<h3>{$_('gallery.no_match_title')}</h3>
+					<p>{$_('gallery.no_match_text')}</p>
+					<button class="creator-banner-clear" on:click={clearFilters}>{$_('gallery.clear_filters')}</button>
 				</div>
 			{/if}
 		{/if}
@@ -666,10 +666,10 @@
 
 	<footer class="filter-bar">
 		<div class="filter-bar-left">
-			<button class="filter-btn" class:active={activeTypeFilter === 'all'} on:click={() => setTypeFilter('all')}>All</button>
-			<button class="filter-btn" class:active={activeTypeFilter === 'image'} on:click={() => setTypeFilter('image')}>Images</button>
-			<button class="filter-btn" class:active={activeTypeFilter === 'video'} on:click={() => setTypeFilter('video')}>Video</button>
-			{#if hasDocuments}<button class="filter-btn" class:active={activeTypeFilter === 'document'} on:click={() => setTypeFilter('document')}>Documents</button>{/if}
+			<button class="filter-btn" class:active={activeTypeFilter === 'all'} on:click={() => setTypeFilter('all')}>{$_('gallery.filter_all')}</button>
+			<button class="filter-btn" class:active={activeTypeFilter === 'image'} on:click={() => setTypeFilter('image')}>{$_('gallery.filter_images')}</button>
+			<button class="filter-btn" class:active={activeTypeFilter === 'video'} on:click={() => setTypeFilter('video')}>{$_('gallery.filter_video')}</button>
+			{#if hasDocuments}<button class="filter-btn" class:active={activeTypeFilter === 'document'} on:click={() => setTypeFilter('document')}>{$_('gallery.filter_documents')}</button>{/if}
 			{#if hasModels}<button class="filter-btn" class:active={activeTypeFilter === 'model'} on:click={() => setTypeFilter('model')}>3D</button>{/if}
 			<div class="filter-divider"></div>
 			<div class="filter-creators">

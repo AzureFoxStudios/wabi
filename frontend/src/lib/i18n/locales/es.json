@@ -1136,5 +1136,32 @@
     "servers": "Servidores",
     "add_or_switch": "Añadir o cambiar de servidor",
     "admin_dashboard": "Panel de administración"
+  },
+  "voice": {
+    "stop_recording": "Detener grabación",
+    "close_connection_details": "Cerrar detalles de conexión",
+    "stat_route": "Ruta",
+    "stat_latency": "Latencia",
+    "stat_jitter": "Jitter",
+    "stat_packet_loss": "Pérdida de paquetes",
+    "stat_rate": "Tasa",
+    "your_screen": "Tu pantalla",
+    "empty_title": "Aún no hay salas de voz",
+    "empty_text": "Una sala de voz aparecerá aquí cuando alguien de esta comunidad la cree."
+  },
+  "gallery": {
+    "search_placeholder": "Buscar obras...",
+    "loading": "Cargando galería...",
+    "empty_title": "Aún no hay obras",
+    "empty_text": "Sube imágenes o vídeos a los álbumes de este canal para llenar la galería.",
+    "recently_uploaded": "Subido recientemente",
+    "unknown_creator": "Desconocido",
+    "no_match_title": "Ninguna obra coincide con estos filtros",
+    "no_match_text": "Prueba otra búsqueda, tipo de medio o creador.",
+    "clear_filters": "Borrar filtros",
+    "filter_all": "Todo",
+    "filter_images": "Imágenes",
+    "filter_video": "Vídeo",
+    "filter_documents": "Documentos"
   }
 }

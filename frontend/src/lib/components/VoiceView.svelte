@@ -440,7 +440,7 @@
 			<span class="calls-recbar__dot" aria-hidden="true"></span>
 			<span class="calls-recbar__time">{recording ? t('calls.recording', { time: recordElapsed }) : 'Saving recording…'}</span>
 			{#if recording}
-				<button type="button" class="w-btn w-btn--sm" disabled={recordBusy} onclick={() => void handleToggleRecord()}>Stop recording</button>
+				<button type="button" class="w-btn w-btn--sm" disabled={recordBusy} onclick={() => void handleToggleRecord()}>{$_('voice.stop_recording')}</button>
 			{/if}
 		</div>
 	{/if}
@@ -449,20 +449,20 @@
 		<section class="calls-conn" aria-labelledby={`${uid}-conn`}>
 			<header class="calls-conn__head">
 				<h3 class="calls-conn__title" id={`${uid}-conn`}><Icon name="signal" size={16} />{t('calls.connection_details')}</h3>
-				<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close connection details" onclick={() => callConnectionDetailsOpen.set(false)}>
+				<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('voice.close_connection_details')} onclick={() => callConnectionDetailsOpen.set(false)}>
 					<Icon name="x" />
 				</button>
 			</header>
 			<dl class="calls-conn__facts">
-				<dt>Route</dt>
+				<dt>{$_('voice.stat_route')}</dt>
 				<dd>{routeWord}</dd>
-				<dt>Latency</dt>
+				<dt>{$_('voice.stat_latency')}</dt>
 				<dd>{measure($callConnectionDiagnostics.pingMs, 'ms')}</dd>
-				<dt>Jitter</dt>
+				<dt>{$_('voice.stat_jitter')}</dt>
 				<dd>{measure($callConnectionDiagnostics.jitterMs, 'ms')}</dd>
-				<dt>Packet loss</dt>
+				<dt>{$_('voice.stat_packet_loss')}</dt>
 				<dd>{pair($callConnectionDiagnostics.inboundPacketLossPct, $callConnectionDiagnostics.outboundPacketLossPct, '%')}</dd>
-				<dt>Rate</dt>
+				<dt>{$_('voice.stat_rate')}</dt>
 				<dd>{pair($callConnectionDiagnostics.inboundKbps, $callConnectionDiagnostics.outboundKbps, ' kbps')}</dd>
 			</dl>
 			<p class="calls-conn__hint">
@@ -520,7 +520,7 @@
 								{#if ownScreen}
 									<div class="call-tile call-tile--screen">
 										<VideoSink stream={ownScreen} />
-										<span class="call-tile__label"><Icon name="screen" size={12} />Your screen</span>
+										<span class="call-tile__label"><Icon name="screen" size={12} />{$_('voice.your_screen')}</span>
 									</div>
 								{/if}
 								{#each videos.slice(0, 4) as [key, stream] (key)}
@@ -605,8 +605,8 @@
 	{:else}
 		<div class="w-empty calls-empty">
 			<Icon name="voice" size={28} />
-			<h3 class="w-empty__title">No voice rooms yet</h3>
-			<p class="w-empty__text">A voice room shows up here once someone in this community creates one.</p>
+			<h3 class="w-empty__title">{$_('voice.empty_title')}</h3>
+			<p class="w-empty__text">{$_('voice.empty_text')}</p>
 		</div>
 	{/if}
 

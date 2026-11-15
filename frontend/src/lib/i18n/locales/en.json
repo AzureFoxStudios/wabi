@@ -1136,5 +1136,32 @@
     "servers": "Servers",
     "add_or_switch": "Add or switch servers",
     "admin_dashboard": "Admin dashboard"
+  },
+  "voice": {
+    "stop_recording": "Stop recording",
+    "close_connection_details": "Close connection details",
+    "stat_route": "Route",
+    "stat_latency": "Latency",
+    "stat_jitter": "Jitter",
+    "stat_packet_loss": "Packet loss",
+    "stat_rate": "Rate",
+    "your_screen": "Your screen",
+    "empty_title": "No voice rooms yet",
+    "empty_text": "A voice room shows up here once someone in this community creates one."
+  },
+  "gallery": {
+    "search_placeholder": "Search works...",
+    "loading": "Loading gallery...",
+    "empty_title": "No works yet",
+    "empty_text": "Upload images or videos to albums in this channel to populate the gallery.",
+    "recently_uploaded": "Recently Uploaded",
+    "unknown_creator": "Unknown",
+    "no_match_title": "No works match these filters",
+    "no_match_text": "Try a different search, media type, or creator.",
+    "clear_filters": "Clear filters",
+    "filter_all": "All",
+    "filter_images": "Images",
+    "filter_video": "Video",
+    "filter_documents": "Documents"
   }
 }
