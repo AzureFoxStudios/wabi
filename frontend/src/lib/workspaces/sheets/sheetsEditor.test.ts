@@ -61,6 +61,16 @@ describe('one toolbar, one formula bar, the grid owns the rest', () => {
 		expect(grid).toContain("focused?.closest('.sheet-find')");
 	});
 
+	test('Enter and Tab move the active cell inside a multi-cell selection without changing the selection', () => {
+		expect(grid).toContain('nextInRange(bounds,activePos(),key,shift)');
+		expect(grid).toContain('const activeRow=$derived(inner?.row??selectedRow)');
+		// The highlighted cell, the editor, the name box and formatting all follow the active cell.
+		expect(markup).toContain('class:active={row.id===activeRow&&column.id===activeColumn}');
+		expect(grid).toContain("editing&&editSurface==='cell'&&row.id===activeRow&&column.id===activeColumn");
+		// Any change to the selection itself puts the active cell back on its corner.
+		expect(grid).toContain('void selectedRow;void selectedColumn;void endRow;void endColumn;void sheetId;inner=null;');
+	});
+
 	test('columns can be resized by dragging their edge, and the cell menu opens from mouse and keyboard', () => {
 		expect(markup).toContain('class="col-resize"');
 		expect(markup).toContain('onpointerdown={event=>resizeStart(event,column.id)}');

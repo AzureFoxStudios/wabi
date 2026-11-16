@@ -15,7 +15,7 @@
     import {orderedSheets,snapshot,sheets,setCell,setCells,setStyle,styleOf,formatValue,addSheet,renameSheet,reorderSheet,removeSheet,restoreSheet,insertAxis,removeAxis,reorderRows,columnWidth,setColumnWidth,fill,recoverRemoved,cachedResultIsStale,cellKey,heads,inputOf,type CellStyle,type CellTarget} from './model';
     import {columnName,literal,type Calculation,type CellVersion,type Scalar} from './formula';
     import {SheetWorker} from './workerClient';
-    import {commitDirection,endTarget,homeTarget,jumpTarget,pageTarget,parseAddress,stepTo,type Direction,type Pos} from './gridNav';
+    import {commitDirection,endTarget,homeTarget,jumpTarget,nextInRange,pageTarget,parseAddress,stepTo,type Direction,type Pos} from './gridNav';
     import {accept as acceptName,callAt,signatureParts,suggest} from './autocomplete';
     import {FUNCTION_CATALOG,type FunctionInfo} from './functionCatalog';
     import {arrowAction,canPoint,liveSpan,pointInsert,refLabel,type EditMode,type PointSpan} from './pointMode';
@@ -38,6 +38,11 @@
     const suggestId='sheet-suggest-'+crypto.randomUUID();
     let nameText=$state(''),nameFocused=false,liveWidth=$state<{id:string;width:number}|null>(null);
     let cellMenuAnchor=$state<HTMLElement|null>(null),cellMenuOpen=$state(false);
+    // Enter and Tab inside a selection of several cells move the active cell within it while the selection stays; the
+    // selection's own corner (selectedRow/Column) is untouched, and any change to the selection puts the active cell back.
+    let inner=$state<{row:string;column:string}|null>(null);
+    const activeRow=$derived(inner?.row??selectedRow),activeColumn=$derived(inner?.column??selectedColumn);
+    $effect(()=>{void selectedRow;void selectedColumn;void endRow;void endColumn;void sheetId;inner=null;});
     let dragPoint:{x:number;y:number}|null=null,dragFrame=0,fillDragging=false;
     let fillHandle=$state<{left:number;top:number}|null>(null),fillPreview=$state<{r0:number;r1:number;c0:number;c1:number;direction:'down'|'right'}|null>(null);
     let findOpen=$state(false),findReplace=$state(false),findQuery=$state(''),findWith=$state(''),findCase=$state(false),findWhole=$state(false),findInput=$state<HTMLInputElement>();
@@ -73,7 +78,7 @@
     const first=$derived(Math.max(0,Math.floor(scrollTop/rowHeight)-5));
     const last=$derived(Math.min(rows.length,first+Math.ceil(viewportHeight/rowHeight)+12));
     const visible=$derived(rows.slice(first,last));
-    const selectedVersions=$derived(current?heads(current.cells[cellKey(selectedRow,selectedColumn)]||[]):[]);
+    const selectedVersions=$derived(current?heads(current.cells[cellKey(activeRow,activeColumn)]||[]):[]);
     const selection=$derived.by(()=>{
         if(!current)return[];
         const a=rows.findIndex(row=>row.id===selectedRow),b=rows.findIndex(row=>row.id===(endRow||selectedRow));
@@ -83,7 +88,7 @@
     });
     const selectedSet=$derived(new Set(selection.map(cell=>cellKey(cell.row,cell.column))));
     const selectionProtected=$derived(selection.some(cell=>isProtected(cell.row,cell.column)));
-    const selectedStyle=$derived.by(()=>{dataEpoch;return ysheet?styleOf(ysheet,selectedRow,selectedColumn):{} as CellStyle;});
+    const selectedStyle=$derived.by(()=>{dataEpoch;return ysheet?styleOf(ysheet,activeRow,activeColumn):{} as CellStyle;});
     const allowSelected=$derived(editable&&!selectionProtected);
     const suggestions=$derived(editing&&!suggestHidden?suggest(draft,caret,FUNCTION_CATALOG):[]);
     const callHint=$derived.by(()=>{
@@ -128,7 +133,7 @@
         if(!version)return null;if(version.literal!==undefined)return version.literal;
         return version.input.startsWith('=')?null:literal(version.input);
     }
-    function beginEdit(){if(!editable||!current||isProtected(selectedRow,selectedColumn))return;if(!editingTarget){editingTarget={sheet:current.id,row:selectedRow,column:selectedColumn,parents:selectedVersions.map(version=>version.id)};bufferId='cell:'+crypto.randomUUID();}editing=true;}
+    function beginEdit(){if(!editable||!current||isProtected(activeRow,activeColumn))return;if(!editingTarget){editingTarget={sheet:current.id,row:activeRow,column:activeColumn,parents:selectedVersions.map(version=>version.id)};bufferId='cell:'+crypto.randomUUID();}editing=true;}
     function stage(value:string){draft=value;if(!editingTarget)beginEdit();if(!editingTarget)return;const target=editingTarget;attempt(()=>session.stageDraft(bufferId,{kind:'cell',text:value,context:{...target},updatedAt:Date.now()}));}
     function commit():boolean{
         if(!editing)return true;if(!editingTarget)return false;const target=editingTarget;
@@ -140,7 +145,7 @@
         }catch(e){error=e instanceof Error?e.message:String(e);return false;}
     }
     function cancelEdit(){if(!editingTarget)return;attempt(()=>{session.stageDraft(bufferId,null);editing=false;editingTarget=null;draft=selectedVersions.length===1&&current?inputOf(selectedVersions[0],book,current.id):'';grid?.focus();});}
-    function choose(row:string,column:string,extend=false):boolean{if(!commit())return false;grid?.focus();if(extend){endRow=row;endColumn=column;}else{selectedRow=row;selectedColumn=column;endRow='';endColumn='';}return true;}
+    function choose(row:string,column:string,extend=false):boolean{if(!commit())return false;grid?.focus();inner=null;if(extend){endRow=row;endColumn=column;}else{selectedRow=row;selectedColumn=column;endRow='';endColumn='';}return true;}
     function startEdit(){void openEditor('edit');}
 
     // ---- the cell editor: Excel's Enter, Edit and Point modes ----
@@ -179,7 +184,7 @@
         if(key==='Escape'){event.preventDefault();cancelEdit();return;}
         // Alt+Enter starts a new line inside the cell, as in Excel.
         if(key==='Enter'&&event.altKey&&el===cellEditor){event.preventDefault();const end=el.selectionEnd??at;void setDraftAt(draft.slice(0,at)+'\n'+draft.slice(end),at+1);return;}
-        if(key==='Enter'||key==='Tab'){event.preventDefault();commitAndMove(commitDirection(key,event.shiftKey));return;}
+        if(key==='Enter'||key==='Tab'){event.preventDefault();if(commitAndMoveInRange(key,event.shiftKey))return;commitAndMove(commitDirection(key,event.shiftKey));return;}
         if(key==='F2'){event.preventDefault();editMode=editMode==='enter'?'edit':'enter';resetPoint();return;}
         if(key==='F4'){event.preventDefault();const result=cycleAbsolute(draft,el.selectionStart??0,el.selectionEnd??0);if(result)void setDraftAt(result.text,result.selStart,result.selEnd);return;}
         const direction=arrowDirection(key);
@@ -190,10 +195,22 @@
             if(action==='point')pointMove(direction,event.shiftKey);else commitAndMove(direction);
         }
     }
-    function activePos():Pos{return{r:Math.max(0,rows.findIndex(item=>item.id===selectedRow)),c:Math.max(0,(current?.columns??[]).findIndex(item=>item.id===selectedColumn))};}
+    function activePos():Pos{return{r:Math.max(0,rows.findIndex(item=>item.id===activeRow)),c:Math.max(0,(current?.columns??[]).findIndex(item=>item.id===activeColumn))};}
     function focusPos():Pos{return{r:Math.max(0,rows.findIndex(item=>item.id===(endRow||selectedRow))),c:Math.max(0,(current?.columns??[]).findIndex(item=>item.id===(endColumn||selectedColumn)))};}
     function ensureVisible(r:number){if(!grid)return;const top=r*rowHeight;if(top<grid.scrollTop)grid.scrollTop=top;else if(top>grid.scrollTop+grid.clientHeight-96)grid.scrollTop=top-grid.clientHeight+96;}
     function selectPos(pos:Pos,extend=false){if(!current)return;const row=rows[pos.r],column=current.columns[pos.c];if(row&&column&&choose(row.id,column.id,extend)){ensureVisible(pos.r);void tick().then(()=>grid?.querySelector<HTMLElement>(extend?'td.edge-b.edge-r':'td.active')?.scrollIntoView({block:'nearest',inline:'nearest'}));}}
+    const multiCell=()=>!!bounds&&(bounds.r1>bounds.r0||bounds.c1>bounds.c0);
+    function setActiveWithin(pos:Pos){
+        if(!current)return;const row=rows[pos.r],column=current.columns[pos.c];if(!row||!column)return;
+        inner=row.id===selectedRow&&column.id===selectedColumn?null:{row:row.id,column:column.id};
+        ensureVisible(pos.r);void tick().then(()=>grid?.querySelector<HTMLElement>('td.active')?.scrollIntoView({block:'nearest',inline:'nearest'}));
+    }
+    function moveWithinRange(key:'Enter'|'Tab',shift:boolean):boolean{if(!bounds||!multiCell())return false;setActiveWithin(nextInRange(bounds,activePos(),key,shift));return true;}
+    function commitAndMoveInRange(key:'Enter'|'Tab',shift:boolean):boolean{
+        if(!bounds||!multiCell())return false;
+        const from=activePos();if(!commit())return true;
+        setActiveWithin(nextInRange(bounds,from,key,shift));grid?.focus();return true;
+    }
     function commitAndMove(direction:Direction){
         if(!current)return;const from=activePos();if(!commit())return;
         selectPos(stepTo(from,direction,rows.length,current.columns.length));grid?.focus();
@@ -445,8 +462,8 @@
     function insertToday(){
         if(!current)return;
         attempt(()=>{
-            const target=[{row:selectedRow,column:selectedColumn}];permitted(target);
-            setCell(session.data,current!.id,selectedRow,selectedColumn,String(excelSerial(new Date())),session.origin);
+            const target=[{row:activeRow,column:activeColumn}];permitted(target);
+            setCell(session.data,current!.id,activeRow,activeColumn,String(excelSerial(new Date())),session.origin);
             setStyle(session.data,current!.id,target,{format:'date'},session.origin);
         });
     }
@@ -557,7 +574,7 @@
             selectPos(mod?jumpTarget(isFilled,from,arrow,rows.length,columns):stepTo(from,arrow,rows.length,columns),event.shiftKey);return;
         }
         // Enter and Tab move; they do not edit. F2, double click or typing opens the editor.
-        if(key==='Enter'||key==='Tab'){event.preventDefault();selectPos(stepTo(activePos(),commitDirection(key,event.shiftKey),rows.length,columns));return;}
+        if(key==='Enter'||key==='Tab'){event.preventDefault();if(moveWithinRange(key,event.shiftKey))return;selectPos(stepTo(activePos(),commitDirection(key,event.shiftKey),rows.length,columns));return;}
         if(key==='Home'){event.preventDefault();selectPos(homeTarget(event.shiftKey?focusPos():activePos(),mod),event.shiftKey);return;}
         if(key==='End'&&mod){event.preventDefault();selectPos(endTarget(filledCells()),event.shiftKey);return;}
         if(key==='PageDown'||key==='PageUp'){
@@ -612,7 +629,7 @@
     let tabMenuAnchor=$state<HTMLElement|null>(null),tabMenuOpen=$state(false),tabMenuSheet=$state('');
     const gridId='sheet-grid-'+crypto.randomUUID();
     const sheetName=(item:{value:Y.Map<unknown>})=>String(item.value.get('name'));
-    const cellName=$derived(current&&selectedColumn&&selectedRow?`${columnName(current.columns.findIndex(column=>column.id===selectedColumn))}${current.rows.findIndex(row=>row.id===selectedRow)+1}`:'');
+    const cellName=$derived(current&&activeColumn&&activeRow?`${columnName(current.columns.findIndex(column=>column.id===activeColumn))}${current.rows.findIndex(row=>row.id===activeRow)+1}`:'');
     const rowIndex=$derived(new Map(rows.map((row,index)=>[row.id,index])));
     const colIndex=$derived(new Map((current?.columns||[]).map((column,index)=>[column.id,index])));
     /** The selected range's edges (row and column indexes), for its 1px accent perimeter. */
@@ -638,7 +655,7 @@
     const number=(value:number)=>new Intl.NumberFormat(undefined,{maximumFractionDigits:4}).format(value);
     /** A cached result from an imported file (Wabi cannot recalculate its formula): say so where it is read. */
     const activeCached=$derived.by(()=>{
-        if(!current)return null;const key=`${current.id}/${cellKey(selectedRow,selectedColumn)}`;
+        if(!current)return null;const key=`${current.id}/${cellKey(activeRow,activeColumn)}`;
         if(!calculations.errors[key]||selectedVersions[0]?.cached===undefined)return null;
         return cachedResultIsStale(session.data)?'stale':'cached';
     });
@@ -827,7 +844,7 @@
     <div class="sheet-grid" class:freeze id={gridId} bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} oncopy={copyEvent} oncut={event=>copyEvent(event,true)} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
         {#if current}<table role="grid" aria-label={current.name} aria-rowcount={rows.length+1} aria-colcount={current.columns.length+1} aria-multiselectable="true" style:--sheet-row={`${rowHeight}px`} style:width={`${tableWidth}px`}><colgroup><col class="sheet-col-label"/>{#each current.columns as column(column.id)}<col style:width={`${widthOf(column.id)}px`}/>{/each}</colgroup><thead><tr><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label corner" scope="col" title="Select all" onclick={selectAll}><span class="sr-only">Row</span></th>{#each current.columns as column,index(column.id)}<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th scope="col" class:selected-head={selectedColumns.has(column.id)} style:width={`${widthOf(column.id)}px`} onclick={event=>selectColumn(index,event.shiftKey)}>{columnName(index)}<!-- svelte-ignore a11y_no_static_element_interactions --><span class="col-resize" aria-hidden="true" onpointerdown={event=>resizeStart(event,column.id)} onclick={event=>event.stopPropagation()} ondblclick={event=>{event.stopPropagation();autoFit(column.id);}}></span></th>{/each}</tr></thead><tbody>
             {#if first>0}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${first*rowHeight}px`} class="spacer"></td></tr>{/if}
-            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row" onclick={event=>selectRow(ri,event.shiftKey)}>{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===selectedRow&&column.id===selectedColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-decoration={cellStyle.underline?'underline':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${widthOf(column.id)}px`} style:max-width={`${widthOf(column.id)}px`} class:copied={copied.has(cellKey(row.id,column.id))} class:found={findKeys.has(cellKey(row.id,column.id))} class:fillpreview={!!fillPreview&&ri>=fillPreview.r0&&ri<=fillPreview.r1&&ci>=fillPreview.c0&&ci<=fillPreview.c1} class:pointed={!!pointCells&&ri>=pointCells.r0&&ri<=pointCells.r1&&ci>=pointCells.c0&&ci<=pointCells.c1} title={cellTitle(row.id,column.id)} oncontextmenu={event=>openCellMenu(event,row.id,column.id)} onpointerdown={event=>cellPointerDown(event,ri,ci,row.id,column.id)} data-row={row.id} data-col={column.id} onclick={event=>cellClick(event,row.id,column.id)} ondblclick={()=>{if(choose(row.id,column.id))startEdit();}}>{#if editing&&editSurface==='cell'&&row.id===selectedRow&&column.id===selectedColumn}<textarea class="sheet-cell-editor" rows={Math.min(8,draft.split('\n').length)} wrap="off" bind:this={cellEditor} role="combobox" aria-label={`Editing ${cellName}`} aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestId} aria-activedescendant={suggestions.length?`${suggestId}-${suggestIndex}`:undefined} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" oninput={cellInput} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} onblur={cellBlur}></textarea>{:else}<span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span>{/if}</td>{/each}</tr>{/each}
+            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row" onclick={event=>selectRow(ri,event.shiftKey)}>{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===activeRow&&column.id===activeColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-decoration={cellStyle.underline?'underline':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${widthOf(column.id)}px`} style:max-width={`${widthOf(column.id)}px`} class:copied={copied.has(cellKey(row.id,column.id))} class:found={findKeys.has(cellKey(row.id,column.id))} class:fillpreview={!!fillPreview&&ri>=fillPreview.r0&&ri<=fillPreview.r1&&ci>=fillPreview.c0&&ci<=fillPreview.c1} class:pointed={!!pointCells&&ri>=pointCells.r0&&ri<=pointCells.r1&&ci>=pointCells.c0&&ci<=pointCells.c1} title={cellTitle(row.id,column.id)} oncontextmenu={event=>openCellMenu(event,row.id,column.id)} onpointerdown={event=>cellPointerDown(event,ri,ci,row.id,column.id)} data-row={row.id} data-col={column.id} onclick={event=>cellClick(event,row.id,column.id)} ondblclick={()=>{if(choose(row.id,column.id))startEdit();}}>{#if editing&&editSurface==='cell'&&row.id===activeRow&&column.id===activeColumn}<textarea class="sheet-cell-editor" rows={Math.min(8,draft.split('\n').length)} wrap="off" bind:this={cellEditor} role="combobox" aria-label={`Editing ${cellName}`} aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestId} aria-activedescendant={suggestions.length?`${suggestId}-${suggestIndex}`:undefined} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" oninput={cellInput} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} onblur={cellBlur}></textarea>{:else}<span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span>{/if}</td>{/each}</tr>{/each}
             {#if last<rows.length}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${(rows.length-last)*rowHeight}px`} class="spacer"></td></tr>{/if}
         </tbody></table>{/if}
         {#if fillHandle&&editable&&!editing}<!-- svelte-ignore a11y_no_static_element_interactions --><span class="fill-handle" aria-hidden="true" title="Drag to fill" style:left={`${fillHandle.left}px`} style:top={`${fillHandle.top}px`} onpointerdown={fillStart}></span>{/if}

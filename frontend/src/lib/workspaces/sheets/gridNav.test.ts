@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { commitDirection, endTarget, homeTarget, jumpTarget, pageTarget, parseAddress, stepTo, type Pos } from './gridNav';
+import { commitDirection, endTarget, homeTarget, jumpTarget, nextInRange, pageTarget, parseAddress, stepTo, type Pos } from './gridNav';
 
 /** A column of data at C: rows 2-4 filled, a gap, then rows 7-8 filled. */
 const data = new Set(['1,2', '2,2', '3,2', '6,2', '7,2']);
@@ -69,4 +69,34 @@ test('anything that is not an address on this sheet is refused', () => {
 	expect(parseAddress('B101', 100, 20)).toBeNull(); // beyond the last row
 	expect(parseAddress('U1', 100, 20)).toBeNull(); // beyond the last column (T)
 	expect(parseAddress('A1:B101', 100, 20)).toBeNull(); // the far end counts too
+});
+
+const box = { r0: 1, r1: 3, c0: 1, c1: 2 }; // B2:C4
+
+test('Enter moves down a column of the selection, then on to the next column, and wraps', () => {
+	expect(nextInRange(box, { r: 1, c: 1 }, 'Enter', false)).toEqual({ r: 2, c: 1 });
+	expect(nextInRange(box, { r: 3, c: 1 }, 'Enter', false)).toEqual({ r: 1, c: 2 });
+	expect(nextInRange(box, { r: 3, c: 2 }, 'Enter', false)).toEqual({ r: 1, c: 1 });
+});
+
+test('Shift+Enter reverses it, including the wrap', () => {
+	expect(nextInRange(box, { r: 2, c: 1 }, 'Enter', true)).toEqual({ r: 1, c: 1 });
+	expect(nextInRange(box, { r: 1, c: 2 }, 'Enter', true)).toEqual({ r: 3, c: 1 });
+	expect(nextInRange(box, { r: 1, c: 1 }, 'Enter', true)).toEqual({ r: 3, c: 2 });
+});
+
+test('Tab moves along a row of the selection, then on to the next row, and wraps', () => {
+	expect(nextInRange(box, { r: 1, c: 1 }, 'Tab', false)).toEqual({ r: 1, c: 2 });
+	expect(nextInRange(box, { r: 1, c: 2 }, 'Tab', false)).toEqual({ r: 2, c: 1 });
+	expect(nextInRange(box, { r: 3, c: 2 }, 'Tab', false)).toEqual({ r: 1, c: 1 });
+	expect(nextInRange(box, { r: 2, c: 1 }, 'Tab', true)).toEqual({ r: 1, c: 2 });
+	expect(nextInRange(box, { r: 1, c: 1 }, 'Tab', true)).toEqual({ r: 3, c: 2 });
+});
+
+test('visiting every cell once, Enter covers the whole selection', () => {
+	const seen = new Set<string>();
+	let at: Pos = { r: 1, c: 1 };
+	for (let i = 0; i < 6; i++) { seen.add(`${at.r},${at.c}`); at = nextInRange(box, at, 'Enter', false); }
+	expect(seen.size).toBe(6);
+	expect(at).toEqual({ r: 1, c: 1 });
 });

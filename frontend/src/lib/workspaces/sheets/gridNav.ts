@@ -88,3 +88,24 @@ export function parseAddress(text: string, rows: number, columns: number): Addre
 	const to = match[3] ? at(match[3], match[4]) : null;
 	return inside(from) && (!to || inside(to)) ? { from, to } : null;
 }
+
+export interface RangeBounds { r0: number; r1: number; c0: number; c1: number }
+
+/**
+ * Enter and Tab inside a selection of several cells move the active cell within it, as Excel does for
+ * data entry: Enter goes down a column then on to the next column, Tab goes along a row then on to the
+ * next row, Shift reverses, and both wrap from the last cell back to the first.
+ */
+export function nextInRange(bounds: RangeBounds, from: Pos, key: 'Enter' | 'Tab', shift: boolean): Pos {
+	const { r0, r1, c0, c1 } = bounds;
+	let { r, c } = from;
+	if (key === 'Enter') {
+		if (!shift) { r++; if (r > r1) { r = r0; c++; if (c > c1) c = c0; } }
+		else { r--; if (r < r0) { r = r1; c--; if (c < c0) c = c1; } }
+	} else if (!shift) {
+		c++; if (c > c1) { c = c0; r++; if (r > r1) r = r0; }
+	} else {
+		c--; if (c < c0) { c = c1; r--; if (r < r0) r = r1; }
+	}
+	return { r, c };
+}
