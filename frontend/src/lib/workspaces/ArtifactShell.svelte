@@ -20,6 +20,7 @@
 	import { setWorkspaceAddonEnabled } from './addonState';
 	import { compactStatus } from './officeStatus';
 	import { officeKeyAction, keyTarget } from './officeKeys';
+	import { shortcutsFor } from './officeShortcuts';
 	import { clearStageHeader, setStageHeader, type StageHeaderAction } from '$lib/stageHeader';
 	import { confirmAction } from '$lib/confirm';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -107,6 +108,9 @@
 	 * file where it lives and says where that is, so the key never opens the browser's own Save dialog.
 	 */
 	let root = $state<HTMLElement | null>(null);
+	let helpOpen = $state(false);
+	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+	const shortcutGroups = $derived(shortcutsFor(tool, isMac));
 	async function saveNow() {
 		await run(async () => {
 			await session.flush();
@@ -124,6 +128,7 @@
 		const action = officeKeyAction(event, keyTarget(event.target));
 		if (!action) return;
 		event.preventDefault();
+		if (action === 'help') { helpOpen = !helpOpen; return; }
 		if (action === 'save') { void saveNow(); return; }
 		if (!editable || busy) return;
 		if (action === 'undo') session.undo.undo();
@@ -310,7 +315,8 @@
 			{ id: 'task', label: 'Create private task', icon: 'calendarCheck', disabled: busy || !meta, hint: meta ? undefined : 'Share it first', onSelect: () => void handoff?.createTask() },
 			{ id: 'sep-2', type: 'separator', label: '' },
 			{ id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl Z', disabled: !editable || busy, onSelect: () => { session.undo.undo(); } },
-			{ id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl Shift Z', disabled: !editable || busy, onSelect: () => { session.undo.redo(); } }
+			{ id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl Shift Z', disabled: !editable || busy, onSelect: () => { session.undo.redo(); } },
+			{ id: 'shortcuts', label: 'Keyboard shortcuts', icon: 'info', shortcut: 'Ctrl /', onSelect: () => { helpOpen = true; } }
 		);
 		if (tool === 'sheets' || tool === 'present' || isAdmin) items.push({ id: 'sep-3', type: 'separator', label: '' });
 		if (tool === 'sheets' || tool === 'present') items.push({ id: 'off', label: `Turn off ${toolName} on this device…`, icon: 'eyeOff', onSelect: () => void run(turnOffTool) });
@@ -464,6 +470,19 @@
 {#if moreAnchor}
 	<Menu items={menuItems} label={`${toolName} options`} anchor={moreAnchor} bind:open={moreOpen} align="end" heading={title} subheading={`${$sessionState.meta ? `Shared · ${$sessionState.meta.role}. Server-readable.` : 'Private · this device.'} ${compactStatus($sessionState.status, statusAt)}`} />
 {/if}
+
+<BaseModal isOpen={helpOpen} onClose={() => { helpOpen = false; }} size="md" padded title="Keyboard shortcuts" ariaLabel="Keyboard shortcuts">
+	<div class="workspace-keys">
+		{#each shortcutGroups as group (group.title)}
+			<section>
+				<h3 class="workspace-keys__title">{group.title}</h3>
+				<dl class="workspace-keys__list">
+					{#each group.rows as row (row.keys)}<dt>{row.keys}</dt><dd>{row.action}</dd>{/each}
+				</dl>
+			</section>
+		{/each}
+	</div>
+</BaseModal>
 
 <BaseModal isOpen={shareOpen} onClose={() => { if (!busy) shareOpen = false; }} size="md" padded title={`Share ${title}`} ariaLabel="Document sharing">
 	<form class="workspace-share" id="workspace-share-form" onsubmit={(event) => { event.preventDefault(); void run(share); }}>

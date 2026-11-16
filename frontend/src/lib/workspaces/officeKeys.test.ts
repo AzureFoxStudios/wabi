@@ -45,3 +45,11 @@ test('AltGr (Ctrl+Alt), both modifiers, and IME composition never trigger', () =
 test('outside a browser the target is treated as plain', () => {
 	expect(keyTarget(null)).toEqual({ textEntry: false, codeEditor: false });
 });
+
+test('Ctrl+/ opens the shortcuts list from anywhere, but a shifted slash is left alone', () => {
+	expect(officeKeyAction(press('/'), grid)).toBe('help');
+	expect(officeKeyAction(press('/'), typing)).toBe('help');
+	expect(officeKeyAction(press('/'), code)).toBe('help');
+	expect(officeKeyAction(press('/', { shiftKey: true }), grid)).toBeNull();
+	expect(officeKeyAction(press('/', { altKey: true }), grid)).toBeNull();
+});

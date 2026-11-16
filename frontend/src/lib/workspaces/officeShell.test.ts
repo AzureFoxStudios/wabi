@@ -71,6 +71,12 @@ describe('keeping a copy', () => {
 		expect(shell).toContain('<svelte:window onkeydown={onOfficeKey} />');
 		expect(shell).toContain('Saved in this browser on this device only.');
 	});
+
+	test('Ctrl+/ and the options menu open a shortcuts sheet built from the tool\'s own list', () => {
+		expect(shell).toContain("if (action === 'help') { helpOpen = !helpOpen; return; }");
+		expect(shell).toContain("{ id: 'shortcuts', label: 'Keyboard shortcuts'");
+		expect(shell).toContain('const shortcutGroups = $derived(shortcutsFor(tool, isMac));');
+	});
 });
 
 describe('editor header in row A', () => {
