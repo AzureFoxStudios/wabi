@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import BaseModal from '../components/BaseModal.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { listPaymentHistory, type PaymentIntent } from '$lib/api';
@@ -49,7 +50,7 @@
 	});
 
 	function formatDate(timestamp: number | null): string {
-		if (!timestamp || !Number.isFinite(timestamp)) return 'n/a';
+		if (!timestamp || !Number.isFinite(timestamp)) return $_('payment_intent.na');
 		return new Date(timestamp).toLocaleString();
 	}
 
@@ -74,7 +75,7 @@
 	async function loadHistory(): Promise<void> {
 		const token = getAuthToken();
 		if (!token) {
-			error = 'Sign in with a registered account to view payment history.';
+			error = $_('payment_history.sign_in');
 			intents = [];
 			loaded = true;
 			return;
@@ -87,7 +88,7 @@
 			intents = response.intents;
 			loaded = true;
 		} catch (loadError) {
-			error = loadError instanceof Error ? loadError.message : 'Failed to load payment history';
+			error = loadError instanceof Error ? loadError.message : $_('payment_history.load_failed');
 		} finally {
 			loading = false;
 		}
@@ -153,27 +154,27 @@
 	onClose={onClose}
 	width="820px"
 	{overlayZIndex}
-	title="My Payment Requests"
-	subtitle="History of payment requests you created from this account, with export for record-keeping."
+	title={$_('payment_history.title')}
+	subtitle={$_('payment_history.subtitle')}
 >
 	<div class="sheet-body">
 		<div class="actions">
 			<button class="action" onclick={() => void loadHistory()} disabled={loading}>
-				{loading ? 'Refreshing...' : 'Refresh'}
+				{loading ? $_('donation_config.refreshing') : $_('yt.refresh')}
 			</button>
 			<button class="action" onclick={exportJson} disabled={intents.length === 0}>
-				Export JSON
+				{$_('payment_history.export_json')}
 			</button>
 			<button class="action" onclick={exportCsv} disabled={intents.length === 0}>
-				Export CSV
+				{$_('payment_history.export_csv')}
 			</button>
 			<button class="action primary" onclick={() => onCreatePayment?.()}>
-				New Payment Request
+				{$_('payment_sheet.new_request')}
 			</button>
 		</div>
 
 		{#if loading}
-			<p class="hint">Loading payment history...</p>
+			<p class="hint">{$_('payment_history.loading')}</p>
 		{/if}
 
 		{#if error}
@@ -181,11 +182,11 @@
 		{/if}
 
 		{#if !loading && !error && intents.length === 0}
-			<p class="hint">No payment requests yet. When you create one, it will appear here.</p>
+			<p class="hint">{$_('payment_history.empty')}</p>
 		{/if}
 
 		{#if intents.length > 0}
-			<p class="hint">{intents.length} payment request{intents.length === 1 ? '' : 's'} loaded.</p>
+			<p class="hint">{intents.length === 1 ? $_('payment_history.loaded_one') : $_('payment_history.loaded_many', { values: { count: intents.length } })}</p>
 			<div class="history-list">
 				{#each intents as intent (intent.intentId)}
 					<div class="history-card">
@@ -204,19 +205,19 @@
 
 						<div class="history-grid">
 							<div>
-								<span class="label">Intent</span>
+								<span class="label">{$_('payment_history.intent')}</span>
 								<code>{intent.intentId}</code>
 							</div>
 							<div>
-								<span class="label">Country</span>
-								<span>{intent.countryCode || 'n/a'}</span>
+								<span class="label">{$_('donation_config.country')}</span>
+								<span>{intent.countryCode || $_('payment_intent.na')}</span>
 							</div>
 							<div>
-								<span class="label">Payment Reference</span>
-								<span>{intent.customerRef || 'n/a'}</span>
+								<span class="label">{$_('payment_history.reference')}</span>
+								<span>{intent.customerRef || $_('payment_intent.na')}</span>
 							</div>
 							<div>
-								<span class="label">Verification</span>
+								<span class="label">{$_('payment_history.verification')}</span>
 								<span>{getPaymentVerificationLabel(intent)}</span>
 							</div>
 						</div>

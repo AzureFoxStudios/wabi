@@ -11,6 +11,7 @@
 	  Confirms go through confirmAction, errors render inline where the action happened.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { currentRetentionFromPrivacy, explicitRetentionUpdate } from '$lib/retentionDisplay';
@@ -90,7 +91,7 @@
 	$: isConversation = channelKind === 'dm' || channelKind === 'group';
 	$: settingsTitle = channelSettingsTitle(channelKind);
 	$: placeName = channelSettingsNote(channelKind, channel.name);
-	$: kindNoun = isFolder ? 'folder' : isVoiceChannel ? 'room' : 'channel';
+	$: kindNoun = isFolder ? $_('chan_sidebar.noun_folder') : isVoiceChannel ? $_('chset.noun_room') : $_('chan_sidebar.word_channel_one');
 	$: tabs = channelSettingsTabs(channelKind);
 	/** Which section holds the offline-copies switch for this kind (null: none). */
 	$: persistTab = canTogglePersistMessages ? persistToggleTab(channelKind) : null;
@@ -176,10 +177,10 @@
 
 	$: retentionErrorText =
 		retentionError === 'signin'
-			? 'Sign in again to check it. Nothing changes until it is checked.'
+			? $_('chset.signin_check')
 			: retentionError === 'invalid'
-				? 'The server sent a lifetime Wabi does not recognise. Nothing changes until it is checked.'
-				: 'Nothing changes until the server confirms it.';
+				? $_('chset.unknown_lifetime')
+				: $_('chset.until_confirmed');
 
 	/** Unsaved lifetime choice; undefined while the room keeps its current one. */
 	let draftRetention: RetentionChoice | undefined = undefined;
@@ -197,15 +198,15 @@
 		let ok = true;
 		if (isLiveRetention(next) && !isLiveRetention(previous)) {
 			ok = await confirmAction({
-				title: `Make #${channel.name} a live room?`,
-				body: 'New messages are not saved and are lost when the server restarts, and earlier messages may be hidden while the room is live. Not saving messages does not hide them from the server operator.',
-				confirm: 'Make it live'
+				title: $_('chset.live_title', { values: { name: channel.name } }),
+				body: $_('chset.live_body'),
+				confirm: $_('chset.live_confirm')
 			});
 		} else if (next === null && previous !== null) {
 			ok = await confirmAction({
-				title: 'Keep new messages forever?',
-				body: `New messages in #${channel.name} stay until someone deletes them. Earlier messages keep the lifetime they were sent with.`,
-				confirm: 'Keep forever'
+				title: $_('chset.forever_title'),
+				body: $_('chset.forever_body', { values: { name: channel.name } }),
+				confirm: $_('channel_access.retention_forever')
 			});
 		}
 		retentionBusy = false;
@@ -271,10 +272,10 @@
 	$: loreChannels = $channels.filter((c) => (c.type || 'text') === 'lore');
 	$: loreRepoOptions = loreChannels.map((c) => ({ value: c.id, label: c.name }));
 	const LORE_MODE_OPTIONS = [
-		{ value: 'none', label: 'None · promote by hand' },
-		{ value: 'direct', label: 'Direct commit' },
-		{ value: 'stage', label: 'Stage for review' },
-		{ value: 'hybrid', label: 'Hybrid · by role' }
+		{ value: 'none', label: $_('chset.lore_none') },
+		{ value: 'direct', label: $_('chset.lore_direct') },
+		{ value: 'stage', label: $_('chset.lore_stage') },
+		{ value: 'hybrid', label: $_('chset.lore_hybrid') }
 	];
 	void hasAddonCapability('lore').then((ok) => {
 		loreBindingAvailable = ok;
@@ -603,21 +604,21 @@
 	async function clearAllMessages(): Promise<void> {
 		if (!canClearMessages || isConversation || clearState === 'busy') return;
 		const confirmed = await confirmAction({
-			title: `Clear the history of #${channel.name}?`,
-			body: 'Visible messages are removed for everyone once storage confirms it. Attachment files are not deleted, and backups or older storage may keep copies.',
-			confirm: 'Clear history',
+			title: $_('chset.clear_title', { values: { name: channel.name } }),
+			body: $_('chset.clear_body'),
+			confirm: $_('chset.clear_confirm'),
 			danger: true
 		});
 		if (!confirmed) return;
 		if (!get(connected)) {
 			clearState = 'error';
-			clearProblem = 'Reconnect to the server, then check the channel and try again.';
+			clearProblem = $_('chset.clear_reconnect');
 			return;
 		}
 		const sock = getSocket();
 		if (!sock) {
 			clearState = 'error';
-			clearProblem = 'The server connection is unavailable. Check the channel before trying again.';
+			clearProblem = $_('chset.clear_unavailable');
 			return;
 		}
 		clearState = 'busy';
@@ -632,7 +633,7 @@
 			cleanup();
 			console.warn('[channel-settings] clear failed', payload?.error);
 			clearState = 'error';
-			clearProblem = 'Nothing was cleared that Wabi could confirm. Check the history before trying again.';
+			clearProblem = $_('chset.clear_nothing');
 		};
 		const cleanup = () => {
 			clearTimeout(timer);
@@ -642,7 +643,7 @@
 		const timer = setTimeout(() => {
 			cleanup();
 			clearState = 'error';
-			clearProblem = 'No confirmation came back from the server. Check the history before trying again.';
+			clearProblem = $_('chset.clear_timeout');
 		}, 15_000);
 		sock.on('channel-messages-cleared', onSuccess);
 		sock.on('clear-channel-error', onError);
@@ -655,9 +656,9 @@
 	async function clearLocalMessagesOnly(): Promise<void> {
 		if (isConversation) return;
 		const confirmed = await confirmAction({
-			title: 'Clear the loaded messages on this device?',
-			body: `Server history of #${channel.name} is unchanged and may load again when you reopen the channel. Archives and exported files are not deleted.`,
-			confirm: 'Clear on this device'
+			title: $_('chset.local_clear_title'),
+			body: $_('chset.local_clear_body', { values: { name: channel.name } }),
+			confirm: $_('chset.local_clear_confirm')
 		});
 		if (!confirmed) return;
 		try {
@@ -696,7 +697,7 @@
 	panelClass="channel-settings"
 >
 	<form id={formId} class="cs-layout" use:watchBodyScroll on:submit|preventDefault={() => void handleSave()}>
-		<div class="w-seg w-seg--vertical cs-tabs" role="tablist" aria-orientation={tabsHorizontal ? 'horizontal' : 'vertical'} aria-label="{settingsTitle} sections">
+		<div class="w-seg w-seg--vertical cs-tabs" role="tablist" aria-orientation={tabsHorizontal ? 'horizontal' : 'vertical'} aria-label={$_('chset.sections_label', { values: { title: settingsTitle } })}>
 			{#each tabs as tab (tab.id)}
 				<button
 					type="button"
@@ -716,7 +717,7 @@
 			{#if activeTab === 'general'}
 				<div class="cs-fields">
 					<div class="cs-field">
-						<label class="w-label" for="{uid}-name">Name</label>
+						<label class="w-label" for="{uid}-name">{$_('messages.viewer.details_name')}</label>
 						<div class="w-field cs-name">
 							{#if isChatLikeChannel}<span class="cs-prefix" aria-hidden="true">#</span>{/if}
 							<input id="{uid}-name" type="text" bind:value={tempChannelName} maxlength="64" autocomplete="off" disabled={!isStaff} />
@@ -724,7 +725,7 @@
 					</div>
 					{#if !isFolder}
 						<div class="cs-field">
-							<label class="w-label" for="{uid}-description">Description</label>
+							<label class="w-label" for="{uid}-description">{$_('donation_config.description')}</label>
 							<!-- Grows with the text instead of clipping it; it stays one paragraph. -->
 							<textarea
 								id="{uid}-description"
@@ -734,7 +735,7 @@
 								on:input={handleDescriptionInput}
 								on:keydown={handleDescriptionKeydown}
 								use:descriptionFit={tempDescription}
-								placeholder="What this {kindNoun} is for"
+								placeholder={$_('chset.description_placeholder', { values: { noun: kindNoun } })}
 								maxlength="200"
 								aria-describedby="{uid}-description-count"
 								disabled={!isStaff}
@@ -750,11 +751,11 @@
 					{#if isWikiChannel || isForumChannel || isGalleryChannel}
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label">{isWikiChannel ? 'Pages' : isForumChannel ? 'Threads' : 'Albums'}</p>
+								<p class="w-srow__label">{isWikiChannel ? $_('wiki.pages') : isForumChannel ? $_('places.threads') : $_('main_layout.tab_albums_short')}</p>
 								<p class="w-srow__hint">
-									{#if isWikiChannel}Pages live in this wiki. Message lifetime and spoilers do not apply.
-									{:else if isForumChannel}Threads and replies live in this forum. Message lifetime and spoilers do not apply.
-									{:else}Albums belong to this gallery. Message lifetime does not apply.{/if}
+									{#if isWikiChannel}{$_('chset.wiki_hint')}
+									{:else if isForumChannel}{$_('chset.forum_hint')}
+									{:else}{$_('chset.gallery_hint')}{/if}
 								</p>
 							</div>
 						</div>
@@ -763,9 +764,9 @@
 					{#if isVoiceChannel}
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<label class="w-srow__label" for="{uid}-capacity">Capacity</label>
+								<label class="w-srow__label" for="{uid}-capacity">{$_('chset.capacity')}</label>
 								<p class="w-srow__hint" id="{uid}-capacity-hint">
-									Leave empty for no limit. With a limit the sidebar shows who is in as 3/8.{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
+									{$_('chset.capacity_hint')}{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -779,7 +780,7 @@
 									inputmode="numeric"
 									value={tempVoiceUserLimit}
 									on:input={(event) => (tempVoiceUserLimit = event.currentTarget.value)}
-									placeholder="No limit"
+									placeholder={$_('chset.no_limit')}
 									aria-describedby="{uid}-capacity-hint"
 									disabled={!canManageVoiceSettings}
 								/>
@@ -787,9 +788,9 @@
 						</div>
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label" id="{uid}-solo-label">Focused audio</p>
+								<p class="w-srow__label" id="{uid}-solo-label">{$_('chset.focused_audio')}</p>
 								<p class="w-srow__hint" id="{uid}-solo-hint">
-									Joining this room moves listening and talking to it alone. For a one-person room, set capacity to 1.{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
+									{$_('chset.focused_hint')}{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -801,8 +802,8 @@
 					{#if isChatLikeChannel && !isConversation}
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label" id="{uid}-spoiler-label">Spoiler channel</p>
-								<p class="w-srow__hint" id="{uid}-spoiler-hint">Every message here stays hidden until someone reveals it, earlier messages included.</p>
+								<p class="w-srow__label" id="{uid}-spoiler-label">{$_('chset.spoiler_label')}</p>
+								<p class="w-srow__hint" id="{uid}-spoiler-hint">{$_('chset.spoiler_hint')}</p>
 							</div>
 							<div class="w-srow__control">
 								<Switch labelledby="{uid}-spoiler-label" describedby="{uid}-spoiler-hint" bind:checked={tempForceSpoiler} disabled={!isStaff} />
@@ -813,9 +814,9 @@
 					{#if !isConversation && !isVoiceChannel && !isFolder}
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label" id="{uid}-queue-label">YouTube watch queue</p>
+								<p class="w-srow__label" id="{uid}-queue-label">{$_('chset.queue_label')}</p>
 								<p class="w-srow__hint" id="{uid}-queue-hint">
-									Adds a shared watch queue to this {kindNoun}. Ordinary YouTube link previews keep working.{#if !canManageWatchQueue} {MANAGERS_ONLY_HINT}{/if}
+									{$_('chset.queue_hint', { values: { noun: kindNoun } })}{#if !canManageWatchQueue} {MANAGERS_ONLY_HINT}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -828,8 +829,8 @@
 					{#if persistTab === 'general'}
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label" id="{uid}-persist-label">Offline copies and older history</p>
-								<p class="w-srow__hint" id="{uid}-persist-hint">Browsers may keep this {kindNoun}'s messages across restarts, and members can load older history. Storage settings on each device can still clear them.</p>
+								<p class="w-srow__label" id="{uid}-persist-label">{$_('chset.offline_label')}</p>
+								<p class="w-srow__hint" id="{uid}-persist-hint">{$_('chset.offline_hint', { values: { noun: kindNoun } })}</p>
 							</div>
 							<div class="w-srow__control">
 								<Switch labelledby="{uid}-persist-label" describedby="{uid}-persist-hint" bind:checked={tempPersistMessages} />
@@ -840,49 +841,49 @@
 
 				{#if isChatLikeChannel && loreBindingAvailable}
 					<section class="cs-section" aria-labelledby="{uid}-lore-title">
-						<h3 class="cs-section__title" id="{uid}-lore-title">Lore binding</h3>
-						<p class="cs-section__hint">Bind this channel to a path in a Lore repository. Attachments can then be promoted there from their menu.</p>
+						<h3 class="cs-section__title" id="{uid}-lore-title">{$_('chset.lore_title')}</h3>
+						<p class="cs-section__hint">{$_('chset.lore_desc')}</p>
 						{#if loreChannels.length === 0}
-							<p class="cs-section__hint">There are no Lore channels on this server yet. Create one first.</p>
+							<p class="cs-section__hint">{$_('chset.lore_no_channels')}</p>
 						{:else}
 							<div class="cs-lore">
 								<div class="cs-field">
-									<span class="w-label" id="{uid}-lore-repo">Repository</span>
-									<Select ariaLabel="Repository" options={loreRepoOptions} bind:value={tempLoreRepoChannel} placeholder="Choose a Lore channel" />
+									<span class="w-label" id="{uid}-lore-repo">{$_('lore_project.repository_heading')}</span>
+									<Select ariaLabel={$_('lore_project.repository_heading')} options={loreRepoOptions} bind:value={tempLoreRepoChannel} placeholder={$_('chset.choose_lore')} />
 								</div>
 								<div class="cs-field">
-									<span class="w-label">Mode</span>
-									<Select ariaLabel="Mode" options={LORE_MODE_OPTIONS} bind:value={tempLoreMode} />
+									<span class="w-label">{$_('server_policy.mode')}</span>
+									<Select ariaLabel={$_('server_policy.mode')} options={LORE_MODE_OPTIONS} bind:value={tempLoreMode} />
 								</div>
 								<div class="cs-field">
-									<label class="w-label" for="{uid}-lore-path">Target path</label>
+									<label class="w-label" for="{uid}-lore-path">{$_('chset.target_path')}</label>
 									<input id="{uid}-lore-path" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLorePath} placeholder="/art/concepts/" />
 								</div>
 								<div class="cs-field">
-									<label class="w-label" for="{uid}-lore-branch">Branch</label>
+									<label class="w-label" for="{uid}-lore-branch">{$_('chset.branch')}</label>
 									<input id="{uid}-lore-branch" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLoreBranch} placeholder="main" />
 								</div>
 								<div class="cs-field cs-field--wide">
-									<label class="w-label" for="{uid}-lore-types">Allowed types</label>
+									<label class="w-label" for="{uid}-lore-types">{$_('chset.allowed_types')}</label>
 									<input id="{uid}-lore-types" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLoreAllowedTypes} placeholder="image/*, .blend" />
 								</div>
 							</div>
 							<div class="cs-actions">
 								<button class="w-btn w-btn--sm" type="button" disabled={loreBindingBusy || !tempLoreRepoChannel || !tempLorePath.startsWith('/')} on:click={saveLoreBinding}>
-									{loreBindingActive ? 'Update binding' : 'Save binding'}
+									{loreBindingActive ? $_('chset.update_binding') : $_('chset.save_binding')}
 								</button>
 								{#if loreBindingActive}
-									<button class="w-btn w-btn--sm w-btn--danger" type="button" disabled={loreBindingBusy} on:click={removeLoreBinding}>Remove binding</button>
+									<button class="w-btn w-btn--sm w-btn--danger" type="button" disabled={loreBindingBusy} on:click={removeLoreBinding}>{$_('chset.remove_binding')}</button>
 								{/if}
 								{#if loreBindingStatus === 'saved' || loreBindingStatus === 'removed'}
-									<span class="cs-status" role="status">{loreBindingStatus === 'saved' ? 'Binding saved' : 'Binding removed'}</span>
+									<span class="cs-status" role="status">{loreBindingStatus === 'saved' ? $_('chset.binding_saved') : $_('chset.binding_removed')}</span>
 								{/if}
 							</div>
 							{#if loreBindingStatus === 'save-failed' || loreBindingStatus === 'remove-failed'}
 								<Notice
 									class="cs-notice"
-									title={loreBindingStatus === 'save-failed' ? "Couldn't save the binding" : "Couldn't remove the binding"}
-									text="The channel's binding is unchanged."
+									title={loreBindingStatus === 'save-failed' ? $_('chset.save_binding_failed') : $_('chset.remove_binding_failed')}
+									text={$_('chset.binding_unchanged')}
 								/>
 							{/if}
 						{/if}
@@ -891,17 +892,17 @@
 
 				{#if (isChatLikeChannel && !isConversation && canClearMessages) || canDeleteChannel}
 					<section class="cs-section cs-danger" aria-labelledby="{uid}-danger-title">
-						<h3 class="cs-section__title" id="{uid}-danger-title">Danger zone</h3>
+						<h3 class="cs-section__title" id="{uid}-danger-title">{$_('lore_project.danger_zone')}</h3>
 						<div class="w-srows">
 							{#if isChatLikeChannel && !isConversation && canClearMessages}
 								<div class="w-srow">
 									<div class="w-srow__text">
-										<p class="w-srow__label">Clear history</p>
-										<p class="w-srow__hint">Removes the visible messages for everyone once storage confirms it. Attachments and backup copies are not deleted.</p>
+										<p class="w-srow__label">{$_('chset.clear_history_label')}</p>
+										<p class="w-srow__hint">{$_('chset.clear_history_hint')}</p>
 									</div>
 									<div class="w-srow__control">
 										<button class="w-btn w-btn--danger" type="button" aria-busy={clearState === 'busy'} disabled={clearState === 'busy'} on:click={clearAllMessages}>
-											{clearState === 'busy' ? 'Clearing…' : 'Clear for everyone'}
+											{clearState === 'busy' ? $_('chset.clearing') : $_('chset.clear_for_everyone')}
 										</button>
 									</div>
 								</div>
@@ -909,21 +910,21 @@
 							{#if canDeleteChannel}
 								<div class="w-srow">
 									<div class="w-srow__text">
-										<p class="w-srow__label">Delete this {kindNoun}</p>
+										<p class="w-srow__label">{$_('chset.delete_noun_label', { values: { noun: kindNoun } })}</p>
 										<p class="w-srow__hint">
-											{isFolder ? 'Removes the folder from the server. You choose whether to keep its channels.' : `Removes ${placeName} and its messages for everyone.`}
+											{isFolder ? $_('chset.delete_folder_hint') : $_('chset.delete_hint', { values: { name: placeName } })}
 										</p>
 									</div>
 									<div class="w-srow__control">
-										<button class="w-btn w-btn--danger" type="button" on:click={() => dispatch('delete', { channel })}>Delete {kindNoun}</button>
+										<button class="w-btn w-btn--danger" type="button" on:click={() => dispatch('delete', { channel })}>{$_('chset.delete_noun', { values: { noun: kindNoun } })}</button>
 									</div>
 								</div>
 							{/if}
 						</div>
 						{#if clearState === 'done'}
-							<p class="cs-status" role="status">History cleared for everyone.</p>
+							<p class="cs-status" role="status">{$_('chset.history_cleared')}</p>
 						{:else if clearState === 'error'}
-							<Notice class="cs-notice" title="Couldn't clear the history" text={clearProblem} ondismiss={() => (clearState = 'idle')} />
+							<Notice class="cs-notice" title={$_('chset.clear_failed_title')} text={clearProblem} ondismiss={() => (clearState = 'idle')} />
 						{/if}
 					</section>
 				{/if}
@@ -932,37 +933,37 @@
 					{#if gateApplies}
 						<div class="w-srow w-srow--seal">
 							<div class="w-srow__text">
-								<p class="w-srow__label" id="{uid}-gate-label"><Icon name="eye" size={14} />Who can open {placeName}</p>
+								<p class="w-srow__label" id="{uid}-gate-label"><Icon name="eye" size={14} />{$_('channel_access.col_who')} {placeName}</p>
 								<p class="w-srow__hint">
 									{isStaff
-										? 'Members below this level do not see the channel or its messages.'
-										: 'Only admins and the owner can see or change who can open a channel.'}
+										? $_('chset.gate_staff_hint')
+										: $_('chset.gate_member_hint')}
 								</p>
 							</div>
 							{#if isStaff}
 								<div class="w-srow__control">
 									{#if gateStatus === 'ready'}
-										<Select ariaLabel="Who can open {placeName}" options={GATE_OPTIONS} bind:value={tempGate} align="end" />
+										<Select ariaLabel="{$_('channel_access.col_who')} {placeName}" options={GATE_OPTIONS} bind:value={tempGate} align="end" />
 									{:else if gateStatus === 'loading' || gateStatus === 'idle'}
 										<span class="w-skel cs-skel" aria-hidden="true"></span>
-										<span class="w-sr-only" role="status">Checking who can open this channel…</span>
+										<span class="w-sr-only" role="status">{$_('chset.checking_gate')}</span>
 									{/if}
 								</div>
 							{/if}
 						</div>
 						{#if isStaff && gateStatus === 'error'}
-							<Notice class="cs-notice" title="Couldn't check who can open this channel" text="Its access is unchanged." onretry={() => void loadGate()} retryLabel="Check again" />
+							<Notice class="cs-notice" title={$_('chset.gate_check_title')} text={$_('chset.gate_check_text')} onretry={() => void loadGate()} retryLabel={$_('volunteer_boost.check_again')} />
 						{/if}
 						{#if saveError === 'gate'}
-							<Notice class="cs-notice" title="Couldn't change who can open this channel" text="Nothing was saved. Your other changes are still here." />
+							<Notice class="cs-notice" title={$_('chset.gate_save_title')} text={$_('chset.gate_save_text')} />
 						{/if}
 					{/if}
 					<div class="w-srow w-srow--seal">
 						<div class="w-srow__text">
-							<p class="w-srow__label"><Icon name="key" size={14} />Who can change these settings</p>
+							<p class="w-srow__label"><Icon name="key" size={14} />{$_('chset.who_change_title')}</p>
 							<p class="w-srow__hint">
-								Name, description{isChatLikeChannel ? ', message lifetime, clearing history' : ''} and deleting this {kindNoun}.
-								{isStaff ? 'You are one of them.' : 'Ask one of them to make a change.'}
+								{$_('chset.who_change_text', { values: { noun: kindNoun, extra: isChatLikeChannel ? $_('chset.who_change_extra') : '' } })}
+								{isStaff ? $_('chset.you_are_one') : $_('chset.ask_one')}
 							</p>
 						</div>
 						<div class="w-srow__control"><span class="cs-fact">{MANAGERS_LABEL}</span></div>
@@ -972,15 +973,15 @@
 				<div class="w-srows">
 					<div class="w-srow">
 						<div class="w-srow__text">
-							<p class="w-srow__label" id="{uid}-lifetime-label">Message lifetime</p>
+							<p class="w-srow__label" id="{uid}-lifetime-label">{$_('chset.lifetime_label')}</p>
 							<p class="w-srow__hint" id="{uid}-lifetime-hint">
-								Applies to new messages. A timed lifetime hides messages after that time. They are not erased: the stored record stays on the server. Earlier messages keep the lifetime they were sent with.{#if !isStaff} {MANAGERS_ONLY_HINT}{/if}
+								{$_('chset.lifetime_hint')}{#if !isStaff} {MANAGERS_ONLY_HINT}{/if}
 							</p>
 						</div>
 						<div class="w-srow__control">
 							{#if retentionReady}
 								<Select
-									ariaLabel="Message lifetime"
+									ariaLabel={$_('chset.lifetime_aria')}
 									options={RETENTION_OPTIONS}
 									bind:value={retentionSelect}
 									onchange={(value) => void chooseRetention(value)}
@@ -989,25 +990,25 @@
 								/>
 							{:else if !retentionError}
 								<span class="w-skel cs-skel" aria-hidden="true"></span>
-								<span class="w-sr-only" role="status">Checking the current lifetime…</span>
+								<span class="w-sr-only" role="status">{$_('chset.checking_lifetime')}</span>
 							{/if}
 						</div>
 					</div>
 					{#if retentionError}
 						<Notice
 							class="cs-notice"
-							title="Couldn't check this room's message lifetime"
+							title={$_('chset.lifetime_check_title')}
 							text={retentionErrorText}
 							onretry={() => void loadCurrentRetention($activeServerUrl, channel.id, retentionRequestKey)}
-							retryLabel="Retry lifetime check"
+							retryLabel={$_('chset.retry_lifetime')}
 						/>
 					{/if}
 
 					{#if persistTab === 'retention'}
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label" id="{uid}-persist-label">Offline copies and older history</p>
-								<p class="w-srow__hint" id="{uid}-persist-hint">Browsers may keep this channel's messages across restarts, and members can load older history. Storage settings on each device can still clear them.</p>
+								<p class="w-srow__label" id="{uid}-persist-label">{$_('chset.offline_label')}</p>
+								<p class="w-srow__hint" id="{uid}-persist-hint">{$_('chset.offline_hint', { values: { noun: kindNoun } })}</p>
 							</div>
 							<div class="w-srow__control">
 								<Switch labelledby="{uid}-persist-label" describedby="{uid}-persist-hint" bind:checked={tempPersistMessages} />
@@ -1018,58 +1019,58 @@
 					{#if !isConversation}
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label">Messages on this device</p>
-								<p class="w-srow__hint">Clears what is loaded here. Server history is unchanged.</p>
+								<p class="w-srow__label">{$_('chset.local_messages_label')}</p>
+								<p class="w-srow__hint">{$_('chset.local_messages_hint')}</p>
 							</div>
 							<div class="w-srow__control">
-								<button class="w-btn" type="button" on:click={clearLocalMessagesOnly}>Clear on this device</button>
+								<button class="w-btn" type="button" on:click={clearLocalMessagesOnly}>{$_('chset.local_clear_confirm')}</button>
 							</div>
 						</div>
 						{#if localClearState === 'done'}
-							<p class="cs-status" role="status">Cleared on this device.</p>
+							<p class="cs-status" role="status">{$_('chset.local_cleared')}</p>
 						{:else if localClearState === 'error'}
-							<Notice class="cs-notice" title="Couldn't clear the messages on this device" text="Nothing else changed." ondismiss={() => (localClearState = 'idle')} />
+							<Notice class="cs-notice" title={$_('chset.local_clear_failed')} text={$_('notif.nothing_changed')} ondismiss={() => (localClearState = 'idle')} />
 						{/if}
 					{/if}
 				</div>
 
 				{#if liveActive}
 					<section class="cs-section" aria-labelledby="{uid}-live-title">
-						<h3 class="cs-section__title" id="{uid}-live-title">Live room</h3>
-						<p class="cs-section__hint">Live messages are not saved. Not saving them does not hide them from the server operator.</p>
+						<h3 class="cs-section__title" id="{uid}-live-title">{$_('chset.live_room')}</h3>
+						<p class="cs-section__hint">{$_('chset.live_desc')}</p>
 						<div class="cs-lore">
 							<div class="cs-field">
-								<label class="w-label" for="{uid}-live-ttl">How long messages stay</label>
+								<label class="w-label" for="{uid}-live-ttl">{$_('chset.live_ttl_label')}</label>
 								<input id="{uid}-live-ttl" class="w-field" type="text" bind:value={tempLiveTtl} placeholder="10m" aria-describedby="{uid}-live-ttl-hint" />
-								<p class="w-field-hint cs-hint" id="{uid}-live-ttl-hint">30s, 10m or 1h</p>
+								<p class="w-field-hint cs-hint" id="{uid}-live-ttl-hint">{$_('chset.duration_examples')}</p>
 							</div>
 							<div class="cs-field">
-								<label class="w-label" for="{uid}-live-cap">Messages kept live</label>
+								<label class="w-label" for="{uid}-live-cap">{$_('chset.live_cap_label')}</label>
 								<input id="{uid}-live-cap" class="w-field" type="text" inputmode="numeric" bind:value={tempLiveCap} placeholder="1000" aria-describedby="{uid}-live-cap-hint" />
-								<p class="w-field-hint cs-hint" id="{uid}-live-cap-hint">The most the server holds at once</p>
+								<p class="w-field-hint cs-hint" id="{uid}-live-cap-hint">{$_('chset.live_cap_hint')}</p>
 							</div>
 							<div class="cs-field">
-								<label class="w-label" for="{uid}-live-grace">Away after disconnecting</label>
+								<label class="w-label" for="{uid}-live-grace">{$_('chset.live_grace_label')}</label>
 								<input id="{uid}-live-grace" class="w-field" type="text" bind:value={tempLiveGrace} placeholder="60s" aria-describedby="{uid}-live-grace-hint" />
-								<p class="w-field-hint cs-hint" id="{uid}-live-grace-hint">How long before someone shows as away</p>
+								<p class="w-field-hint cs-hint" id="{uid}-live-grace-hint">{$_('chset.live_grace_hint')}</p>
 							</div>
 							<div class="cs-field">
-								<label class="w-label" for="{uid}-live-attach">Largest attachment</label>
+								<label class="w-label" for="{uid}-live-attach">{$_('chset.live_attach_label')}</label>
 								<input id="{uid}-live-attach" class="w-field" type="text" bind:value={tempLiveAttachMax} placeholder="8 MB" />
 							</div>
 							<div class="cs-field">
-								<label class="w-label" for="{uid}-live-window">Messages drawn on this device</label>
+								<label class="w-label" for="{uid}-live-window">{$_('chset.live_window_label')}</label>
 								<input id="{uid}-live-window" class="w-field" type="number" min="50" max="5000" step="50" bind:value={tempLiveRenderWindow} aria-describedby="{uid}-live-window-hint" />
-								<p class="w-field-hint cs-hint" id="{uid}-live-window-hint">Fewer helps slower computers. The server is unaffected.</p>
+								<p class="w-field-hint cs-hint" id="{uid}-live-window-hint">{$_('chset.live_window_hint')}</p>
 							</div>
 						</div>
 						<div class="w-srows cs-rows">
 							<div class="w-srow">
 								<div class="w-srow__text">
-									<p class="w-srow__label" id="{uid}-afk-label">Away announcements</p>
+									<p class="w-srow__label" id="{uid}-afk-label">{$_('chset.afk_label')}</p>
 									<!-- The server does not store a per-room choice yet (handed off), so the switch
 									     stays on and says so instead of offering a change that is never kept. -->
-									<p class="w-srow__hint" id="{uid}-afk-hint">A line is posted when someone goes away or comes back. Always on for now: this server doesn't keep a per-room choice yet.</p>
+									<p class="w-srow__hint" id="{uid}-afk-hint">{$_('chset.afk_hint')}</p>
 								</div>
 								<div class="w-srow__control">
 									<Switch labelledby="{uid}-afk-label" describedby="{uid}-afk-hint" bind:checked={tempAfkAnnounce} disabled />
@@ -1084,11 +1085,11 @@
 
 	<div slot="footer" class="w-dialog__foot cs-foot" class:w-dialog__foot--rule={bodyScrolls}>
 		{#if draftRetention !== undefined}
-			<p class="w-dialog__foot-start cs-unsaved"><span class="w-dot w-dot--warn" aria-hidden="true"></span>Lifetime changes when you save</p>
+			<p class="w-dialog__foot-start cs-unsaved"><span class="w-dot w-dot--warn" aria-hidden="true"></span>{$_('chset.lifetime_pending')}</p>
 		{/if}
-		<button type="button" class="w-btn w-btn--quiet" on:click={close} disabled={saving}>Cancel</button>
+		<button type="button" class="w-btn w-btn--quiet" on:click={close} disabled={saving}>{$_('common.cancel')}</button>
 		<button type="submit" form={formId} class="w-btn w-btn--primary" aria-busy={saving} disabled={!dirty || saving || !isStaff}>
-			{saving ? 'Saving…' : 'Save changes'}
+			{saving ? $_('payment_access_panel.saving') : $_('shared_notes.save_changes')}
 		</button>
 	</div>
 </BaseModal>

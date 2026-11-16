@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
@@ -11,67 +12,67 @@
 	let saved = $state('');
 
 	const actions: Array<{ value: SafetyRuleAction; label: string }> = [
-		{ value: 'flag', label: 'Flag for staff' }, { value: 'delete', label: 'Block / delete' },
-		{ value: 'warn', label: 'Warn' }, { value: 'timeout', label: 'Timeout' }, { value: 'ban', label: 'Ban from channel' }
+		{ value: 'flag', label: $_('safety.action_flag') }, { value: 'delete', label: $_('safety.action_delete') },
+		{ value: 'warn', label: $_('safety.action_warn') }, { value: 'timeout', label: $_('safety.action_timeout') }, { value: 'ban', label: $_('safety.action_ban') }
 	];
 	const matches: Array<{ value: SafetyRuleMatch; label: string }> = [
-		{ value: 'contains', label: 'contains' }, { value: 'equals', label: 'equals' },
-		{ value: 'starts_with', label: 'starts with' }, { value: 'ends_with', label: 'ends with' }
+		{ value: 'contains', label: $_('safety.match_contains') }, { value: 'equals', label: $_('safety.match_equals') },
+		{ value: 'starts_with', label: $_('safety.match_starts_with') }, { value: 'ends_with', label: $_('safety.match_ends_with') }
 	];
 
 	function token() { return getAuthToken($activeServerUrl); }
 	async function request(init: RequestInit = {}) {
-		const auth = token(); if (!auth) throw new Error('Sign in again to manage safety rules.');
+		const auth = token(); if (!auth) throw new Error($_('safety.sign_in_again'));
 		const response = await fetch(`${$activeServerUrl}/api/server-center/safety`, {
 			...init, credentials: 'include', headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
 		});
 		const data = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(data.error || `Safety request failed (${response.status}).`);
+		if (!response.ok) throw new Error(data.error || $_('safety.request_failed', { values: { status: response.status } }));
 		return data;
 	}
-	async function load() { loading = true; error = ''; try { policy = (await request()).policy; } catch (cause) { error = cause instanceof Error ? cause.message : 'Could not load safety rules.'; } finally { loading = false; } }
-	async function save() { saving = true; error = ''; saved = ''; try { policy = (await request({ method: 'PUT', body: JSON.stringify(policy) })).policy; saved = 'Rules saved.'; } catch (cause) { error = cause instanceof Error ? cause.message : 'Could not save safety rules.'; } finally { saving = false; } }
+	async function load() { loading = true; error = ''; try { policy = (await request()).policy; } catch (cause) { error = cause instanceof Error ? cause.message : $_('safety.load_failed'); } finally { loading = false; } }
+	async function save() { saving = true; error = ''; saved = ''; try { policy = (await request({ method: 'PUT', body: JSON.stringify(policy) })).policy; saved = $_('safety.rules_saved'); } catch (cause) { error = cause instanceof Error ? cause.message : $_('safety.save_failed'); } finally { saving = false; } }
 	function addRule() {
-		policy.rules = [...policy.rules, { id: crypto.randomUUID(), enabled: true, name: 'New rule', pattern: '', match: 'contains', caseSensitive: false, action: 'flag', timeoutMinutes: 10, reason: null }];
+		policy.rules = [...policy.rules, { id: crypto.randomUUID(), enabled: true, name: $_('safety.new_rule'), pattern: '', match: 'contains', caseSensitive: false, action: 'flag', timeoutMinutes: 10, reason: null }];
 	}
 	function removeRule(id: string) { policy.rules = policy.rules.filter(rule => rule.id !== id); }
 	function ruleSentence(rule: SafetyRule) {
 		const action = actions.find(item => item.value === rule.action)?.label ?? rule.action;
-		return `If a message ${rule.match.replace('_', ' ')} “${rule.pattern || '…'}” → ${action}`;
+		return $_('safety.rule_sentence', { values: { match: (matches.find(item => item.value === rule.match)?.label ?? rule.match).replace('_', ' '), pattern: rule.pattern || '…', action } });
 	}
 	onMount(() => { void load(); });
 </script>
 
 <div class="safety-center">
 	<section class="hero">
-		<div><span class="eyebrow">Safety rules</span><h2>Automation you can actually understand.</h2><p>Literal trigger → action rules. No mystery score is required for <code>badword → ban</code>.</p></div>
-		<label class="master"><input type="checkbox" bind:checked={policy.enabled} /><span>{policy.enabled ? 'Rules active' : 'Rules paused'}</span></label>
+		<div><span class="eyebrow">{$_('safety.eyebrow')}</span><h2>{$_('safety.hero_title')}</h2><p>{$_('safety.hero_desc')} <code>{$_('safety.example_rule')}</code>.</p></div>
+		<label class="master"><input type="checkbox" bind:checked={policy.enabled} /><span>{policy.enabled ? $_('safety.rules_active') : $_('safety.rules_paused')}</span></label>
 	</section>
-	<section class="principle"><strong>Simple is valid.</strong><span>A rule can be as dumb and dependable as “if message equals this word, ban from the channel.” More advanced detectors can still use the same action pipeline later.</span></section>
-	<section class="scope"><strong>Scope respects privacy.</strong><span>These rules apply to community spaces. DMs and private groups are reports-only unless an admin explicitly opts them into automation under <b>Privacy &amp; retention</b>. Messages sent with experimental encryption are outside server-side scanning.</span></section>
+	<section class="principle"><strong>{$_('safety.principle_title')}</strong><span>{$_('safety.principle_desc')}</span></section>
+	<section class="scope"><strong>{$_('safety.scope_title')}</strong><span>{$_('safety.scope_desc_1')} <b>{$_('pc.eyebrow')}</b>{$_('safety.scope_desc_2')}</span></section>
 	{#if error}<div class="error" role="alert">{error}</div>{/if}
 	{#if saved}<div class="saved" role="status">{saved}</div>{/if}
-	{#if loading}<p>Loading safety rules…</p>{:else}
-		<div class="toolbar"><div><strong>{policy.rules.length} rules</strong><span>First matching enabled rule wins.</span></div><button onclick={addRule}>+ Add rule</button></div>
+	{#if loading}<p>{$_('safety.loading')}</p>{:else}
+		<div class="toolbar"><div><strong>{$_('safety.rules_count', { values: { count: policy.rules.length } })}</strong><span>{$_('safety.first_match')}</span></div><button onclick={addRule}>{$_('safety.add_rule')}</button></div>
 		<div class="rules">
 			{#each policy.rules as rule (rule.id)}
 				<article class:disabled={!rule.enabled}>
-					<header><label class="toggle"><input type="checkbox" bind:checked={rule.enabled}/><span>{rule.enabled ? 'On' : 'Off'}</span></label><input class="name" bind:value={rule.name} maxlength="80" aria-label="Rule name"/><button class="remove" onclick={() => removeRule(rule.id)}>Remove</button></header>
+					<header><label class="toggle"><input type="checkbox" bind:checked={rule.enabled}/><span>{rule.enabled ? $_('audio_settings.on') : $_('audio_settings.off')}</span></label><input class="name" bind:value={rule.name} maxlength="80" aria-label={$_('safety.rule_name_label')}/><button class="remove" onclick={() => removeRule(rule.id)}>{$_('profile_settings.remove')}</button></header>
 					<div class="sentence">{ruleSentence(rule)}</div>
 					<div class="grid">
-						<label><span>Match</span><select bind:value={rule.match}>{#each matches as item}<option value={item.value}>{item.label}</option>{/each}</select></label>
-						<label class="pattern"><span>Text / word</span><input bind:value={rule.pattern} maxlength="500" placeholder="badword"/></label>
-						<label><span>Action</span><select bind:value={rule.action}>{#each actions as item}<option value={item.value}>{item.label}</option>{/each}</select></label>
-						{#if rule.action === 'timeout'}<label><span>Minutes</span><input type="number" min="1" max="10080" bind:value={rule.timeoutMinutes}/></label>{/if}
+						<label><span>{$_('safety.match')}</span><select bind:value={rule.match}>{#each matches as item}<option value={item.value}>{item.label}</option>{/each}</select></label>
+						<label class="pattern"><span>{$_('safety.text_word')}</span><input bind:value={rule.pattern} maxlength="500" placeholder={$_('safety.pattern_placeholder')}/></label>
+						<label><span>{$_('ffxiv.kind_action')}</span><select bind:value={rule.action}>{#each actions as item}<option value={item.value}>{item.label}</option>{/each}</select></label>
+						{#if rule.action === 'timeout'}<label><span>{$_('safety.minutes')}</span><input type="number" min="1" max="10080" bind:value={rule.timeoutMinutes}/></label>{/if}
 					</div>
-					<div class="options"><label><input type="checkbox" bind:checked={rule.caseSensitive}/> Case sensitive</label><label class="reason"><span>Reason shown to staff</span><input bind:value={rule.reason} maxlength="280" placeholder="Optional"/></label></div>
-					{#if rule.action === 'ban'}<p class="warning">Ban currently means the channel containing the matching message; it is not disguised as a server-wide ban.</p>{/if}
-					{#if rule.action === 'flag'}<p class="hint">Flag-only currently records the trigger in server diagnostics without punishing the sender. Durable automated case ingestion is still separate from user reports.</p>{/if}
+					<div class="options"><label><input type="checkbox" bind:checked={rule.caseSensitive}/> {$_('safety.case_sensitive')}</label><label class="reason"><span>{$_('safety.reason_staff')}</span><input bind:value={rule.reason} maxlength="280" placeholder={$_('payment_sheet.optional')}/></label></div>
+					{#if rule.action === 'ban'}<p class="warning">{$_('safety.ban_warning')}</p>{/if}
+					{#if rule.action === 'flag'}<p class="hint">{$_('safety.flag_hint')}</p>{/if}
 				</article>
 			{/each}
-			{#if policy.rules.length === 0}<button class="empty" onclick={addRule}><strong>No safety rules yet.</strong><span>Add a literal word/filter rule.</span></button>{/if}
+			{#if policy.rules.length === 0}<button class="empty" onclick={addRule}><strong>{$_('safety.empty_title')}</strong><span>{$_('safety.empty_desc')}</span></button>{/if}
 		</div>
-		<footer><button class="save" onclick={save} disabled={saving}>{saving ? 'Saving…' : 'Save safety rules'}</button></footer>
+		<footer><button class="save" onclick={save} disabled={saving}>{saving ? $_('payment_access_panel.saving') : $_('safety.save_rules')}</button></footer>
 	{/if}
 </div>
 

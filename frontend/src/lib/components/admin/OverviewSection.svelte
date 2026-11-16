@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import {
 		dashboardMetricValue,
 		dashboardRoleOrder,
@@ -54,24 +55,24 @@
 		void fetchPluginInventory().then((list) => {
 			if (cancelled || !list) return;
 			const enabled = list.filter((plugin) => plugin.enabled !== false);
-			addonSummary = { count: enabled.length, names: enabled.map((plugin) => String(plugin.name || plugin.id || 'Add-on')).filter(Boolean).slice(0, 6) };
+			addonSummary = { count: enabled.length, names: enabled.map((plugin) => String(plugin.name || plugin.id || $_('overview.addon_default'))).filter(Boolean).slice(0, 6) };
 		}).catch(() => { if (!cancelled) addonSummary = null; });
 		return () => { cancelled = true; };
 	});
 
 	const actionLabels: Record<string, string> = {
-		role_assigned: 'Server role assigned',
-		role_removed: 'Server role removed',
-		channel_settings_updated: 'Channel settings updated',
+		role_assigned: $_('overview.action_role_assigned'),
+		role_removed: $_('overview.action_role_removed'),
+		channel_settings_updated: $_('overview.action_channel_settings'),
 	};
 	const destinations: Array<{ section: AdminSection; label: string; description: string }> = [
-		{ section: 'moderation', label: 'Moderation inbox', description: 'Reports, case comments and staff triage' },
-		{ section: 'safety', label: 'Safety rules', description: 'Literal trigger → action automation' },
-		{ section: 'privacy', label: 'Privacy & retention', description: 'Ephemeral, durable and private-space policy by choice' },
-		{ section: 'storage', label: 'Storage', description: 'See what uploads are actually using disk' },
-		{ section: 'infrastructure', label: 'Infrastructure', description: 'Relays, helpers and heartbeat health' },
-		{ section: 'users', label: 'People', description: 'Roles, account recovery and member context' },
-		{ section: 'branding', label: 'Server identity', description: 'Name, artwork and the welcome page' },
+		{ section: 'moderation', label: $_('mod.inbox'), description: $_('overview.dest_moderation_desc') },
+		{ section: 'safety', label: $_('safety.eyebrow'), description: $_('overview.dest_safety_desc') },
+		{ section: 'privacy', label: $_('pc.eyebrow'), description: $_('overview.dest_privacy_desc') },
+		{ section: 'storage', label: $_('settings.tabs.storage'), description: $_('overview.dest_storage_desc') },
+		{ section: 'infrastructure', label: $_('overview.dest_infrastructure'), description: $_('overview.dest_infrastructure_desc') },
+		{ section: 'users', label: $_('places.people'), description: $_('overview.dest_people_desc') },
+		{ section: 'branding', label: $_('overview.dest_identity'), description: $_('overview.dest_identity_desc') },
 	];
 
 	function formatAuditWhen(value: string | null): string | null {
@@ -80,59 +81,59 @@
 		if (!Number.isFinite(time)) return null;
 		return new Date(time).toLocaleString();
 	}
-	function formatCount(value: number | null): string { return value === null ? 'n/a' : value.toLocaleString(); }
+	function formatCount(value: number | null): string { return value === null ? $_('payment_intent.na') : value.toLocaleString(); }
 </script>
 
 <div class="admin-overview admin-home" aria-busy={loading && !stats}>
 	{#if !stats}
 		<div class="admin-home-card admin-snapshot-empty" role="status">
-			<h2>{loading ? 'Reading server status…' : 'No server snapshot'}</h2>
-			<p>{loading ? 'Checking the database and loading the latest recorded changes.' : 'Refresh to try again. Missing data is not a healthy server or an empty server.'}</p>
+			<h2>{loading ? $_('overview.reading_status') : $_('overview.no_snapshot')}</h2>
+			<p>{loading ? $_('overview.checking_db') : $_('overview.refresh_again')}</p>
 		</div>
 	{:else}
 		<section class="server-center-hero" aria-labelledby="admin-overview-heading">
 			<div>
-				<span class="admin-section-label">Server Center</span>
-				<h2 id="admin-overview-heading">{$connected ? 'Your server is reachable.' : 'This client is offline.'}</h2>
-				<p>{onlineMembers.toLocaleString()} members online · {stats.overview.totalChannels.toLocaleString()} channels · {roster.length.toLocaleString()} known members</p>
+				<span class="admin-section-label">{$_('overview.server_center')}</span>
+				<h2 id="admin-overview-heading">{$connected ? $_('overview.hero_title_online') : $_('overview.hero_title_offline')}</h2>
+				<p>{$_('overview.hero_summary', { values: { online: onlineMembers.toLocaleString(), channels: stats.overview.totalChannels.toLocaleString(), known: roster.length.toLocaleString() } })}</p>
 			</div>
-			<div class:healthy={$connected} class="server-center-health-dot"><span></span>{$connected ? 'Connected' : 'Disconnected'}</div>
+			<div class:healthy={$connected} class="server-center-health-dot"><span></span>{$connected ? $_('lore_channel.connected') : $_('call_tile.disconnected')}</div>
 		</section>
 
 		<div class="admin-summary-grid">
-			<div class="admin-summary"><span>Accounts</span><strong class="admin-stat-value">{stats.overview.totalUsers.toLocaleString()}</strong><small>Including guest accounts</small></div>
-			<div class="admin-summary"><span>Online now</span><strong class="admin-stat-value">{stats.overview.onlineUsers.toLocaleString()}</strong><small>{stale ? 'At the last snapshot' : 'Connected to this server'}</small></div>
-			<div class="admin-summary"><span>Unread messages</span><strong class="admin-stat-value">{unreadTotal.toLocaleString()}</strong><small>Across this client</small></div>
+			<div class="admin-summary"><span>{$_('overview.accounts')}</span><strong class="admin-stat-value">{stats.overview.totalUsers.toLocaleString()}</strong><small>{$_('overview.including_guests')}</small></div>
+			<div class="admin-summary"><span>{$_('overview.online_now')}</span><strong class="admin-stat-value">{stats.overview.onlineUsers.toLocaleString()}</strong><small>{stale ? $_('overview.at_last_snapshot') : $_('overview.connected_to_server')}</small></div>
+			<div class="admin-summary"><span>{$_('overview.unread_messages')}</span><strong class="admin-stat-value">{unreadTotal.toLocaleString()}</strong><small>{$_('overview.across_client')}</small></div>
 		</div>
 
 		<section class="admin-home-card attention-card" aria-labelledby="admin-moderation-heading">
 			<header class="admin-home-card-header">
-				<div><span class="card-kicker">Community health</span><h2 id="admin-moderation-heading">Moderation</h2></div>
-				<button class="admin-refresh" onclick={() => onNavigate('moderation')}>Open inbox</button>
+				<div><span class="card-kicker">{$_('overview.community_health')}</span><h2 id="admin-moderation-heading">{$_('admin.sec_moderation')}</h2></div>
+				<button class="admin-refresh" onclick={() => onNavigate('moderation')}>{$_('overview.open_inbox')}</button>
 			</header>
-			<p class="admin-home-description">Reports have a real inbox with preserved message evidence, assignment, resolution state and private staff comments. Snapshot counters below are shown only when the server reports them.</p>
+			<p class="admin-home-description">{$_('overview.moderation_desc')}</p>
 			<div class="admin-summary-grid admin-moderation-grid">
-				<div class="admin-summary"><span>Open reports</span><strong class="admin-stat-value">{formatCount(openReports)}</strong><small>{openReports === null ? 'Open the inbox for live cases' : openReports === 0 ? 'Snapshot queue is clear' : 'Awaiting moderator review'}</small></div>
-				<div class="admin-summary"><span>Banned accounts</span><strong class="admin-stat-value">{formatCount(bannedUsers)}</strong><small>{bannedUsers === null ? 'Not in this snapshot' : 'Recorded enforcement total'}</small></div>
-				<div class="admin-summary"><span>Muted accounts</span><strong class="admin-stat-value">{formatCount(mutedUsers)}</strong><small>{mutedUsers === null ? 'Not measured' : 'Currently restricted'}</small></div>
-				<div class="admin-summary"><span>Audit entries</span><strong class="admin-stat-value">{formatCount(auditEntries)}</strong><small>{auditEntries === null ? 'Not in this snapshot' : 'Recorded staff actions'}</small></div>
+				<div class="admin-summary"><span>{$_('admin.card_open_reports')}</span><strong class="admin-stat-value">{formatCount(openReports)}</strong><small>{openReports === null ? $_('overview.open_inbox_live') : openReports === 0 ? $_('overview.snapshot_clear') : $_('overview.awaiting_review')}</small></div>
+				<div class="admin-summary"><span>{$_('overview.banned_accounts')}</span><strong class="admin-stat-value">{formatCount(bannedUsers)}</strong><small>{bannedUsers === null ? $_('overview.not_in_snapshot') : $_('overview.recorded_total')}</small></div>
+				<div class="admin-summary"><span>{$_('overview.muted_accounts')}</span><strong class="admin-stat-value">{formatCount(mutedUsers)}</strong><small>{mutedUsers === null ? $_('network_health.not_measured') : $_('overview.currently_restricted')}</small></div>
+				<div class="admin-summary"><span>{$_('overview.audit_entries')}</span><strong class="admin-stat-value">{formatCount(auditEntries)}</strong><small>{auditEntries === null ? $_('overview.not_in_snapshot') : $_('overview.recorded_actions')}</small></div>
 			</div>
 		</section>
 
 		<ServerHealthSection health={stats.extra?.health} {stale} />
 
 		<section class="admin-home-card" aria-labelledby="admin-live-heading">
-			<header class="admin-home-card-header"><div><span class="card-kicker">Right now</span><h2 id="admin-live-heading">Connection &amp; activity</h2></div></header>
+			<header class="admin-home-card-header"><div><span class="card-kicker">{$_('overview.right_now')}</span><h2 id="admin-live-heading">{$_('overview.connection_activity')}</h2></div></header>
 			<div class="admin-summary-grid">
-				<div class="admin-summary"><span>Connection</span><strong class="admin-stat-value admin-stat-presence">{$connected ? 'Online' : 'Offline'}</strong><small>{$connected ? 'Socket to this server is up' : 'Reconnect before moderating'}</small></div>
-				<div class="admin-summary"><span>Members online</span><strong class="admin-stat-value">{onlineMembers.toLocaleString()}</strong><small>{offlineMembers.toLocaleString()} offline · {roster.length.toLocaleString()} known</small></div>
-				<div class="admin-summary"><span>Channels</span><strong class="admin-stat-value">{$channels.length.toLocaleString()}</strong><small>{textChannels} text · {voiceChannels} voice · {otherChannels} other</small></div>
-				<div class="admin-summary"><span>Add-ons</span><strong class="admin-stat-value">{addonSummary ? addonSummary.count.toLocaleString() : 'n/a'}</strong><small>{addonSummary ? (addonSummary.names.length > 0 ? addonSummary.names.join(' · ') : 'Enabled, none named') : 'Not reported by this server'}</small></div>
+				<div class="admin-summary"><span>{$_('overview.connection')}</span><strong class="admin-stat-value admin-stat-presence">{$connected ? $_('user.status.online') : $_('user.status.offline')}</strong><small>{$connected ? $_('overview.socket_up') : $_('overview.reconnect_first')}</small></div>
+				<div class="admin-summary"><span>{$_('overview.members_online')}</span><strong class="admin-stat-value">{onlineMembers.toLocaleString()}</strong><small>{$_('overview.members_summary', { values: { offline: offlineMembers.toLocaleString(), known: roster.length.toLocaleString() } })}</small></div>
+				<div class="admin-summary"><span>{$_('shell.mobile.channels')}</span><strong class="admin-stat-value">{$channels.length.toLocaleString()}</strong><small>{$_('overview.channels_summary', { values: { text: textChannels, voice: voiceChannels, other: otherChannels } })}</small></div>
+				<div class="admin-summary"><span>{$_('settings.tabs.addons')}</span><strong class="admin-stat-value">{addonSummary ? addonSummary.count.toLocaleString() : $_('payment_intent.na')}</strong><small>{addonSummary ? (addonSummary.names.length > 0 ? addonSummary.names.join(' · ') : $_('overview.enabled_none_named')) : $_('about_settings.not_reported')}</small></div>
 			</div>
 		</section>
 
 		<section class="admin-home-card" aria-labelledby="admin-manage-heading">
-			<header class="admin-home-card-header"><div><span class="card-kicker">Go somewhere useful</span><h2 id="admin-manage-heading">Server tools</h2></div></header>
+			<header class="admin-home-card-header"><div><span class="card-kicker">{$_('overview.go_somewhere')}</span><h2 id="admin-manage-heading">{$_('overview.server_tools')}</h2></div></header>
 			<div class="server-tool-grid">
 				{#each destinations as destination (destination.section)}
 					<button onclick={() => onNavigate(destination.section)}><strong>{destination.label}</strong><span>{destination.description}</span><b aria-hidden="true">→</b></button>
@@ -142,23 +143,23 @@
 
 		<div class="admin-home-columns">
 			<section class="admin-home-card" aria-labelledby="admin-latest-heading">
-				<header class="admin-home-card-header"><h2 id="admin-latest-heading">Recent recorded changes</h2></header>
-				<p class="admin-home-description">This audit feed covers the change types the server currently records. The moderation inbox is the better place for report/case work.</p>
-				{#if stats.extra?.auditCoverage?.length}<p class="admin-home-description">Tracked change types: {stats.extra.auditCoverage.join(', ')}</p>{/if}
+				<header class="admin-home-card-header"><h2 id="admin-latest-heading">{$_('overview.recent_changes')}</h2></header>
+				<p class="admin-home-description">{$_('overview.audit_feed_desc')}</p>
+				{#if stats.extra?.auditCoverage?.length}<p class="admin-home-description">{$_('overview.tracked_types')} {stats.extra.auditCoverage.join(', ')}</p>{/if}
 				{#if unavailable.has('recentAudit')}
-					<p class="admin-home-empty">This server version does not provide recorded activity.</p>
+					<p class="admin-home-empty">{$_('overview.no_activity')}</p>
 				{:else if !stats.recentAudit.length}
-					<p class="admin-home-empty">No recorded administration changes yet.</p>
+					<p class="admin-home-empty">{$_('overview.no_changes')}</p>
 				{:else}
 					<ol class="admin-recorded-activity">
 						{#each stats.recentAudit as entry (entry.id)}
-							<li><strong>{actionLabels[entry.action] ?? 'Administration change'}</strong>{#if entry.details}<p>{entry.details}</p>{/if}<div class="admin-recorded-meta"><span>{entry.performedBy ? 'By ' + entry.performedBy : 'Actor not recorded'}</span>{#if entry.targetUser}<span>Account: {entry.targetUser}</span>{/if}{#if entry.targetChannel}<span>Channel: {entry.targetChannel}</span>{/if}<span>{formatAuditWhen(entry.createdAt) ?? 'Time not recorded'}</span></div></li>
+							<li><strong>{actionLabels[entry.action] ?? $_('overview.admin_change')}</strong>{#if entry.details}<p>{entry.details}</p>{/if}<div class="admin-recorded-meta"><span>{entry.performedBy ? $_('overview.by', { values: { name: entry.performedBy } }) : $_('overview.actor_not_recorded')}</span>{#if entry.targetUser}<span>{$_('overview.account', { values: { name: entry.targetUser } })}</span>{/if}{#if entry.targetChannel}<span>{$_('overview.channel', { values: { name: entry.targetChannel } })}</span>{/if}<span>{formatAuditWhen(entry.createdAt) ?? $_('overview.time_not_recorded')}</span></div></li>
 						{/each}
 					</ol>
 				{/if}
 			</section>
 			<section class="admin-home-card" aria-labelledby="admin-roles-heading">
-				<h2 id="admin-roles-heading">People by role</h2>
+				<h2 id="admin-roles-heading">{$_('overview.people_by_role')}</h2>
 				<ul class="admin-role-summary">{#each roles as row}<li><RoleBadge role={row.role} /><span>{row.count.toLocaleString()}</span></li>{/each}</ul>
 			</section>
 		</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
@@ -122,14 +123,14 @@
 				<div class="lc-embed">
 					<iframe
 						src="https://www.youtube.com/embed/{preview.youtubeId}?autoplay=1"
-						title={preview.title || 'YouTube video'}
+						title={preview.title || $_('link_preview.youtube_video')}
 						frameborder="0"
 						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
 						allowfullscreen
 					></iframe>
 				</div>
 			{:else}
-				<button type="button" class="lc-poster" on:click={() => (playing = true)} aria-label="Play video">
+				<button type="button" class="lc-poster" on:click={() => (playing = true)} aria-label={$_('link_preview.play_video')}>
 					{#if heroImage}<img src={heroImage} alt="" loading="lazy" />{/if}
 					<span class="lc-play" aria-hidden="true"><span class="lc-play__tri"></span></span>
 				</button>
@@ -158,7 +159,7 @@
 		</div>
 	{:else if kind === 'repo'}
 		<div class="lc lc-repo" role="link" tabindex="0" on:click={handleClick} on:keydown={onKey}>
-			<div class="lc-meta"><span class="lc-site">{preview.siteName || host}</span><span class="lc-sep">·</span><span>repository</span></div>
+			<div class="lc-meta"><span class="lc-site">{preview.siteName || host}</span><span class="lc-sep">·</span><span>{$_('link_preview.repository')}</span></div>
 			<div class="lc-title lc-mono">{(preview.title || '').replace(/^GitHub - /, '').split(':')[0]}</div>
 			{#if preview.description}<p class="lc-text">{preview.description.replace(/ - [^ ]+\/[^ ]+$/, '')}</p>{/if}
 		</div>
@@ -166,7 +167,7 @@
 		<div class="lc lc-audio" role="link" tabindex="0" on:click={handleClick} on:keydown={onKey}>
 			{#if heroImage}<img class="lc-cover" src={heroImage} alt="" loading="lazy" />{/if}
 			<div class="lc-body">
-				<div class="lc-meta"><span class="lc-site">{preview.siteName || host}</span><span class="lc-sep">·</span><span>audio</span></div>
+				<div class="lc-meta"><span class="lc-site">{preview.siteName || host}</span><span class="lc-sep">·</span><span>{$_('link_preview.audio')}</span></div>
 				{#if preview.title}<div class="lc-title">{preview.title}</div>{/if}
 				{#if preview.description}<p class="lc-text lc-clamp-2">{preview.description}</p>{/if}
 			</div>
@@ -174,7 +175,7 @@
 	{:else}
 		<div class="lc lc-article" role="link" tabindex="0" on:click={handleClick} on:keydown={onKey}>
 			<div class="lc-body">
-				<div class="lc-meta"><span class="lc-site">{preview.siteName || host}</span>{#if kind === 'article'}<span class="lc-sep">·</span><span>article</span>{/if}</div>
+				<div class="lc-meta"><span class="lc-site">{preview.siteName || host}</span>{#if kind === 'article'}<span class="lc-sep">·</span><span>{$_('link_preview.article')}</span>{/if}</div>
 				{#if preview.title}<div class="lc-title">{preview.title}</div>{/if}
 				{#if preview.description}<p class="lc-text lc-clamp-3">{preview.description}</p>{/if}
 			</div>

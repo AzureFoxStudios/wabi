@@ -16,6 +16,7 @@
 	- Esc closes it and focus returns to whatever opened it. Roles and kit classes only.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import HostLink from './HostLink.svelte';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
@@ -197,9 +198,9 @@
 
 	async function removeServer(server: SavedServerView): Promise<void> {
 		const remove = await confirmAction({
-			title: `Remove ${server.effectiveName} from saved servers?`,
-			body: 'It leaves this device’s list. Your account and messages on that server stay as they are.',
-			confirm: 'Remove server',
+			title: $_('switcher.remove_title', { values: { name: server.effectiveName } }),
+			body: $_('switcher.remove_body'),
+			confirm: $_('servers.remove'),
 			danger: true
 		});
 		if (!remove) return;
@@ -211,18 +212,18 @@
 
 	function rowMenuItems(server: SavedServerView, item: SavedServerRailItem): MenuEntry[] {
 		const items: MenuEntry[] = [
-			{ id: 'rename', label: 'Rename on this device', icon: 'pencil', onSelect: () => startEditing(server) }
+			{ id: 'rename', label: $_('switcher.rename_device'), icon: 'pencil', onSelect: () => startEditing(server) }
 		];
 		if (item.kind === 'folder') {
-			items.push({ id: 'ungroup', label: 'Take out of folder', icon: 'folder', onSelect: () => ungroupServer(server.url) });
+			items.push({ id: 'ungroup', label: $_('switcher.take_out_folder'), icon: 'folder', onSelect: () => ungroupServer(server.url) });
 		}
-		items.push({ id: 'remove', label: 'Remove saved server', icon: 'trash', danger: true, onSelect: () => void removeServer(server) });
+		items.push({ id: 'remove', label: $_('switcher.remove_saved'), icon: 'trash', danger: true, onSelect: () => void removeServer(server) });
 		return items;
 	}
 
 	function folderMenuItems(item: Extract<SavedServerRailItem, { kind: 'folder' }>): MenuEntry[] {
 		return [
-			{ id: 'rename-folder', label: 'Rename folder', icon: 'pencil', onSelect: () => startEditingFolder(item.folder.id, item.folder.name || '') }
+			{ id: 'rename-folder', label: $_('switcher.rename_folder'), icon: 'pencil', onSelect: () => startEditingFolder(item.folder.id, item.folder.name || '') }
 		];
 	}
 
@@ -775,12 +776,12 @@
 		{#if mobile}<div class="w-sheet__grabber" aria-hidden="true"></div>{/if}
 		<header class="switcher-head">
 			<div class="switcher-head-row">
-				<span class="w-kicker switcher-kicker" id={kickerId}>Saved servers</span>
-				<button type="button" class="w-ibtn switcher-close" aria-label="Close saved servers" on:click={close}>
+				<span class="w-kicker switcher-kicker" id={kickerId}>{$_('servers.saved')}</span>
+				<button type="button" class="w-ibtn switcher-close" aria-label={$_('switcher.close')} on:click={close}>
 					<Icon name="x" />
 				</button>
 			</div>
-			<h2 class="switcher-current" id={titleId}>{showcaseServer?.effectiveName || 'No server yet'}</h2>
+			<h2 class="switcher-current" id={titleId}>{showcaseServer?.effectiveName || $_('switcher.no_server')}</h2>
 			{#if showcaseServer}
 				<p class="switcher-host w-mono" title={showcaseServer.url}>{serverHostLabel(showcaseServer.url)}</p>
 			{/if}
@@ -789,27 +790,27 @@
 		<div class="switcher-body">
 			<!-- Under the masthead rule, so the head ends on the shared 96px line. -->
 			<div class="switcher-intro">
-				<p class="switcher-note">Each server keeps its own account.</p>
+				<p class="switcher-note">{$_('servers.own_account')}</p>
 				<HostLink />
 			</div>
 			{#if mobile && mobileMove}
 				<div class="w-notice w-notice--info switcher-move" role="status">
 					<Icon name="grip" size={16} />
-					<p class="w-notice__title">Moving {mobileMove.label}</p>
+					<p class="w-notice__title">{$_('switcher.moving', { values: { name: mobileMove.label } })}</p>
 					<p class="w-notice__text">
 						{#if mobileDragState}
-							Release over another server or folder to drop it there.
+							{$_('switcher.drop_here')}
 						{:else if mobileMove.kind === 'folder'}
-							Drag over another server group, or use Before and After below.
+							{$_('switcher.drag_group')}
 						{:else}
-							Drag over a server or folder, or use the buttons below.
+							{$_('switcher.drag_server')}
 						{/if}
 					</p>
 					<div class="w-notice__actions">
 						{#if mobileMove.kind === 'server' && mobileMove.sourceFolderId}
-							<button type="button" class="w-btn w-btn--sm" on:click={ungroupMovingServer}>Take out</button>
+							<button type="button" class="w-btn w-btn--sm" on:click={ungroupMovingServer}>{$_('switcher.take_out')}</button>
 						{/if}
-						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={cancelMobileMove}>Cancel</button>
+						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={cancelMobileMove}>{$_('common.cancel')}</button>
 					</div>
 				</div>
 			{/if}
@@ -846,13 +847,13 @@
 									<span class="switcher-folder-toggle switcher-folder-toggle--static">
 										<Icon name="folder" size={14} class="switcher-folder-chev" />
 										<span class="switcher-folder-name">{item.folder.effectiveName}</span>
-										<span class="w-count" aria-label={`${item.folder.members.length} saved servers`}>{item.folder.members.length}</span>
+										<span class="w-count" aria-label={$_('switcher.n_saved', { values: { count: item.folder.members.length } })}>{item.folder.members.length}</span>
 									</span>
 								{/if}
 								<Menu
 									items={folderMenuItems(item)}
-									label={`Folder ${item.folder.effectiveName}`}
-									triggerLabel={`More for folder ${item.folder.effectiveName}`}
+									label={$_('switcher.folder_label', { values: { name: item.folder.effectiveName } })}
+									triggerLabel={$_('switcher.more_folder', { values: { name: item.folder.effectiveName } })}
 									class="w-ibtn w-ibtn--sm switcher-more"
 									align="end"
 									heading={item.folder.effectiveName}
@@ -862,18 +863,18 @@
 							</div>
 							{#if editingFolderId === item.folder.id}
 								<div class="switcher-editor">
-									<label class="w-label" for={`folder-name-${item.folder.id}`}>Folder name on this device</label>
+									<label class="w-label" for={`folder-name-${item.folder.id}`}>{$_('switcher.folder_name_label')}</label>
 									<input
 										id={`folder-name-${item.folder.id}`}
 										class="w-field w-field--chrome"
 										type="text"
 										bind:value={folderNameDraft}
-										placeholder="e.g. Neighbourhood"
+										placeholder={$_('switcher.folder_placeholder')}
 										on:keydown={(event) => editorKeydown(event, () => saveFolderName(item.folder.id), stopEditingFolder)}
 									/>
 									<div class="switcher-editor-actions">
-										<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={stopEditingFolder}>Cancel</button>
-										<button type="button" class="w-btn w-btn--primary w-btn--sm" on:click={() => saveFolderName(item.folder.id)}>Save</button>
+										<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={stopEditingFolder}>{$_('common.cancel')}</button>
+										<button type="button" class="w-btn w-btn--primary w-btn--sm" on:click={() => saveFolderName(item.folder.id)}>{$_('common.save')}</button>
 									</div>
 								</div>
 							{/if}
@@ -882,13 +883,13 @@
 						{#if mobile && mobileMove && !mobileDragState}
 							<div class="switcher-move-targets">
 								{#if mobileMove.kind === 'folder'}
-									<button type="button" class="w-btn w-btn--sm" disabled={mobileMove.itemId === item.id} on:click={() => moveMobileFolder(item, 'before')}>Before</button>
-									<button type="button" class="w-btn w-btn--sm" disabled={mobileMove.itemId === item.id} on:click={() => moveMobileFolder(item, 'after')}>After</button>
+									<button type="button" class="w-btn w-btn--sm" disabled={mobileMove.itemId === item.id} on:click={() => moveMobileFolder(item, 'before')}>{$_('lore_history.before')}</button>
+									<button type="button" class="w-btn w-btn--sm" disabled={mobileMove.itemId === item.id} on:click={() => moveMobileFolder(item, 'after')}>{$_('lore_history.after')}</button>
 								{:else}
-									<button type="button" class="w-btn w-btn--sm" disabled={item.kind === 'server' && item.server.url === mobileMove.serverUrl} on:click={() => moveMobileServerAroundGroup(item, 'before')}>Before group</button>
-									<button type="button" class="w-btn w-btn--sm" disabled={item.kind === 'server' && item.server.url === mobileMove.serverUrl} on:click={() => moveMobileServerAroundGroup(item, 'after')}>After group</button>
+									<button type="button" class="w-btn w-btn--sm" disabled={item.kind === 'server' && item.server.url === mobileMove.serverUrl} on:click={() => moveMobileServerAroundGroup(item, 'before')}>{$_('switcher.before_group')}</button>
+									<button type="button" class="w-btn w-btn--sm" disabled={item.kind === 'server' && item.server.url === mobileMove.serverUrl} on:click={() => moveMobileServerAroundGroup(item, 'after')}>{$_('switcher.after_group')}</button>
 									{#if item.kind === 'folder' && mobileMove.sourceFolderId !== item.folder.id}
-										<button type="button" class="w-btn w-btn--sm" on:click={() => joinMobileServerToFolder(item)}>Join folder</button>
+										<button type="button" class="w-btn w-btn--sm" on:click={() => joinMobileServerToFolder(item)}>{$_('switcher.join_folder')}</button>
 									{/if}
 								{/if}
 							</div>
@@ -914,7 +915,7 @@
 											type="button"
 											class="switcher-row-main"
 											aria-current={server.isActive ? 'page' : undefined}
-											aria-label={[server.effectiveName, serverHostLabel(server.url), server.isActive ? 'current server' : '', serverUnreadLabel(unread)].filter(Boolean).join(', ')}
+											aria-label={[server.effectiveName, serverHostLabel(server.url), server.isActive ? $_('switcher.current_server') : '', serverUnreadLabel(unread)].filter(Boolean).join(', ')}
 											title={getServerTitle(server)}
 											on:click={() => handleServerRowSelect(server)}
 										>
@@ -945,8 +946,8 @@
 										<span class="switcher-row-tray">
 											<Menu
 												items={rowMenuItems(server, item)}
-												label={`Actions for ${server.effectiveName}`}
-												triggerLabel={`More for ${server.effectiveName}`}
+												label={$_('switcher.actions_for', { values: { name: server.effectiveName } })}
+												triggerLabel={$_('switcher.more_for', { values: { name: server.effectiveName } })}
 												class="w-ibtn w-ibtn--sm switcher-more"
 												align="end"
 												heading={server.effectiveName}
@@ -957,7 +958,7 @@
 
 										{#if editingUrl === server.url}
 											<div class="switcher-editor">
-												<label class="w-label" for={`alias-${uid}-${server.url}`}>Name on this device</label>
+												<label class="w-label" for={`alias-${uid}-${server.url}`}>{$_('switcher.name_device_label')}</label>
 												<input
 													id={`alias-${uid}-${server.url}`}
 													class="w-field w-field--chrome"
@@ -977,11 +978,11 @@
 																(event.currentTarget as HTMLInputElement).checked
 															)}
 													/>
-													<span>Hide Wabi branding at start-up and sign-in</span>
+													<span>{$_('switcher.hide_branding')}</span>
 												</label>
 												<div class="switcher-editor-actions">
-													<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={stopEditing}>Cancel</button>
-													<button type="button" class="w-btn w-btn--primary w-btn--sm" on:click={() => saveAlias(server.url)}>Save name</button>
+													<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={stopEditing}>{$_('common.cancel')}</button>
+													<button type="button" class="w-btn w-btn--primary w-btn--sm" on:click={() => saveAlias(server.url)}>{$_('switcher.save_name')}</button>
 												</div>
 											</div>
 										{/if}
@@ -989,12 +990,12 @@
 										{#if mobile && mobileMove?.kind === 'server' && !mobileDragState}
 											<div class="switcher-move-targets switcher-move-targets--row">
 												{#if isMovingServer(server.url)}
-													<span class="w-tag">Moving</span>
+													<span class="w-tag">{$_('switcher.moving_tag')}</span>
 												{:else}
-													<button type="button" class="w-btn w-btn--sm" on:click={() => moveMobileServerRelativeToServer(server, item, 'before')}>Before</button>
-													<button type="button" class="w-btn w-btn--sm" on:click={() => moveMobileServerRelativeToServer(server, item, 'after')}>After</button>
+													<button type="button" class="w-btn w-btn--sm" on:click={() => moveMobileServerRelativeToServer(server, item, 'before')}>{$_('lore_history.before')}</button>
+													<button type="button" class="w-btn w-btn--sm" on:click={() => moveMobileServerRelativeToServer(server, item, 'after')}>{$_('lore_history.after')}</button>
 													{#if item.kind === 'server'}
-														<button type="button" class="w-btn w-btn--sm" on:click={() => createMobileServerFolder(server.url)}>Make folder</button>
+														<button type="button" class="w-btn w-btn--sm" on:click={() => createMobileServerFolder(server.url)}>{$_('switcher.make_folder')}</button>
 													{/if}
 												{/if}
 											</div>
@@ -1007,8 +1008,8 @@
 				{:else}
 					<div class="w-empty switcher-empty">
 						<Icon name="server" />
-						<p class="w-empty__title">No saved servers yet</p>
-						<p class="w-empty__text">Servers you sign in to are saved on this device and appear here.</p>
+						<p class="w-empty__title">{$_('switcher.no_saved_title')}</p>
+						<p class="w-empty__text">{$_('switcher.no_saved_text')}</p>
 					</div>
 				{/each}
 			</div>
@@ -1022,8 +1023,8 @@
 					on:click={() => (utilityPanelExpanded = !utilityPanelExpanded)}
 				>
 					<Icon name="chevRight" size={16} />
-					<span>Shortcuts</span>
-					<span class="switcher-shortcuts-hint">Recent and followed</span>
+					<span>{$_('switcher.shortcuts')}</span>
+					<span class="switcher-shortcuts-hint">{$_('switcher.shortcuts_hint')}</span>
 				</button>
 				{#if utilityPanelExpanded}
 					<div class="w-disclosure__body switcher-shortcuts-body" id={shortcutsId}>
@@ -1036,7 +1037,7 @@
 		<footer class="switcher-foot" class:expanded={addServerExpanded} bind:this={addServerPanel}>
 			{#if addServerExpanded}
 				<form class="switcher-add" on:submit|preventDefault={handleOpenManualServer}>
-					<label class="w-label" for={addInputId}>Open another server</label>
+					<label class="w-label" for={addInputId}>{$_('switcher.open_another')}</label>
 					<input
 						id={addInputId}
 						class="w-field w-field--chrome"
@@ -1046,7 +1047,7 @@
 						spellcheck="false"
 						bind:this={addServerInput}
 						bind:value={manualServerUrl}
-						placeholder="{brandConfig.domain} or https://staging.example.com"
+						placeholder="{brandConfig.domain} {$_('switcher.or')} https://staging.example.com"
 						on:keydown={(event) => {
 							if (event.key === 'Escape') {
 								event.preventDefault();
@@ -1055,15 +1056,15 @@
 							}
 						}}
 					/>
-					<p class="switcher-add-hint">It gets its own sign-in; nothing is shared between servers.</p>
+					<p class="switcher-add-hint">{$_('switcher.add_hint')}</p>
 					<div class="switcher-editor-actions">
-						<button type="button" class="w-btn w-btn--quiet" on:click={() => void closeAddServerPanel()}>Cancel</button>
-						<button type="submit" class="w-btn w-btn--primary" disabled={!manualServerUrl.trim()}>Open server</button>
+						<button type="button" class="w-btn w-btn--quiet" on:click={() => void closeAddServerPanel()}>{$_('common.cancel')}</button>
+						<button type="submit" class="w-btn w-btn--primary" disabled={!manualServerUrl.trim()}>{$_('switcher.open_server')}</button>
 					</div>
 				</form>
 			{:else}
 				<button type="button" class="w-btn switcher-add-btn" aria-expanded="false" bind:this={addServerButton} on:click={() => void openAddServerPanel()}>
-					<Icon name="plus" size={16} />Add server
+					<Icon name="plus" size={16} />{$_('servers.add')}
 				</button>
 			{/if}
 		</footer>
@@ -1075,7 +1076,7 @@
 			style:--drag-x={`${mobileDragState.x}px`}
 			style:--drag-y={`${mobileDragState.y}px`}
 		>
-			<span class="w-kicker">{mobileMove.kind === 'folder' ? 'Folder' : 'Server'}</span>
+			<span class="w-kicker">{mobileMove.kind === 'folder' ? $_('cch.folder') : $_('settings.tabs.server')}</span>
 			<strong>{mobileMove.label}</strong>
 		</div>
 	{/if}

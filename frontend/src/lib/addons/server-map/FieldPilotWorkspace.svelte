@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { currentUser, serverMembers } from '$lib/socket';
 	import { activeServerUrl } from '$lib/serverUrl';
@@ -72,20 +73,20 @@
 	);
 
 	function personLabel(userId: number): string {
-		if (userId === myId) return 'You';
+		if (userId === myId) return $_('admin.you');
 		const person = $serverMembers.find((item) => item.dbUserId === userId);
-		return person?.handle || person?.username || `Member #${userId}`;
+		return person?.handle || person?.username || $_('field.member_n', { values: { id: userId } });
 	}
 
 	function timestamp(value: number): string {
-		return Number.isFinite(value) && value > 0 ? new Date(value).toLocaleString() : 'Unknown time';
+		return Number.isFinite(value) && value > 0 ? new Date(value).toLocaleString() : $_('field.unknown_time');
 	}
 
 	function statusText(person: FieldParticipant): string {
-		if (!person.consented) return 'Awaiting consent';
-		if (openHelp(person)) return 'Needs help';
-		if (!person.lastCheckin) return 'No check-in yet';
-		return person.lastCheckin.status === 'help' ? 'Needs help' : "I'm okay";
+		if (!person.consented) return $_('field.awaiting_consent');
+		if (openHelp(person)) return $_('field.needs_help');
+		if (!person.lastCheckin) return $_('field.no_checkin');
+		return person.lastCheckin.status === 'help' ? $_('field.needs_help') : $_('field.okay_status');
 	}
 
 	function isAbort(error: unknown): boolean {
@@ -93,7 +94,7 @@
 	}
 
 	function errorText(error: unknown): string {
-		return error instanceof Error ? error.message : 'The request failed. Try again.';
+		return error instanceof Error ? error.message : $_('field.request_failed');
 	}
 
 	function stopPolling(): void {
@@ -115,7 +116,7 @@
 		yPercent = '';
 		retryIntent = '';
 		retryNonce = null;
-		notice = 'This field session expired. Its live roster and pins are no longer available.';
+		notice = $_('field.session_expired');
 		if (mounted && !busy) startPolling();
 	}
 
@@ -140,7 +141,7 @@
 					selectedId = null;
 					session = null;
 					lastReceipt = null;
-					notice = 'This session ended or is no longer available to your account.';
+					notice = $_('field.session_ended');
 				} else {
 					try {
 						const detail = await getFieldSession(id, controller.signal);
@@ -151,7 +152,7 @@
 							selectedId = null;
 							session = null;
 							lastReceipt = null;
-							notice = 'This session ended or is no longer available to your account.';
+							notice = $_('field.session_ended');
 						} else throw error;
 					}
 				}
@@ -160,7 +161,7 @@
 		} catch (error) {
 			if (mounted && epoch === runEpoch && !isAbort(error)) {
 				loaded = true;
-				loadError = `${errorText(error)} Last displayed reports may be old.`;
+				loadError = $_('field.stale_error', { values: { error: errorText(error) } });
 			}
 		} finally {
 			if (pollAbort === controller) pollAbort = null;
@@ -253,7 +254,7 @@
 				selectedId = null;
 				session = null;
 				lastReceipt = null;
-				notice = 'This session ended or is no longer available to your account.';
+				notice = $_('field.session_ended');
 			} else {
 				actionError = errorText(error);
 			}
@@ -273,10 +274,10 @@
 	}
 
 	function createSession(): void {
-		if (!canCreate) { actionError = 'Only a server admin or owner can start this pilot.'; return; }
+		if (!canCreate) { actionError = $_('field.only_leader'); return; }
 		const cleanTitle = title.trim();
-		if (!cleanTitle) { actionError = 'Give this trial a name.'; return; }
-		if (invitedIds.length === 0) { actionError = 'Select at least one adult or test account to invite.'; return; }
+		if (!cleanTitle) { actionError = $_('field.name_trial'); return; }
+		if (invitedIds.length === 0) { actionError = $_('field.select_invite'); return; }
 		void perform(
 			(signal) => createFieldSession({ title: cleanTitle, participantIds: invitedIds, durationMinutes }, signal),
 			(result) => {
@@ -285,7 +286,7 @@
 				loaded = true;
 				title = '';
 				invitedIds = [];
-				notice = 'Session created. Invited accounts must consent before they can see the roster or positions.';
+				notice = $_('field.created');
 			}
 		);
 	}
@@ -294,7 +295,7 @@
 		void perform((signal) => consentToFieldSession(id, signal), (result) => {
 			selectedId = result.session.id;
 			session = result.session;
-			notice = 'You joined. All consenting session members can see the check-ins and manual pins you choose to send.';
+			notice = $_('field.joined');
 		});
 	}
 
@@ -318,12 +319,12 @@
 		if (!session || !ownParticipant?.consented) return;
 		if (session.expiresAt <= Date.now()) { retireExpiredSession(); return; }
 		if (hasPartialManualPin(xPercent, yPercent)) {
-			actionError = 'Set both X and Y, or clear both for a status-only check-in.';
+			actionError = $_('field.set_both');
 			return;
 		}
 		const point = parseManualPin(xPercent, yPercent);
 		if ((xPercent.trim() || yPercent.trim()) && !point) {
-			actionError = 'X and Y must each be between 0 and 100.';
+			actionError = $_('field.xy_range');
 			return;
 		}
 		const id = session.id;
@@ -338,8 +339,8 @@
 			lastReceipt = result.receipt;
 			now = Date.now();
 			notice = result.receipt.duplicate
-				? 'The Authority already received this check-in. No duplicate report was added.'
-				: 'The Authority received your check-in. A leader acknowledgement is separate.';
+				? $_('field.duplicate_received')
+				: $_('field.received');
 			retryIntent = '';
 			retryNonce = null;
 		});
@@ -350,7 +351,7 @@
 		const id = session.id;
 		void perform((signal) => acknowledgeFieldCheckin(id, checkinId, signal), (result) => {
 			session = result.session;
-			notice = 'Leader acknowledgement recorded.';
+			notice = $_('field.ack_recorded');
 		});
 	}
 
@@ -361,7 +362,7 @@
 			selectedId = null;
 			session = null;
 			lastReceipt = null;
-			notice = 'You left the session. Your reports are no longer available through its active view.';
+			notice = $_('field.left');
 		});
 	}
 
@@ -373,7 +374,7 @@
 			session = null;
 			lastReceipt = null;
 			confirmEnd = false;
-			notice = 'The session has ended for everyone.';
+			notice = $_('field.ended_all');
 		});
 	}
 
@@ -383,19 +384,19 @@
 		void perform((signal) => revokeFieldParticipant(id, userId, signal), (result) => {
 			session = result.session;
 			confirmRemoveId = null;
-			notice = `${personLabel(userId)} no longer has session access.`;
+			notice = $_('field.no_access', { values: { name: personLabel(userId) } });
 		});
 	}
 </script>
 
-<section class="field-pilot" aria-label="Field pilot">
+<section class="field-pilot" aria-label={$_('map_addon.field_pilot')}>
 	<header class="field-header">
 		<div>
-			<p class="eyebrow">LOCAL FIELD PILOT</p>
-			<h2>Check in together</h2>
-			<p class="field-intro">A short-lived session on this Wabi Authority. People send deliberate status updates and optional manual map pins. Use adult volunteers or test accounts for the first trial.</p>
+			<p class="eyebrow">{$_('field.eyebrow')}</p>
+			<h2>{$_('field.title')}</h2>
+			<p class="field-intro">{$_('field.intro')}</p>
 		</div>
-		<button type="button" class="minor" onclick={() => startPolling()} disabled={busy}>Refresh</button>
+		<button type="button" class="minor" onclick={() => startPolling()} disabled={busy}>{$_('yt.refresh')}</button>
 	</header>
 
 	{#if loadError}
@@ -410,114 +411,114 @@
 
 	{#if selectedId && session && session.expiresAt > now}
 		<div class="session-heading">
-			<button type="button" class="minor" onclick={() => selectSession(null)} disabled={busy}>← Sessions</button>
+			<button type="button" class="minor" onclick={() => selectSession(null)} disabled={busy}>{$_('field.back_sessions')}</button>
 			<div>
 				<h3>{session.title}</h3>
-				<p>Leader: {personLabel(session.leaderUserId)} · Ends {timestamp(session.expiresAt)}</p>
+				<p>{$_('field.leader_ends', { values: { leader: personLabel(session.leaderUserId), time: timestamp(session.expiresAt) } })}</p>
 			</div>
 		</div>
-		<p class="boundary">Pins show the last <strong>manual</strong> position reported. They do not track devices or prove who is nearby. Check-in time and position time are shown separately.</p>
+		<p class="boundary">{$_('field.boundary_1')} <strong>{$_('field.boundary_manual')}</strong>{$_('field.boundary_2')}</p>
 		<div class="field-grid">
-			<section class="map-card" aria-label="Manual field schematic">
+			<section class="map-card" aria-label={$_('field.schematic_label')}>
 				<div class="schematic">
 					{#if mapImage}<img src={mapImage} alt="" class="map-art" />{/if}
 					<div class="grid-overlay"></div>
-					<button type="button" class="map-hit" aria-label="Choose a manual position on the schematic" title="Tap to set your manual position" onclick={chooseMapPoint} disabled={busy || !ownParticipant?.consented}></button>
+					<button type="button" class="map-hit" aria-label={$_('field.choose_point')} title={$_('field.tap_set')} onclick={chooseMapPoint} disabled={busy || !ownParticipant?.consented}></button>
 					{#each positioned as person (person.userId)}
 						{@const point = markerPosition(person)}
 						{#if point}
-							<span class:help={openHelp(person) !== null} class="person-marker" style={`left:${point.x * 100}%;top:${point.y * 100}%`} title={`${personLabel(person.userId)}: manual position received ${fieldAge(person.lastPosition?.receivedAt, now)}`} aria-hidden="true">{personLabel(person.userId).slice(0, 1).toUpperCase()}</span>
+							<span class:help={openHelp(person) !== null} class="person-marker" style={`left:${point.x * 100}%;top:${point.y * 100}%`} title={$_('field.marker_title', { values: { name: personLabel(person.userId), age: fieldAge(person.lastPosition?.receivedAt, now) } })} aria-hidden="true">{personLabel(person.userId).slice(0, 1).toUpperCase()}</span>
 						{/if}
 					{/each}
 					{#if parseManualPin(xPercent, yPercent)}
 						{@const draft = parseManualPin(xPercent, yPercent)}
 						{#if draft}<span class="draft-marker" style={`left:${draft.x * 100}%;top:${draft.y * 100}%`} aria-hidden="true">+</span>{/if}
 					{/if}
-					{#if positioned.length === 0 && !parseManualPin(xPercent, yPercent)}<span class="map-empty">No manual positions reported yet</span>{/if}
+					{#if positioned.length === 0 && !parseManualPin(xPercent, yPercent)}<span class="map-empty">{$_('field.no_positions')}</span>{/if}
 				</div>
-				<p class="map-caption">Offline schematic · X increases right · Y increases down</p>
+				<p class="map-caption">{$_('field.caption')}</p>
 				{#if ownParticipant?.consented}
 					<div class="pin-form">
 						<label>X % <input type="number" min="0" max="100" step="0.1" inputmode="decimal" bind:value={xPercent} disabled={busy} /></label>
 						<label>Y % <input type="number" min="0" max="100" step="0.1" inputmode="decimal" bind:value={yPercent} disabled={busy} /></label>
-						<button type="button" class="minor" onclick={() => { xPercent = ''; yPercent = ''; }} disabled={busy}>Clear pin</button>
+						<button type="button" class="minor" onclick={() => { xPercent = ''; yPercent = ''; }} disabled={busy}>{$_('field.clear_pin')}</button>
 					</div>
-						<p class="hint">Tap the schematic or enter coordinates. The pin is shared only when you send a check-in. Leave both fields empty to send status only.</p>
-						{#if parseManualPin(xPercent, yPercent)}<p class="pin-preview">Ready to share a manual pin at X {xPercent}%, Y {yPercent}% with all consenting members when you send a check-in.</p>
-						{:else if !xPercent.trim() && !yPercent.trim()}<p class="pin-preview">Next check-in will share status only; your last position, if any, will keep its original timestamp.</p>{/if}
+						<p class="hint">{$_('field.pin_hint')}</p>
+						{#if parseManualPin(xPercent, yPercent)}<p class="pin-preview">{$_('field.pin_ready', { values: { x: xPercent, y: yPercent } })}</p>
+						{:else if !xPercent.trim() && !yPercent.trim()}<p class="pin-preview">{$_('field.status_only')}</p>{/if}
 					<div class="checkin-actions">
-						<button type="button" class="okay-button" onclick={() => checkin('okay')} disabled={busy}>I'm okay</button>
-						<button type="button" class="help-button" onclick={() => checkin('help')} disabled={busy}>Need help</button>
+						<button type="button" class="okay-button" onclick={() => checkin('okay')} disabled={busy}>{$_('field.okay_button')}</button>
+						<button type="button" class="help-button" onclick={() => checkin('help')} disabled={busy}>{$_('field.help_button')}</button>
 					</div>
-					{#if lastReceipt}<p class="receipt">Authority received {timestamp(lastReceipt.receivedAt)} · Report {lastReceipt.checkinId.slice(0, 8)}{lastReceipt.duplicate ? ' · duplicate retry' : ''}. Leader acknowledgement appears below when recorded.</p>{/if}
+					{#if lastReceipt}<p class="receipt">{$_('field.receipt', { values: { time: timestamp(lastReceipt.receivedAt), id: lastReceipt.checkinId.slice(0, 8), retry: lastReceipt.duplicate ? $_('field.duplicate_retry') : '' } })}</p>{/if}
 				{:else}
-					<p class="hint">Your account is not admitted to this session.</p>
+					<p class="hint">{$_('field.not_admitted')}</p>
 				{/if}
 			</section>
 
 			<section class="roster-card" aria-label="Session participants">
-				<h4>Last reports</h4>
-				{#if participants.length === 0}<p class="hint">No participants are visible.</p>{/if}
+				<h4>{$_('field.last_reports')}</h4>
+				{#if participants.length === 0}<p class="hint">{$_('field.no_participants')}</p>{/if}
 				{#each participants as person (person.userId)}
 					<article class:urgent={openHelp(person) !== null} class="participant">
 						<div class="participant-top"><strong>{personLabel(person.userId)}</strong><span class:help-status={openHelp(person) !== null}>{statusText(person)}</span></div>
 						{#if person.lastCheckin}
-							<p>Latest contact: {person.lastCheckin.status === 'help' ? 'help' : 'okay'} · received by Authority {fieldAge(person.lastCheckin.receivedAt, now)} · {timestamp(person.lastCheckin.receivedAt)}</p>
-						{:else if person.consented}<p>No check-in received yet.</p>{/if}
+							<p>{$_('field.latest_contact', { values: { status: person.lastCheckin.status === 'help' ? $_('field.help_word') : $_('field.okay_word'), age: fieldAge(person.lastCheckin.receivedAt, now), time: timestamp(person.lastCheckin.receivedAt) } })}</p>
+						{:else if person.consented}<p>{$_('field.no_checkin_received')}</p>{/if}
 						{#if openHelp(person)}
 							{@const help = openHelp(person)}
-							{#if help}<p class="awaiting">Help request received {fieldAge(help.receivedAt, now)} · awaiting leader acknowledgement.</p>{/if}
+							{#if help}<p class="awaiting">{$_('field.help_received', { values: { age: fieldAge(help.receivedAt, now) } })}</p>{/if}
 						{/if}
-						{#if person.lastHelpAcknowledgement}<p class="acknowledged">Help report {person.lastHelpAcknowledgement.id.slice(0, 8)} acknowledged by {personLabel(person.lastHelpAcknowledgement.acknowledgedByUserId)} {fieldAge(person.lastHelpAcknowledgement.acknowledgedAt, now)}.</p>{/if}
+						{#if person.lastHelpAcknowledgement}<p class="acknowledged">{$_('field.help_acknowledged', { values: { id: person.lastHelpAcknowledgement.id.slice(0, 8), name: personLabel(person.lastHelpAcknowledgement.acknowledgedByUserId), age: fieldAge(person.lastHelpAcknowledgement.acknowledgedAt, now) } })}</p>{/if}
 						{#if person.lastPosition}
-							<p>Position last reported {fieldAge(person.lastPosition.receivedAt, now)} · manual · X {(person.lastPosition.x * 100).toFixed(1)}%, Y {(person.lastPosition.y * 100).toFixed(1)}%</p>
-						{:else}<p>No position reported.</p>{/if}
-						{#if session.isLeader && openHelp(person)}<button type="button" class="minor" onclick={() => acknowledge(openHelp(person)!.id)} disabled={busy}>Acknowledge help</button>{/if}
+							<p>{$_('field.position_reported', { values: { age: fieldAge(person.lastPosition.receivedAt, now), x: (person.lastPosition.x * 100).toFixed(1), y: (person.lastPosition.y * 100).toFixed(1) } })}</p>
+						{:else}<p>{$_('field.no_position')}</p>{/if}
+						{#if session.isLeader && openHelp(person)}<button type="button" class="minor" onclick={() => acknowledge(openHelp(person)!.id)} disabled={busy}>{$_('field.acknowledge_help')}</button>{/if}
 						{#if session.isLeader && person.userId !== session.leaderUserId}
 							{#if confirmRemoveId === person.userId}
-								<div class="confirm-row"><span>Remove access?</span><button type="button" onclick={() => remove(person.userId)} disabled={busy}>Confirm remove</button><button type="button" class="minor" onclick={() => (confirmRemoveId = null)}>Cancel</button></div>
-							{:else}<button type="button" class="text-button" onclick={() => (confirmRemoveId = person.userId)} disabled={busy}>Remove participant</button>{/if}
+								<div class="confirm-row"><span>{$_('field.remove_q')}</span><button type="button" onclick={() => remove(person.userId)} disabled={busy}>{$_('field.confirm_remove')}</button><button type="button" class="minor" onclick={() => (confirmRemoveId = null)}>{$_('common.cancel')}</button></div>
+							{:else}<button type="button" class="text-button" onclick={() => (confirmRemoveId = person.userId)} disabled={busy}>{$_('field.remove_participant')}</button>{/if}
 						{/if}
 					</article>
 				{/each}
-				<p class="hint">Silence can mean a missed report or lost connection. It does not establish distance or safety.</p>
+				<p class="hint">{$_('field.silence_note')}</p>
 			</section>
 		</div>
 		<div class="session-footer">
 			{#if session.isLeader}
-				{#if confirmEnd}<span>End access for everyone?</span><button type="button" class="danger" onclick={end} disabled={busy}>Confirm end</button><button type="button" class="minor" onclick={() => (confirmEnd = false)}>Cancel</button>
-				{:else}<button type="button" class="minor" onclick={() => (confirmEnd = true)} disabled={busy}>End session</button>{/if}
-			{:else}<button type="button" class="minor" onclick={leave} disabled={busy}>Leave session</button>{/if}
+				{#if confirmEnd}<span>{$_('field.end_q')}</span><button type="button" class="danger" onclick={end} disabled={busy}>{$_('field.confirm_end')}</button><button type="button" class="minor" onclick={() => (confirmEnd = false)}>{$_('common.cancel')}</button>
+				{:else}<button type="button" class="minor" onclick={() => (confirmEnd = true)} disabled={busy}>{$_('field.end_session')}</button>{/if}
+			{:else}<button type="button" class="minor" onclick={leave} disabled={busy}>{$_('field.leave_session')}</button>{/if}
 		</div>
 	{:else if selectedId}
-		<div class="empty"><p>Loading session…</p><button type="button" class="minor" onclick={() => selectSession(null)}>Back to sessions</button></div>
+		<div class="empty"><p>{$_('field.loading_session')}</p><button type="button" class="minor" onclick={() => selectSession(null)}>{$_('field.back_to_sessions')}</button></div>
 	{:else}
 		<div class="landing-grid" class:single={!canCreate}>
 			<section class="list-card">
-				<h3>Your sessions</h3>
-				{#if !loaded}<p class="hint">Loading sessions…</p>
-				{:else if sessions.length === 0}<p class="hint">No active field sessions yet.</p>{/if}
+				<h3>{$_('field.your_sessions')}</h3>
+				{#if !loaded}<p class="hint">{$_('field.loading_sessions')}</p>
+				{:else if sessions.length === 0}<p class="hint">{$_('field.no_sessions')}</p>{/if}
 				{#each sessions as item (item.id)}
-					<button type="button" class="session-row" onclick={() => selectSession(item.id)} disabled={busy}><strong>{item.title}</strong><span>Ends {timestamp(item.expiresAt)} · {item.participants.length} people</span></button>
+					<button type="button" class="session-row" onclick={() => selectSession(item.id)} disabled={busy}><strong>{item.title}</strong><span>{$_('field.session_meta', { values: { time: timestamp(item.expiresAt), count: item.participants.length } })}</span></button>
 				{/each}
-				<h3>Invitations</h3>
-				{#if loaded && invitations.length === 0}<p class="hint">No invitations awaiting your consent.</p>{/if}
+				<h3>{$_('field.invitations')}</h3>
+				{#if loaded && invitations.length === 0}<p class="hint">{$_('field.no_invitations')}</p>{/if}
 				{#each invitations as invite (invite.id)}
-						<div class="invitation"><strong>{invite.title}</strong><p>From {personLabel(invite.leaderUserId)} · Ends {timestamp(invite.expiresAt)}</p><p>All consenting session members can see each other's deliberate check-ins and last manual pins. A pin is shared only when you send it with a check-in.</p><button type="button" onclick={() => consent(invite.id)} disabled={busy}>Join with consent</button></div>
+						<div class="invitation"><strong>{invite.title}</strong><p>{$_('field.invite_from', { values: { leader: personLabel(invite.leaderUserId), time: timestamp(invite.expiresAt) } })}</p><p>{$_('field.invite_consent_text')}</p><button type="button" onclick={() => consent(invite.id)} disabled={busy}>{$_('field.join_consent')}</button></div>
 				{/each}
 			</section>
 			{#if canCreate}<section class="create-card">
-				<h3>Start a local trial</h3>
-					<p class="hint">Server admins and owners can start a pilot. Select adult volunteers or test accounts already joined to this Wabi server. The map starts as an offline schematic.</p>
-				<label class="form-field">Session name<input type="text" maxlength="80" bind:value={title} placeholder="Park walk test" disabled={busy} /></label>
-				<label class="form-field">Expires after<select bind:value={durationMinutes} disabled={busy}><option value={30}>30 minutes</option><option value={60}>1 hour</option><option value={120}>2 hours</option></select></label>
-				<fieldset disabled={busy}><legend>Invite people</legend>
-					{#if directory.length === 0}<p class="hint">No registered members are available to invite. Join the other devices to this server first.</p>{/if}
+				<h3>{$_('field.start_trial')}</h3>
+					<p class="hint">{$_('field.start_trial_desc')}</p>
+				<label class="form-field">{$_('field.session_name')}<input type="text" maxlength="80" bind:value={title} placeholder={$_('field.session_name_placeholder')} disabled={busy} /></label>
+				<label class="form-field">{$_('field.expires_after')}<select bind:value={durationMinutes} disabled={busy}><option value={30}>{$_('field.30_min')}</option><option value={60}>{$_('pc.ret_1h_label')}</option><option value={120}>{$_('field.2_hours')}</option></select></label>
+				<fieldset disabled={busy}><legend>{$_('field.invite_people')}</legend>
+					{#if directory.length === 0}<p class="hint">{$_('field.no_members')}</p>{/if}
 					{#each directory as person (person.dbUserId)}
 						<label class="invite-person"><input type="checkbox" checked={invitedIds.includes(person.dbUserId!)} onchange={() => toggleInvite(person.dbUserId!)} /><span>{person.handle || person.username}</span></label>
 					{/each}
 				</fieldset>
-				<button type="button" onclick={createSession} disabled={busy || !myId}>Create session</button>
+				<button type="button" onclick={createSession} disabled={busy || !myId}>{$_('field.create_session')}</button>
 			</section>{/if}
 		</div>
 	{/if}

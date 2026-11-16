@@ -5,6 +5,7 @@
 	the latest previews from every saved server as quiet rows. Everything is on --w-* roles.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import { channels, channelMessages, channelUnreadCounts, currentChannel, switchChannel, type Channel } from '$lib/socket';
 	import {
@@ -89,23 +90,23 @@
 
 <section class="following" aria-labelledby="following-title">
 	<header class="following__head">
-		<p class="w-kicker">Following</p>
-		<h1 class="following__title" id="following-title">Followed channels</h1>
-		<p class="following__truth">Kept on this device. Channels on other servers show light previews and stay quiet until you raise their alert level.</p>
-		<p class="following__counts"><span>{totalFollowCount} followed</span><span aria-hidden="true">·</span><span>{followedUnreadCount} unread here</span></p>
+		<p class="w-kicker">{$_('chan_sidebar.following')}</p>
+		<h1 class="following__title" id="following-title">{$_('notif.followed')}</h1>
+		<p class="following__truth">{$_('following.truth')}</p>
+		<p class="following__counts"><span>{$_('following.followed_count', { values: { count: totalFollowCount } })}</span><span aria-hidden="true">·</span><span>{$_('following.unread_here', { values: { count: followedUnreadCount } })}</span></p>
 	</header>
 
 	{#if totalFollowCount === 0}
 		<div class="following__empty">
 			<Icon name="star" size={28} class="following__empty-glyph" />
-			<h2 class="following__empty-title">Nothing followed yet</h2>
-			<p class="following__empty-text">Use the star in the channel list to follow a channel. Alt-click a channel there to glimpse it without switching.</p>
+			<h2 class="following__empty-title">{$_('following.empty_title')}</h2>
+			<p class="following__empty-text">{$_('following.empty_text')}</p>
 		</div>
 	{:else}
 		<section class="following__section" aria-labelledby="following-here">
-			<h2 class="w-kicker following__kicker" id="following-here">On {currentServerName}</h2>
+			<h2 class="w-kicker following__kicker" id="following-here">{$_('following.on_server', { values: { name: currentServerName } })}</h2>
 			{#if followedChannels.length === 0}
-				<p class="following__note">No follows on this server yet. Your other saved servers still appear below.</p>
+				<p class="following__note">{$_('following.none_here')}</p>
 			{:else}
 				<ul class="following__list">
 					{#each followedChannels as entry (entry.channel.id)}
@@ -113,14 +114,14 @@
 							<span class="follow-row__stamp" aria-hidden="true"><Icon name="hash" size={14} /></span>
 							<span class="follow-row__text">
 								<span class="follow-row__name">{entry.channel.name}</span>
-								<span class="follow-row__meta">{summarizeChannel(entry.channel)}{#if entry.previewCount} · {entry.previewCount} recent{/if}</span>
+								<span class="follow-row__meta">{summarizeChannel(entry.channel)}{#if entry.previewCount} · {$_('following.recent_count', { values: { count: entry.previewCount } })}{/if}</span>
 							</span>
-							{#if entry.unreadCount > 0}<span class="w-badge w-badge--sm follow-row__count" aria-label={`${entry.unreadCount} unread`}>{entry.unreadCount}</span>{/if}
+							{#if entry.unreadCount > 0}<span class="w-badge w-badge--sm follow-row__count" aria-label={$_('following.unread_count', { values: { count: entry.unreadCount } })}>{entry.unreadCount}</span>{/if}
 							<span class="follow-row__actions">
-								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={`Alert level for ${entry.channel.name}: ${FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}. Change`} title="Change the alert level" on:click={() => cycleAlert(entry.channel.id)}><Icon name="bell" size={14} />{FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}</button>
-								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={`Unfollow ${entry.channel.name}`} on:click={() => unfollowChannel(entry.channel.id)}>Unfollow</button>
+								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={$_('following.alert_level_for', { values: { name: entry.channel.name, level: FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel] } })} title={$_('following.change_alert')} on:click={() => cycleAlert(entry.channel.id)}><Icon name="bell" size={14} />{FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}</button>
+								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={$_('following.unfollow_named', { values: { name: entry.channel.name } })} on:click={() => unfollowChannel(entry.channel.id)}>{$_('following.unfollow')}</button>
 							</span>
-							<button type="button" class="follow-row__hit" aria-label={`Open ${entry.channel.name}`} on:click={() => openChannel(entry.channel.id)}></button>
+							<button type="button" class="follow-row__hit" aria-label={$_('following.open_named', { values: { name: entry.channel.name } })} on:click={() => openChannel(entry.channel.id)}></button>
 						</li>
 					{/each}
 				</ul>
@@ -128,10 +129,10 @@
 		</section>
 
 		<section class="following__section" aria-labelledby="following-recent">
-			<h2 class="w-kicker following__kicker" id="following-recent">Recent from followed servers</h2>
-			<p class="following__note">Previews of the latest messages, held in memory while Wabi is open.</p>
+			<h2 class="w-kicker following__kicker" id="following-recent">{$_('following.recent_title')}</h2>
+			<p class="following__note">{$_('following.recent_desc')}</p>
 			{#if snapshotFeedItems.length === 0}
-				<p class="following__note following__note--empty">No recent posts yet. They appear as followed channels get new messages.</p>
+				<p class="following__note following__note--empty">{$_('following.no_recent')}</p>
 			{:else}
 				<ul class="following__list">
 					{#each snapshotFeedItems as item (`${item.serverUrl}:${item.channelId}:${item.previewMessages[0]?.id || item.updatedAt}`)}
@@ -140,11 +141,11 @@
 							<span class="follow-row__stamp" aria-hidden="true"><Icon name="hash" size={14} /></span>
 							<span class="follow-row__text">
 								<span class="follow-row__name">{item.channelName}<span class="follow-row__server"> · {item.serverName || item.serverUrl}</span></span>
-								<span class="follow-row__body">{#if last}<strong>{last.user}</strong> {last.text}{:else}No preview yet · {summarizeSnapshotChannel(item.channelType)}{/if}</span>
+								<span class="follow-row__body">{#if last}<strong>{last.user}</strong> {last.text}{:else}{$_('following.no_preview')} · {summarizeSnapshotChannel(item.channelType)}{/if}</span>
 							</span>
-							{#if item.unreadCount > 0}<span class="w-badge w-badge--sm follow-row__count" aria-label={`${item.unreadCount} unread`}>{item.unreadCount}</span>{/if}
+							{#if item.unreadCount > 0}<span class="w-badge w-badge--sm follow-row__count" aria-label={$_('following.unread_count', { values: { count: item.unreadCount } })}>{item.unreadCount}</span>{/if}
 							<time class="follow-row__time" datetime={new Date(item.lastActivityAt).toISOString()}>{formatTimestamp(item.lastActivityAt)}</time>
-							<button type="button" class="follow-row__hit" aria-label={`Open ${item.channelName} on ${item.serverName || item.serverUrl}`} on:click={() => openSnapshot(item.serverUrl, item.channelId)}></button>
+							<button type="button" class="follow-row__hit" aria-label={$_('following.open_on', { values: { name: item.channelName, server: item.serverName || item.serverUrl } })} on:click={() => openSnapshot(item.serverUrl, item.channelId)}></button>
 						</li>
 					{/each}
 				</ul>

@@ -6,6 +6,7 @@
 	sentence (the server's raw error goes to the console, never on screen).
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { Message } from '$lib/socket';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { currentChannel } from '$lib/channelStore';
@@ -30,6 +31,15 @@
 	let failure: Failure | null = null;
 	let sent = false;
 	const reasons = ['Spam', 'Harassment', 'Hate / abusive behavior', 'Sexual content', 'Threats / dangerous behavior', 'Server rule violation', 'Something else'];
+		const reasonLabels: Record<string, string> = {
+			'Spam': $_('report.reason_spam'),
+			'Harassment': $_('report.reason_harassment'),
+			'Hate / abusive behavior': $_('report.reason_hate'),
+			'Sexual content': $_('report.reason_sexual'),
+			'Threats / dangerous behavior': $_('report.reason_threats'),
+			'Server rule violation': $_('report.reason_rule'),
+			'Something else': $_('report.reason_other')
+		};
 
 	// Experimental encryption: the server holds only ciphertext, so a report carries the decrypted
 	// text only when the reporter explicitly agrees to disclose it (reportMessageRequest.ts).
@@ -61,7 +71,7 @@
 		try {
 			const token = getAuthToken($activeServerUrl);
 			if (!token) {
-				failure = { title: 'Sign in again to report', text: 'Your session on this server has ended. Nothing was sent.' };
+				failure = { title: $_('report.sign_in_again'), text: $_('report.session_ended') };
 				return;
 			}
 			const response = await fetch(`${$activeServerUrl}/api/server-center/reports`, {
@@ -70,12 +80,12 @@
 			});
 			const data = await response.json().catch(() => ({}));
 			if (!response.ok) {
-				failure = { title: 'The report was not sent', text: 'The server did not accept it. Try again, or tell a moderator directly.', cause: { status: response.status, error: data?.error } };
+				failure = { title: $_('report.not_sent'), text: $_('report.server_rejected'), cause: { status: response.status, error: data?.error } };
 				return;
 			}
 			sent = true;
 		} catch (cause) {
-			failure = { title: 'The report was not sent', text: 'The server could not be reached. Check your connection and try again.', cause };
+			failure = { title: $_('report.not_sent'), text: $_('report.unreachable'), cause };
 		} finally {
 			busy = false;
 		}
@@ -87,8 +97,8 @@
 	{onClose}
 	size="sm"
 	padded
-	title={sent ? 'Report sent' : 'Report message'}
-	note={sent ? '' : 'To this server’s staff'}
+	title={sent ? $_('report.title_sent') : $_('report.title')}
+	note={sent ? '' : $_('report.note')}
 	closeOnScrim={!busy}
 	initialFocus={sent ? null : '#report-reason'}
 	panelClass="report"
@@ -96,47 +106,47 @@
 	{#if message}
 		{#if sent}
 			<div class="report-done" role="status">
-				<p class="report-done__lead"><Icon name="check" size={18} />Server staff can review the evidence snapshot and your note.</p>
-				<p class="report-quiet">Your report does not automatically punish anyone.</p>
+				<p class="report-done__lead"><Icon name="check" size={18} />{$_('report.done_lead')}</p>
+				<p class="report-quiet">{$_('report.done_quiet')}</p>
 			</div>
 		{:else}
 			<div class="report-form">
 				<blockquote class="report-snapshot">
 					<span class="report-snapshot__author">@{message.user}</span>
-					<p class="report-snapshot__text">{message.text || 'This message has no text.'}</p>
+					<p class="report-snapshot__text">{message.text || $_('report.no_text')}</p>
 				</blockquote>
 				<div class="report-field">
-					<label class="w-label" for="report-reason">What is wrong?</label>
-					<span class="w-field"><select id="report-reason" bind:value={reason} disabled={busy}>{#each reasons as item}<option>{item}</option>{/each}</select></span>
+					<label class="w-label" for="report-reason">{$_('report.what_wrong')}</label>
+					<span class="w-field"><select id="report-reason" bind:value={reason} disabled={busy}>{#each reasons as item}<option value={item}>{reasonLabels[item]}</option>{/each}</select></span>
 				</div>
 				<div class="report-field">
-					<label class="w-label" for="report-comment">Anything staff should know? <span class="report-optional">Optional</span></label>
-					<textarea id="report-comment" class="w-field report-comment" bind:value={comment} maxlength="1000" rows="4" disabled={busy} placeholder="Add context without copying the message"></textarea>
+					<label class="w-label" for="report-comment">{$_('report.anything_else')} <span class="report-optional">{$_('payment_sheet.optional')}</span></label>
+					<textarea id="report-comment" class="w-field report-comment" bind:value={comment} maxlength="1000" rows="4" disabled={busy} placeholder={$_('report.comment_placeholder')}></textarea>
 				</div>
 				{#if disclosureNeeded}
 					<section class="report-evidence" aria-labelledby="report-evidence-title">
-						<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />Reporting discloses this message</p>
+						<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />{$_('report.disclose_title')}</p>
 						{#if unreadable}
-							<p>This device could not decrypt this message, so there is no text to report from here. Ask someone who can read it to report it, or tell a moderator directly.</p>
+							<p>{$_('report.unreadable')}</p>
 						{:else if nothingToDisclose}
-							<p>This message has no text to disclose. Attachments are not sent with a report. Tell a moderator directly if the files are the problem.</p>
+							<p>{$_('report.nothing_to_disclose')}</p>
 						{:else}
-							<p>Wabi sent or received this message with experimental encryption (not independently verified). Reporting sends its decrypted text, shown above, to this server’s moderators, and it is kept in the moderation case.</p>
+							<p>{$_('report.disclose_body')}</p>
 							{#if disclosure.truncated}
-								<p>Only the first 12,000 characters are sent; the server keeps no more than that.</p>
+								<p>{$_('report.truncated')}</p>
 							{/if}
-							<p class="report-quiet">The server records it as your disclosure; it cannot check it against the encrypted original. The snapshot remains until the server’s chosen expiry or the owner removes it; backups may last longer. Only this message is disclosed.</p>
+							<p class="report-quiet">{$_('report.disclose_quiet')}</p>
 							<label class="report-disclose">
 								<input type="checkbox" class="w-check" bind:checked={discloseConfirmed} disabled={busy} />
-								<span>Disclose this message’s decrypted text to the moderators</span>
+								<span>{$_('report.disclose_checkbox')}</span>
 							</label>
 						{/if}
 					</section>
 				{:else}
 					<section class="report-evidence" aria-labelledby="report-evidence-title">
-						<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />This report preserves evidence</p>
-						<p>Even if this channel is ephemeral or the message is later deleted, sending stores this message snapshot in the server’s moderation case, so staff can review what you chose to report.</p>
-						<p class="report-quiet">The active snapshot remains until the server’s chosen expiry or the owner removes it; backups may last longer. Wabi does not send it to a central moderation service. Cancel if you do not want staff to see this message.</p>
+						<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />{$_('report.preserve_title')}</p>
+						<p>{$_('report.preserve_body')}</p>
+						<p class="report-quiet">{$_('report.preserve_quiet')}</p>
 					</section>
 				{/if}
 				{#if failure}<Notice title={failure.title} text={failure.text} error={failure.cause} />{/if}
@@ -145,10 +155,10 @@
 	{/if}
 	<div slot="footer" class="w-dialog__foot">
 		{#if sent}
-			<button type="button" class="w-btn w-btn--primary" on:click={onClose}>Done</button>
+			<button type="button" class="w-btn w-btn--primary" on:click={onClose}>{$_('login.wizard.step_done')}</button>
 		{:else}
-			<button type="button" class="w-btn w-btn--quiet" on:click={onClose} disabled={busy}>Cancel</button>
-			<button type="button" class="w-btn w-btn--primary" on:click={submit} disabled={busy || !canSend} aria-busy={busy}>{busy ? 'Sending…' : disclosureNeeded ? 'Disclose & send report' : 'Preserve & send report'}</button>
+			<button type="button" class="w-btn w-btn--quiet" on:click={onClose} disabled={busy}>{$_('common.cancel')}</button>
+			<button type="button" class="w-btn w-btn--primary" on:click={submit} disabled={busy || !canSend} aria-busy={busy}>{busy ? $_('messages.sending') : disclosureNeeded ? $_('report.disclose_send') : $_('report.preserve_send')}</button>
 		{/if}
 	</div>
 </BaseModal>

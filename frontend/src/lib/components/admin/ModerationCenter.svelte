@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
@@ -36,21 +37,21 @@
 	function token(): string | null { return getAuthToken($activeServerUrl); }
 	async function request(path: string, init: RequestInit = {}) {
 		const auth = token();
-		if (!auth) throw new Error('Sign in again to use moderation tools.');
+		if (!auth) throw new Error($_('mod.sign_in_again'));
 		const response = await fetch(`${$activeServerUrl}/api/server-center${path}`, {
 			...init,
 			headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
 			credentials: 'include'
 		});
 		const data = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(data.error || `Moderation request failed (${response.status}).`);
+		if (!response.ok) throw new Error(data.error || $_('mod.request_failed', { values: { status: response.status } }));
 		return data;
 	}
 
 	async function refresh() {
 		loading = true; error = '';
 		try { reports = (await request('/reports')).reports ?? []; }
-		catch (cause) { error = cause instanceof Error ? cause.message : 'Could not load reports.'; }
+		catch (cause) { error = cause instanceof Error ? cause.message : $_('mod.load_failed'); }
 		finally { loading = false; }
 	}
 
@@ -61,7 +62,7 @@
 				method: 'PUT', body: JSON.stringify({ status, assignToMe })
 			});
 			reports = reports.map(item => item.id === report.id ? data.report : item);
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not update report.'; }
+		} catch (cause) { error = cause instanceof Error ? cause.message : $_('mod.update_failed'); }
 		finally { busy = null; }
 	}
 
@@ -74,7 +75,7 @@
 			commentDrafts[report.id] = '';
 			await refresh();
 			expanded[report.id] = true;
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not add staff comment.'; }
+		} catch (cause) { error = cause instanceof Error ? cause.message : $_('mod.comment_failed'); }
 		finally { busy = null; }
 	}
 
@@ -89,7 +90,7 @@
 			actionOpen[report.id] = false;
 			await refresh();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not apply action.';
+			error = cause instanceof Error ? cause.message : $_('mod.action_failed');
 			await refresh();
 		} finally { busy = null; }
 	}
@@ -100,13 +101,13 @@
 			await request(`/reports/${encodeURIComponent(report.id)}/evidence`, { method: 'DELETE' });
 			confirmRedaction[report.id] = false;
 			await refresh();
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not remove the snapshot.'; }
+		} catch (cause) { error = cause instanceof Error ? cause.message : $_('mod.remove_snapshot_failed'); }
 		finally { busy = null; }
 	}
 
 	function actionLabel(kind: CaseActionKind): string {
-		return ({ server_ban: 'Server ban', channel_ban: 'Channel ban', channel_timeout: 'Channel timeout',
-			lift_server_ban: 'Lift server ban', lift_channel_ban: 'Lift channel ban', lift_channel_timeout: 'Lift channel timeout' })[kind];
+		return ({ server_ban: $_('mod.action_server_ban'), channel_ban: $_('mod.action_channel_ban'), channel_timeout: $_('mod.action_channel_timeout'),
+			lift_server_ban: $_('mod.action_lift_server_ban'), lift_channel_ban: $_('mod.action_lift_channel_ban'), lift_channel_timeout: $_('mod.action_lift_channel_timeout') })[kind];
 	}
 
 	function when(value: string) {
@@ -119,76 +120,76 @@
 
 <div class="mod-center">
 	<section class="hero">
-		<div><span class="eyebrow">Moderation inbox</span><h2>What needs a human?</h2><p>Reports arrive with a preserved message snapshot, reporter context, and staff discussion in one place.</p></div>
-		<button class="refresh" onclick={refresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+		<div><span class="eyebrow">{$_('mod.inbox')}</span><h2>{$_('mod.heading')}</h2><p>{$_('mod.hero_desc')}</p></div>
+		<button class="refresh" onclick={refresh} disabled={loading}>{loading ? $_('mod.refreshing') : $_('yt.refresh')}</button>
 	</section>
 
-	<div class="summary" aria-label="Moderation queue summary">
-		<div><strong>{openCount}</strong><span>Needs review</span></div>
-		<div><strong>{reviewingCount}</strong><span>Being handled</span></div>
-		<div><strong>{closedCount}</strong><span>Closed</span></div>
+	<div class="summary" aria-label={$_('mod.summary_label')}>
+		<div><strong>{openCount}</strong><span>{$_('mod.needs_review')}</span></div>
+		<div><strong>{reviewingCount}</strong><span>{$_('mod.being_handled')}</span></div>
+		<div><strong>{closedCount}</strong><span>{$_('login.wizard.join_closed_label')}</span></div>
 	</div>
 
 	{#if error}<div class="error" role="alert">{error}</div>{/if}
 	{#if !loading && reports.length === 0}
-		<section class="empty"><strong>Queue clear.</strong><span>No reports are waiting for staff.</span></section>
+		<section class="empty"><strong>{$_('mod.queue_clear')}</strong><span>{$_('mod.queue_clear_desc')}</span></section>
 	{/if}
 
 	<div class="queue">
 		{#each reports as report (report.id)}
 			<article class:closed={report.status === 'resolved' || report.status === 'dismissed'}>
 				<header>
-					<div class="report-title"><span class="status {report.status}">{report.status}</span><strong>{report.reason}</strong><span>#{report.channelId}</span></div>
+					<div class="report-title"><span class="status {report.status}">{$_('mod.status_' + report.status)}</span><strong>{report.reason}</strong><span>#{report.channelId}</span></div>
 					<time>{when(report.createdAt)}</time>
 				</header>
-				<div class="people"><span>{report.source === 'safety_flag' ? 'Flagged message' : 'Reported message'} by <strong>@{report.authorUsername}</strong></span><span>{report.source === 'safety_flag' ? 'Safety rule' : `Reported by @${report.reporterUsername}`}</span>{#if report.assignedToUsername}<span>Assigned to @{report.assignedToUsername}</span>{/if}</div>
-				<blockquote>{report.evidenceDeletedAt ? `Preserved snapshot removed ${when(report.evidenceDeletedAt)}.` : report.source === 'safety_flag' ? 'No content snapshot was retained. Inspect normal channel history if it still exists.' : report.messageSnapshot || 'Message contained no text.'}</blockquote>
-				{#if report.evidenceExpiresAt && !report.evidenceDeletedAt}<p class="notice">This report’s preserved snapshot expires {when(report.evidenceExpiresAt)}.</p>{/if}
-				{#if report.messageWasDeleted}<p class="notice">The source message had already been deleted when this report was captured.</p>{/if}
-				{#if report.comment}<p class="reporter-comment"><strong>Reporter note:</strong> {report.comment}</p>{/if}
+				<div class="people"><span>{report.source === 'safety_flag' ? $_('mod.flagged_message') : $_('mod.reported_message')} {$_('mod.by_author')} <strong>@{report.authorUsername}</strong></span><span>{report.source === 'safety_flag' ? $_('mod.safety_rule') : $_('mod.reported_by', { values: { name: report.reporterUsername } })}</span>{#if report.assignedToUsername}<span>{$_('mod.assigned_to', { values: { name: report.assignedToUsername } })}</span>{/if}</div>
+				<blockquote>{report.evidenceDeletedAt ? $_('mod.snapshot_removed', { values: { when: when(report.evidenceDeletedAt) } }) : report.source === 'safety_flag' ? $_('mod.no_snapshot') : report.messageSnapshot || $_('mod.no_text')}</blockquote>
+				{#if report.evidenceExpiresAt && !report.evidenceDeletedAt}<p class="notice">{$_('mod.snapshot_expires', { values: { when: when(report.evidenceExpiresAt) } })}</p>{/if}
+				{#if report.messageWasDeleted}<p class="notice">{$_('mod.source_deleted')}</p>{/if}
+				{#if report.comment}<p class="reporter-comment"><strong>{$_('mod.reporter_note')}</strong> {report.comment}</p>{/if}
 
 				<div class="actions">
-					{#if report.status === 'open'}<button onclick={() => setStatus(report, 'reviewing', true)} disabled={busy === report.id}>Take case</button>{/if}
-					{#if report.status !== 'resolved'}<button onclick={() => setStatus(report, 'resolved')} disabled={busy === report.id}>Resolve</button>{/if}
-					{#if report.status !== 'dismissed'}<button onclick={() => setStatus(report, 'dismissed')} disabled={busy === report.id}>Dismiss</button>{/if}
-					<button class="quiet" onclick={() => expanded[report.id] = !expanded[report.id]}>{expanded[report.id] ? 'Hide staff comments' : `Staff comments (${report.staffComments.length})`}</button>
-					<button onclick={() => actionOpen[report.id] = !actionOpen[report.id]} disabled={busy === report.id || report.authorUserId <= 0}>{actionOpen[report.id] ? 'Cancel action' : 'Take action'}</button>
-					{#if canRemoveEvidence && report.messageSnapshot && !report.evidenceDeletedAt}<button class="quiet" onclick={() => confirmRedaction[report.id] = !confirmRedaction[report.id]} disabled={busy === report.id}>Remove snapshot</button>{/if}
+					{#if report.status === 'open'}<button onclick={() => setStatus(report, 'reviewing', true)} disabled={busy === report.id}>{$_('mod.take_case')}</button>{/if}
+					{#if report.status !== 'resolved'}<button onclick={() => setStatus(report, 'resolved')} disabled={busy === report.id}>{$_('reader_doc.resolve')}</button>{/if}
+					{#if report.status !== 'dismissed'}<button onclick={() => setStatus(report, 'dismissed')} disabled={busy === report.id}>{$_('common.dismiss')}</button>{/if}
+					<button class="quiet" onclick={() => expanded[report.id] = !expanded[report.id]}>{expanded[report.id] ? $_('mod.hide_comments') : $_('mod.staff_comments_count', { values: { count: report.staffComments.length } })}</button>
+					<button onclick={() => actionOpen[report.id] = !actionOpen[report.id]} disabled={busy === report.id || report.authorUserId <= 0}>{actionOpen[report.id] ? $_('mod.cancel_action') : $_('mod.take_action')}</button>
+					{#if canRemoveEvidence && report.messageSnapshot && !report.evidenceDeletedAt}<button class="quiet" onclick={() => confirmRedaction[report.id] = !confirmRedaction[report.id]} disabled={busy === report.id}>{$_('mod.remove_snapshot')}</button>{/if}
 				</div>
-				{#if confirmRedaction[report.id] && !report.evidenceDeletedAt}<div class="notice">Remove this case’s preserved message text? The case record and staff comments remain. Old backups may still contain a copy. <button onclick={() => removeEvidence(report)} disabled={busy === report.id}>Confirm removal</button></div>{/if}
+				{#if confirmRedaction[report.id] && !report.evidenceDeletedAt}<div class="notice">{$_('mod.confirm_removal_text')} <button onclick={() => removeEvidence(report)} disabled={busy === report.id}>{$_('mod.confirm_removal')}</button></div>{/if}
 				{#if actionOpen[report.id]}
 					<section class="case-action-form">
-						<p>Acts on @{report.authorUsername} in this server. The case keeps an action record; it does not collect more chat history.</p>
-						<label>Action<select bind:value={actionKind[report.id]}>
-							<option value="channel_timeout">Timeout in this channel</option>
-							<option value="channel_ban">Ban from this channel</option>
-							<option value="server_ban">Ban from server (admin)</option>
-							<option value="lift_channel_timeout">Lift channel timeout</option>
-							<option value="lift_channel_ban">Lift channel ban</option>
-							<option value="lift_server_ban">Lift server ban (admin)</option>
+						<p>{$_('mod.action_form_desc', { values: { name: report.authorUsername } })}</p>
+						<label>{$_('ffxiv.kind_action')}<select bind:value={actionKind[report.id]}>
+							<option value="channel_timeout">{$_('mod.opt_channel_timeout')}</option>
+							<option value="channel_ban">{$_('mod.opt_channel_ban')}</option>
+							<option value="server_ban">{$_('mod.opt_server_ban')}</option>
+							<option value="lift_channel_timeout">{$_('mod.opt_lift_channel_timeout')}</option>
+							<option value="lift_channel_ban">{$_('mod.opt_lift_channel_ban')}</option>
+							<option value="lift_server_ban">{$_('mod.opt_lift_server_ban')}</option>
 						</select></label>
-						{#if (actionKind[report.id] ?? 'channel_timeout') === 'channel_timeout'}<label>Minutes<input type="number" min="1" max="10080" bind:value={actionMinutes[report.id]} placeholder="10" /></label>{/if}
-						<label>Reason<input bind:value={actionReason[report.id]} placeholder={report.reason} maxlength="280" /></label>
-						<button onclick={() => applyAction(report)} disabled={busy === report.id}>Apply action</button>
+						{#if (actionKind[report.id] ?? 'channel_timeout') === 'channel_timeout'}<label>{$_('mod.minutes')}<input type="number" min="1" max="10080" bind:value={actionMinutes[report.id]} placeholder="10" /></label>{/if}
+						<label>{$_('mod.reason')}<input bind:value={actionReason[report.id]} placeholder={report.reason} maxlength="280" /></label>
+						<button onclick={() => applyAction(report)} disabled={busy === report.id}>{$_('mod.apply_action')}</button>
 					</section>
 				{/if}
 				{#if (report.actions ?? []).length > 0}
-					<section class="case-history" aria-label="Case actions">
-						<strong>Action history</strong>
+					<section class="case-history" aria-label={$_('mod.case_actions_label')}>
+						<strong>{$_('mod.action_history')}</strong>
 						{#each report.actions ?? [] as action (action.id)}
-							<div><span>{actionLabel(action.kind)} · {action.outcome} · @{action.actorUsername} · {when(action.createdAt)}</span><small>{action.reason}{action.expiresAt ? ` · expires ${when(action.expiresAt)}` : ''}</small></div>
+							<div><span>{actionLabel(action.kind)} · {action.outcome} · @{action.actorUsername} · {when(action.createdAt)}</span><small>{action.reason}{action.expiresAt ? $_('mod.expires', { values: { when: when(action.expiresAt) } }) : ''}</small></div>
 						{/each}
-						{#if report.actions?.some(action => action.outcome === 'pending')}<p class="notice">A pending action may have applied before the server stopped. Inspect the restriction before repeating it.</p>{/if}
+						{#if report.actions?.some(action => action.outcome === 'pending')}<p class="notice">{$_('mod.pending_action')}</p>{/if}
 					</section>
 				{/if}
 
 				{#if expanded[report.id]}
 					<section class="staff-thread">
-						<div class="staff-note"><strong>Private staff discussion attached to this case.</strong> It is not another public channel, and reporters cannot see these comments.</div>
+						<div class="staff-note"><strong>{$_('mod.staff_discussion')}</strong>{$_('mod.staff_discussion_desc')}</div>
 					{#each report.staffComments as comment (comment.id)}
 						<div class="comment"><div><strong>@{comment.authorUsername}</strong><time>{when(comment.createdAt)}</time></div><p>{comment.body}</p></div>
 					{/each}
-					<div class="comment-box"><textarea bind:value={commentDrafts[report.id]} rows="2" placeholder="Add context for other staff…"></textarea><button onclick={() => addComment(report)} disabled={busy === report.id || !(commentDrafts[report.id] ?? '').trim()}>Comment</button></div>
+					<div class="comment-box"><textarea bind:value={commentDrafts[report.id]} rows="2" placeholder={$_('mod.add_context')}></textarea><button onclick={() => addComment(report)} disabled={busy === report.id || !(commentDrafts[report.id] ?? '').trim()}>{$_('office.editor.comment')}</button></div>
 					</section>
 				{/if}
 			</article>

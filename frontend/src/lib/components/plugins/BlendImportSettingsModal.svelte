@@ -19,6 +19,7 @@
 </script>
 
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { createEventDispatcher } from 'svelte';
 
   export let isOpen = false;
@@ -95,52 +96,52 @@
   <div class="overlay" on:click={closeModal} role="presentation">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="blend-import-title" tabindex="-1" on:click|stopPropagation>
       <div class="header">
-        <h3 id="blend-import-title">Blend Import Settings</h3>
-        <button class="close-btn" on:click={closeModal} disabled={isSubmitting} aria-label="Close">x</button>
+        <h3 id="blend-import-title">{$_('blend.title')}</h3>
+        <button class="close-btn" on:click={closeModal} disabled={isSubmitting} aria-label={$_('common.close')}>x</button>
       </div>
 
-      <p class="file-label">{fileName || 'blend file'}</p>
+      <p class="file-label">{fileName || $_('blend.default_file')}</p>
 
       <label class="field">
-        <span>Preset</span>
+        <span>{$_('vcd.preset')}</span>
         <select bind:value={preset} on:change={(e) => applyPreset((e.target as HTMLSelectElement).value as BlendImportPreset)}>
-          <option value="fast-preview">Fast Preview</option>
-          <option value="balanced">Balanced</option>
-          <option value="high-fidelity">High Fidelity</option>
+          <option value="fast-preview">{$_('blend.fast')}</option>
+          <option value="balanced">{$_('a11y.balanced')}</option>
+          <option value="high-fidelity">{$_('blend.high')}</option>
         </select>
       </label>
 
       <div class="checks">
-        <label><input type="checkbox" bind:checked={applyModifiers} /> Apply Modifiers</label>
-        <label><input type="checkbox" bind:checked={dracoCompression} /> Draco Compression</label>
-        <label><input type="checkbox" bind:checked={embedTextures} /> Embed Textures</label>
+        <label><input type="checkbox" bind:checked={applyModifiers} /> {$_('blend.apply_modifiers')}</label>
+        <label><input type="checkbox" bind:checked={dracoCompression} /> {$_('blend.draco')}</label>
+        <label><input type="checkbox" bind:checked={embedTextures} /> {$_('blend.embed_textures')}</label>
       </div>
 
       <div class="grid">
         <label class="field">
-          <span>Include</span>
+          <span>{$_('blend.include')}</span>
           <select bind:value={includeScope}>
-            <option value="visible-only">Visible Only</option>
-            <option value="selected-only">Selected Only</option>
-            <option value="full-scene">Full Scene</option>
+            <option value="visible-only">{$_('blend.visible_only')}</option>
+            <option value="selected-only">{$_('blend.selected_only')}</option>
+            <option value="full-scene">{$_('blend.full_scene')}</option>
           </select>
         </label>
         <label class="field">
-          <span>Axis</span>
+          <span>{$_('model_inspect.axis')}</span>
           <select bind:value={axisPreset}>
-            <option value="blender-default">Blender Default</option>
-            <option value="y-up">Y Up</option>
+            <option value="blender-default">{$_('blend.axis_blender')}</option>
+            <option value="y-up">{$_('blend.axis_y_up')}</option>
           </select>
         </label>
       </div>
 
       <div class="grid">
         <label class="field">
-          <span>Scale</span>
+          <span>{$_('a11y.preset_scale')}</span>
           <input type="number" min="0.001" step="0.001" bind:value={scale} />
         </label>
         <label class="field">
-          <span>Output</span>
+          <span>{$_('blend.output')}</span>
           <select bind:value={outputFormat}>
             <option value="glb">GLB</option>
           </select>
@@ -148,9 +149,9 @@
       </div>
 
       <div class="actions">
-        <button class="secondary" on:click={closeModal} disabled={isSubmitting}>Cancel</button>
+        <button class="secondary" on:click={closeModal} disabled={isSubmitting}>{$_('common.cancel')}</button>
         <button class="primary" on:click={submit} disabled={isSubmitting}>
-          {isSubmitting ? 'Queueing...' : 'Queue Conversion'}
+          {isSubmitting ? $_('blend.queueing') : $_('blend.queue')}
         </button>
       </div>
     </div>

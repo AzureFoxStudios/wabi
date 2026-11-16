@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type {
 		PaymentMethodCapability,
 		PaymentProviderCapability
@@ -55,9 +56,9 @@
 {#if routePresets.length > 1}
 	<div class="route-picker">
 		<div class="route-picker-header">
-			<h3>Pay with</h3>
+			<h3>{$_('payment_route.pay_with')}</h3>
 			<button class="action subtle" type="button" onclick={() => (showAdvancedRouting = !showAdvancedRouting)}>
-				{showAdvancedRouting ? 'Hide manual routing' : 'Adjust manually'}
+				{showAdvancedRouting ? $_('payment_route.hide_manual') : $_('payment_route.adjust_manual')}
 			</button>
 		</div>
 		<div class="route-preset-list">
@@ -79,7 +80,7 @@
 <div class="grid">
 	{#if shouldShowProviderPicker}
 		<label>
-			<span>Provider</span>
+			<span>{$_('utilities.provider')}</span>
 			<select bind:value={selectedProviderId} disabled={providers.length === 0}>
 				{#each providers as provider (provider.pluginId)}
 					<option value={provider.pluginId}>{provider.providerName}</option>
@@ -90,7 +91,7 @@
 
 	{#if shouldShowMethodPicker}
 		<label>
-			<span>Method</span>
+			<span>{$_('payment_route.method')}</span>
 			<select bind:value={selectedMethodId} disabled={eligibleProviderMethods.length === 0}>
 				{#each eligibleProviderMethods as method (method.id)}
 					<option value={method.id}>{method.label}</option>
@@ -100,13 +101,13 @@
 	{/if}
 
 	<label>
-		<span>Amount</span>
+		<span>{$_('offline_donations.amount')}</span>
 		<input class="amount-input" type="text" bind:value={amountInput} placeholder="100.00" inputmode="decimal" />
 	</label>
 
 	{#if shouldShowCurrencyPicker}
 		<label>
-			<span>Currency</span>
+			<span>{$_('donation_config.currency')}</span>
 			{#if providerCurrencyOptions.length > 0}
 				<select bind:value={currency} disabled={providerCurrencyOptions.length <= 1}>
 					{#each providerCurrencyOptions as providerCurrency (providerCurrency)}
@@ -114,14 +115,14 @@
 					{/each}
 				</select>
 			{:else}
-				<input type="text" bind:value={currency} maxlength="3" placeholder="Auto" />
+				<input type="text" bind:value={currency} maxlength="3" placeholder={$_('appset.auto')} />
 			{/if}
 		</label>
 	{/if}
 
 	{#if shouldShowCountryPicker}
 		<label>
-			<span>Country</span>
+			<span>{$_('donation_config.country')}</span>
 			{#if providerCountryOptions.length > 0}
 				<select bind:value={countryCode} disabled={providerCountryOptions.length <= 1}>
 					{#each providerCountryOptions as providerCountry (providerCountry)}
@@ -129,7 +130,7 @@
 					{/each}
 				</select>
 			{:else}
-				<input type="text" bind:value={countryCode} maxlength="2" placeholder="Auto" />
+				<input type="text" bind:value={countryCode} maxlength="2" placeholder={$_('appset.auto')} />
 			{/if}
 		</label>
 	{/if}
@@ -157,7 +158,7 @@
 {/if}
 
 {#if selectedMethod?.notes && !isThaiPromptPayDraft}
-	<p class="hint">Method note: {selectedMethod.notes}</p>
+	<p class="hint">{$_('payment_route.method_note')} {selectedMethod.notes}</p>
 {/if}
 
 {#if draftMethodBehaviorNote && !isThaiPromptPayDraft}
@@ -165,5 +166,5 @@
 {/if}
 
 {#if selectedProvider && eligibleProviderMethods.length === 0}
-	<p class="hint">No method is currently eligible for this amount and provider combination. Try a different amount or provider.</p>
+	<p class="hint">{$_('payment_route.no_method')}</p>
 {/if}

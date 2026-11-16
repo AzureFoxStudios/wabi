@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	interface Props {
 		citation: {
 			file_path: string;
@@ -43,13 +44,13 @@
 	</span>
 	<span class="citation-path">{citation.file_path}</span>
 	{#if lineLabel}<span class="citation-lines">{lineLabel}</span>{/if}
-	<span class="citation-ref" title={isPinned ? 'Pinned' : 'Tracking'}>{refLabel}</span>
-	{#if isPinned}<span class="citation-badge pinned">pinned</span>{/if}
+	<span class="citation-ref" title={isPinned ? $_('messages.pinned_kicker') : $_('lore_chip.tracking_title')}>{refLabel}</span>
+	{#if isPinned}<span class="citation-badge pinned">{$_('lore_chip.pinned_badge')}</span>{/if}
 	{#if drift === 'Drifted' && onUpdate}
-		<button class="drift-action" onclick={(e) => { e.stopPropagation(); onUpdate(); }} title="Update citation">↻</button>
+		<button class="drift-action" onclick={(e) => { e.stopPropagation(); onUpdate(); }} title={$_('lore_chip.update_title')}>↻</button>
 	{/if}
 	{#if !isPinned && onPin}
-		<button class="drift-action" onclick={(e) => { e.stopPropagation(); onPin(); }} title="Pin citation">📌</button>
+		<button class="drift-action" onclick={(e) => { e.stopPropagation(); onPin(); }} title={$_('lore_chip.pin_title')}>📌</button>
 	{/if}
 </button>
 

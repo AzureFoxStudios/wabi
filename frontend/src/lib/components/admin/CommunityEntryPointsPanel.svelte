@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { isCurrentTailcatProxy } from '$lib/tailcatConnection';
@@ -32,7 +33,7 @@
 			const next = await readCommunityEntryPoints(server);
 			if (current !== request || server !== $activeServerUrl) return;
 			resetDraft(next);
-			notice = next ? 'Loaded the signed entry-point list.' : 'No entry points published yet.';
+			notice = next ? $_('entry_points.loaded') : $_('entry_points.none_published');
 		} catch (cause) {
 			if (current === request) error = cause instanceof Error ? cause.message : String(cause);
 		} finally {
@@ -53,30 +54,30 @@
 	}
 
 	function preparedEntries(): CommunityEntry[] {
-		if (entries.length < 1 || entries.length > 64) throw new Error('Enter 1 to 64 site addresses');
+		if (entries.length < 1 || entries.length > 64) throw new Error($_('entry_points.enter_range'));
 		const ids = new Set<string>();
 		const urls = new Set<string>();
 		const prepared = entries.map((entry) => {
 			const nodeId = entry.nodeId.trim();
 			if (!/^[A-Za-z0-9_-]{1,64}$/.test(nodeId) || ids.has(nodeId)) {
-				throw new Error('Use a unique site ID of up to 64 letters, digits, hyphens or underscores');
+				throw new Error($_('entry_points.unique_id'));
 			}
 			ids.add(nodeId);
 			let parsed: URL;
 			try { parsed = new URL(entry.url.trim()); }
-			catch { throw new Error(`Enter a full HTTP(S) address for ${nodeId}`); }
+			catch { throw new Error($_('entry_points.full_address', { values: { id: nodeId } })); }
 			if (parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== '/') {
-				throw new Error(`Use an address with no path, credentials or query for ${nodeId}`);
+				throw new Error($_('entry_points.no_path', { values: { id: nodeId } }));
 			}
 			const url = parsed.origin;
 			if (!validCommunityEntryUrl(url) || urls.has(url)) {
-				throw new Error(`Use a unique HTTPS address or private HTTP address for ${nodeId}`);
+				throw new Error($_('entry_points.unique_address', { values: { id: nodeId } }));
 			}
 			urls.add(url);
 			return { nodeId, role: entry.role, url };
 		});
 		if (prepared.filter((entry) => entry.role === 'authority').length !== 1) {
-			throw new Error('Choose exactly one current Authority');
+			throw new Error($_('entry_points.one_authority'));
 		}
 		return prepared;
 	}
@@ -93,7 +94,7 @@
 			const next = await publishCommunityEntryPoints(server, password, roster?.body.version ?? 0, prepared);
 			if (current !== request || server !== $activeServerUrl) return;
 			resetDraft(next);
-			notice = `Published version ${next.body.version}. Members can learn these addresses from this Authority.`;
+			notice = $_('entry_points.published', { values: { version: next.body.version } });
 		} catch (cause) {
 			if (current === request) error = cause instanceof Error ? cause.message : String(cause);
 		} finally {
@@ -108,43 +109,43 @@
 	});
 </script>
 
-<section class="entry-points" aria-label="Community entry points">
+<section class="entry-points" aria-label={$_('entry_points.label')}>
 	<header>
 		<div>
-			<h3>Community entry points</h3>
-			<p>Publish the addresses members may use for this one community. Anchors still forward work to the current Authority.</p>
+			<h3>{$_('entry_points.title')}</h3>
+			<p>{$_('entry_points.desc')}</p>
 		</div>
-		<button type="button" onclick={refresh} disabled={loading || saving}>{loading ? 'Loading…' : 'Reload'}</button>
+		<button type="button" onclick={refresh} disabled={loading || saving}>{loading ? $_('common.loading') : $_('community_roles.reload')}</button>
 	</header>
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 	{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	{#if roster}
 		<dl class="identity">
-			<div><dt>Community ID</dt><dd><code>{roster.body.communityId}</code></dd></div>
-			<div><dt>Roster version</dt><dd>{roster.body.version}</dd></div>
-			<div><dt>Signed list expires</dt><dd>{new Date(roster.body.expiresAt * 1000).toLocaleString()}</dd></div>
+			<div><dt>{$_('entry_points.community_id')}</dt><dd><code>{roster.body.communityId}</code></dd></div>
+			<div><dt>{$_('entry_points.roster_version')}</dt><dd>{roster.body.version}</dd></div>
+			<div><dt>{$_('entry_points.expires')}</dt><dd>{new Date(roster.body.expiresAt * 1000).toLocaleString()}</dd></div>
 		</dl>
 	{:else if !loading && !error}
-		<p>No signed address list exists yet. Publish one before giving members alternate site addresses.</p>
+		<p>{$_('entry_points.no_list')}</p>
 	{/if}
 	{#if owner}
 		{#if isCurrentTailcatProxy()}
-			<p class="hint">Your current address is a temporary Tailcat proxy. Enter stable addresses that another device can reach.</p>
+			<p class="hint">{$_('entry_points.tailcat_temp')}</p>
 		{/if}
 		<div class="rows">
 			{#each entries as entry, index (index)}
 				<div class="entry-row">
-					<label>Site ID<input value={entry.nodeId} maxlength="64" oninput={(event) => edit(index, 'nodeId', event.currentTarget.value)} /></label>
-					<label>Role<select value={entry.role} onchange={(event) => edit(index, 'role', event.currentTarget.value)}><option value="authority">Authority</option><option value="anchor">Anchor</option></select></label>
-					<label>Reachable address<input value={entry.url} type="url" placeholder="https://site.example or https://public-ip:3001" oninput={(event) => edit(index, 'url', event.currentTarget.value)} /></label>
-					<button type="button" onclick={() => { entries = entries.filter((_, position) => position !== index); notice = ''; }} disabled={entries.length === 1}>Remove</button>
+					<label>{$_('entry_points.site_id')}<input value={entry.nodeId} maxlength="64" oninput={(event) => edit(index, 'nodeId', event.currentTarget.value)} /></label>
+					<label>{$_('upop.role')}<select value={entry.role} onchange={(event) => edit(index, 'role', event.currentTarget.value)}><option value="authority">{$_('network_health.authority')}</option><option value="anchor">{$_('network_health.anchor')}</option></select></label>
+					<label>{$_('entry_points.reachable')}<input value={entry.url} type="url" placeholder="https://site.example or https://public-ip:3001" oninput={(event) => edit(index, 'url', event.currentTarget.value)} /></label>
+					<button type="button" onclick={() => { entries = entries.filter((_, position) => position !== index); notice = ''; }} disabled={entries.length === 1}>{$_('profile_settings.remove')}</button>
 				</div>
 			{/each}
 		</div>
 		<div class="actions">
-			<button type="button" onclick={addAnchor} disabled={entries.length >= 64 || saving}>Add site</button>
-			<label>Owner password<input type="password" autocomplete="current-password" bind:value={password} disabled={saving} /></label>
-			<button type="button" class="publish" onclick={publish} disabled={loading || saving || !password}>{saving ? 'Publishing…' : 'Publish signed list'}</button>
+			<button type="button" onclick={addAnchor} disabled={entries.length >= 64 || saving}>{$_('entry_points.add_site')}</button>
+			<label>{$_('host_page.owner_password')}<input type="password" autocomplete="current-password" bind:value={password} disabled={saving} /></label>
+			<button type="button" class="publish" onclick={publish} disabled={loading || saving || !password}>{saving ? $_('crp.publishing') : $_('entry_points.publish')}</button>
 		</div>
 	{:else if roster}
 		<ul class="read-only">
@@ -153,7 +154,7 @@
 			{/each}
 		</ul>
 	{/if}
-	<p class="hint">This list identifies approved access addresses. It does not elect a replacement Authority or make an Anchor writable after the Authority fails. Public IP addresses need HTTPS valid for that IP. Private HTTP addresses require members to sign in separately.</p>
+	<p class="hint">{$_('entry_points.footer')}</p>
 </section>
 
 <style>

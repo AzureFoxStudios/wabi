@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import {
 		applyFeelerSettings,
@@ -33,26 +34,26 @@
 	type NumericSetting = { [K in keyof FeelerSettings]: FeelerSettings[K] extends number ? K : never }[keyof FeelerSettings];
 	type Slider = { key: NumericSetting; label: string; min: number; max: number; step: number; unit: 'percent' | 'px' | 'ms' | 'scale'; description?: string };
 	const standardSliders: Slider[] = [
-		{ key: 'intensity', label: 'Glow strength', min: 0, max: 0.15, step: 0.01, unit: 'percent' },
-		{ key: 'textureOpacity', label: 'Texture / effect strength', min: 0, max: 0.4, step: 0.02, unit: 'percent' },
-		{ key: 'radius', label: 'Radius', min: 80, max: 360, step: 10, unit: 'px' },
-		{ key: 'patternScale', label: 'Spacing / pattern scale', min: 0.5, max: 2, step: 0.05, unit: 'scale', description: 'Larger values spread out and enlarge the pattern.' },
-		{ key: 'idleDelayMs', label: 'Idle delay', min: 30, max: 300, step: 10, unit: 'ms', description: 'How long the pointer stays lit after you stop moving.' },
-		{ key: 'fadeMs', label: 'Fade duration', min: 150, max: 1200, step: 10, unit: 'ms' },
-		{ key: 'trailMs', label: 'Trail duration', min: 0, max: 1200, step: 20, unit: 'ms', description: 'Set to zero to follow only the current pointer position.' },
-		{ key: 'trailStrength', label: 'Trail strength', min: 0, max: 1, step: 0.05, unit: 'percent' }
+		{ key: 'intensity', label: $_('upf.glow'), min: 0, max: 0.15, step: 0.01, unit: 'percent' },
+		{ key: 'textureOpacity', label: $_('feeler.texture'), min: 0, max: 0.4, step: 0.02, unit: 'percent' },
+		{ key: 'radius', label: $_('wb.radius'), min: 80, max: 360, step: 10, unit: 'px' },
+		{ key: 'patternScale', label: $_('feeler.spacing'), min: 0.5, max: 2, step: 0.05, unit: 'scale', description: $_('feeler.spacing_desc') },
+		{ key: 'idleDelayMs', label: $_('feeler.idle_delay'), min: 30, max: 300, step: 10, unit: 'ms', description: $_('feeler.idle_delay_desc') },
+		{ key: 'fadeMs', label: $_('feeler.fade'), min: 150, max: 1200, step: 10, unit: 'ms' },
+		{ key: 'trailMs', label: $_('feeler.trail'), min: 0, max: 1200, step: 20, unit: 'ms', description: $_('feeler.trail_desc') },
+		{ key: 'trailStrength', label: $_('feeler.trail_strength'), min: 0, max: 1, step: 0.05, unit: 'percent' }
 	];
 	const connectedSliders: Slider[] = [
-		{ key: 'fieldDensity', label: 'Field density', min: 0.6, max: 1.5, step: 0.05, unit: 'scale' },
-		{ key: 'materialDetail', label: 'Material detail', min: 0.5, max: 2, step: 0.05, unit: 'scale' },
-		{ key: 'settleSpeed', label: 'Settle speed', min: 0.25, max: 4, step: 0.05, unit: 'scale', description: 'How quickly the world returns to rest.' },
-		{ key: 'mazeCurve', label: 'Maze curve', min: 0, max: 1, step: 0.05, unit: 'percent' },
-		{ key: 'response', label: 'Pointer response', min: 0, max: 1, step: 0.05, unit: 'percent', description: 'How strongly the world reacts to nearby movement.' }
+		{ key: 'fieldDensity', label: $_('feeler.field_density'), min: 0.6, max: 1.5, step: 0.05, unit: 'scale' },
+		{ key: 'materialDetail', label: $_('feeler.material_detail'), min: 0.5, max: 2, step: 0.05, unit: 'scale' },
+		{ key: 'settleSpeed', label: $_('feeler.settle_speed'), min: 0.25, max: 4, step: 0.05, unit: 'scale', description: $_('feeler.settle_speed_desc') },
+		{ key: 'mazeCurve', label: $_('feeler.maze_curve'), min: 0, max: 1, step: 0.05, unit: 'percent' },
+		{ key: 'response', label: $_('feeler.response'), min: 0, max: 1, step: 0.05, unit: 'percent', description: $_('feeler.response_desc') }
 	];
 	const patternGroups = [
-		{ label: 'Basics', patterns: BASIC_FEELER_PATTERNS },
-		{ label: 'Little Worlds', patterns: LITTLE_WORLD_PATTERNS },
-		{ label: 'Connected Worlds', patterns: CONNECTED_WORLD_PATTERNS }
+		{ label: $_('feeler.group_basics'), patterns: BASIC_FEELER_PATTERNS },
+		{ label: $_('feeler.group_little'), patterns: LITTLE_WORLD_PATTERNS },
+		{ label: $_('feeler.group_connected'), patterns: CONNECTED_WORLD_PATTERNS }
 	];
 
 	let settings = $state<FeelerSettings>({ ...DEFAULT_FEELER_SETTINGS });
@@ -71,7 +72,7 @@
 
 	const selection = $derived(settings.pattern === 'local' && settings.customEffectId ? `local:${settings.customEffectId}` : settings.pattern);
 	const selectedPattern = $derived(patternGroups.flatMap((group) => [...group.patterns]).find((pattern) => pattern.id === settings.pattern));
-	const family = $derived(isLittleWorldPattern(settings.pattern) ? 'Little Worlds' : isConnectedWorldPattern(settings.pattern) ? 'Connected Worlds' : settings.pattern === 'local' ? 'Your local effects' : 'Basics');
+	const family = $derived(isLittleWorldPattern(settings.pattern) ? $_('feeler.group_little') : isConnectedWorldPattern(settings.pattern) ? $_('feeler.group_connected') : settings.pattern === 'local' ? $_('feeler.family_local') : $_('feeler.group_basics'));
 	const isMaterial = $derived(settings.pattern === 'water' || settings.pattern === 'sand');
 	const isLocalShader = $derived(settings.pattern === 'local' && localEffects.some((effect) => effect.id === settings.customEffectId && effect.kind === 'shader'));
 	const availableConnectedSliders = $derived(connectedSliders.filter((slider) =>
@@ -90,7 +91,7 @@
 			if (mounted && request === libraryRequest) localEffects = effects;
 		} catch (error) {
 			if (mounted && request === libraryRequest) {
-				importMessage = error instanceof Error ? error.message : 'Could not load your local effects.';
+				importMessage = error instanceof Error ? error.message : $_('feeler.load_failed');
 			}
 		}
 	}
@@ -180,9 +181,9 @@
 			if (!mounted) return;
 			runtimeError = '';
 			apply({ pattern: 'local', customEffectId: effect.id });
-			importMessage = `Imported ${effect.name}`;
+			importMessage = $_('feeler.imported', { values: { name: effect.name } });
 		} catch (error) {
-			if (mounted) importMessage = error instanceof Error ? error.message : `${kind === 'image' ? 'Image' : 'Shader'} import failed`;
+			if (mounted) importMessage = error instanceof Error ? error.message : (kind === 'image' ? $_('feeler.image_failed') : $_('feeler.shader_failed'));
 		} finally {
 			importBusy = false;
 			if (imageInput) imageInput.value = '';
@@ -197,9 +198,9 @@
 			await removeLocalVisualEffect(effect.id);
 			if (settings.customEffectId === effect.id) apply({ pattern: 'triangles', customEffectId: null });
 			await refreshLibrary();
-			importMessage = `Removed ${effect.name}`;
+			importMessage = $_('feeler.removed', { values: { name: effect.name } });
 		} catch (error) {
-			importMessage = error instanceof Error ? error.message : 'Could not remove effect';
+			importMessage = error instanceof Error ? error.message : $_('feeler.remove_failed');
 		} finally {
 			importBusy = false;
 		}
@@ -222,17 +223,17 @@
 <div class="feeler-settings">
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Mouse feeler</span>
-			<span class="setting-description">Reveal a world around your moving pointer. Saved on this device across all themes and backgrounds.</span>
+			<span class="setting-label">{$_('feeler.label')}</span>
+			<span class="setting-description">{$_('feeler.desc')}</span>
 		</div>
 		<button type="button" class="toggle-btn" class:active={settings.enabled} onclick={() => apply({ enabled: !settings.enabled })}
-			role="switch" aria-checked={settings.enabled} aria-label="Enable pointer effects">{settings.enabled ? 'ON' : 'OFF'}</button>
+			role="switch" aria-checked={settings.enabled} aria-label={$_('feeler.enable_label')}>{settings.enabled ? $_('payment_access_panel.on') : $_('payment_access_panel.off')}</button>
 	</div>
 
 	<div class="setting-item pattern-row">
 		<div class="setting-info">
-			<label class="setting-label" for="feeler-pattern">Pattern</label>
-			<span class="setting-description">Basics, scattered Little Worlds and reactive Connected Worlds.</span>
+			<label class="setting-label" for="feeler-pattern">{$_('wb.pattern')}</label>
+			<span class="setting-description">{$_('feeler.pattern_desc')}</span>
 		</div>
 		<select id="feeler-pattern" class="theme-select" value={selection} onchange={handlePatternChange} disabled={!settings.enabled}>
 			{#each patternGroups as group (group.label)}
@@ -241,7 +242,7 @@
 				</optgroup>
 			{/each}
 			{#if settings.pattern === 'local' && !localEffects.some((effect) => effect.id === settings.customEffectId)}
-				<option value={selection} disabled>Unavailable local effect</option>
+				<option value={selection} disabled>{$_('feeler.unavailable_effect')}</option>
 			{/if}
 			{#if localEffects.length}
 				<optgroup label="Your local effects">
@@ -253,51 +254,51 @@
 
 	<div class="sample-card">
 		<div class="sample-heading">
-			<div class="setting-info"><span class="family-label">{family}</span><span class="setting-label">{selectedPattern?.name ?? localEffects.find((effect) => effect.id === settings.customEffectId)?.name ?? 'Local effect'}</span></div>
-			<button type="button" class="action-btn" data-pointer-demo-control onclick={sampleSweep} disabled={!settings.enabled || reducedMotion || !finePointer} aria-pressed={demoRunning}>{demoRunning ? 'Stop sample sweep' : 'Draw a sample sweep'}</button>
+			<div class="setting-info"><span class="family-label">{family}</span><span class="setting-label">{selectedPattern?.name ?? localEffects.find((effect) => effect.id === settings.customEffectId)?.name ?? $_('feeler.local_fallback')}</span></div>
+			<button type="button" class="action-btn" data-pointer-demo-control onclick={sampleSweep} disabled={!settings.enabled || reducedMotion || !finePointer} aria-pressed={demoRunning}>{demoRunning ? $_('feeler.stop_sample') : $_('feeler.draw_sample')}</button>
 		</div>
-		<p class="setting-description">{selectedPattern?.description ?? 'Your imported image or shader follows the pointer.'}</p>
-		<div bind:this={sampleArea} class="sample-area" aria-label="Pointer effect sample area">
-			<span>{!settings.enabled ? 'Enable pointer effects to try a pattern.' : reducedMotion ? 'Pointer motion is paused by your reduced-motion preference.' : !finePointer ? 'Pointer effects need a mouse or other precise pointer.' : demoRunning ? 'Drawing a sample sweep…' : 'Move your pointer here, or draw a sample sweep.'}</span>
+		<p class="setting-description">{selectedPattern?.description ?? $_('feeler.imported_default')}</p>
+		<div bind:this={sampleArea} class="sample-area" aria-label={$_('feeler.sample_area')}>
+			<span>{!settings.enabled ? $_('feeler.sample_enable') : reducedMotion ? $_('feeler.sample_reduced') : !finePointer ? $_('feeler.sample_pointer') : demoRunning ? $_('feeler.sample_drawing') : $_('feeler.sample_move')}</span>
 		</div>
 		{#if runtimeError}<p class="effect-error" role="alert">{runtimeError}</p>{/if}
 	</div>
 
-	{#if isLocalShader}<p class="setting-description shader-controls-note">This shader defines its own pattern size and use of history. Trail duration still controls how much history it receives.</p>{/if}
+	{#if isLocalShader}<p class="setting-description shader-controls-note">{$_('feeler.shader_note')}</p>{/if}
 	<div class="controls-grid">{#each standardSliders as slider (slider.key)}{@render sliderControl(slider)}{/each}</div>
 
 	{#if isLittleWorldPattern(settings.pattern) || isConnectedWorldPattern(settings.pattern)}
 		<div class="setting-item seed-row">
-			<div class="setting-info"><label class="setting-label" for="feeler-seed">Layout seed</label><span class="setting-description">Keep a favorite arrangement or reshuffle for new clusters and discoveries.</span></div>
+			<div class="setting-info"><label class="setting-label" for="feeler-seed">{$_('feeler.seed_label')}</label><span class="setting-description">{$_('feeler.seed_desc')}</span></div>
 			<div class="seed-actions">
 				<input id="feeler-seed" class="seed-input theme-select" type="number" min="0" max="4294967295" step="1" value={settings.seed} onchange={(event) => apply({ seed: Number(event.currentTarget.value) })} disabled={!settings.enabled} />
-				<button type="button" class="action-btn" onclick={reshuffle} disabled={!settings.enabled}>Reshuffle</button>
+				<button type="button" class="action-btn" onclick={reshuffle} disabled={!settings.enabled}>{$_('feeler.reshuffle')}</button>
 			</div>
 		</div>
 	{/if}
 
 	{#if isConnectedWorldPattern(settings.pattern)}
-		<fieldset class="world-controls"><legend>World behavior</legend><div class="controls-grid">{#each availableConnectedSliders as slider (slider.key)}{@render sliderControl(slider)}{/each}</div></fieldset>
+		<fieldset class="world-controls"><legend>{$_('feeler.world_behavior')}</legend><div class="controls-grid">{#each availableConnectedSliders as slider (slider.key)}{@render sliderControl(slider)}{/each}</div></fieldset>
 	{/if}
 
 	<div class="local-effects-card">
-		<div class="setting-info"><span class="setting-label">Your effects</span><span class="setting-description">Import an image texture or pointer shader from your computer. Your library stays on this device.</span></div>
+		<div class="setting-info"><span class="setting-label">{$_('feeler.your_effects')}</span><span class="setting-description">{$_('feeler.your_effects_desc')}</span></div>
 		<div class="local-effects-actions">
-			<button type="button" class="action-btn" disabled={importBusy} onclick={() => imageInput?.click()}>Import image</button>
-			<button type="button" class="action-btn" disabled={importBusy} onclick={() => shaderInput?.click()}>Import shader</button>
-			<button type="button" class="action-btn" onclick={downloadPointerShaderTemplate}>Shader template</button>
+			<button type="button" class="action-btn" disabled={importBusy} onclick={() => imageInput?.click()}>{$_('feeler.import_image')}</button>
+			<button type="button" class="action-btn" disabled={importBusy} onclick={() => shaderInput?.click()}>{$_('feeler.import_shader')}</button>
+			<button type="button" class="action-btn" onclick={downloadPointerShaderTemplate}>{$_('feeler.shader_template')}</button>
 		</div>
-		<input bind:this={imageInput} class="file-input" type="file" aria-label="Import pointer image" accept=".png,.webp,.jpg,.jpeg,.gif,.svg,image/png,image/webp,image/jpeg,image/gif,image/svg+xml" onchange={(event) => void importEffect('image', event.currentTarget.files?.[0])} />
-		<input bind:this={shaderInput} class="file-input" type="file" aria-label="Import pointer shader" accept=".frag,.glsl,text/plain" onchange={(event) => void importEffect('shader', event.currentTarget.files?.[0])} />
+		<input bind:this={imageInput} class="file-input" type="file" aria-label={$_('feeler.import_image_label')} accept=".png,.webp,.jpg,.jpeg,.gif,.svg,image/png,image/webp,image/jpeg,image/gif,image/svg+xml" onchange={(event) => void importEffect('image', event.currentTarget.files?.[0])} />
+		<input bind:this={shaderInput} class="file-input" type="file" aria-label={$_('feeler.import_shader_label')} accept=".frag,.glsl,text/plain" onchange={(event) => void importEffect('shader', event.currentTarget.files?.[0])} />
 		{#if importMessage}<div class="import-message" role="status">{importMessage}</div>{/if}
 		{#if localEffects.length}
 			<div class="local-effect-list">
 				{#each localEffects as effect (effect.id)}
 					<div class="local-effect-row">
-						<div><strong>{effect.name}</strong><span>{effect.kind === 'image' ? 'Image texture' : 'Pointer shader'}</span></div>
+						<div><strong>{effect.name}</strong><span>{effect.kind === 'image' ? $_('feeler.image_texture') : $_('feeler.pointer_shader')}</span></div>
 						<div class="local-effect-row-actions">
-							<button type="button" class="action-btn" disabled={importBusy} aria-label={`Use ${effect.name}`} aria-pressed={settings.pattern === 'local' && settings.customEffectId === effect.id} onclick={() => { runtimeError = ''; apply({ pattern: 'local', customEffectId: effect.id }); }}>Use</button>
-							<button type="button" class="action-btn danger" disabled={importBusy} aria-label={`Remove ${effect.name}`} onclick={() => void removeEffect(effect)}>Remove</button>
+							<button type="button" class="action-btn" disabled={importBusy} aria-label={$_('feeler.use_named', { values: { name: effect.name } })} aria-pressed={settings.pattern === 'local' && settings.customEffectId === effect.id} onclick={() => { runtimeError = ''; apply({ pattern: 'local', customEffectId: effect.id }); }}>{$_('feeler.use')}</button>
+							<button type="button" class="action-btn danger" disabled={importBusy} aria-label={$_('feeler.remove_named', { values: { name: effect.name } })} onclick={() => void removeEffect(effect)}>{$_('profile_settings.remove')}</button>
 						</div>
 					</div>
 				{/each}

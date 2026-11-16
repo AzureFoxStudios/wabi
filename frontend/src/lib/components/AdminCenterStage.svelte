@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, tick } from 'svelte';
 	import '$lib/../styles/components/admin-center-stage.css';
 	import '$lib/../styles/components/admin-workbench.css';
@@ -62,18 +63,18 @@
 			read: async signal => {
 				const request = async () => {
 					signal.throwIfAborted();
-					if (!isCurrent()) throw new AdminDashboardAccessError('Your session changed. Reopen Administration.');
+					if (!isCurrent()) throw new AdminDashboardAccessError($_('admin_stage.session_changed'));
 					const token = getAuthToken(server);
-					if (!token) throw new AdminDashboardAccessError('Sign in again to view server status.');
+					if (!token) throw new AdminDashboardAccessError($_('admin_stage.sign_in_status'));
 					return fetch(server + '/api/admin/stats', { headers: { Authorization: 'Bearer ' + token }, credentials: 'include', signal });
 				};
 				let response = await request();
 				if (response.status === 401 && isCurrent() && !signal.aborted && await tryRefresh(server)) response = await request();
 				signal.throwIfAborted();
-				if (!isCurrent()) throw new AdminDashboardAccessError('Your session changed. Reopen Administration.');
-				if (response.status === 401 || response.status === 403) throw new AdminDashboardAccessError('Administrator access is no longer available. Sign in again or contact the owner.');
-				if (!response.ok) throw new Error('Could not read server status (HTTP ' + response.status + ').');
-				if (!/\bjson\b/i.test(response.headers.get('content-type') ?? '')) throw new Error('The server did not return an administration snapshot.');
+				if (!isCurrent()) throw new AdminDashboardAccessError($_('admin_stage.session_changed'));
+				if (response.status === 401 || response.status === 403) throw new AdminDashboardAccessError($_('admin_stage.access_lost'));
+				if (!response.ok) throw new Error($_('admin_stage.read_failed', { values: { status: response.status } }));
+				if (!/\bjson\b/i.test(response.headers.get('content-type') ?? '')) throw new Error($_('admin_stage.no_snapshot_returned'));
 				return response.json();
 			},
 		});
@@ -102,15 +103,15 @@
 </script>
 
 <div class="admin-center-stage admin-workbench">
-	<aside class="admin-sidebar" aria-label="Server Center">
+	<aside class="admin-sidebar" aria-label={$_('admin_stage.title')}>
 		<div class="admin-sidebar-header">
 			<button class="admin-back-btn" onclick={back}>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7" /></svg>
-				Back to workspace
+				{$_('admin_stage.back')}
 			</button>
 		</div>
-		<div class="admin-identity"><strong>Server Center</strong><span>{canManageServer(role) ? 'Community + operations' : 'Moderation workspace'}</span></div>
-		<nav class="admin-sidebar-nav" aria-label="Server Center sections">
+		<div class="admin-identity"><strong>{$_('admin_stage.title')}</strong><span>{canManageServer(role) ? $_('admin_stage.community_ops') : $_('admin_stage.moderation_workspace')}</span></div>
+		<nav class="admin-sidebar-nav" aria-label={$_('admin_stage.sections_label')}>
 			{#each sections as item (item.id)}
 				<button class="admin-nav-item" class:admin-nav-active={section === item.id} aria-current={section === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
 					<span class="admin-nav-icon" aria-hidden="true"><WorkspacePanelIcon icon={icons[item.id] ?? 'settings'} /></span>
@@ -121,17 +122,17 @@
 	</aside>
 	<div class="admin-main">
 		<header class="admin-topbar">
-			<div class="admin-heading"><h1>{selected?.label ?? 'Server Center'}</h1><p>{selected?.description ?? 'Your server role does not grant access to this workspace.'}</p></div>
+			<div class="admin-heading"><h1>{selected?.label ?? $_('admin_stage.title')}</h1><p>{selected?.description ?? $_('admin_stage.no_access')}</p></div>
 			{#if canManageServer(role) && (section === 'overview' || section === 'runtime')}
 				<div class="admin-snapshot-controls">
-					<span class:stale>{snapshot.receivedAt ? (stale ? 'Last snapshot ' : 'Updated ') + new Date(snapshot.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No snapshot yet'}</span>
-					<button class="admin-refresh" onclick={() => resource?.refresh()} disabled={snapshot.loading}>{snapshot.loading ? 'Refreshing…' : 'Refresh'}</button>
+					<span class:stale>{snapshot.receivedAt ? (stale ? $_('admin_stage.last_snapshot') + ' ' : $_('wiki.updated') + ' ') + new Date(snapshot.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : $_('admin_stage.no_snapshot_yet')}</span>
+					<button class="admin-refresh" onclick={() => resource?.refresh()} disabled={snapshot.loading}>{snapshot.loading ? $_('admin_stage.refreshing') : $_('yt.refresh')}</button>
 				</div>
 			{/if}
 		</header>
-		<main class="admin-content" aria-label={selected?.label ?? 'Server Center'}>
+		<main class="admin-content" aria-label={selected?.label ?? $_('admin_stage.title')}>
 			{#if snapshot.error && (section === 'overview' || section === 'runtime')}
-				<div class="admin-read-error" role="alert"><strong>Server status unavailable</strong><p>{snapshot.error} {snapshot.stats ? 'The last snapshot is shown below; it is not a current health check.' : ''}</p></div>
+				<div class="admin-read-error" role="alert"><strong>{$_('admin_stage.status_unavailable')}</strong><p>{snapshot.error} {snapshot.stats ? $_('admin_stage.last_shown_below') : ''}</p></div>
 			{/if}
 			<div class="admin-content-inner">
 				{#if section === 'overview'}
@@ -157,7 +158,7 @@
 				{:else if section}
 				  {#key JSON.stringify([$activeServerUrl, accountId, role, section])}<AdminWorkspace section={workspaceSection} />{/key}
 				{:else}
-					<p class="admin-access-message" role="status">Server Center is available to server staff. Your workspace and conversations are unchanged.</p>
+					<p class="admin-access-message" role="status">{$_('admin_stage.unavailable_note')}</p>
 				{/if}
 			</div>
 		</main>

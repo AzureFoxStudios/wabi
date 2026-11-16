@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { createEventDispatcher } from 'svelte';
 
   export let onConfirm: () => void;
@@ -28,16 +29,16 @@
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="modal-content" on:click|stopPropagation>
     <div class="modal-header">
-      <h2>Leave Live Room?</h2>
-      <button class="close-btn" on:click={onCancel} aria-label="Close">&times;</button>
+      <h2>{$_('live_leave.title')}</h2>
+      <button class="close-btn" on:click={onCancel} aria-label={$_('common.close')}>&times;</button>
     </div>
     <div class="modal-body">
-      <p>Your local scrollback for this visit will clear.</p>
-      <p>You can rejoin anytime — you'll only see messages the server still has alive.</p>
+      <p>{$_('live_leave.scrollback')}</p>
+      <p>{$_('live_leave.rejoin')}</p>
     </div>
     <div class="modal-footer">
-      <button class="cancel-btn" on:click={onCancel}>Stay</button>
-      <button class="confirm-btn" on:click={onConfirm}>Leave Room</button>
+      <button class="cancel-btn" on:click={onCancel}>{$_('live_leave.stay')}</button>
+      <button class="confirm-btn" on:click={onConfirm}>{$_('live_leave.leave')}</button>
     </div>
   </div>
 </div>

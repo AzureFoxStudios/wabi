@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import {
 		composerEnhancementSettingsStore, setCharCounterEnabled, setSpellCheckEnabled,
 		setSplitLargeMessagesEnabled, setSplitLargeMessagesChunkSize, setWriteUpperCaseEnabled
@@ -104,9 +105,9 @@
 
 	async function clearPersonalPinsAddon(): Promise<void> {
 		const confirmed = await confirmAction({
-			title: 'Clear your personal pins?',
-			body: `All ${personalPinCount} pins saved on this device go. Shared channel pins stay.`,
-			confirm: 'Clear pins',
+			title: $_('addon_chat.clear_pins_title'),
+			body: $_('addon_chat.clear_pins_body', { values: { count: personalPinCount } }),
+			confirm: $_('addon_chat.clear_pins_confirm'),
 			danger: true
 		});
 		if (confirmed) clearAllPersonalPins();
@@ -128,8 +129,8 @@
 {#if localAddonControlMatches('spellcheck')}
 	<AddonRow
 		id="spellcheck"
-		label="Spell check"
-		description="Underline misspelled words while you write messages."
+		label={$_('addon_chat.spellcheck_label')}
+		description={$_('addon_chat.spellcheck_desc')}
 		enabled={spellCheckEnabled}
 		badge={SECTION}
 		onToggle={toggleSpellCheckAddon}
@@ -139,8 +140,8 @@
 {#if localAddonControlMatches('char_counter')}
 	<AddonRow
 		id="char_counter"
-		label="Character counter"
-		description="Show how many characters a message has while you write it."
+		label={$_('addon_chat.counter_label')}
+		description={$_('addon_chat.counter_desc')}
 		enabled={charCounterEnabled}
 		badge={SECTION}
 		onToggle={toggleCharCounterAddon}
@@ -150,15 +151,15 @@
 {#if localAddonControlMatches('split_large_messages')}
 	<AddonRow
 		id="split_large_messages"
-		label="Split long messages"
-		description="Send very long text as several messages instead of one."
+		label={$_('addon_chat.split_label')}
+		description={$_('addon_chat.split_desc')}
 		enabled={splitLargeMessagesEnabled}
 		badge={SECTION}
 		onToggle={toggleSplitLargeMessagesAddon}
 	>
 		{#snippet preferences()}
 			<label class="addon-option">
-				<span class="addon-option__label">Characters per message</span>
+				<span class="addon-option__label">{$_('addon_chat.chars_per_message')}</span>
 				<input class="w-field addon-number"
 					type="number"
 					min="250"
@@ -170,10 +171,10 @@
 				/>
 			</label>
 			<div class="addon-note">
-				Messages can be up to {splitLargeMessagesInputMaxLength.toLocaleString()} characters.
+				{$_('addon_chat.max_chars', { values: { max: splitLargeMessagesInputMaxLength.toLocaleString() } })}
 				{splitLargeMessagesEnabled
-					? ` Longer text goes out in parts of up to ${splitLargeMessagesChunkSize.toLocaleString()} characters.`
-					: ' Long posts stay as one message and open in Reader after 2,000 characters.'}
+					? $_('addon_chat.chunk_note', { values: { size: splitLargeMessagesChunkSize.toLocaleString() } })
+					: $_('addon_chat.long_note')}
 			</div>
 		{/snippet}
 	</AddonRow>
@@ -182,8 +183,8 @@
 {#if localAddonControlMatches('write_upper_case')}
 	<AddonRow
 		id="write_upper_case"
-		label="Capitalize sentences"
-		description="Start each sentence you send with a capital letter."
+		label={$_('addon_chat.capitalize_label')}
+		description={$_('addon_chat.capitalize_desc')}
 		enabled={writeUpperCaseEnabled}
 		badge={SECTION}
 		onToggle={toggleWriteUpperCaseAddon}
@@ -193,8 +194,8 @@
 {#if localAddonControlMatches('clickable_mentions')}
 	<AddonRow
 		id="clickable_mentions"
-		label="Clickable names and mentions"
-		description="Click a name or @mention in a message to open that person's profile."
+		label={$_('addon_chat.clickable_label')}
+		description={$_('addon_chat.clickable_desc')}
 		enabled={clickableMentionsEnabled}
 		badge={SECTION}
 		onToggle={toggleClickableMentionsAddon}
@@ -204,16 +205,16 @@
 {#if localAddonControlMatches('complete_timestamps')}
 	<AddonRow
 		id="complete_timestamps"
-		label="Full timestamps"
-		description="How much of the date and time each message shows."
+		label={$_('addon_chat.timestamps_label')}
+		description={$_('addon_chat.timestamps_desc')}
 		enabled={timestampDisplayMode !== 'compact'}
 		badge={SECTION}
 		onToggle={() => updateTimestampDisplayMode(timestampDisplayMode === 'compact' ? 'complete' : 'compact')}
 	>
 		{#snippet preferences()}
 			<div class="addon-field">
-				<span class="w-label">Show</span>
-				<Select ariaLabel="Timestamp detail" options={[{ value: 'compact', label: 'Time only' }, { value: 'complete', label: 'Date and time' }, { value: 'detailed', label: 'Full date and time' }]} value={timestampDisplayMode} onchange={(value) => updateTimestampDisplayMode(value)} />
+				<span class="w-label">{$_('panels.show')}</span>
+				<Select ariaLabel={$_('addon_chat.timestamp_detail')} options={[{ value: 'compact', label: $_('addon_chat.time_only') }, { value: 'complete', label: $_('addon_chat.date_and_time') }, { value: 'detailed', label: $_('addon_chat.full_date_and_time') }]} value={timestampDisplayMode} onchange={(value) => updateTimestampDisplayMode(value)} />
 			</div>
 		{/snippet}
 	</AddonRow>
@@ -222,8 +223,8 @@
 {#if localAddonControlMatches('message_utilities')}
 	<AddonRow
 		id="message_utilities"
-		label="Extra message tools"
-		description="Adds mention, pin and edit to the tools that appear over a message."
+		label={$_('addon_chat.tools_label')}
+		description={$_('addon_chat.tools_desc')}
 		enabled={messageUtilitiesEnabled}
 		badge={SECTION}
 		onToggle={toggleMessageUtilitiesAddon}
@@ -233,8 +234,8 @@
 {#if localAddonControlMatches('quick_mention')}
 	<AddonRow
 		id="quick_mention"
-		label="Quick mention"
-		description="Adds Mention to the message menu."
+		label={$_('context_menu.quick_mention')}
+		description={$_('addon_chat.quick_mention_desc')}
 		enabled={quickMentionEnabled}
 		badge={SECTION}
 		onToggle={toggleQuickMentionAddon}
@@ -244,21 +245,21 @@
 {#if localAddonControlMatches('personal_pins')}
 	<AddonRow
 		id="personal_pins"
-		label="Personal pins"
-		description="Pin messages locally on this device without affecting shared channel pins."
+		label={$_('addon_chat.pins_label')}
+		description={$_('addon_chat.pins_desc')}
 		enabled={personalPinsEnabled}
 		badge={SECTION}
 		onToggle={togglePersonalPinsAddon}
 	>
 		{#snippet preferences()}
-			<div class="addon-note">{personalPinCount === 1 ? '1 pin' : `${personalPinCount} pins`} on this device.</div>
+			<div class="addon-note">{personalPinCount === 1 ? $_('addon_chat.pin_one') : $_('addon_chat.pin_many', { values: { count: personalPinCount } })}</div>
 			<div class="addon-actions">
 				<button
 					class="w-btn w-btn--sm"
 					on:click={clearPersonalPinsAddon}
 					disabled={personalPinCount === 0}
 				>
-					Clear local pins
+					{$_('addon_chat.clear_local_pins')}
 				</button>
 			</div>
 		{/snippet}
@@ -268,22 +269,22 @@
 {#if localAddonControlMatches('unicode_emojis')}
 	<AddonRow
 		id="unicode_emojis"
-		label="Shortcodes to emoji"
-		description="Turn shortcodes such as :smile: into emoji when you send. Custom emoji stay as they are."
+		label={$_('addon_chat.shortcodes_label')}
+		description={$_('addon_chat.shortcodes_desc')}
 		enabled={unicodeEmojisEnabled}
 		badge={SECTION}
 		onToggle={toggleUnicodeEmojisAddon}
 	>
 		{#snippet preferences()}
 <div class="addon-option">
-				<span class="addon-option__label" id="addon-opt-unicode-default">Built-in emoji shortcodes</span>
+				<span class="addon-option__label" id="addon-opt-unicode-default">{$_('addon_chat.builtin_shortcodes')}</span>
 				<Switch labelledby="addon-opt-unicode-default" checked={unicodeConvertDefaultEnabled} onchange={toggleUnicodeDefaultSource} />
 			</div>
 			<div class="addon-option">
-				<span class="addon-option__label" id="addon-opt-unicode-openmoji">OpenMoji shortcodes</span>
+				<span class="addon-option__label" id="addon-opt-unicode-openmoji">{$_('addon_chat.openmoji_shortcodes')}</span>
 				<Switch labelledby="addon-opt-unicode-openmoji" checked={unicodeConvertOpenmojiEnabled} onchange={toggleUnicodeOpenmojiSource} />
 			</div>
-			<div class="addon-note">Applies to channel messages, DMs and GIF captions.</div>
+			<div class="addon-note">{$_('addon_chat.shortcodes_applies')}</div>
 		{/snippet}
 	</AddonRow>
 {/if}

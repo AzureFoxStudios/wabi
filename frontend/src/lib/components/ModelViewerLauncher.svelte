@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { onMount, type Component } from 'svelte';
   import { get } from 'svelte/store';
   import { currentChannel } from '$lib/channelStore';
@@ -23,7 +24,7 @@
   } from '$lib/modelAttachmentPolicy';
 
   let {
-    src, fileName = '3D model', height = 320, fullBleed = false, lazyLoad = true, hideUi = $bindable(false)
+    src, fileName = $_('messages.media.model_fallback_name'), height = 320, fullBleed = false, lazyLoad = true, hideUi = $bindable(false)
   }: {
     src: string; fileName?: string; height?: number; fullBleed?: boolean; lazyLoad?: boolean; hideUi?: boolean;
   } = $props();
@@ -92,7 +93,7 @@
           if (!gone) ThreeViewer = module.default as Component<any>;
         }
       } catch {
-        if (!gone) launchError = 'The in-page viewer could not be loaded. Close and reopen this preview to retry.';
+        if (!gone) launchError = $_('model_launcher.viewer_load_failed');
       } finally {
         if (!gone) resolvingThree = false;
       }
@@ -108,9 +109,9 @@
     nativeError = '';
     try {
       const opened = await openNativeModelViewer(src, fileName);
-      if (key === selectionKey && !opened) nativeError = 'The desktop viewer could not open this file. Check that this desktop build supports the format.';
+      if (key === selectionKey && !opened) nativeError = $_('model_launcher.native_open_failed');
     } catch {
-      if (key === selectionKey) nativeError = 'The desktop viewer did not open. The original file is unchanged.';
+      if (key === selectionKey) nativeError = $_('model_launcher.native_did_not_open');
     } finally {
       if (key === selectionKey) launching = false;
     }
@@ -119,7 +120,7 @@
   function openWorkspace(): void {
     if (!safeSrc) return;
     try { openModelAssetAt(asset, { kind: 'workspace' }); }
-    catch (error) { launchError = error instanceof Error ? error.message : 'The workspace could not be opened.'; }
+    catch (error) { launchError = error instanceof Error ? error.message : $_('model_launcher.workspace_failed'); }
   }
 
   function handleContextMenu(event: MouseEvent): void {
@@ -138,19 +139,19 @@
       <span class="model-file-name" title={fileName}><b>{ext.toUpperCase() || 'MODEL'}</b>{fileName}</span>
       <span class="model-file-actions">
         <button class="model-workspace-open" type="button" onclick={openWorkspace}>{modelWorkspaceLabel(fileName)}</button>
-        <button class="model-workspace-open" type="button" aria-pressed={!previewHidden} onclick={() => setPreviewHidden(!previewHidden)}>{previewHidden ? 'Show preview' : 'Hide preview'}</button>
+        <button class="model-workspace-open" type="button" aria-pressed={!previewHidden} onclick={() => setPreviewHidden(!previewHidden)}>{previewHidden ? $_('model_launcher.show_preview') : $_('messages.zip_preview.preview.hide')}</button>
         <ModelOpenMenu bind:this={openMenu} {asset} showSourceLink />
       </span>
     </div>
   {/if}
 
   {#if !safeSrc}
-    <div class="model-support-card" role="alert"><strong>Preview unavailable</strong><p>This attachment does not have a safe model source.</p></div>
+    <div class="model-support-card" role="alert"><strong>{$_('model_viewer.preview_unavailable')}</strong><p>{$_('model_launcher.no_safe_source')}</p></div>
   {:else if previewHidden && !fullBleed}
     <!-- preview closed: the toolbar above is the whole attachment -->
   {:else if supportMessage}
     <div class="model-support-card">
-      <span class="model-support-label">{family === 'cad' ? 'CAD IMPORTER REQUIRED' : family === 'mmd' ? 'MMD ADD-ON REQUIRED' : 'MODEL SUPPORT REQUIRED'}</span>
+      <span class="model-support-label">{family === 'cad' ? $_('model_launcher.cad_importer') : family === 'mmd' ? $_('model_launcher.mmd_addon') : $_('model_launcher.model_support')}</span>
       <strong title={fileName}>{fileName}</strong>
       <p>{supportMessage}</p>
     </div>
@@ -161,8 +162,8 @@
       <CadDocument2DViewer {src} {fileName} {height} compact={!fullBleed} channelId={reviewChannelId} />
     {:else}
       <button class="cad-preview-activation" type="button" onclick={() => (cadPreviewActive = true)}>
-        <span>Activate CAD document preview</span>
-        <small>{fileName} · Wabi separates Model Space and Paper Space layouts when present</small>
+        <span>{$_('model_launcher.activate_cad')}</span>
+        <small>{$_('model_launcher.cad_layouts', { values: { name: fileName } })}</small>
       </button>
     {/if}
   {:else if previewKind === 'cad-3d'}
@@ -174,8 +175,8 @@
   {:else}
     {#if desktop}
       <div class="model-native-card">
-        <div class="model-native-copy"><span class="model-native-label">Desktop 3D viewer</span><strong title={fileName}>{fileName}</strong><p>Opens in the native viewer. Available inspection tools depend on your desktop build.</p></div>
-        <button class="model-native-open" type="button" onclick={launchNative} disabled={launching}>{launching ? 'Opening…' : 'Open native viewer'}</button>
+        <div class="model-native-copy"><span class="model-native-label">{$_('model_launcher.desktop_viewer')}</span><strong title={fileName}>{fileName}</strong><p>{$_('model_launcher.desktop_viewer_desc')}</p></div>
+        <button class="model-native-open" type="button" onclick={launchNative} disabled={launching}>{launching ? $_('lore_viewer.opening') : $_('model_launcher.open_native')}</button>
         {#if nativeError}<p class="model-launch-error" role="alert">{nativeError}</p>{/if}
       </div>
     {/if}
@@ -185,7 +186,7 @@
         <ThreeViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi onRetry={() => { previewAttempt += 1; }} />
       {/key}
     {:else if !desktop && resolvingThree}
-      <div class="model-launch-status" role="status">Opening model viewer…</div>
+      <div class="model-launch-status" role="status">{$_('model_launcher.opening_viewer')}</div>
     {:else if !desktop && launchError}
       <div class="model-launch-status model-launch-error" role="alert">{launchError}</div>
     {/if}

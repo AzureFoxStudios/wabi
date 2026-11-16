@@ -108,19 +108,19 @@
 	function resolveCollectionOptions(): CollectionOption[] {
 		if (pickerMode === 'sticker') {
 			return [
-				{ id: 'built-in', label: 'Starter pack', count: builtInStickerCount, tone: 'primary' },
-				{ id: 'recent', label: 'Recent', count: recentIds.filter((id) => stickerCatalog.some((emoji) => emoji.id === id)).length },
-				{ id: 'favorites', label: 'Favorites', count: favoriteIds.filter((id) => stickerCatalog.some((emoji) => emoji.id === id)).length },
-				{ id: 'community', label: 'Community', count: customStickerCount },
-				{ id: 'all', label: 'All stickers', count: stickerCatalog.length, tone: 'quiet' }
+				{ id: 'built-in', label: $_('emoji_ui.starter_pack'), count: builtInStickerCount, tone: 'primary' },
+				{ id: 'recent', label: $_('shortcuts.recent'), count: recentIds.filter((id) => stickerCatalog.some((emoji) => emoji.id === id)).length },
+				{ id: 'favorites', label: $_('emoji_ui.favorites'), count: favoriteIds.filter((id) => stickerCatalog.some((emoji) => emoji.id === id)).length },
+				{ id: 'community', label: $_('folio.groups.community'), count: customStickerCount },
+				{ id: 'all', label: $_('emoji_ui.all_stickers'), count: stickerCatalog.length, tone: 'quiet' }
 			];
 		}
 		return [
-			{ id: 'essentials', label: 'Essentials', count: essentialCount, tone: 'primary' },
-			{ id: 'recent', label: 'Recent', count: recentIds.filter((id) => emojiCatalog.some((emoji) => emoji.id === id)).length },
-			{ id: 'favorites', label: 'Favorites', count: favoriteIds.filter((id) => emojiCatalog.some((emoji) => emoji.id === id)).length },
-			{ id: 'community', label: 'Community', count: customEmojiCount },
-			{ id: 'library', label: 'Full library', count: emojiCatalog.filter((emoji) => !emoji.isCustom && emoji.source !== 'custom').length, tone: 'quiet' }
+			{ id: 'essentials', label: $_('emoji_ui.essentials'), count: essentialCount, tone: 'primary' },
+			{ id: 'recent', label: $_('shortcuts.recent'), count: recentIds.filter((id) => emojiCatalog.some((emoji) => emoji.id === id)).length },
+			{ id: 'favorites', label: $_('emoji_ui.favorites'), count: favoriteIds.filter((id) => emojiCatalog.some((emoji) => emoji.id === id)).length },
+			{ id: 'community', label: $_('folio.groups.community'), count: customEmojiCount },
+			{ id: 'library', label: $_('emoji_ui.full_library'), count: emojiCatalog.filter((emoji) => !emoji.isCustom && emoji.source !== 'custom').length, tone: 'quiet' }
 		];
 	}
 
@@ -175,24 +175,27 @@
 	}
 
 	function resolveResultLabel(): string {
-		if (searchQuery.trim()) return `${filteredEmojis.length.toLocaleString()} search ${filteredEmojis.length === 1 ? 'result' : 'results'} across all ${activeMode === 'sticker' ? 'stickers' : 'emoji'}`;
-		if (activeCollection === 'essentials') return `${filteredEmojis.length} everyday reactions — the full catalog stays out of your way`;
-		if (activeCollection === 'library') return `${filteredEmojis.length.toLocaleString()} bundled emoji — search is the fastest way to reach the obscure stuff`;
-		if (activeCollection === 'built-in') return `${filteredEmojis.length} built-in stickers organized as a starter reaction pack`;
-		if (activeCollection === 'community') return `${filteredEmojis.length} from this community${selectedGroup !== 'all' ? ` · ${selectedGroup}` : ''}`;
-		if (activeCollection === 'recent') return 'Stored only on this device';
-		if (activeCollection === 'favorites') return 'Your pinned reactions · stored only on this device';
-		return `${filteredEmojis.length} stickers available`;
+		if (searchQuery.trim()) {
+				const kind = activeMode === 'sticker' ? $_('emoji_tab.kind_stickers') : $_('message_content.emoji_alt');
+				return filteredEmojis.length === 1 ? $_('emoji_ui.one_result', { values: { kind } }) : $_('emoji_ui.many_results', { values: { count: filteredEmojis.length.toLocaleString(), kind } });
+			}
+		if (activeCollection === 'essentials') return $_('emoji_ui.essentials_result', { values: { count: filteredEmojis.length } });
+		if (activeCollection === 'library') return $_('emoji_ui.library_result', { values: { count: filteredEmojis.length.toLocaleString() } });
+		if (activeCollection === 'built-in') return $_('emoji_ui.builtin_result', { values: { count: filteredEmojis.length } });
+		if (activeCollection === 'community') return `${$_('emoji_ui.community_result', { values: { count: filteredEmojis.length } })}${selectedGroup !== 'all' ? ` · ${selectedGroup}` : ''}`;
+		if (activeCollection === 'recent') return $_('emoji_ui.stored_here');
+		if (activeCollection === 'favorites') return $_('emoji_ui.pinned_stored');
+		return $_('emoji_ui.stickers_available', { values: { count: filteredEmojis.length } });
 	}
 
 	function resolveEmptyCopy(): { title: string; hint: string } {
 		if (searchQuery.trim()) {
-			return { title: 'Nothing matched that search', hint: 'Try a feeling, object, shortcode, artist, or a simpler word.' };
+			return { title: $_('emoji_ui.no_match'), hint: $_('emoji_ui.no_match_hint') };
 		}
-		if (activeCollection === 'recent') return { title: 'No recent reactions yet', hint: 'Things you use will appear here automatically.' };
-		if (activeCollection === 'favorites') return { title: 'No favorites yet', hint: 'Use the star on any emoji or sticker to pin it here.' };
-		if (activeCollection === 'community') return { title: `No community ${activeMode === 'sticker' ? 'stickers' : 'emoji'} here yet`, hint: 'Admins can upload packs and organize them into folders from Emoji & Sticker settings.' };
-		return { title: `No ${activeMode === 'sticker' ? 'stickers' : 'emoji'} found`, hint: 'Try another section or search the full library.' };
+		if (activeCollection === 'recent') return { title: $_('emoji_ui.no_recent'), hint: $_('emoji_ui.no_recent_hint') };
+		if (activeCollection === 'favorites') return { title: $_('emoji_ui.no_favorites'), hint: $_('emoji_ui.no_favorites_hint') };
+		if (activeCollection === 'community') return { title: $_('emoji_ui.no_community', { values: { kind: activeMode === 'sticker' ? $_('emoji_tab.kind_stickers') : $_('message_content.emoji_alt') } }), hint: $_('emoji_ui.no_community_hint') };
+		return { title: $_('emoji_ui.no_found', { values: { kind: activeMode === 'sticker' ? $_('emoji_tab.kind_stickers') : $_('message_content.emoji_alt') } }), hint: $_('emoji_ui.no_found_hint') };
 	}
 
 	function formatGroupLabel(group: EmojiLibraryGroupOption): string {
@@ -200,16 +203,16 @@
 	}
 </script>
 
-<div class="emoji-picker" role="dialog" aria-label="Emoji, sticker and GIF picker">
+<div class="emoji-picker" role="dialog" aria-label={$_('emoji_ui.label')}>
 	<div class="picker-titlebar">
 		<div class="picker-title">
-			<strong>Reactions</strong>
-			<span>Fast first, huge library when you need it.</span>
+			<strong>{$_('emoji_ui.reactions')}</strong>
+			<span>{$_('emoji_ui.tagline')}</span>
 		</div>
 		<button type="button" on:click={() => dispatch('close')} class="close-btn" aria-label={$_('common.close')} title={$_('common.close')}>×</button>
 	</div>
 
-	<div class="mode-tabs" role="tablist" aria-label="Reaction type">
+	<div class="mode-tabs" role="tablist" aria-label={$_('emoji_ui.reaction_type')}>
 		<button type="button" role="tab" aria-selected={pickerMode === 'emoji'} class="mode-tab" class:active={pickerMode === 'emoji'} on:click={() => setMode('emoji')}>{$_('emoji_picker.tabs.emojis')}</button>
 		<button type="button" role="tab" aria-selected={pickerMode === 'sticker'} class="mode-tab" class:active={pickerMode === 'sticker'} on:click={() => setMode('sticker')}>{$_('emoji_picker.tabs.stickers')}</button>
 		<button type="button" role="tab" aria-selected={pickerMode === 'gif'} class="mode-tab" class:active={pickerMode === 'gif'} on:click={() => setMode('gif')}>{$_('emoji_picker.tabs.gifs')}</button>
@@ -225,18 +228,18 @@
 				<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg>
 				<input
 					type="search"
-					placeholder={pickerMode === 'sticker' ? 'Search every sticker…' : 'Search every emoji…'}
+					placeholder={pickerMode === 'sticker' ? $_('emoji_ui.search_stickers_placeholder') : $_('emoji_ui.search_emoji_placeholder')}
 					bind:value={searchQuery}
 					on:input={() => emojiGridRef?.resetPagination()}
-					aria-label={pickerMode === 'sticker' ? 'Search stickers' : 'Search emoji'}
+					aria-label={pickerMode === 'sticker' ? $_('emoji_ui.search_stickers') : $_('reaction_emoji.search_label')}
 				/>
 				{#if searchQuery}
-					<button type="button" class="clear-search" on:click={clearSearch} aria-label="Clear search">×</button>
+					<button type="button" class="clear-search" on:click={clearSearch} aria-label={$_('wiki.clear_search')}>×</button>
 				{/if}
 			</div>
 		</div>
 
-		<div class="collection-tabs" aria-label="Emoji collections">
+		<div class="collection-tabs" aria-label={$_('emoji_ui.collections')}>
 			{#each collectionOptions as option (option.id)}
 				<button
 					type="button"
@@ -254,12 +257,12 @@
 
 		<div class="library-meta">
 			<span>{resultLabel}</span>
-			{#if searchQuery.trim()}<span class="search-scope">Global search</span>{/if}
+			{#if searchQuery.trim()}<span class="search-scope">{$_('emoji_ui.global_search')}</span>{/if}
 		</div>
 
 		{#if groupOptions.length > 0}
-			<div class="group-tabs" aria-label="Folders and groups">
-				<button type="button" class="group-tab" class:active={selectedGroup === 'all'} on:click={() => setGroup('all')}>All</button>
+			<div class="group-tabs" aria-label={$_('emoji_ui.groups')}>
+				<button type="button" class="group-tab" class:active={selectedGroup === 'all'} on:click={() => setGroup('all')}>{$_('emoji_picker.filters.all')}</button>
 				{#each groupOptions as group (group.id)}
 					<button type="button" class="group-tab" class:active={selectedGroup === group.id} on:click={() => setGroup(group.id)}>{formatGroupLabel(group)}</button>
 				{/each}

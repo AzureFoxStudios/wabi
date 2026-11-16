@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { emojis } from '$lib/socket';
 	import { brandName } from '$lib/branding';
 	import type { Emoji } from '$lib/socket';
@@ -112,19 +113,19 @@
 		const emojiId = quickReactionCustomEmojiIdDraft.trim();
 		if (!emojiId) return;
 		if (!$emojis.some((emoji) => emoji.id === emojiId)) {
-			quickReactionSettingsStatus = 'That emoji is no longer available.';
+			quickReactionSettingsStatus = $_('media_addon.no_longer_available');
 			return;
 		}
 		const alreadyAdded = $quickReactionSettingsStore.customEmojiIds.includes(emojiId);
 		const added = addQuickReactionCustomEmojiId(emojiId);
 		if (added) {
-			quickReactionSettingsStatus = 'Added to your quick reactions.';
+			quickReactionSettingsStatus = $_('media_addon.added_reactions');
 			quickReactionCustomEmojiIdDraft = '';
 			return;
 		}
 		quickReactionSettingsStatus = alreadyAdded
-			? 'That emoji is already one of your quick reactions.'
-			: `You can choose up to ${MAX_CUSTOM_QUICK_REACTION_EMOJIS} quick reactions.`;
+			? $_('media_addon.already_reaction')
+			: $_('media_addon.reactions_limit', { values: { max: MAX_CUSTOM_QUICK_REACTION_EMOJIS } });
 	}
 
 	function removeCustomQuickReactionEmoji(emojiId: string): void {
@@ -135,9 +136,9 @@
 	async function clearCustomQuickReactionEmojis(): Promise<void> {
 		if ($quickReactionSettingsStore.customEmojiIds.length === 0) return;
 		const confirmed = await confirmAction({
-			title: 'Clear your quick reactions?',
-			body: `${brandName} goes back to its suggested reactions.`,
-			confirm: 'Clear reactions',
+			title: $_('media_addon.clear_title'),
+			body: $_('media_addon.clear_body', { values: { brand: brandName } }),
+			confirm: $_('media_addon.clear_confirm'),
 			danger: true
 		});
 		if (!confirmed) return;
@@ -149,15 +150,15 @@
 {#if localAddonControlMatches('image_utilities')}
 	<AddonRow
 		id="image_utilities"
-		label="Reverse image search"
-		description="Find where an image came from, from the image viewer's menu."
+		label={$_('messages.viewer.reverse_search')}
+		description={$_('media_addon.reverse_desc')}
 		enabled={true}
 		locked={true}
 		badge={SECTION}
 	>
 		{#snippet preferences()}
 			<div class="addon-field">
-				<span class="w-label">Reverse image search provider</span>
+				<span class="w-label">{$_('media_addon.reverse_provider')}</span>
 				<Select ariaLabel="Reverse image search provider" options={[{ value: 'google_lens', label: 'Google Lens' }, { value: 'bing', label: 'Bing Visual Search' }, { value: 'tineye', label: 'TinEye' }, { value: 'yandex', label: 'Yandex Images' }]} value={reverseImageSearchProvider} onchange={(value) => updateReverseSearchProvider(value as ReverseImageSearchProvider)} />
 			</div>
 		{/snippet}
@@ -167,8 +168,8 @@
 {#if localAddonControlMatches('emoji_statistics')}
 	<AddonRow
 		id="emoji_statistics"
-		label="Emoji statistics"
-		description="Shows how many custom emoji this server has, by category."
+		label={$_('media_addon.emoji_stats_label')}
+		description={$_('media_addon.emoji_stats_desc')}
 		enabled={emojiStatisticsEnabled}
 		badge={SECTION}
 		onToggle={toggleEmojiStatisticsAddon}
@@ -176,15 +177,15 @@
 		{#snippet preferences()}
 			{#if emojiStatisticsEnabled}
 				<div class="addon-note">
-					{$emojis.length} emoji: {$emojis.filter((emoji) => emoji.isCustom).length} from this server,
-					{$emojis.filter((emoji) => !emoji.isCustom).length} built in.
+					{$_('media_addon.emoji_custom_summary', { values: { total: $emojis.length, custom: $emojis.filter((emoji) => emoji.isCustom).length } })}
+					{$_('media_addon.emoji_builtin_summary', { values: { count: $emojis.filter((emoji) => !emoji.isCustom).length } })}
 				</div>
 				{#if emojiStatsCategories.length > 0}
 					<div class="addon-note">
-						Largest categories: {emojiStatsCategories.map((entry) => `${entry.category} (${entry.count})`).join(', ')}.
+						{$_('media_addon.largest_categories')} {emojiStatsCategories.map((entry) => `${entry.category} (${entry.count})`).join(', ')}.
 					</div>
 				{:else}
-					<div class="addon-note">The emoji list hasn't loaded yet.</div>
+					<div class="addon-note">{$_('media_addon.emoji_not_loaded')}</div>
 				{/if}
 			{/if}
 		{/snippet}
@@ -194,8 +195,8 @@
 {#if localAddonControlMatches('spotify_controls')}
 	<AddonRow
 		id="spotify_controls"
-		label="Spotify controls"
-		description="Spotify links in chat get small play controls."
+		label={$_('media_addon.spotify_label')}
+		description={$_('media_addon.spotify_desc')}
 		enabled={spotifyControlsEnabled}
 		badge={SECTION}
 		onToggle={toggleSpotifyControlsAddon}
@@ -205,23 +206,23 @@
 {#if localAddonControlMatches('gif_captioner')}
 	<AddonRow
 		id="gif_captioner"
-		label="GIF captions"
-		description="Add a caption to the GIFs you send."
+		label={$_('media_addon.gif_label')}
+		description={$_('media_addon.gif_desc')}
 		enabled={gifCaptionerEnabled}
 		badge={SECTION}
 		onToggle={toggleGifCaptionerAddon}
 	>
 		{#snippet preferences()}
 <div class="addon-option">
-				<span class="addon-option__label" id="addon-opt-gif-field">A separate caption field</span>
+				<span class="addon-option__label" id="addon-opt-gif-field">{$_('media_addon.gif_separate_field')}</span>
 				<Switch labelledby="addon-opt-gif-field" checked={gifCaptionerDedicatedFieldEnabled} disabled={!gifCaptionerEnabled} onchange={toggleGifCaptionerDedicatedField} />
 			</div>
 			<div class="addon-field">
-				<span class="w-label">Caption style</span>
-				<Select ariaLabel="Caption style" options={[{ value: 'plain', label: 'Plain' }, { value: 'accent', label: 'Accent line' }, { value: 'card', label: 'Caption card' }]} value={gifCaptionerCaptionStyle} onchange={(value) => updateGifCaptionerStyle(value)} disabled={!gifCaptionerEnabled} />
+				<span class="w-label">{$_('media_addon.gif_style')}</span>
+				<Select ariaLabel="Caption style" options={[{ value: 'plain', label: $_('media_addon.style_plain') }, { value: 'accent', label: $_('media_addon.style_accent') }, { value: 'card', label: $_('media_addon.style_card') }]} value={gifCaptionerCaptionStyle} onchange={(value) => updateGifCaptionerStyle(value)} disabled={!gifCaptionerEnabled} />
 			</div>
 			<div class="addon-note">
-				Captions can be up to {GIF_CAPTIONER_MAX_CAPTION_LENGTH} characters.
+				{$_('media_addon.gif_max', { values: { max: GIF_CAPTIONER_MAX_CAPTION_LENGTH } })}
 			</div>
 		{/snippet}
 	</AddonRow>
@@ -230,18 +231,18 @@
 {#if localAddonControlMatches('zip_preview')}
 	<AddonRow
 		id="zip_preview"
-		label="ZIP previews"
-		description="Look inside ZIP files in chat, with previews of text and images."
+		label={$_('media_addon.zip_label')}
+		description={$_('media_addon.zip_desc')}
 		enabled={zipPreviewEnabled}
 		badge={SECTION}
 		onToggle={toggleZipPreviewAddon}
 	>
 		{#snippet preferences()}
 <div class="addon-option">
-				<span class="addon-option__label" id="addon-opt-zip-inline">Preview files inside the message</span>
+				<span class="addon-option__label" id="addon-opt-zip-inline">{$_('media_addon.zip_inline')}</span>
 				<Switch labelledby="addon-opt-zip-inline" checked={zipPreviewInlineEnabled} disabled={!zipPreviewEnabled} onchange={toggleZipPreviewInlineAddon} />
 			</div>
-			<div class="addon-note">The preview remembers how you last sorted its files.</div>
+			<div class="addon-note">{$_('media_addon.zip_remembers')}</div>
 		{/snippet}
 	</AddonRow>
 {/if}
@@ -249,29 +250,29 @@
 {#if localAddonControlMatches('more_quick_reacts')}
 	<AddonRow
 		id="more_quick_reacts"
-		label="More quick reactions"
-		description="One-click reactions over each message, including your own favorites."
+		label={$_('media_addon.more_reacts_label')}
+		description={$_('media_addon.more_reacts_desc')}
 		enabled={quickReactionsEnabled}
 		badge={SECTION}
 		onToggle={toggleMoreQuickReactsAddon}
 	>
 		{#snippet preferences()}
 			<div class="addon-note">
-				Your quick reactions: {$quickReactionSettingsStore.customEmojiIds.length} / {MAX_CUSTOM_QUICK_REACTION_EMOJIS}
+				{$_('media_addon.your_reactions', { values: { count: $quickReactionSettingsStore.customEmojiIds.length, max: MAX_CUSTOM_QUICK_REACTION_EMOJIS } })}
 			</div>
 			<div class="addon-actions">
 				<div class="quick-reaction-picker-field">
 					<ReactionEmojiSelect value={quickReactionCustomEmojiIdDraft} onchange={(id) => quickReactionCustomEmojiIdDraft = id} />
 				</div>
 				<button class="w-btn w-btn--sm" on:click={addCustomQuickReactionEmoji} disabled={!quickReactionCustomEmojiIdDraft.trim()}>
-					Add emoji
+					{$_('chat.compose.add_emoji')}
 				</button>
 				<button class="w-btn w-btn--sm" on:click={clearCustomQuickReactionEmojis} disabled={$quickReactionSettingsStore.customEmojiIds.length === 0}>
-					Clear mine
+					{$_('media_addon.clear_mine')}
 				</button>
 			</div>
 			{#if quickReactionCustomEmojiEntries.length === 0}
-				<div class="addon-note">No reactions chosen yet, so {brandName} suggests some.</div>
+				<div class="addon-note">{$_('media_addon.no_reactions', { values: { brand: brandName } })}</div>
 			{:else}
 				<div class="addon-list">
 					{#each quickReactionCustomEmojiEntries as emoji (emoji.id)}
@@ -285,7 +286,7 @@
 							/>
 							<div class="addon-item__name">{emoji.displayName || emoji.name}</div>
 							<button class="w-btn w-btn--sm w-btn--danger" on:click={() => removeCustomQuickReactionEmoji(emoji.id)}>
-								Remove
+								{$_('profile_settings.remove')}
 							</button>
 						</div>
 					{/each}

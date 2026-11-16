@@ -103,7 +103,7 @@
 					// succeeded, so it masqueraded as "login broken" (Tim
 					// 2026-09-02). Surface it and allow a retry.
 					console.error('[App] App bundle failed to load:', err);
-					showToast('App bundle failed to load — see console for details.', 'error');
+					showToast($_('app_page.bundle_failed'), 'error');
 					layoutRouterPromise = null;
 				});
 		}
@@ -249,7 +249,7 @@
 			// forces the registration wizard over any stale localStorage.
 			const enterSetupWizard = () => {
 				const bootStatus = document.getElementById('wabi-boot-status');
-				if (bootStatus) bootStatus.textContent = 'Setting up Wabi';
+				if (bootStatus) bootStatus.textContent = $_('app_page.setting_up');
 				localStorage.removeItem('wabi_has_logged_in');
 				disconnect();
 				loggedIn = false;
@@ -446,8 +446,8 @@
 				profileImportPromptSourceKey = preview.source.key;
 				profileImportPromptTargetKey = preview.targetKey;
 				profileImportPromptMessage =
-					`Import your display name and profile picture from ${preview.sourceLabel}? ` +
-					`If the display name is unavailable on this server, ${brandName} will still try the picture.`;
+					$_('app_page.import_profile_1', { values: { source: preview.sourceLabel } }) + ' ' +
+					$_('app_page.import_profile_2', { values: { brand: brandName } });
 				showProfileImportPrompt = true;
 			}
 			pendingPostLoginProfileImportCheck = false;
@@ -545,11 +545,11 @@
 		markLocalWabiImportPromptHandled(targetKey);
 		const result = await applyLocalWabiProfileImport(sourceKey);
 		if (!result.success) {
-			showToast(result.errors.join(' ') || 'Profile import did not complete.', 'error');
+			showToast(result.errors.join(' ') || $_('app_page.import_failed'), 'error');
 			return;
 		}
-		const importedSummary = result.importedFields.join(' and ');
-		showToast(`Imported ${importedSummary}.`, 'info');
+		const importedSummary = result.importedFields.join($_('app_page.join_and'));
+		showToast($_('app_page.imported', { values: { fields: importedSummary } }), 'info');
 	}
 
 	function cancelProfileImportPrompt(): void {
@@ -567,10 +567,10 @@
 		<div class="perf-toast" role="status" aria-live="polite">
 			<span class="perf-toast-icon">⚡</span>
 			<span class="perf-toast-msg">
-				<strong>Performance mode enabled</strong> — We detected a weak GPU and auto-enabled CSS animations and disabled new windows.
-				You can adjust these in <button class="perf-toast-link" on:click={() => { perfToastDismissed = true; window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: 'appearance' })); }}>Settings → Appearance</button>.
+				<strong>{$_('app_page.perf_title')}</strong> — {$_('app_page.perf_desc')}
+				{$_('app_page.perf_adjust')} <button class="perf-toast-link" on:click={() => { perfToastDismissed = true; window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: 'appearance' })); }}>{$_('app_page.perf_settings_path')}</button>.
 			</span>
-			<button class="perf-toast-close" on:click={() => { perfToastVisible = false; perfToastDismissed = true; }} aria-label="Dismiss">×</button>
+			<button class="perf-toast-close" on:click={() => { perfToastVisible = false; perfToastDismissed = true; }} aria-label={$_('common.dismiss')}>×</button>
 		</div>
 	{/if}
 	{#if !loggedIn || !LayoutRouterCmp}
@@ -594,20 +594,20 @@
 	{#if loggedIn}
 		<ConfirmDialog
 			isOpen={showTempPasswordPrompt}
-			title="Temporary Password"
-			message="An owner or admin reset this account with a temporary password. Open Account Security now and choose a new password."
-			confirmText="Change Password"
-			cancelText="Later"
+			title={$_('app_page.temp_password_title')}
+			message={$_('app_page.temp_password_message')}
+			confirmText={$_('app_page.change_password')}
+			cancelText={$_('app_page.later')}
 			variant="warning"
 			onConfirm={openAccountSecurityFromTempPasswordPrompt}
 			onCancel={() => showTempPasswordPrompt = false}
 		/>
 		<ConfirmDialog
 			isOpen={showProfileImportPrompt}
-			title="Import Profile"
+			title={$_('app_page.import_title')}
 			message={profileImportPromptMessage}
-			confirmText="Import"
-			cancelText="Later"
+			confirmText={$_('app_page.import')}
+			cancelText={$_('app_page.later')}
 			variant="info"
 			onConfirm={confirmProfileImportPrompt}
 			onCancel={cancelProfileImportPrompt}

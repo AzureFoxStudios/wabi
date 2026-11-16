@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
  import { get } from 'svelte/store';
  import { currentUser } from '$lib/presenceIdentity';
  import { getServerUrl } from '$lib/serverUrl';
@@ -17,7 +18,7 @@
  let pins = $state<MapWaypoint[]>([]);
  let placingPin = $state(false);
  let selectedPin = $state('');
- let pinName = $state('Waypoint');
+ let pinName = $state($_('map_stage.waypoint'));
  let pinHeight = $state(0);
  let pinStorageKey = '';
  function updatePins() {
@@ -29,12 +30,12 @@
   map.setLayoutProperty('wabi-waypoint-flat', 'visibility', tilted ? 'none' : 'visible');
  }
  function savePins() {
-  try { localStorage.setItem(pinStorageKey, JSON.stringify(pins)); } catch { error = 'Could not save waypoints on this device.'; }
+  try { localStorage.setItem(pinStorageKey, JSON.stringify(pins)); } catch { error = $_('map_stage.save_failed'); }
   updatePins();
  }
  function editPin() {
   if (!Number.isFinite(pinHeight)) return;
-  pins = pins.map(pin => pin.id === selectedPin ? { ...pin, name: pinName.trim().slice(0,80) || 'Waypoint', height: Math.min(500, Math.max(0,pinHeight)) } : pin);
+  pins = pins.map(pin => pin.id === selectedPin ? { ...pin, name: pinName.trim().slice(0,80) || $_('map_stage.waypoint'), height: Math.min(500, Math.max(0,pinHeight)) } : pin);
   savePins();
  }
  let buildingOpacity = $state(0.65);
@@ -93,7 +94,7 @@
   try { pins = normalizeWaypoints(JSON.parse(localStorage.getItem(pinStorageKey) || '[]')); } catch { pins = []; }
   let disposed = false;
   let resize: ResizeObserver | undefined;
-  const loadingDeadline = setTimeout(() => { if (!ready) error = 'Map loading is taking longer than expected. You can open the standard map while it reconnects.'; }, 25000);
+  const loadingDeadline = setTimeout(() => { if (!ready) error = $_('map_stage.slow_loading'); }, 25000);
   void import('maplibre-gl').then(({ Map, NavigationControl, FullscreenControl }) => {
    if (disposed) return;
    map = new Map({ container: host, style: import.meta.env.VITE_WABI_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty', center: [longitude, latitude], zoom: 15, pitch: 0, bearing: 0, maxPitch: 70, fadeDuration: 0, maxTileCacheSize: 64, attributionControl: { compact: true } });
@@ -114,34 +115,34 @@
     map.addLayer({id:'wabi-waypoint-3d',type:'fill-extrusion',source:'wabi-waypoint-volumes',paint:{'fill-extrusion-base':['get','base'],'fill-extrusion-height':['get','top'],'fill-extrusion-color':'#f59e0b','fill-extrusion-opacity':0.95}});
     map.on('click', event => {
      if (!placingPin || pins.length >= 100) return;
-     const pin = {id:crypto.randomUUID(),name:'Waypoint',latitude:event.lngLat.lat,longitude:event.lngLat.lng,height:0};
+     const pin = {id:crypto.randomUUID(),name:$_('map_stage.waypoint'),latitude:event.lngLat.lat,longitude:event.lngLat.lng,height:0};
      pins = [...pins,pin]; selectedPin = pin.id; pinName = pin.name; pinHeight = 0; placingPin = false; savePins();
     });
     updatePins(); recolor(); ready = true; error = ''; clearTimeout(loadingDeadline);
    });
-   map.on('error', () => { if (!ready) error = 'Map tiles could not load. Check your connection or open the standard map.'; });
+   map.on('error', () => { if (!ready) error = $_('map_stage.tiles_failed'); });
    resize = new ResizeObserver(() => map?.resize()); resize.observe(host);
-  }).catch(() => { error = 'This device could not start the 3D map.'; });
+  }).catch(() => { error = $_('map_stage.could_not_start'); });
   return () => { disposed = true; clearTimeout(loadingDeadline); resize?.disconnect(); map?.remove(); map = undefined; };
  });
  $effect(() => { const lat = latitude, lon = longitude; if (ready) map?.jumpTo({ center: [lon, lat] }); });
 </script>
 <div class="vector-stage">
- <div bind:this={host} class="map-host" tabindex="0" role="application" onkeydown={navigate} aria-label="Interactive street map" aria-describedby={tilted ? 'map-navigation-help' : undefined}></div>
+ <div bind:this={host} class="map-host" tabindex="0" role="application" onkeydown={navigate} aria-label={$_('map_stage.label')} aria-describedby={tilted ? 'map-navigation-help' : undefined}></div>
  <div class="map-style-controls">
-  <label>Map style <select aria-label="Map style" bind:value={palette} onchange={recolor}><option value="atlas">Atlas</option><option value="parchment">Parchment</option><option value="moonlight">Moonlight</option><option value="sakura">Sakura</option></select></label>
-  <button type="button" aria-pressed={tilted} onclick={() => setView(!tilted)}>{tilted ? 'Return to 2D' : 'Explore in 3D'}</button>
-  {#if tilted}<label class="building-control">Buildings <input aria-label="Building opacity" type="range" min="0" max="1" step="0.05" bind:value={buildingOpacity} oninput={updateBuildingOpacity} /><output>{Math.round(buildingOpacity * 100)}%</output></label>{/if}
-  <details class="waypoints"><summary>Waypoints · {pins.length}</summary><div class="waypoint-menu">
-   <p>Personal waypoints · saved on this device</p>
-   <button type="button" disabled={!ready || pins.length >= 100} aria-pressed={placingPin} onclick={() => placingPin = !placingPin}>{placingPin ? 'Cancel placement' : 'Place on map'}</button>
-   {#if placingPin}<p>Click a location on the map.</p>{/if}
+  <label>{$_('map_stage.style')} <select aria-label={$_('map_stage.style')} bind:value={palette} onchange={recolor}><option value="atlas">{$_('map_stage.style_atlas')}</option><option value="parchment">{$_('map_stage.style_parchment')}</option><option value="moonlight">{$_('map_stage.style_moonlight')}</option><option value="sakura">{$_('map_stage.style_sakura')}</option></select></label>
+  <button type="button" aria-pressed={tilted} onclick={() => setView(!tilted)}>{tilted ? $_('map_stage.return_2d') : $_('map_stage.explore_3d')}</button>
+  {#if tilted}<label class="building-control">{$_('map_stage.buildings')} <input aria-label={$_('map_stage.building_opacity')} type="range" min="0" max="1" step="0.05" bind:value={buildingOpacity} oninput={updateBuildingOpacity} /><output>{Math.round(buildingOpacity * 100)}%</output></label>{/if}
+  <details class="waypoints"><summary>{$_('map_stage.waypoints')} · {pins.length}</summary><div class="waypoint-menu">
+   <p>{$_('map_stage.personal_waypoints')}</p>
+   <button type="button" disabled={!ready || pins.length >= 100} aria-pressed={placingPin} onclick={() => placingPin = !placingPin}>{placingPin ? $_('map_stage.cancel_placement') : $_('map_stage.place_on_map')}</button>
+   {#if placingPin}<p>{$_('map_stage.click_location')}</p>{/if}
    {#each pins as pin (pin.id)}<button type="button" onclick={() => { selectedPin = pin.id; pinName = pin.name; pinHeight = pin.height; map?.easeTo({center:[pin.longitude,pin.latitude]}); }}>{pin.name} · {pin.height} m</button>{/each}
-   {#if selectedPin}<label>Name <input aria-label="Waypoint name" maxlength="80" bind:value={pinName} /></label><label>Height above ground (m) <input aria-label="Waypoint height" type="number" min="0" max="500" bind:value={pinHeight}/></label><button type="button" onclick={editPin}>Save waypoint</button><button type="button" onclick={() => {pins = pins.filter(pin => pin.id !== selectedPin); selectedPin = ''; savePins();}}>Remove waypoint</button>{/if}
+   {#if selectedPin}<label>{$_('messages.viewer.details_name')} <input aria-label={$_('map_stage.waypoint_name')} maxlength="80" bind:value={pinName} /></label><label>{$_('map_stage.height')} <input aria-label={$_('map_stage.waypoint_height')} type="number" min="0" max="500" bind:value={pinHeight}/></label><button type="button" onclick={editPin}>{$_('map_stage.save_waypoint')}</button><button type="button" onclick={() => {pins = pins.filter(pin => pin.id !== selectedPin); selectedPin = ''; savePins();}}>{$_('map_stage.remove_waypoint')}</button>{/if}
   </div></details>
  </div>
- {#if tilted}<div id="map-navigation-help" class="navigation-help">Focus the map · WASD move · Q/E turn · Shift move faster · Esc return to 2D</div>{/if}
- {#if !ready}<div class="map-status" role="status">{error || 'Loading street map…'}{#if error}<a href={`https://www.openstreetmap.org/#map=15/${latitude}/${longitude}`} target="_blank" rel="noopener noreferrer">Open standard map ↗</a>{/if}</div>{/if}
+ {#if tilted}<div id="map-navigation-help" class="navigation-help">{$_('map_stage.nav_help')}</div>{/if}
+ {#if !ready}<div class="map-status" role="status">{error || $_('map_stage.loading_street')}{#if error}<a href={`https://www.openstreetmap.org/#map=15/${latitude}/${longitude}`} target="_blank" rel="noopener noreferrer">{$_('map_stage.open_standard')} ↗</a>{/if}</div>{/if}
 </div>
 <style>
  .vector-stage { position: relative; height: 100%; min-height: 400px; flex: 1; }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { createEventDispatcher, onMount } from 'svelte';
   import { users, serverMembers, currentUser } from '$lib/socket';
   import type { User } from '$lib/socket-types';
@@ -39,13 +40,13 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="people-picker" role="dialog" aria-label="Select a person">
+<div class="people-picker" role="dialog" aria-label={$_('people_picker.label')}>
   <div class="people-picker-header">
     <input
       bind:this={inputEl}
       class="people-picker-input"
       type="text"
-      placeholder="Search people..."
+      placeholder={$_('people_picker.search')}
       bind:value={search}
       on:keydown={(e) => { if (e.key === 'Escape') dispatch('close'); }}
     />
@@ -71,7 +72,7 @@
           </div>
         </button>
       {:else}
-        <div class="people-picker-empty">No results</div>
+        <div class="people-picker-empty">{$_('people_picker.no_results')}</div>
       {/each}
     {:else}
       {#each filtered as user (getDmDirectoryKey(user))}

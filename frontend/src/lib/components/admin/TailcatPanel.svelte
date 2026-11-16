@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Tailcat private-access admin panel.
 	 * Design contract (docs/plans/2026-09-01-tailcat-private-access.md):
@@ -82,29 +83,29 @@
 	}
 
 	function doEnable() {
-		return change(enableTailcat, 'Private access is enabled. An allowed device key and a running transport are required to connect.');
+		return change(enableTailcat, $_('tailcat.enabled_msg'));
 	}
 
 	function doDisable() {
-		return change(disableTailcat, 'Private access closed. All pipes are down.');
+		return change(disableTailcat, $_('tailcat.disabled_msg'));
 	}
 
 	function doRevoke(keyId: string) {
-		return change(token => revokeTailcatKey(token, keyId), 'Device key forgotten. Its owner can register it again.');
+		return change(token => revokeTailcatKey(token, keyId), $_('tailcat.revoked_msg'));
 	}
 
 	function savePort() {
 		return change(
 			token => setTailcatPort(token, port),
-			'Private-access port saved. Existing tunnel connections need to reconnect; the Wabi server keeps running.',
-			'. If this page uses private access, the port change may have disconnected it. Reconnect using the new port before checking status.'
+			$_('tailcat.port_saved_msg'),
+			$_('tailcat.port_saved_hint')
 		);
 	}
 
 	function setAccess(id: string, allowed: boolean) {
 		return change(
 			token => setTailcatKeyAccess(token, id, allowed),
-			allowed ? 'Device allowed to reach Wabi.' : 'Device blocked from private access. Other allowed devices may need to reconnect.'
+			allowed ? $_('tailcat.device_allowed') : $_('tailcat.device_blocked')
 		);
 	}
 
@@ -122,15 +123,15 @@
 </script>
 
 <div class="tailcat-panel">
-	<h3>Private access (Tailcat)</h3>
+	<h3>{$_('tailcat.title')}</h3>
 	<p class="muted">
-		Let family and friends reach this server through an encrypted tunnel — no port forwarding, no
-		domain, nothing public. Members still sign in with their Wabi account; the tunnel is a door,
-		not a key.
+		{$_('tailcat.intro')}
+		
+		
 	</p>
 
 	{#if loading && !status}
-		<p class="muted">Loading…</p>
+		<p class="muted">{$_('common.loading')}</p>
 	{/if}
 	{#if error}
 		<p class="error">{error}</p>
@@ -144,19 +145,19 @@
 			<span class={`dot ${status.running ? 'on' : status.enabled ? 'warn' : 'off'}`}></span>
 			<span>
 				{#if status.running}
-					Process running — remote reachability has not been verified.
+					{$_('tailcat.running')}
 				{:else if status.enabled}
-					Enabled but not running{status.lastError ? ` — ${status.lastError}` : ''}.
+					{$_('tailcat.enabled_not_running')}{status.lastError ? $_('tailcat.last_error', { values: { error: status.lastError } }) : ''}.
 				{:else}
-					Off.
+					{$_('audio_settings.off')}.
 				{/if}
 			</span>
 			{#if status.binaryVersion}
 				<span class="muted">tailcat {status.binaryVersion}</span>
 			{:else}
 				<span class="muted">
-					tailcat binary not found at “{status.binaryPath}” (install it or set
-					WABI_TAILCAT_BINARY)
+					{$_('tailcat.binary_missing', { values: { path: status.binaryPath } })}
+					
 				</span>
 			{/if}
 		</div>
@@ -165,46 +166,46 @@
 			<div class="actions">
 				{#if !status.enabled}
 					<button class="primary" disabled={busy} onclick={() => (confirmOpen = true)}>
-						Turn on private access…
+						{$_('tailcat.turn_on')}
 					</button>
 				{:else}
 					<button class="danger" disabled={busy} onclick={doDisable}>
-						Turn off now (kill-switch)
+						{$_('tailcat.turn_off')}
 					</button>
 				{/if}
-				<button disabled={busy || loading} onclick={refresh}>Refresh</button>
+				<button disabled={busy || loading} onclick={refresh}>{$_('yt.refresh')}</button>
 			</div>
 		{/if}
 
 
-        <section class="service-access" aria-label="Private service access">
-            <h4>Wabi service access</h4>
-            <p class="muted">Private pipe <code>{status.pipePort}</code> → Wabi on <code>127.0.0.1:{status.serverPort}</code>. This connection exposes this Wabi instance; it does not grant access to other computer services. Wabi sign-in and permissions still apply.</p>
+        <section class="service-access" aria-label={$_('tailcat.service_label')}>
+            <h4>{$_('tailcat.service_title')}</h4>
+            <p class="muted">{$_('tailcat.pipe_label')} <code>{status.pipePort}</code> → {$_('tailcat.wabi_on')} <code>127.0.0.1:{status.serverPort}</code>. {$_('tailcat.service_desc')}</p>
             {#if canManageAdmin}
-                <label for="tailcat-pipe-port">Private-access port</label>
+                <label for="tailcat-pipe-port">{$_('tailcat.port_label')}</label>
                 <input id="tailcat-pipe-port" type="number" min="1024" max="65535" bind:value={port} disabled={busy} />
-                <button disabled={busy || port === status.pipePort || port < 1024 || port > 65535 || port === status.serverPort} onclick={savePort}>Save port and reconnect private access</button>
-                <p class="muted">Choose an unused local port. Changing it closes current private-access connections; clients must obtain the updated port. Other services’ port rules are not managed here.</p>
+                <button disabled={busy || port === status.pipePort || port < 1024 || port > 65535 || port === status.serverPort} onclick={savePort}>{$_('tailcat.save_port')}</button>
+                <p class="muted">{$_('tailcat.port_desc')}</p>
             {/if}
         </section>
 		{#if status.enabled && status.address}
 			<div class="address-box">
-				<div class="muted">Connection code (share with members who have a registered key)</div>
+				<div class="muted">{$_('tailcat.code_label')}</div>
 				<code>{status.address}</code>
 			</div>
 		{/if}
 
 		{#if status.keys.length > 0}
-			<h4>Member keys ({status.keys.length})</h4>
-			<p class="muted">Block keeps the device denied even if it registers again. Forget removes the record; members can register a forgotten key again.</p>
+			<h4>{$_('tailcat.member_keys', { values: { count: status.keys.length } })}</h4>
+			<p class="muted">{$_('tailcat.keys_desc')}</p>
 			<table>
 				<thead>
 					<tr>
-						<th>Member</th>
-						<th>Key</th>
-						<th>Label</th>
-						<th>Added</th>
-						<th>Wabi access</th>
+						<th>{$_('upop.role_member')}</th>
+						<th>{$_('tailcat.th_key')}</th>
+						<th>{$_('map.label')}</th>
+						<th>{$_('tailcat.th_added')}</th>
+						<th>{$_('tailcat.th_access')}</th>
 						{#if canManageAdmin}<th></th>{/if}
 					</tr>
 				</thead>
@@ -215,11 +216,11 @@
 							<td><code title={key.publicKey}>{shortKey(key.publicKey)}</code></td>
 							<td>{key.label ?? '—'}</td>
 							<td>{new Date(key.createdAt).toLocaleString()}</td>
-							<td>{key.allowed === false ? 'Blocked' : 'Allowed'}</td>
+							<td>{key.allowed === false ? $_('tailcat.blocked') : $_('tailcat.allowed')}</td>
 							{#if canManageAdmin}
 								<td>
-									<button disabled={busy} onclick={() => setAccess(key.id, key.allowed === false)}>{key.allowed === false ? 'Allow' : 'Block'}</button>
-									<button disabled={busy} onclick={() => doRevoke(key.id)}>Forget key</button>
+									<button disabled={busy} onclick={() => setAccess(key.id, key.allowed === false)}>{key.allowed === false ? $_('tailcat.allow') : $_('tailcat.block')}</button>
+									<button disabled={busy} onclick={() => doRevoke(key.id)}>{$_('tailcat.forget_key')}</button>
 								</td>
 							{/if}
 						</tr>
@@ -228,19 +229,19 @@
 			</table>
 		{:else if status.enabled}
 			<p class="muted">
-				No member keys yet. Members add their key from the desktop app's connection settings
-				(“register this device”).
+				{$_('tailcat.no_keys')}
+				
 			</p>
 		{/if}
 
 		{#if audit.length > 0}
-			<h4>Recent changes</h4>
+			<h4>{$_('tailcat.recent_changes')}</h4>
 			<ul class="audit">
 				{#each audit as entry}
 					<li>
 						<span class="muted">{new Date(entry.ts).toLocaleString()}</span>
 						<strong>{entry.action}</strong>
-						by member {entry.actor}
+						{$_('tailcat.by_member', { values: { actor: entry.actor } })}
 					</li>
 				{/each}
 			</ul>
@@ -249,16 +250,16 @@
 
 	{#if confirmOpen}
 		<div class="modal-backdrop" role="presentation">
-			<div class="modal" role="dialog" aria-modal="true" aria-label="Turn on private access">
-				<h4>Turn on private access?</h4>
+			<div class="modal" role="dialog" aria-modal="true" aria-label={$_('tailcat.enable_label')}>
+				<h4>{$_('tailcat.enable_heading')}</h4>
 				<ul>
-					<li>Members with a Wabi account can reach this server through an encrypted tunnel.</li>
-					<li>This enables private access to Wabi. Existing public access, if configured separately, stays unchanged.</li>
-					<li>Turning it off later is instant — one click, no restart.</li>
+					<li>{$_('tailcat.enable_1')}</li>
+					<li>{$_('tailcat.enable_2')}</li>
+					<li>{$_('tailcat.enable_3')}</li>
 				</ul>
 				<div class="actions">
-					<button class="primary" disabled={busy} onclick={doEnable}>Yes, turn it on</button>
-					<button disabled={busy} onclick={() => (confirmOpen = false)}>Cancel</button>
+					<button class="primary" disabled={busy} onclick={doEnable}>{$_('tailcat.yes_enable')}</button>
+					<button disabled={busy} onclick={() => (confirmOpen = false)}>{$_('common.cancel')}</button>
 				</div>
 			</div>
 		</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import ForumBody from './ForumBody.svelte';
 	import ProfileMedia from './ProfileMedia.svelte';
 	import { mediaUrl } from '$lib/mediaUrl';
@@ -16,7 +17,7 @@
 	import Segmented from './ui/Segmented.svelte';
 	import Tooltip from './ui/Tooltip.svelte';
 
-	export let placeholder = 'Write a reply';
+	export let placeholder = $_('forum.write_reply_placeholder');
 	/** New-thread form (title, category, body) instead of the reply dock. */
 	export let showTitle = false;
 	export let categoryOptions: string[] = [];
@@ -62,14 +63,14 @@
 	let expanded = showTitle || hasContent();
 
 	$: categorySelectOptions = [
-		{ value: '', label: 'No category' },
+		{ value: '', label: $_('forum_composer.no_category') },
 		...categoryOptions.map((cat) => ({ value: cat, label: cat })),
-		{ value: NEW_CATEGORY, label: 'New category…' },
+		{ value: NEW_CATEGORY, label: $_('forum_composer.new_category') },
 	];
 	$: categoryValue = categoryChoice === NEW_CATEGORY ? newCategoryName : categoryChoice;
 	$: canSubmit = (bodyValue.trim().length > 0 || selectedFiles.length > 0) && !isSubmitting;
-	$: idleLabel = showTitle ? 'Post thread' : 'Post reply';
-	$: busyLabel = isUploading ? 'Uploading…' : 'Posting…';
+	$: idleLabel = showTitle ? $_('forum.post_thread') : $_('forum.post_reply');
+	$: busyLabel = isUploading ? $_('wb.uploading') : $_('forum_composer.posting');
 	$: me = $currentUser;
 	$: draftShown = bodyValue.trim().length > 0 || titleValue.trim().length > 0 || selectedFiles.length > 0;
 	$: onExpandedChange?.(expanded);
@@ -169,19 +170,19 @@
 		if (picked.length === 0) return;
 		const room = MAX_FORUM_IMAGES - selectedFiles.length;
 		if (room <= 0) {
-			uploadError = `Up to ${MAX_FORUM_IMAGES} images per post.`;
+			uploadError = $_('forum_composer.max_images', { values: { max: MAX_FORUM_IMAGES } });
 			return;
 		}
 		const accepted: File[] = [];
 		for (const file of picked.slice(0, room)) {
 			if (file.size > MAX_FORUM_IMAGE_BYTES) {
-				uploadError = `"${file.name}" is over 25MB and was skipped.`;
+				uploadError = $_('forum_composer.too_big', { values: { name: file.name } });
 				continue;
 			}
 			accepted.push(file);
 		}
 		if (picked.length > room) {
-			uploadError = `Up to ${MAX_FORUM_IMAGES} images per post.`;
+			uploadError = $_('forum_composer.max_images', { values: { max: MAX_FORUM_IMAGES } });
 		}
 		selectedFiles = [...selectedFiles, ...accepted];
 		previews = [...previews, ...accepted.map((f) => URL.createObjectURL(f))];
@@ -262,11 +263,11 @@
 					if (!showTitle) void collapse();
 				}
 			}
-			else uploadError = 'The post was not confirmed. Your draft is still here; check the thread before you try again.';
+			else uploadError = $_('forum_composer.not_confirmed');
 		} catch (err) {
 			// The cause goes to the console; the page says what happened and what is unchanged (§7.16).
 			console.error('[forum] posting failed', err);
-			uploadError = showTitle ? 'Could not post the thread. Your draft is still here.' : 'Could not post the reply. Your draft is still here.';
+			uploadError = showTitle ? $_('forum_composer.thread_failed') : $_('forum_composer.reply_failed');
 		} finally {
 			if (mounted) draftOwner.save(snapshot());
 			transaction.finish();
@@ -305,9 +306,9 @@
 	function askDiscard(): Promise<boolean> {
 		if (!hasContent()) return Promise.resolve(true);
 		return confirmAction({
-			title: showTitle ? 'Discard this thread?' : 'Discard this reply?',
-			body: 'What you wrote here has not been posted and is not kept anywhere else.',
-			confirm: showTitle ? 'Discard thread' : 'Discard reply',
+			title: showTitle ? $_('forum_composer.discard_thread_title') : $_('forum_composer.discard_reply_title'),
+			body: $_('forum_composer.discard_body'),
+			confirm: showTitle ? $_('forum_composer.discard_thread') : $_('forum_composer.discard_reply'),
 			danger: true,
 		});
 	}
@@ -344,7 +345,7 @@
 			<span class="forum-av forum-av--24" style={$inkFor(me?.color || me?.roleColor)} aria-hidden="true">
 				{#if me?.profilePicture}<ProfileMedia src={mediaUrl(me.profilePicture)} alt="" />{:else}{meInitial}{/if}
 			</span>
-			<span class="forum-reply-open-text">{replyTo ? `Reply to ${replyTo}…` : 'Write a reply…'}</span>
+			<span class="forum-reply-open-text">{replyTo ? $_('forum_composer.reply_to', { values: { name: replyTo } }) : $_('forum_composer.write_reply')}</span>
 		</button>
 	</div>
 {:else}
@@ -353,30 +354,30 @@
 		class:forum-reply-dock={!showTitle}
 		class:is-open={!showTitle}
 		class:forum-new-thread={showTitle}
-		aria-label={showTitle ? 'New thread' : replyTo ? `Reply to ${replyTo}` : 'Reply'}
+		aria-label={showTitle ? $_('forum.new_thread') : replyTo ? $_('forum_composer.reply_to_aria', { values: { name: replyTo } }) : $_('messages.actions.reply')}
 		on:submit|preventDefault={() => void handleSubmit()}
 	>
 		<div class="forum-composer-inner">
 			{#if showTitle}
-				<h2 class="forum-new-thread-heading">New thread</h2>
+				<h2 class="forum-new-thread-heading">{$_('forum.new_thread')}</h2>
 				<div class="forum-form-row">
-					<label class="w-label" for="{uid}-title">Title</label>
+					<label class="w-label" for="{uid}-title">{$_('reader_doc.title_label')}</label>
 					<input
 						id="{uid}-title"
 						type="text"
 						class="w-field forum-new-thread-title"
-						placeholder="A question, an idea, a place worth keeping"
+						placeholder={$_('forum_composer.title_placeholder')}
 						bind:value={titleValue}
 						disabled={isSubmitting}
 						on:keydown={nextOnEnter}
 					/>
 				</div>
 				<div class="forum-form-row">
-					<span class="w-label" id="{uid}-category">Category</span>
+					<span class="w-label" id="{uid}-category">{$_('forum.category')}</span>
 					<div class="forum-category-choice">
 						<Select
-							ariaLabel="Category"
-							heading="Category"
+							ariaLabel={$_('forum.category')}
+							heading={$_('forum.category')}
 							options={categorySelectOptions}
 							bind:value={categoryChoice}
 							disabled={isSubmitting}
@@ -385,8 +386,8 @@
 							<input
 								type="text"
 								class="w-field w-field--chrome forum-new-category"
-								placeholder="Name the new category"
-								aria-label="New category name"
+								placeholder={$_('forum_composer.new_category_placeholder')}
+								aria-label={$_('forum_composer.new_category_label')}
 								bind:value={newCategoryName}
 								disabled={isSubmitting}
 								on:keydown={nextOnEnter}
@@ -396,15 +397,15 @@
 				</div>
 			{/if}
 			<div class="forum-composer-head">
-				{#if showTitle}<span class="w-label" id="{uid}-body-label">Post</span>{/if}
-				<Segmented label={showTitle ? 'Post editor view' : 'Reply editor view'} options={[{ value: 'write', label: 'Write' }, { value: 'preview', label: 'Preview' }]} bind:value={view} />
+				{#if showTitle}<span class="w-label" id="{uid}-body-label">{$_('forum_composer.post')}</span>{/if}
+				<Segmented label={showTitle ? $_('forum_composer.post_editor') : $_('forum_composer.reply_editor')} options={[{ value: 'write', label: $_('forum.write') }, { value: 'preview', label: $_('messages.zip_preview.preview.show') }]} bind:value={view} />
 			</div>
 			{#if view === 'preview'}
-				<div class="forum-preview" role="group" aria-label="Preview">
+				<div class="forum-preview" role="group" aria-label={$_('messages.zip_preview.preview.show')}>
 					{#if bodyValue.trim()}
 						<ForumBody text={bodyValue} />
 					{:else}
-						<p class="forum-preview-empty">Nothing to preview yet.</p>
+						<p class="forum-preview-empty">{$_('wiki.nothing_to_preview')}</p>
 					{/if}
 				</div>
 			{:else}
@@ -415,7 +416,7 @@
 					bind:value={bodyValue}
 					disabled={isSubmitting}
 					{placeholder}
-					aria-label={showTitle ? 'Post' : replyTo ? `Reply to ${replyTo}` : 'Reply'}
+					aria-label={showTitle ? $_('forum_composer.post') : replyTo ? $_('forum_composer.reply_to_aria', { values: { name: replyTo } }) : $_('messages.actions.reply')}
 					aria-keyshortcuts="Control+Enter"
 					on:keydown={handleKeydown}
 					on:input={autosize}
@@ -425,11 +426,11 @@
 				<div class="forum-attach-strip">
 					{#each previews as preview, i}
 						<div class="forum-attach-thumb">
-							<img src={preview} alt={selectedFiles[i]?.name || `Image ${i + 1}`} />
+							<img src={preview} alt={selectedFiles[i]?.name || $_('forum_composer.image_alt', { values: { n: i + 1 } })} />
 							<button
 								type="button"
 								class="forum-attach-remove"
-								aria-label="Remove image {selectedFiles[i]?.name || i + 1}"
+								aria-label={$_('forum_composer.remove_image', { values: { name: selectedFiles[i]?.name || i + 1 } })}
 								on:click={() => removeImage(i)}
 								disabled={isSubmitting}
 							><Icon name="x" size={14} /></button>
@@ -442,7 +443,7 @@
 			{/if}
 			{#if isUploading}
 				<div class="forum-upload-progress" role="status">
-					<span>Uploading images… {uploadProgress}%</span>
+					<span>{$_('forum_composer.uploading_images', { values: { pct: uploadProgress } })}</span>
 					<div class="forum-upload-bar"><div class="forum-upload-fill" style="width: {uploadProgress}%"></div></div>
 				</div>
 			{/if}
@@ -457,21 +458,21 @@
 				on:change={handleFilesPicked}
 			/>
 			<div class="forum-composer-foot">
-				<Tooltip text={selectedFiles.length ? `Attach images · ${selectedFiles.length} of ${MAX_FORUM_IMAGES}` : 'Attach images'}>
+				<Tooltip text={selectedFiles.length ? $_('forum_composer.attach_count', { values: { count: selectedFiles.length, max: MAX_FORUM_IMAGES } }) : $_('forum_composer.attach')}>
 					<button
 						type="button"
 						class="w-ibtn forum-attach-btn"
-						aria-label={selectedFiles.length ? `Attach images, ${selectedFiles.length} of ${MAX_FORUM_IMAGES} added` : 'Attach images'}
+						aria-label={selectedFiles.length ? $_('forum_composer.attach_added', { values: { count: selectedFiles.length, max: MAX_FORUM_IMAGES } }) : $_('forum_composer.attach')}
 						on:click={() => fileInput?.click()}
 						disabled={isSubmitting || selectedFiles.length >= MAX_FORUM_IMAGES}
 					><Icon name="image" /></button>
 				</Tooltip>
 				{#if draftShown}
-					<span class="forum-draft-note" title="Not sent until you post. It stays while Wabi is open on this device.">Draft kept on this device</span>
+					<span class="forum-draft-note" title={$_('forum_composer.draft_note_title')}>{$_('locality.draft_kept')}</span>
 				{/if}
 				<span class="forum-composer-actions">
 					{#if !showTitle || onCancel}
-						<button type="button" class="w-btn w-btn--quiet" on:click={() => void handleCancel()} disabled={isSubmitting}>Cancel</button>
+						<button type="button" class="w-btn w-btn--quiet" on:click={() => void handleCancel()} disabled={isSubmitting}>{$_('common.cancel')}</button>
 					{/if}
 					<Tooltip text={idleLabel} shortcut="Ctrl Enter">
 						<button type="submit" class="w-btn w-btn--primary forum-post-btn" aria-busy={isSubmitting} disabled={!canSubmit} aria-keyshortcuts="Control+Enter">

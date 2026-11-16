@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Connection facts for Settings › Audio & video › Troubleshooting (§8.9, §9.4): the route your
 	 * calls use, spatial audio state and which relay services this server offers, in plain words.
@@ -37,28 +38,28 @@
 
 	const routeWord = $derived(
 		$callTransportState.checkedAt === null
-			? 'No call yet in this session'
+			? $_('conn_diag.no_call')
 			: $callTransportState.activeTransport === 'wabidb'
-			? 'Through this server'
+			? $_('calls.route_server')
 			: $callTransportState.activeTransport === 'p2p'
-				? 'Direct (peer-to-peer)'
-				: 'Through a media server'
+				? $_('calls.route_direct')
+					: $_('conn_diag.media_server_route')
 	);
 
 	/** Plain words for why spatial audio is not running; never the raw reason code. */
 	const SPATIAL_REASONS: Record<string, string> = {
-		unsupported: "this browser can't place voices",
-		weak_device: 'this device is keeping calls smooth'
+		unsupported: $_('conn_diag.reason_unsupported'),
+		weak_device: $_('conn_diag.reason_weak_device')
 	};
 
 	const spatialWord = $derived(
 		$spatialAudioRuntimeStatus.active
 			? $spatialAudioRuntimeStatus.effectiveMode === 'full_3d'
-				? 'On, full 3D'
-				: 'On, stereo'
+				? $_('conn_diag.spatial_on_3d')
+					: $_('conn_diag.spatial_on_stereo')
 			: $spatialAudioRuntimeStatus.fallbackReason
-				? `Off, ${SPATIAL_REASONS[$spatialAudioRuntimeStatus.fallbackReason] ?? 'not available right now'}`
-				: 'Off'
+				? $_('conn_diag.spatial_off_reason', { values: { reason: SPATIAL_REASONS[$spatialAudioRuntimeStatus.fallbackReason] ?? $_('conn_diag.not_available') } })
+				: $_('audio_settings.off')
 	);
 
 	/** "Relay (TURN), media server" — the services this server says it runs. */
@@ -66,27 +67,27 @@
 		const components = runtime?.media?.boosterRelay?.components;
 		const turn = runtime?.media?.turn?.configured || components?.turnConfigured;
 		const parts: string[] = [];
-		if (turn) parts.push('relay (TURN)');
-		if (components?.sfuConfigured) parts.push('media server');
-		if (components?.gatewayConfigured) parts.push(components.gatewayHealthy && components.gatewayMediaPlaneReady ? 'streaming gateway' : 'streaming gateway (starting)');
-		if (!parts.length) return 'None. Calls connect directly or through this server.';
+		if (turn) parts.push($_('conn_diag.relay_turn'));
+		if (components?.sfuConfigured) parts.push($_('conn_diag.media_server'));
+		if (components?.gatewayConfigured) parts.push(components.gatewayHealthy && components.gatewayMediaPlaneReady ? $_('conn_diag.gateway') : $_('conn_diag.gateway_starting'));
+		if (!parts.length) return $_('conn_diag.services_none');
 		const text = parts.join(', ');
 		return text.charAt(0).toUpperCase() + text.slice(1);
 	}
 </script>
 
-<div class="conn-facts" aria-label="Connection facts">
-	<p class="w-kicker conn-facts__kicker">Right now</p>
+<div class="conn-facts" aria-label={$_('conn_diag.label')}>
+	<p class="w-kicker conn-facts__kicker">{$_('conn_diag.right_now')}</p>
 	<dl class="conn-facts__list">
-		<dt>Last call route</dt>
+		<dt>{$_('conn_diag.last_route')}</dt>
 		<dd>{routeWord}</dd>
-		<dt>Spatial audio</dt>
+		<dt>{$_('audio_settings.spatial_audio')}</dt>
 		<dd>{spatialWord}</dd>
-		<dt>This server offers</dt>
-		<dd>{loaded ? servicesWord(mediaRuntimeSnapshot) : 'Checking…'}</dd>
+		<dt>{$_('conn_diag.offers')}</dt>
+		<dd>{loaded ? servicesWord(mediaRuntimeSnapshot) : $_('privacy.state.checking_short')}</dd>
 	</dl>
 	{#if requestedRelay !== 'off' && requestedRelay !== effectiveRelay}
-		<p class="conn-facts__note">Some relay services this server asks for are not running. Its operators may need to start them.</p>
+		<p class="conn-facts__note">{$_('conn_diag.relay_note')}</p>
 	{/if}
 </div>
 

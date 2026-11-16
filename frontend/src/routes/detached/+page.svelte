@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import Chat from '$lib/components/Chat.svelte';
@@ -34,7 +35,7 @@
 
 	onMount(async () => {
 		if (!panelState) {
-			bootError = 'Invalid detached panel request.';
+			bootError = $_('detached.invalid_request');
 			return;
 		}
 
@@ -45,7 +46,7 @@
 		const isRegistered = Boolean(token || getStoredDbUserId());
 
 		if (!username) {
-			bootError = 'No local session found. Sign in on the main window first.';
+			bootError = $_('detached.no_session');
 			return;
 		}
 
@@ -68,7 +69,7 @@
 			isReady = true;
 		} catch (error) {
 			console.error('[DetachedPanel] Failed to bootstrap detached panel:', error);
-			bootError = 'Failed to initialize detached panel.';
+			bootError = $_('detached.init_failed');
 		}
 
 		if (isDesktopTauri()) {
@@ -137,12 +138,12 @@
 
 {#if bootError}
 	<div class="detached-shell error">
-		<h1>Detached Panel Error</h1>
+		<h1>{$_('detached.error_title')}</h1>
 		<p>{bootError}</p>
 	</div>
 {:else if !isReady}
 	<div class="detached-shell loading">
-		<div class="loading-title">Opening detached panel...</div>
+		<div class="loading-title">{$_('detached.opening')}</div>
 	</div>
 {:else}
 	<div class="detached-shell">
@@ -155,38 +156,38 @@
 					{:else if panelState?.kind === 'workspace-panel' && panelState.panelId}
 						{panelState.panelId}
 					{:else}
-						Detached Panel
+						{$_('detached.default_title')}
 					{/if}
 				</div>
 				<div class="window-controls-actions">
-					<button class="snap-btn" title="Snap Left (Ctrl+←)" on:click={() => handleSnap('left')}>
+					<button class="snap-btn" title={$_('detached.snap_left')} on:click={() => handleSnap('left')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="9" height="18" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Snap Right (Ctrl+→)" on:click={() => handleSnap('right')}>
+					<button class="snap-btn" title={$_('detached.snap_right')} on:click={() => handleSnap('right')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="12" y="3" width="9" height="18" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Snap Top (Ctrl+↑)" on:click={() => handleSnap('top')}>
+					<button class="snap-btn" title={$_('detached.snap_top')} on:click={() => handleSnap('top')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="9" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Snap Bottom (Ctrl+↓)" on:click={() => handleSnap('bottom')}>
+					<button class="snap-btn" title={$_('detached.snap_bottom')} on:click={() => handleSnap('bottom')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="18" height="9" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Maximize (Ctrl+Enter)" on:click={() => handleSnap('maximize')}>
+					<button class="snap-btn" title={$_('detached.maximize')} on:click={() => handleSnap('maximize')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Center (Ctrl+Esc)" on:click={() => handleSnap('center')}>
+					<button class="snap-btn" title={$_('detached.center')} on:click={() => handleSnap('center')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="7"></circle></svg>
 					</button>
-					<button class="snap-btn" title="Quarter: Top-Left" on:click={() => handleSnap('top-left')}>
+					<button class="snap-btn" title={$_('detached.quarter_tl')} on:click={() => handleSnap('top-left')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="9" height="9" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Quarter: Top-Right" on:click={() => handleSnap('top-right')}>
+					<button class="snap-btn" title={$_('detached.quarter_tr')} on:click={() => handleSnap('top-right')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="12" y="3" width="9" height="9" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Quarter: Bottom-Left" on:click={() => handleSnap('bottom-left')}>
+					<button class="snap-btn" title={$_('detached.quarter_bl')} on:click={() => handleSnap('bottom-left')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="9" height="9" rx="1"></rect></svg>
 					</button>
-					<button class="snap-btn" title="Quarter: Bottom-Right" on:click={() => handleSnap('bottom-right')}>
+					<button class="snap-btn" title={$_('detached.quarter_br')} on:click={() => handleSnap('bottom-right')}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="12" y="12" width="9" height="9" rx="1"></rect></svg>
 					</button>
 				</div>
@@ -201,14 +202,14 @@
 				<WorkspacePanelHost panel={workspaceManifest} />
 			{:else}
 				<div class="detached-shell error">
-					<h1>Panel Not Found</h1>
-					<p>This panel is not available or you don't have permission to view it.</p>
+					<h1>{$_('detached.not_found')}</h1>
+					<p>{$_('detached.no_permission')}</p>
 				</div>
 			{/if}
 		{:else}
 			<div class="detached-shell error">
-				<h1>Detached Panel Error</h1>
-				<p>Unsupported panel type.</p>
+				<h1>{$_('detached.error_title')}</h1>
+				<p>{$_('detached.unsupported')}</p>
 			</div>
 		{/if}
 	</div>

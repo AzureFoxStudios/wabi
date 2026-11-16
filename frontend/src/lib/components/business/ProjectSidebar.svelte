@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * The project tree beside a project page (design contract §8.6, §7.11): projects and their
 	 * sub-projects (three levels) as 32px rows on the selection grammar (raise fill, sig dot),
@@ -35,7 +36,7 @@
 				type="button"
 				class="pj-tree__toggle"
 				aria-expanded={open}
-				aria-label={`${open ? 'Collapse' : 'Expand'} ${project.name}`}
+				aria-label={open ? $_('project_tree.collapse_named', { values: { name: project.name } }) : $_('project_tree.expand_named', { values: { name: project.name } })}
 				on:click|stopPropagation={() => toggleExpanded(project.id)}
 			>
 				<Icon name={open ? 'chevDown' : 'chevRight'} size={14} />
@@ -53,8 +54,8 @@
 			<span class="pj-tree__name">{project.name}</span>
 		</button>
 		{#if depth < 2}
-			<Tooltip text={`Add a sub-project to ${project.name}`}>
-				<button type="button" class="w-ibtn w-ibtn--sm pj-tree__add" aria-label={`Add a sub-project to ${project.name}`} on:click|stopPropagation={() => onOpenProjectModal(undefined, project.id)}>
+			<Tooltip text={$_('project_tree.add_sub_named', { values: { name: project.name } })}>
+				<button type="button" class="w-ibtn w-ibtn--sm pj-tree__add" aria-label={$_('project_tree.add_sub_named', { values: { name: project.name } })} on:click|stopPropagation={() => onOpenProjectModal(undefined, project.id)}>
 					<Icon name="plus" size={14} />
 				</button>
 			</Tooltip>
@@ -69,15 +70,15 @@
 	{/if}
 {/snippet}
 
-<aside class="pj-tree" aria-label="Project tree">
+<aside class="pj-tree" aria-label={$_('project_detail.project_tree')}>
 	<div class="pj-tree__head">
-		<h3 class="pj-tree__title">All projects</h3>
-		<Tooltip text="New project">
-			<button type="button" class="w-ibtn w-ibtn--sm" aria-label="New project" on:click={() => onOpenProjectModal()}><Icon name="plus" size={16} /></button>
+		<h3 class="pj-tree__title">{$_('project_tree.all_projects')}</h3>
+		<Tooltip text={$_('project_tree.new_project')}>
+			<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('project_tree.new_project')} on:click={() => onOpenProjectModal()}><Icon name="plus" size={16} /></button>
 		</Tooltip>
 	</div>
 	{#if $projects.length === 0}
-		<p class="pj-tree__empty">No projects yet.</p>
+		<p class="pj-tree__empty">{$_('project_tree.empty')}</p>
 	{:else}
 		<ul class="pj-tree__list">
 			{#each $rootProjects as project (project.id)}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Go in the companion panel (optional add-on `game-sync`, experimental). The frame's row A
 	 * names the panel, its locality tag and Close; this body draws row B (the channel this board
@@ -14,7 +15,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { channels, currentChannel, currentUser, getSocket } from '$lib/socket';
 	import type { GameIncoming, GameSessionState } from './protocol';
-	import { GO_SIZES, STONE_LABEL } from './protocol';
+	import { GO_SIZES } from './protocol';
 	import {
 		boardGridPaths,
 		boardStarPoints,
@@ -98,20 +99,20 @@
 
 	const statusTitle = $derived.by(() => {
 		if (!session) return '';
-		if (session.status === 'waiting') return `Waiting for ${STONE_LABEL[1]}`;
+		if (session.status === 'waiting') return $_('go.waiting_white');
 		if (session.status === 'finished') return resultWords(session);
-		return isMyTurn ? 'Your move' : turnWords(session.toPlay);
+		return isMyTurn ? $_('go.your_move') : turnWords(session.toPlay);
 	});
 
 	const statusText = $derived.by(() => {
 		if (!session) return '';
 		if (session.status === 'waiting') {
-			return 'The white seat is open in this channel.';
+			return $_('go.seat_open_white');
 		}
-		if (session.status === 'finished') return scoreWords(session.score) ?? 'The board is closed.';
-		if (isMyTurn) return 'Place a stone on an intersection, or pass.';
-		if (!isPlayer) return 'You are watching this game.';
-		return `Waiting for ${session.seatNames[1 - mySeat] ?? 'the other seat'}.`;
+		if (session.status === 'finished') return scoreWords(session.score) ?? $_('go.board_closed');
+		if (isMyTurn) return $_('go.place_or_pass');
+		if (!isPlayer) return $_('go.watching');
+		return $_('go.waiting_for_name', { values: { name: session.seatNames[1 - mySeat] ?? $_('go.other_seat') } });
 	});
 
 	const pointLabels = $derived.by(() => {
@@ -121,9 +122,9 @@
 			const x = index % n;
 			const y = Math.floor(index / n);
 			const parts = [formatCoord(x, y)];
-			parts.push(stone === 0 ? 'black stone' : stone === 1 ? 'white stone' : 'empty');
-			if (index === lastIndex) parts.push('last move');
-			if (ko && ko.x === x && ko.y === y) parts.push('ko point');
+			parts.push(stone === 0 ? $_('go.black_stone') : stone === 1 ? $_('go.white_stone') : $_('go.empty'));
+			if (index === lastIndex) parts.push($_('go.last_move'));
+			if (ko && ko.x === x && ko.y === y) parts.push($_('go.ko_point'));
 			return parts.join(', ');
 		});
 	});
@@ -283,11 +284,11 @@
 
 	async function resign(): Promise<void> {
 		if (!isPlayer || session?.status !== 'active' || busy) return;
-		const other = session.seatNames[1 - mySeat] ?? 'The other seat';
+		const other = session.seatNames[1 - mySeat] ?? $_('go.other_seat_cap');
 		const confirmed = await confirmAction({
-			title: 'Resign this game?',
-			body: `${other} wins by resignation. The board stays until someone starts a new game.`,
-			confirm: 'Resign game',
+			title: $_('go.resign_title'),
+			body: $_('go.resign_body', { values: { other } }),
+			confirm: $_('go.resign_confirm'),
 			danger: true
 		});
 		if (!confirmed) return;
@@ -325,7 +326,7 @@
 {#snippet startActions()}
 	<div class="go-start">
 		<div class="go-start__row">
-			<span class="go-start__label" id={`${uid}-go-size`}>Board size</span>
+			<span class="go-start__label" id={`${uid}-go-size`}>{$_('go.board_size')}</span>
 			<Segmented labelledby={`${uid}-go-size`} options={SIZE_OPTIONS} bind:value={size} />
 		</div>
 		<button
@@ -335,7 +336,7 @@
 			disabled={!!busy || !channelId}
 			aria-busy={busy === 'create'}
 		>
-			Start a game
+			{$_('go.start')}
 		</button>
 	</div>
 {/snippet}
@@ -345,17 +346,17 @@
 	<div class="w-panel__b go-bar">
 		<Select
 			class="go-bar__select"
-			ariaLabel="Channel"
+			ariaLabel={$_('lore_project.channel_label')}
 			options={options}
 			value={channelId}
-			placeholder="Choose a channel"
+			placeholder={$_('go.choose_channel')}
 			disabled={options.length === 0}
 			onchange={selectChannel}
 		/>
-		<span class="w-tag w-tag--mat" title="Experimental: not a production guarantee">
-			Experimental
+		<span class="w-tag w-tag--mat" title={$_('maturity.experimental_title')}>
+			{$_('maturity.experimental')}
 		</span>
-		<LoadLine active={phase === 'joining'} label="Loading this channel's game" class="go-loadline" delay={120} />
+		<LoadLine active={phase === 'joining'} label={$_('go.loading_label')} class="go-loadline" delay={120} />
 	</div>
 
 	<div class="go-panel">
@@ -366,16 +367,16 @@
 				<span class="w-skel"></span>
 				<span class="w-skel go-loading__short"></span>
 			</div>
-			<p class="sr-only" role="status">Loading this channel's game</p>
+			<p class="sr-only" role="status">{$_('go.loading_label')}</p>
 		{:else if phase === 'failed'}
 			{@const failed = error ?? errorWords('timeout')}
-			<Notice title={failed.title} text={failed.text} error={failed.raw} onretry={retryJoin} retryLabel="Retry" />
+			<Notice title={failed.title} text={failed.text} error={failed.raw} onretry={retryJoin} retryLabel={$_('common.retry')} />
 		{:else if options.length === 0}
 			<EmptyState
 				icon="gamepad"
 				as="p"
-				title="No channels yet"
-				text="Join a channel, then choose it here to start a board."
+				title={$_('go.no_channels')}
+				text={$_('go.no_channels_text')}
 			/>
 		{:else if noneState}
 			{#if error}
@@ -384,8 +385,8 @@
 			<EmptyState
 				icon="gamepad"
 				as="p"
-				title={channelLabel ? `No game in ${channelLabel}` : 'No game in this channel'}
-				text="Start a board; the second seat is open for someone here to claim."
+				title={channelLabel ? $_('go.no_game_in', { values: { channel: channelLabel } }) : $_('go.no_game_here')}
+				text={$_('go.no_game_text')}
 				actions={startActions}
 			/>
 		{:else if session}
@@ -401,13 +402,13 @@
 			<div class="go-seats">
 				<span class="go-seat" class:go-seat--turn={session.status === 'active' && session.toPlay === 0}>
 					<span class="go-seat__stone" aria-hidden="true"></span>
-					<span class="go-seat__label">Black</span>
-					<span class="go-seat__name">{session.seatNames[0] ?? 'Open seat'}</span>
+					<span class="go-seat__label">{$_('go.black')}</span>
+					<span class="go-seat__name">{session.seatNames[0] ?? $_('go.open_seat')}</span>
 				</span>
 				<span class="go-seat" class:go-seat--turn={session.status === 'active' && session.toPlay === 1}>
 					<span class="go-seat__stone go-seat__stone--paper" aria-hidden="true"></span>
-					<span class="go-seat__label">White</span>
-					<span class="go-seat__name">{session.seatNames[1] ?? 'Open seat'}</span>
+					<span class="go-seat__label">{$_('wb.color_white')}</span>
+					<span class="go-seat__name">{session.seatNames[1] ?? $_('go.open_seat')}</span>
 				</span>
 			</div>
 
@@ -441,7 +442,7 @@
 					<div
 						class="go-board__points"
 						role="group"
-						aria-label={`Go board, ${boardSize} by ${boardSize}.${canPlayPoint ? ' Use arrow keys to move, Enter or Space to play.' : ''}`}
+						aria-label={$_('go.board_label', { values: { size: boardSize, hint: canPlayPoint ? $_('go.board_hint') : '' } })}
 					>
 						{#each boardCells as stone, index (index)}
 							{@const x = index % boardSize}
@@ -474,10 +475,10 @@
 							disabled={!!busy}
 							aria-busy={busy === 'claim'}
 						>
-							Join as White
+							{$_('go.join_white')}
 						</button>
 					{:else}
-						<p class="go-hint">This board stays here while the white seat is open.</p>
+						<p class="go-hint">{$_('go.stays_here')}</p>
 					{/if}
 				{:else if session.status === 'active'}
 					{#if isPlayer}
@@ -488,7 +489,7 @@
 							disabled={!isMyTurn || !!busy}
 							aria-busy={busy === 'pass'}
 						>
-							Pass
+							{$_('go.pass')}
 						</button>
 						<button
 							type="button"
@@ -497,10 +498,10 @@
 							disabled={!!busy}
 							aria-busy={busy === 'resign'}
 						>
-							Resign
+							{$_('go.resign')}
 						</button>
 					{:else}
-						<p class="go-hint">Two seats, one board. You are watching this one.</p>
+						<p class="go-hint">{$_('go.watching_text')}</p>
 					{/if}
 				{:else}
 					<button
@@ -510,7 +511,7 @@
 						disabled={!!busy}
 						aria-busy={busy === 'create'}
 					>
-						New game
+						{$_('go.new_game')}
 					</button>
 				{/if}
 			</div>

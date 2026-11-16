@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy } from 'svelte';
 	import { themeStore } from '../theme/themeStore';
 	import { themeApi } from '../theme/themeApi';
@@ -14,7 +15,11 @@
 	const weightMap = { Normal: '400', Medium: '500', 'Semi-Bold': '600', Bold: '700' };
 	const styleMap = { Normal: 'normal', Italic: 'italic' };
 
-	let isSaving = false;
+	const sizeLabels: Record<string, string> = { Small: $_('upf.size_small'), Medium: $_('kan.pri_medium'), Large: $_('upf.size_large'), XL: $_('uniform_font.size_xl') };
+		const weightLabels: Record<string, string> = { Normal: $_('upf.normal'), Medium: $_('kan.pri_medium'), 'Semi-Bold': $_('uniform_font.weight_semibold'), Bold: $_('office.editor.bold') };
+		const styleLabels: Record<string, string> = { Normal: $_('upf.normal'), Italic: $_('office.editor.italic') };
+
+		let isSaving = false;
 	let saveSuccess = false;
 	let saveError: string | null = null;
 
@@ -72,7 +77,7 @@
 				saveSuccess = false;
 			}, 3000);
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : 'Failed to save font settings';
+			const errorMessage = error instanceof Error ? error.message : $_('uniform_font.save_failed');
 			saveError = errorMessage;
 			console.error('[UniformFont] Save failed:', error);
 
@@ -95,28 +100,28 @@
 </script>
 
 <div class="uniform-font-mode">
-	<h3>Uniform Font Mode</h3>
-	<p class="description">Use the same font for all usernames, regardless of their custom settings</p>
+	<h3>{$_('uniform_font.title')}</h3>
+	<p class="description">{$_('uniform_font.desc')}</p>
 
 	<div class="toggle-section">
 		<label class="toggle-label">
 			<input type="checkbox" bind:checked={uniformFontEnabled} />
-			<span>Enable uniform font mode</span>
+			<span>{$_('uniform_font.enable')}</span>
 		</label>
 	</div>
 
 	{#if uniformFontEnabled}
 		<div class="font-settings">
 			<div class="preview-section">
-				<p class="preview-label">Preview:</p>
+				<p class="preview-label">{$_('uniform_font.preview')}</p>
 				<div class="preview-box" style={previewStyle}>
-					Example Username
+					{$_('uniform_font.example_name')}
 				</div>
 			</div>
 
 			<div class="controls-section">
 				<div class="control-group">
-					<label for="font-family">Font Family:</label>
+					<label for="font-family">{$_('uniform_font.family')}</label>
 					<select id="font-family" bind:value={selectedFamily}>
 						{#each fontFamilies as family}
 							<option value={family}>{family}</option>
@@ -125,41 +130,41 @@
 				</div>
 
 				<div class="control-group">
-					<label for="font-size">Size:</label>
+					<label for="font-size">{$_('uniform_font.size')}</label>
 					<select id="font-size" bind:value={selectedSize}>
 						{#each Object.keys(sizeMap) as size}
-							<option value={size}>{size}</option>
+							<option value={size}>{sizeLabels[size]}</option>
 						{/each}
 					</select>
 				</div>
 
 				<div class="control-group">
-					<label for="font-weight">Weight:</label>
+					<label for="font-weight">{$_('uniform_font.weight')}</label>
 					<select id="font-weight" bind:value={selectedWeight}>
 						{#each Object.keys(weightMap) as weight}
-							<option value={weight}>{weight}</option>
+							<option value={weight}>{weightLabels[weight]}</option>
 						{/each}
 					</select>
 				</div>
 
 				<div class="control-group">
-					<label for="font-style">Style:</label>
+					<label for="font-style">{$_('uniform_font.style')}</label>
 					<select id="font-style" bind:value={selectedStyle}>
 						{#each Object.keys(styleMap) as style}
-							<option value={style}>{style}</option>
+							<option value={style}>{styleLabels[style]}</option>
 						{/each}
 					</select>
 				</div>
 			</div>
 
 			<button class="btn btn-primary" on:click={handleSave} disabled={isSaving}>
-				{isSaving ? 'Saving...' : 'Save Settings'}
+				{isSaving ? $_('donation_config.saving') : $_('uniform_font.save')}
 			</button>
 
 			{#if saveSuccess}
 				<div class="toast toast-success">
 					<span class="toast-icon">✓</span>
-					<span class="toast-text">Font settings saved successfully!</span>
+					<span class="toast-text">{$_('uniform_font.saved')}</span>
 				</div>
 			{/if}
 

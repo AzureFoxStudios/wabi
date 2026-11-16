@@ -58,7 +58,7 @@
 	}
 
 	const filterOptions = TASKS_FILTERS.map((option) =>
-		option.value === 'week' ? { value: option.value, label: 'Week', title: 'Due in the next seven days' } : { ...option }
+		option.value === 'week' ? { value: option.value, label: $_('tasks_panel.week_label'), title: $_('tasks_panel.week_title') } : { ...option }
 	);
 
 	let now = Date.now();
@@ -102,8 +102,8 @@
 	function complete(todo: Todo): void {
 		const { patch, undo } = completeTask(todo);
 		updateTodo(todo.id, patch);
-		toast(`Marked “${todo.title}” done`, {
-			action: 'Undo',
+		toast($_('tasks_panel.marked_done', { values: { title: todo.title } }), {
+			action: $_('project_detail.undo'),
 			onAction: () => updateTodo(todo.id, { status: undo.status, completedAt: undo.completedAt })
 		});
 	}
@@ -118,39 +118,39 @@
 	function hours(minutes: number | undefined): string {
 		if (!minutes || minutes <= 0) return '';
 		const value = minutes / 60;
-		return `${Number.isInteger(value) ? value : value.toFixed(1)}h`;
+		return $_('tasks_panel.hours_short', { values: { value: Number.isInteger(value) ? value : value.toFixed(1) } });
 	}
 </script>
 
 <div class="task-panel" class:task-panel--frame={compact}>
 	{#if !compact}
 		<header class="tp-head">
-			<h2 class="tp-title">Tasks <span class="tp-count">{list.length}</span></h2>
+			<h2 class="tp-title">{$_('project_detail.figure_tasks')} <span class="tp-count">{list.length}</span></h2>
 			{#if onClose}
-				<Tooltip text="Close Tasks">
-					<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close Tasks" on:click={onClose}><Icon name="x" /></button>
+				<Tooltip text={$_('tasks_panel.close')}>
+					<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('tasks_panel.close')} on:click={onClose}><Icon name="x" /></button>
 				</Tooltip>
 			{/if}
 		</header>
 	{/if}
 
 	<div class="tp-tools">
-		<Segmented label="Show tasks" options={filterOptions} value={activeFilter} onchange={setFilter} class="tp-filter" />
+		<Segmented label={$_('tasks_panel.show')} options={filterOptions} value={activeFilter} onchange={setFilter} class="tp-filter" />
 		{#if sayLocality}<p class="tp-where">{locality}</p>{/if}
 	</div>
 
 	<div class="tp-body">
 		{#if list.length === 0}
-			<EmptyState icon="checkSquare" as="h3" title={empty.title} text={empty.text} action="Add task" onaction={addTask} class="tp-empty" />
+			<EmptyState icon="checkSquare" as="h3" title={empty.title} text={empty.text} action={$_('planner.add_task')} onaction={addTask} class="tp-empty" />
 		{:else}
-			<ul class="tp-list" aria-label={`${list.length} ${list.length === 1 ? 'task' : 'tasks'}`}>
+			<ul class="tp-list" aria-label={list.length === 1 ? $_('tasks_panel.one') : $_('tasks_panel.many', { values: { count: list.length } })}>
 				{#each list as todo (todo.id)}
 					{@const due = dueLabel(todo, now)}
 					{@const mark = priorityMark(todo.priority)}
 					{@const person = assigneeId(todo)}
 					{@const project = showProjects ? projectName(todo.projectId) : ''}
 					<li class="tp-row">
-						<input type="checkbox" class="w-check tp-row__check" aria-label={`Mark “${todo.title}” done`} checked={false} on:change={() => complete(todo)} />
+						<input type="checkbox" class="w-check tp-row__check" aria-label={$_('tasks_panel.mark_done', { values: { title: todo.title } })} checked={false} on:change={() => complete(todo)} />
 						<div class="tp-row__text">
 							<button type="button" class="tp-row__title" on:click={() => openTask(todo)}>{todo.title}</button>
 							{#if due || mark || project || todo.estimatedMinutes}
@@ -170,14 +170,14 @@
 						</div>
 						{#if person}
 							{@const name = $plannerUserById.get(person)?.username ?? ''}
-							<span class="tp-row__who" title={name ? `Assigned to ${name}` : undefined}>
-								<PlannerAvatar {name} color={getPlannerUserColor($plannerUserById, person)} src={getPlannerUserAvatarUrl($plannerUserById, person)} size="sm" label={name ? `Assigned to ${name}` : ''} />
+							<span class="tp-row__who" title={name ? $_('tasks_panel.assigned_to', { values: { name } }) : undefined}>
+								<PlannerAvatar {name} color={getPlannerUserColor($plannerUserById, person)} src={getPlannerUserAvatarUrl($plannerUserById, person)} size="sm" label={name ? $_('tasks_panel.assigned_to', { values: { name } }) : ''} />
 							</span>
 						{/if}
 					</li>
 				{/each}
 			</ul>
-			<button type="button" class="tp-add" on:click={addTask}><Icon name="plus" size={16} />Add task</button>
+			<button type="button" class="tp-add" on:click={addTask}><Icon name="plus" size={16} />{$_('planner.add_task')}</button>
 		{/if}
 	</div>
 </div>

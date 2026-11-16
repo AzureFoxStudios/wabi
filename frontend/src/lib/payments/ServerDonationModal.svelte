@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import BaseModal from '../components/BaseModal.svelte';
 	import {
 		getPaymentDonationSummary,
@@ -84,19 +85,19 @@
 	});
 
 	function formatRelativeTime(timestamp: number | null): string {
-		if (!timestamp || !Number.isFinite(timestamp)) return 'just now';
+		if (!timestamp || !Number.isFinite(timestamp)) return $_('reader_doc.just_now');
 		const deltaMs = Math.max(0, Date.now() - timestamp);
 		const deltaMinutes = Math.floor(deltaMs / 60_000);
-		if (deltaMinutes < 1) return 'just now';
-		if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+		if (deltaMinutes < 1) return $_('reader_doc.just_now');
+		if (deltaMinutes < 60) return $_('donation.minutes_ago', { values: { n: deltaMinutes } });
 		const deltaHours = Math.floor(deltaMinutes / 60);
-		if (deltaHours < 48) return `${deltaHours}h ago`;
+		if (deltaHours < 48) return $_('donation.hours_ago', { values: { n: deltaHours } });
 		const deltaDays = Math.floor(deltaHours / 24);
-		if (deltaDays < 30) return `${deltaDays}d ago`;
+		if (deltaDays < 30) return $_('donation.days_ago', { values: { n: deltaDays } });
 		const deltaMonths = Math.floor(deltaDays / 30);
-		if (deltaMonths < 12) return `${deltaMonths}mo ago`;
+		if (deltaMonths < 12) return $_('donation.months_ago', { values: { n: deltaMonths } });
 		const deltaYears = Math.floor(deltaMonths / 12);
-		return `${deltaYears}y ago`;
+		return $_('donation.years_ago', { values: { n: deltaYears } });
 	}
 
 	async function loadDonationSummary(): Promise<void> {
@@ -115,7 +116,7 @@
 				amountInput = minorToMajorInput(firstSuggested, response.config.currency);
 			}
 		} catch (loadError) {
-			error = loadError instanceof Error ? loadError.message : 'Failed to load server donations';
+			error = loadError instanceof Error ? loadError.message : $_('donation.load_failed');
 		} finally {
 			loading = false;
 		}
@@ -159,12 +160,12 @@
 	onClose={onClose}
 	width="720px"
 	{overlayZIndex}
-	title={config?.headline || 'Support This Server'}
-	subtitle={config?.description || 'Support server hosting and maintenance.'}
+	title={config?.headline || $_('donation.default_title')}
+	subtitle={config?.description || $_('donation.default_subtitle')}
 >
 	<div class="sheet-body">
 		{#if loading}
-			<p class="hint">Loading donation options...</p>
+			<p class="hint">{$_('donation.loading')}</p>
 		{/if}
 
 		{#if error}
@@ -172,21 +173,21 @@
 		{/if}
 
 		{#if config && !config.enabled}
-			<p class="hint">Server donations are not enabled right now.</p>
+			<p class="hint">{$_('donation.not_enabled')}</p>
 		{/if}
 
 		{#if config?.enabled && !donationRouteReady}
-			<p class="hint">Server donations are enabled, but the owner has not finished selecting the provider and payment method yet.</p>
+			<p class="hint">{$_('donation.not_finished')}</p>
 		{/if}
 
 		{#if totals.length > 0}
 			<div class="totals-card">
-				<h3>Verified Donations</h3>
+				<h3>{$_('donation.verified')}</h3>
 				<ul>
 					{#each totals as total (total.currency)}
 						<li>
 							<span>{formatMinorAmount(total.amountMinor, total.currency)}</span>
-							<small>{total.paymentCount} completed donation{total.paymentCount === 1 ? '' : 's'}</small>
+							<small>{total.paymentCount === 1 ? $_('donation.completed_one') : $_('donation.completed_many', { values: { count: total.paymentCount } })}</small>
 						</li>
 					{/each}
 				</ul>
@@ -195,12 +196,12 @@
 
 		{#if offlineTotals.length > 0}
 			<div class="totals-card">
-				<h3>Offline / Manual Donations</h3>
+				<h3>{$_('offline_donations.title')}</h3>
 				<ul>
 					{#each offlineTotals as total (total.currency)}
 						<li>
 							<span>{formatMinorAmount(total.amountMinor, total.currency)}</span>
-							<small>{total.paymentCount} recorded donation{total.paymentCount === 1 ? '' : 's'}</small>
+							<small>{total.paymentCount === 1 ? $_('donation.recorded_one') : $_('donation.recorded_many', { values: { count: total.paymentCount } })}</small>
 						</li>
 					{/each}
 				</ul>
@@ -208,12 +209,12 @@
 		{/if}
 
 		{#if !loading && !error && totals.length === 0 && offlineTotals.length === 0}
-			<p class="hint">No donations recorded yet.</p>
+			<p class="hint">{$_('donation.none_yet')}</p>
 		{/if}
 
 		{#if recentDonations.length > 0}
 			<div class="totals-card">
-				<h3>Recent Donations</h3>
+				<h3>{$_('donation.recent_title')}</h3>
 				<ul>
 					{#each recentDonations as donation (donation.intentId)}
 						<li>
@@ -224,7 +225,7 @@
 							<div class="ledger-value">
 								<span>{formatMinorAmount(donation.amountMinor, donation.currency)}</span>
 								{#if donation.status === 'refunded'}
-									<small class="refund-pill">Refunded</small>
+									<small class="refund-pill">{$_('donation.refunded')}</small>
 								{/if}
 							</div>
 						</li>
@@ -235,7 +236,7 @@
 
 		{#if recentOfflineDonations.length > 0}
 			<div class="totals-card">
-				<h3>Recent Offline Donations</h3>
+				<h3>{$_('donation.recent_offline_title')}</h3>
 				<ul>
 					{#each recentOfflineDonations as donation (donation.settlementId)}
 						<li>
@@ -246,9 +247,9 @@
 							<div class="ledger-value">
 								<span>{formatMinorAmount(donation.amountMinor, donation.currency)}</span>
 								{#if donation.status === 'voided'}
-									<small class="refund-pill">Voided</small>
+									<small class="refund-pill">{$_('donation.voided')}</small>
 								{:else}
-									<small>Offline</small>
+									<small>{$_('user.status.offline')}</small>
 								{/if}
 							</div>
 						</li>
@@ -270,15 +271,15 @@
 				{/if}
 
 				<label>
-					<span>Donation amount</span>
+					<span>{$_('donation.amount_label')}</span>
 					<input type="text" bind:value={amountInput} placeholder="10.00" inputmode="decimal" />
 				</label>
 
 				<p class="hint">
-					This opens the normal payment flow using the server's configured donation route:
-					<code>{donationRouteProvider?.providerName || config.providerPluginId || 'unset'}</code>
+					{$_('donation.route_hint')}
+					<code>{donationRouteProvider?.providerName || config.providerPluginId || $_('donation.unset')}</code>
 					/
-					<code>{donationRouteMethod?.label || config.methodId || 'unset'}</code>
+					<code>{donationRouteMethod?.label || config.methodId || $_('donation.unset')}</code>
 				</p>
 
 				<div class="actions">
@@ -287,7 +288,7 @@
 						onclick={handleDonate}
 						disabled={!donationRouteReady}
 					>
-						Continue to Donate
+						{$_('donation.continue')}
 					</button>
 				</div>
 			</div>

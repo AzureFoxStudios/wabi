@@ -13,6 +13,7 @@
     row A with the same type and kit instead of calling setStageHeader.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { afterUpdate, onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { layoutStore } from '$lib/layoutStore';
@@ -66,7 +67,7 @@
   $: layoutOtherUser = context === 'right' ? $dmOtherUser : null;
   $: otherUser = otherUserProp ?? layoutOtherUser ?? resolveDmOtherUser(channel, $currentUser, $users, $serverMembers);
   $: recipientPresence = isGroup ? 'unavailable' : livePresenceForUser(otherUser, $users, $connected);
-  $: recipientPresenceLabel = recipientPresence === 'active' ? 'Online' : recipientPresence === 'away' ? 'Away' : recipientPresence === 'busy' ? 'Busy' : recipientPresence === 'offline' ? 'Offline' : '';
+  $: recipientPresenceLabel = recipientPresence === 'active' ? $_('user.status.online') : recipientPresence === 'away' ? $_('user.status.away') : recipientPresence === 'busy' ? $_('profile_settings.presence_busy') : recipientPresence === 'offline' ? $_('user.status.offline') : '';
   $: groupParticipants = groupRecipientSummary(channel, $currentUser, [...$serverMembers, ...$users]);
   $: missingDeviceLabel = missingDeviceParticipantLabel(e2eeStatus?.missingUserIds || [], [...$serverMembers, ...$users]);
   $: if (channelId && channelId !== lastJoinedChannelId) {
@@ -84,7 +85,7 @@
   $: showNoKeyNotice = hasNoKeyMessages(messages);
   $: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);
-  $: channelDisplayName = isGroup ? (channel?.name || 'Group message') : (otherUser?.username || otherUser?.handle || 'Recipient unavailable');
+  $: channelDisplayName = isGroup ? (channel?.name || $_('dmconv.group_message')) : (otherUser?.username || otherUser?.handle || $_('dm_hub.recipient_unavailable'));
   $: selectedRetention = dmRetentionChoice(channel);
   // The control shows the server-confirmed lifetime: a choice that fails to save snaps back.
   let retentionValue = '';
@@ -251,16 +252,16 @@
   }
 
   async function executeCommand(command: string): Promise<void> {
-    if (!channelId) throw new Error('Conversation is unavailable.');
+    if (!channelId) throw new Error($_('dmconv.no_conversation'));
     const [name, ...args] = command.slice(1).trim().split(/\s+/);
     if (name === 'directions' || name === 'dir' || name === 'where') {
       const target = args.join(' ').trim();
-      if (!target) throw new Error('Enter a place after /directions.');
-      if (!(await pushLocalDirectionsCard(channelId, target))) throw new Error(`Place "${target}" was not found.`);
+      if (!target) throw new Error($_('dmconv.enter_place'));
+      if (!(await pushLocalDirectionsCard(channelId, target))) throw new Error($_('dmconv.place_not_found', { values: { place: target } }));
       return;
     }
     const result = await sendMessage(channelId, command, 'text');
-    if (!result.ok) throw new Error('Message was not sent. Try again.');
+    if (!result.ok) throw new Error($_('dmconv.not_sent_retry'));
   }
 
   function markVisibleMessagesRead(): void {
@@ -396,9 +397,9 @@
   // ringing in, blocks a new one (startCall refuses it). A voice room does not.
   $: callActive = ($isInCall && $callMode === 'direct') || Boolean($outgoingCall);
   $: callBlocked = callActive || Boolean($incomingCall) || ($isInCall && $callMode === 'group');
-  $: callWord = callActive ? (Boolean($outgoingCall) && !$isInCall ? 'Calling…' : 'Call active') : '';
-  $: callBlockedWord = callBlocked ? (callWord || 'Another call is on') : '';
-  $: callTarget = isGroup ? (channel?.name || 'the group') : channelDisplayName;
+  $: callWord = callActive ? (Boolean($outgoingCall) && !$isInCall ? $_('chat_header.calling') : $_('chat_header.call_active')) : '';
+  $: callBlockedWord = callBlocked ? (callWord || $_('dmconv.another_call')) : '';
+  $: callTarget = isGroup ? (channel?.name || $_('dmconv.the_group')) : channelDisplayName;
   $: canCall = Boolean($socket) && (isGroup ? channel?.type === 'group' : Boolean(otherUser));
 
   async function startConversationCall(withVideo: boolean): Promise<void> {
@@ -413,7 +414,7 @@
           if (memberId.startsWith('user-')) {
             const dbUserId = Number.parseInt(memberId.substring(5), 10);
             const member = [...$users, ...$serverMembers].find((u) => u.dbUserId === dbUserId);
-            invitees.set(memberId, { stableUserId: memberId, username: member?.username || 'Member' });
+            invitees.set(memberId, { stableUserId: memberId, username: member?.username || $_('upop.role_member') });
             continue;
           }
           const member = [...$users, ...$serverMembers].find((u) => u.id === memberId);
@@ -422,8 +423,8 @@
             invitees.set(stableUserId, { stableUserId, username: member.username });
           }
         }
-        await startGroupCall(live, channel.id, channel.name || 'Group', withVideo, {
-          localDisplayName: $currentUser?.username || `${brandName} User`,
+        await startGroupCall(live, channel.id, channel.name || $_('panels.group'), withVideo, {
+          localDisplayName: $currentUser?.username || $_('dmconv.user_suffix', { values: { brand: brandName } }),
           invitees: Array.from(invitees.values())
         });
       } else if (otherUser) {
@@ -440,15 +441,15 @@
   $: phoneMenuItems = [
     ...(canCall
       ? [
-          { id: 'voice', label: `Call ${callTarget}`, icon: 'phone', keepCase: true, disabled: callBlocked, hint: callBlockedWord || undefined, onSelect: () => void startConversationCall(false) },
-          { id: 'video', label: `Video call ${callTarget}`, icon: 'video', keepCase: true, disabled: callBlocked, hint: callBlockedWord || undefined, onSelect: () => void startConversationCall(true) }
+          { id: 'voice', label: $_('dmconv.call_named', { values: { name: callTarget } }), icon: 'phone', keepCase: true, disabled: callBlocked, hint: callBlockedWord || undefined, onSelect: () => void startConversationCall(false) },
+          { id: 'video', label: $_('dmconv.video_call_named', { values: { name: callTarget } }), icon: 'video', keepCase: true, disabled: callBlocked, hint: callBlockedWord || undefined, onSelect: () => void startConversationCall(true) }
         ] as MenuEntry[]
       : []),
-    { id: 'notes', label: showNotes ? 'Back to messages' : 'Shared notes', icon: 'note', onSelect: toggleSharedNotes },
-    ...(isGroup ? [{ id: 'group', label: showGroupSettings ? 'Back to group messages' : 'Group settings', icon: 'users', onSelect: toggleGroupSettings } as MenuEntry] : []),
-    ...(canEncrypt ? [{ id: 'encrypt', label: e2eeBusy ? 'Turning on…' : 'Turn on experimental encryption', icon: 'lock', seal: true, disabled: e2eeBusy, keepCase: true, onSelect: () => void enableE2ee() } as MenuEntry] : []),
+    { id: 'notes', label: showNotes ? $_('dm.back_to_messages') : $_('shared_notes.title'), icon: 'note', onSelect: toggleSharedNotes },
+    ...(isGroup ? [{ id: 'group', label: showGroupSettings ? $_('dmconv.back_to_group_messages') : $_('dm.group_settings'), icon: 'users', onSelect: toggleGroupSettings } as MenuEntry] : []),
+    ...(canEncrypt ? [{ id: 'encrypt', label: e2eeBusy ? $_('dmconv.turning_on') : $_('dmconv.turn_on_encryption'), icon: 'lock', seal: true, disabled: e2eeBusy, keepCase: true, onSelect: () => void enableE2ee() } as MenuEntry] : []),
     ...(channelId && channel
-      ? [{ id: 'kept', label: retentionWords, icon: 'clock', keepCase: true, hint: 'Change', onSelect: openKeptSheet } as MenuEntry]
+      ? [{ id: 'kept', label: retentionWords, icon: 'clock', keepCase: true, hint: $_('login.auth.change_server_link'), onSelect: openKeptSheet } as MenuEntry]
       : [])
   ];
 </script>
@@ -456,8 +457,8 @@
 <div class="dm-conversation" class:phone bind:clientWidth={conversationWidth}>
   <header class="dm-header" class:dm-header--phone={phone}>
     <div class="dm-header-a">
-      <Tooltip text={context === 'center' ? 'Back to conversations' : 'Close DM'} placement="bottom">
-        <button type="button" class="w-ibtn dm-header-back" on:click={handleClose} aria-label={context === 'center' ? 'Back to conversations' : 'Close DM'}>
+      <Tooltip text={context === 'center' ? $_('dmconv.back_conversations') : $_('dmconv.close_dm')} placement="bottom">
+        <button type="button" class="w-ibtn dm-header-back" on:click={handleClose} aria-label={context === 'center' ? $_('dmconv.back_conversations') : $_('dmconv.close_dm')}>
           <Icon name="chevLeft" />
         </button>
       </Tooltip>
@@ -489,8 +490,8 @@
         {#if phone}
           <Menu
             items={phoneMenuItems}
-            label="Conversation actions"
-            triggerLabel="Conversation actions"
+            label={$_('dm.conversation_actions')}
+            triggerLabel={$_('dm.conversation_actions')}
             class="w-ibtn dm-header-more"
             align="end"
             heading={channelDisplayName}
@@ -500,15 +501,15 @@
           </Menu>
         {:else}
           {#if canCall}
-            <Tooltip text={callBlockedWord ? `Call ${callTarget} · ${callBlockedWord}` : `Call ${callTarget}`} placement="bottom">
-              <button type="button" class="w-ibtn" aria-label={`Call ${callTarget}`} disabled={callBlocked} on:click={() => void startConversationCall(false)}><Icon name="phone" /></button>
+            <Tooltip text={callBlockedWord ? $_('dmconv.call_named_blocked', { values: { name: callTarget, status: callBlockedWord } }) : $_('dmconv.call_named', { values: { name: callTarget } })} placement="bottom">
+              <button type="button" class="w-ibtn" aria-label={$_('dmconv.call_named', { values: { name: callTarget } })} disabled={callBlocked} on:click={() => void startConversationCall(false)}><Icon name="phone" /></button>
             </Tooltip>
-            <Tooltip text={callBlockedWord ? `Video call ${callTarget} · ${callBlockedWord}` : `Video call ${callTarget}`} placement="bottom">
-              <button type="button" class="w-ibtn" aria-label={`Video call ${callTarget}`} disabled={callBlocked} on:click={() => void startConversationCall(true)}><Icon name="video" /></button>
+            <Tooltip text={callBlockedWord ? $_('dmconv.video_call_named_blocked', { values: { name: callTarget, status: callBlockedWord } }) : $_('dmconv.video_call_named', { values: { name: callTarget } })} placement="bottom">
+              <button type="button" class="w-ibtn" aria-label={$_('dmconv.video_call_named', { values: { name: callTarget } })} disabled={callBlocked} on:click={() => void startConversationCall(true)}><Icon name="video" /></button>
             </Tooltip>
           {/if}
-          <Tooltip text={context === 'right' ? 'Open in center stage' : 'Move to side panel'} placement="bottom">
-            <button type="button" class="w-ibtn" aria-label={context === 'right' ? 'Open in center stage' : 'Move to side panel'} on:click={handleToggleSurface}>
+          <Tooltip text={context === 'right' ? $_('panels.open_in_stage') : $_('dmconv.move_side')} placement="bottom">
+            <button type="button" class="w-ibtn" aria-label={context === 'right' ? $_('panels.open_in_stage') : $_('dmconv.move_side')} on:click={handleToggleSurface}>
               <Icon name={context === 'right' ? 'expand' : 'sidebarRight'} />
             </button>
           </Tooltip>
@@ -519,48 +520,48 @@
       <div class="dm-header-b">
         <p class="dm-header-sub">
           {#if isGroup}
-            <span class="dm-header-kind">Group</span>
-            <span class="dm-header-detail" title={groupParticipants}>{groupParticipants || ((channel?.members?.length || channel?.memberUsers?.length) ? `${channel?.members?.length || channel?.memberUsers?.length} members` : 'Members loading')}</span>
+            <span class="dm-header-kind">{$_('panels.group')}</span>
+            <span class="dm-header-detail" title={groupParticipants}>{groupParticipants || ((channel?.members?.length || channel?.memberUsers?.length) ? $_('dmconv.n_members', { values: { count: channel?.members?.length || channel?.memberUsers?.length } }) : $_('dmconv.members_loading'))}</span>
           {:else if otherUser}
             {#if recipientPresenceLabel}
               <span class="dm-header-presence" data-presence={recipientPresence}><span class="dm-header-presence-dot" aria-hidden="true"></span>{recipientPresenceLabel}</span>
             {/if}
             {#if otherUser.handle}<span class="dm-header-detail">@{otherUser.handle}</span>{/if}
           {:else}
-            <span class="dm-header-detail" role="status">Recipient details aren’t available. Reconnect to refresh this conversation.</span>
+            <span class="dm-header-detail" role="status">{$_('dmconv.recipient_missing')}</span>
           {/if}
         </p>
         <div class="dm-header-tools">
           {#if canEncrypt}
-            <Tooltip text="Applies to new messages. Not independently verified." placement="bottom">
+            <Tooltip text={$_('dmconv.apply_new_messages')} placement="bottom">
               <button type="button" class="w-btn w-btn--sm dm-header-encrypt" aria-busy={e2eeBusy} disabled={e2eeBusy} on:click={() => void enableE2ee()}>
-                <Icon name="lock" size={14} />{e2eeBusy ? 'Turning on…' : 'Turn on experimental encryption'}
+                <Icon name="lock" size={14} />{e2eeBusy ? $_('dmconv.turning_on') : $_('dmconv.turn_on_encryption')}
               </button>
             </Tooltip>
           {/if}
           {#if channelId && channel}
-            <Tooltip text="Applies to new messages. Earlier messages keep their own lifetime." placement="bottom">
+            <Tooltip text={$_('dmconv.apply_lifetime')} placement="bottom">
               <Menu
                 items={retentionItems}
-                label="Keep new messages for"
+                label={$_('dmconv.keep_new_for')}
                 triggerLabel={dmRetentionControlLabel(retentionValue)}
                 class="w-select dm-header-kept"
                 align="end"
-                heading="Keep new messages for"
+                heading={$_('dmconv.keep_new_for')}
               >
                 <Icon name="clock" size={14} /><span class="w-select__value">{retentionWords}</span><Icon name="chevDown" size={16} />
               </Menu>
             </Tooltip>
           {/if}
-          <Tooltip text="Shared notes" placement="bottom" disabled={!toolWordsHidden}>
+          <Tooltip text={$_('shared_notes.title')} placement="bottom" disabled={!toolWordsHidden}>
             <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-notes-action" aria-pressed={showNotes} on:click={toggleSharedNotes}>
-              <Icon name="note" size={14} /><span class="dm-tool-label">Shared notes</span>
+              <Icon name="note" size={14} /><span class="dm-tool-label">{$_('shared_notes.title')}</span>
             </button>
           </Tooltip>
           {#if isGroup}
-            <Tooltip text="Group settings" placement="bottom" disabled={!toolWordsHidden}>
+            <Tooltip text={$_('dm.group_settings')} placement="bottom" disabled={!toolWordsHidden}>
               <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-group-action" aria-pressed={showGroupSettings} on:click={toggleGroupSettings}>
-                <Icon name="users" size={14} /><span class="dm-tool-label">Group settings</span>
+                <Icon name="users" size={14} /><span class="dm-tool-label">{$_('dm.group_settings')}</span>
               </button>
             </Tooltip>
           {/if}
@@ -572,16 +573,16 @@
   {#if phone && keptSheetAnchor}
     <Menu
       items={retentionItems}
-      label="Keep new messages for"
+      label={$_('dmconv.keep_new_for')}
       anchor={keptSheetAnchor}
       bind:open={keptSheetOpen}
       align="end"
-      heading="Keep new messages for"
+      heading={$_('dmconv.keep_new_for')}
     />
   {/if}
 
   {#if waitingForDevices}
-    <p class="dm-header-wait" role="status">Encryption starts when {missingDeviceLabel || 'every participant'} {missingDeviceLabel.includes(',') ? 'have' : 'has'} an updated device. Until then new messages stay server-readable.</p>
+    <p class="dm-header-wait" role="status">{$_('dmconv.encryption_wait', { values: { who: missingDeviceLabel || $_('dmconv.every_participant'), verb: missingDeviceLabel.includes(',') ? $_('dmconv.verb_have') : $_('dmconv.verb_has') } })}</p>
   {/if}
 
   <div class="dm-stream" class:hidden={showGroupSettings || showNotes}>
@@ -592,7 +593,7 @@
     >
       {#if channelId && $channelHasMoreHistory[channelId]}
         <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-load-earlier" aria-busy={$channelHistoryLoading[channelId]} disabled={$channelHistoryLoading[channelId]} on:click={loadEarlier}>
-          {$channelHistoryLoading[channelId] ? 'Loading earlier messages…' : 'Load earlier messages'}
+          {$channelHistoryLoading[channelId] ? $_('dmconv.load_loading') : $_('dmconv.load_earlier')}
         </button>
       {/if}
       <ChatMessagesPane
@@ -611,8 +612,8 @@
         fullHistorySearchStatus=""
         visibleTypingUsers={[]}
         emptyStateIcon={isGroup ? '◎' : '@'}
-        emptyStateSubtitle={isGroup ? `A conversation with ${groupParticipants || 'this group'} starts here.` : `You’re messaging ${channelDisplayName}.`}
-        emptyStateActionLabel="Send a message"
+        emptyStateSubtitle={isGroup ? $_('dmconv.group_empty', { values: { names: groupParticipants || $_('dm.this_group') } }) : $_('dmconv.messaging', { values: { name: channelDisplayName } })}
+        emptyStateActionLabel={$_('dmconv.send_message')}
         {channelPaneInTransition}
         {channelPaneOutTransition}
         formatTypingUsers={(users: string[]) => formatTypingUsers(users)}
@@ -625,18 +626,18 @@
       />
     </div>
     {#if showJumpToLatest}
-      <button type="button" class="dm-jump-latest" aria-label="Jump to the latest messages" on:click={() => void scrollToLatest()}>
-        Latest<Icon name="chevDown" size={16} />
+      <button type="button" class="dm-jump-latest" aria-label={$_('dmconv.jump_latest')} on:click={() => void scrollToLatest()}>
+        {$_('dmconv.latest')}<Icon name="chevDown" size={16} />
       </button>
     {/if}
   </div>
 
   {#if showGroupSettings && isGroup && channel}
-    <div class="dm-group-settings" aria-label="Group settings"><GroupSettingsPanel {channel} /></div>
+    <div class="dm-group-settings" aria-label={$_('dm.group_settings')}><GroupSettingsPanel {channel} /></div>
   {/if}
 
   {#if notesMounted && channelId}
-    <div class="dm-shared-notes" class:hidden={!showNotes} aria-label="Shared conversation notes"><SharedConversationNotes {channelId} surface="center" /></div>
+    <div class="dm-shared-notes" class:hidden={!showNotes} aria-label={$_('shared_notes.aria_section')}><SharedConversationNotes {channelId} surface="center" /></div>
   {/if}
 
   <div class="dm-composer" class:hidden={showGroupSettings || showNotes} class:gated={Boolean(sendGate)}>
@@ -653,7 +654,7 @@
         <p class="w-notice__title">{e2eeError.title}</p>
         <p class="w-notice__text">{e2eeError.text}</p>
         <div class="w-notice__actions">
-          <button type="button" class="w-ibtn w-ibtn--sm" aria-label="Dismiss" on:click={() => (e2eeError = null)}><Icon name="x" size={16} /></button>
+          <button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('common.dismiss')} on:click={() => (e2eeError = null)}><Icon name="x" size={16} /></button>
         </div>
       </div>
     {/if}
