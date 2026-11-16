@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
     /**
      * "Boost this server" (EXPERIMENTAL, §9.1): a member may volunteer spare upload bandwidth
      * while the app is open. Opt-in only, with the consent facts said before the switch to start;
@@ -20,76 +21,76 @@
     async function refresh() {
         const server = $activeServerUrl; const n = ++sequence; checked = false;
         try { const data = await infrastructureRequest<{ enabled: boolean }>(getAuthToken(server), '/api/boosters/status'); if (n === sequence && server === $activeServerUrl) { enabled = data.enabled; checked = true; error = ''; } }
-        catch (e) { if (n === sequence) { console.warn('[Boost] status check failed:', e); error = "Couldn't check whether this server accepts volunteers."; enabled = false; } }
+        catch (e) { if (n === sequence) { console.warn('[Boost] status check failed:', e); error = $_('volunteer_boost.err_check'); enabled = false; } }
     }
     $effect(() => { if (scope !== $activeServerUrl) { scope = $activeServerUrl; consent = false; void refresh(); } });
     onMount(() => { void refresh(); return () => { sequence++; }; });
     async function start() {
-        if (!consent) { error = 'Choose whether to volunteer before starting.'; return; }
+        if (!consent) { error = $_('volunteer_boost.err_need_choice'); return; }
         busy = true; error = '';
         try { await startBoosting({ name, uploadKiBPerSecond, cacheMiB, sessionMiB }); }
-        catch (e) { console.warn('[Boost] start failed:', e); error = "Boosting didn't start."; }
+        catch (e) { console.warn('[Boost] start failed:', e); error = $_('volunteer_boost.err_start'); }
         finally { busy = false; }
     }
-    function mib(n: number) { return `${(n / 1048576).toFixed(2)} MiB`; }
+    function mib(n: number) { return `${(n / 1048576).toFixed(2)} ${$_('volunteer_boost.unit_mib')}`; }
     const why = $derived(
-        !supported ? 'This device needs a secure connection and WebRTC to volunteer.'
-        : checked && !enabled ? "This server's owner hasn't turned on volunteer boosting."
+        !supported ? $_('volunteer_boost.need_secure')
+        : checked && !enabled ? $_('volunteer_boost.server_off')
         : ''
     );
     // Why the controls are off right now, in words (the boxes and switch also look disabled).
-    const statusWordUnknown = "Not available until this server's status is known.";
+    const statusWordUnknown = $_('volunteer_boost.status_unknown');
     const statusWord = $derived(
-        why || (checked ? '' : error ? statusWordUnknown : 'Checking whether this server takes volunteers…')
+        why || (checked ? '' : error ? statusWordUnknown : $_('volunteer_boost.checking'))
     );
     const receiveLocked = $derived(!$boosterState.receiving && (!enabled || !supported));
 </script>
 
 <section class="settings-block boost" aria-labelledby="boost-title">
     <div class="boost__head">
-        <h3 class="settings-block__title" id="boost-title">Boost this server</h3>
-        <span class="w-tag w-tag--mat" title="Experimental: not a production guarantee">Experimental</span>
+        <h3 class="settings-block__title" id="boost-title">{$_('volunteer_boost.title')}</h3>
+        <span class="w-tag w-tag--mat" title={$_('maturity.experimental_title')}>{$_('maturity.experimental')}</span>
     </div>
-    <p class="settings-block__hint">Lend spare upload bandwidth while {brandName} is open, so other members can fetch shared files from you. Membership never depends on it, and downloads always work from the server.</p>
+    <p class="settings-block__hint">{$_('volunteer_boost.hint', { values: { brand: brandName } })}</p>
 
     {#if error}
         <div class="w-notice boost__notice" role="alert">
             <Icon name="alert" />
             <p class="w-notice__title">{error}</p>
-            <p class="w-notice__text">Nothing is shared from this device.</p>
-            <button type="button" class="w-btn w-btn--sm" onclick={refresh}>Check again</button>
+            <p class="w-notice__text">{$_('volunteer_boost.nothing_shared')}</p>
+            <button type="button" class="w-btn w-btn--sm" onclick={refresh}>{$_('volunteer_boost.check_again')}</button>
         </div>
     {/if}
 
-    <dl class="boost__facts" aria-label="What volunteering shares">
-        <dt>Shares</dt><dd>Channel attachments you download yourself, up to 8 MiB each. Files from private rooms are never shared.</dd>
-        <dt>Keeps</dt><dd>Copies for five minutes, in memory. Stopping clears them.</dd>
-        <dt>Reveals</dt><dd>Your network address to the member who downloads from you. It may use metered data.</dd>
+    <dl class="boost__facts" aria-label={$_('volunteer_boost.facts_label')}>
+        <dt>{$_('volunteer_boost.shares_dt')}</dt><dd>{$_('volunteer_boost.shares_dd', { values: { limit: '8', unit: $_('volunteer_boost.unit_mib') } })}</dd>
+        <dt>{$_('volunteer_boost.keeps_dt')}</dt><dd>{$_('volunteer_boost.keeps_dd')}</dd>
+        <dt>{$_('volunteer_boost.reveals_dt')}</dt><dd>{$_('volunteer_boost.reveals_dd')}</dd>
     </dl>
 
     {#if !$boosterState.active}
         <label class="w-choice boost__consent" class:is-disabled={!enabled || !supported}>
             <input type="checkbox" class="w-check" bind:checked={consent} disabled={!enabled || !supported} />
-            <span>I volunteer this device’s spare upload bandwidth, and I understand the member who downloads can see my network address.</span>
+            <span>{$_('volunteer_boost.consent')}</span>
         </label>
     {/if}
     <div class="w-srows">
         <div class="w-srow">
             <div class="w-srow__text">
-                <p class="w-srow__label">{$boosterState.active ? 'Boosting now' : 'Volunteer this device'}</p>
+                <p class="w-srow__label">{$boosterState.active ? $_('volunteer_boost.status_boosting') : $_('volunteer_boost.volunteer_device')}</p>
                 <p class="w-srow__hint">
                     {#if $boosterState.active}
-                        {$boosterState.cachedFiles} cached {$boosterState.cachedFiles === 1 ? 'file' : 'files'} · {mib($boosterState.cachedBytes)} · {mib($boosterState.sentBytes)} sent this session
+                        {$_('volunteer_boost.cached_status', { values: { files: $boosterState.cachedFiles, bytes: mib($boosterState.cachedBytes), sent: mib($boosterState.sentBytes) } })}
                     {:else}
-                        {statusWord || 'Starts a new upload budget each time.'}
+                        {statusWord || $_('volunteer_boost.starts_new_budget')}
                     {/if}
                 </p>
             </div>
             <div class="w-srow__control">
                 {#if $boosterState.active}
-                    <button type="button" class="w-btn w-btn--sm" onclick={() => stopBoosting()}>Stop boosting and clear cache</button>
+                    <button type="button" class="w-btn w-btn--sm" onclick={() => stopBoosting()}>{$_('volunteer_boost.stop_clear')}</button>
                 {:else}
-                    <button type="button" class="w-btn w-btn--sm" disabled={!enabled || !checked || !supported || !consent || busy} aria-busy={busy} onclick={start}>{busy ? 'Starting…' : 'Start boosting'}</button>
+                    <button type="button" class="w-btn w-btn--sm" disabled={!enabled || !checked || !supported || !consent || busy} aria-busy={busy} onclick={start}>{busy ? $_('volunteer_boost.starting') : $_('volunteer_boost.start_boost')}</button>
                 {/if}
             </div>
         </div>
@@ -97,33 +98,33 @@
     {#if $boosterState.notice}<p class="boost__note" role="status">{$boosterState.notice}</p>{/if}
 
     <button type="button" class="w-disclosure" aria-expanded={limitsOpen} aria-controls="boost-limits" onclick={() => (limitsOpen = !limitsOpen)}>
-        <Icon name="chevRight" />Device and bandwidth limits
+        <Icon name="chevRight" />{$_('volunteer_boost.limits_disclosure')}
     </button>
     {#if limitsOpen}
         <div class="w-disclosure__body boost__limits" id="boost-limits">
-            <label class="boost__field"><span class="w-label">Device name</span><input class="w-field" maxlength="60" bind:value={name} disabled={$boosterState.active || busy} /></label>
-            <label class="boost__field"><span class="w-label">Upload limit (KiB/s)</span><input class="w-field" type="number" min="16" max="8192" step="16" bind:value={uploadKiBPerSecond} disabled={$boosterState.active || busy} /></label>
-            <label class="boost__field"><span class="w-label">Memory cache (MiB)</span><input class="w-field" type="number" min="8" max="128" step="8" bind:value={cacheMiB} disabled={$boosterState.active || busy} /></label>
-            <label class="boost__field"><span class="w-label">Upload budget for this session (MiB)</span><input class="w-field" type="number" min="8" max="4096" step="8" bind:value={sessionMiB} disabled={$boosterState.active || busy} /></label>
-            <p class="boost__note">Limits count file data; connection overhead comes on top.</p>
+            <label class="boost__field"><span class="w-label">{$_('volunteer_boost.device_name')}</span><input class="w-field" maxlength="60" bind:value={name} disabled={$boosterState.active || busy} /></label>
+            <label class="boost__field"><span class="w-label">{$_('volunteer_boost.upload_limit', { values: { unit: $_('volunteer_boost.unit_kib') } })}</span><input class="w-field" type="number" min="16" max="8192" step="16" bind:value={uploadKiBPerSecond} disabled={$boosterState.active || busy} /></label>
+            <label class="boost__field"><span class="w-label">{$_('volunteer_boost.memory_cache', { values: { unit: $_('volunteer_boost.unit_mib') } })}</span><input class="w-field" type="number" min="8" max="128" step="8" bind:value={cacheMiB} disabled={$boosterState.active || busy} /></label>
+            <label class="boost__field"><span class="w-label">{$_('volunteer_boost.session_budget', { values: { unit: $_('volunteer_boost.unit_mib') } })}</span><input class="w-field" type="number" min="8" max="4096" step="8" bind:value={sessionMiB} disabled={$boosterState.active || busy} /></label>
+            <p class="boost__note">{$_('volunteer_boost.limits_note')}</p>
         </div>
     {/if}
 
     <button type="button" class="w-disclosure" aria-expanded={testOpen} aria-controls="boost-test" onclick={() => (testOpen = !testOpen)}>
-        <Icon name="chevRight" />Download from volunteers
+        <Icon name="chevRight" />{$_('volunteer_boost.test_disclosure')}
     </button>
     {#if testOpen}
         <div class="w-disclosure__body boost__test" id="boost-test">
             <div class="w-srows boost__subrows">
                 <div class="w-srow">
                     <div class="w-srow__text">
-                        <p class="w-srow__label" id="boost-receive-label">Try volunteer downloads</p>
+                        <p class="w-srow__label" id="boost-receive-label">{$_('volunteer_boost.try_label')}</p>
                         <p class="w-srow__hint" id="boost-receive-hint">
                             {#if receiveLocked}
                                 <!-- The first row already gives the reason under the notice; say it once. -->
                                 {statusWord === statusWordUnknown ? '' : statusWord}
                             {:else}
-                                On this server, until you close the app.{#if $boosterState.receivedBytes > 0} {mib($boosterState.receivedBytes)} received so far.{/if}
+                                {$_('volunteer_boost.receive_until')}{#if $boosterState.receivedBytes > 0} {$_('volunteer_boost.received_so_far', { values: { bytes: mib($boosterState.receivedBytes) } })}{/if}
                             {/if}
                         </p>
                     </div>
@@ -132,7 +133,7 @@
                     </div>
                 </div>
             </div>
-            <p class="boost__note">Optional, even when you volunteer. Downloading from a member shows them your network address. Every file is checked against the server’s copy; anything missing or wrong comes from the server instead.</p>
+            <p class="boost__note">{$_('volunteer_boost.receive_note')}</p>
         </div>
     {/if}
 </section>

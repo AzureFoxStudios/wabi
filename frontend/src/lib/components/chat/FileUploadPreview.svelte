@@ -25,7 +25,7 @@
 				? $_('chat.upload.files_selected_one', { values: { count: filePreviews.length } })
 				: $_('chat.upload.files_selected_many', { values: { count: filePreviews.length } })}
 		</span>
-		<button type="button" class="cancel-gallery" aria-label="Cancel upload" on:click={onCancelUpload}>
+		<button type="button" class="cancel-gallery" aria-label={$_('file_upload_preview.cancel')} on:click={onCancelUpload}>
 			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
 		</button>
 	</div>
@@ -51,9 +51,9 @@
 				{/if}
 				<div class="gallery-file-info">
 					<div class="gallery-file-name" title={file.name}>{file.name}</div>
-					<div class="gallery-file-size">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+					<div class="gallery-file-size">{(file.size / 1024 / 1024).toFixed(2)} {$_('file_upload_preview.unit_mb')}</div>
 				</div>
-				<button type="button" class="remove-file" aria-label="Remove {file.name}" on:click={() => onRemoveFile(index)}>
+				<button type="button" class="remove-file" aria-label={$_('file_upload_preview.remove_file', { values: { name: file.name } })} on:click={() => onRemoveFile(index)}>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
 				</button>
 			</div>
@@ -67,18 +67,18 @@
 					checked={createAlbumFromUpload}
 					on:change={(event) => onAlbumUploadToggle((event.currentTarget as HTMLInputElement).checked)}
 				/>
-				<span>Turn this multi-photo upload into a shared album</span>
+				<span>{$_('file_upload_preview.album_toggle')}</span>
 			</label>
 			{#if createAlbumFromUpload}
 				{#if albums.length > 0}
 					<label class="upload-album-field">
-						<span>Add to album</span>
+						<span>{$_('context_menu.add_to_album')}</span>
 						<select
 							class="upload-album-name input"
 							value={targetAlbumId}
 							on:change={(e) => onAlbumTargetChange(Number((e.currentTarget as HTMLSelectElement).value))}
 						>
-							<option value={0}>Create a new album…</option>
+							<option value={0}>{$_('file_upload_preview.create_album_opt')}</option>
 							{#each albums as album (album.id)}
 								<option value={album.id}>{album.name}</option>
 							{/each}
@@ -87,7 +87,7 @@
 				{/if}
 				{#if targetAlbumId === 0}
 					<label class="upload-album-field">
-						<span>Album name</span>
+						<span>{$_('file_upload_preview.album_name')}</span>
 						<input
 							class="upload-album-name input"
 							type="text"
@@ -99,8 +99,8 @@
 				{/if}
 				<small class="upload-album-hint"
 					>{targetAlbumId > 0
-						? 'Files are added to the chosen album and posted to chat.'
-						: 'This name shows up in chat and in the Albums tab.'}</small
+						? $_('file_upload_preview.files_added')
+						: $_('file_upload_preview.name_shows')}</small
 				>
 			{/if}
 		</div>
@@ -108,7 +108,7 @@
 	<div class="gallery-footer">
 		<div class="spoiler-checkbox-container">
 			<span class="spoiler-label-text" title={$_('chat.upload.spoiler_hint')}
-				>{spoilerLocked ? '🔒 Spoiler channel' : $_('chat.upload.mark_spoiler')}</span
+				>{spoilerLocked ? $_('file_upload_preview.spoiler_channel') : $_('chat.upload.mark_spoiler')}</span
 			>
 			<button
 				type="button"
@@ -118,7 +118,7 @@
 				on:click={() => (markAsSpoiler = !markAsSpoiler)}
 				role="switch"
 				aria-checked={markAsSpoiler}
-				aria-label="Mark uploads as spoiler"
+				aria-label={$_('file_upload_preview.mark_spoiler_aria')}
 			></button>
 		</div>
 		<button type="button" class="upload-files-btn" on:click={() => void onUploadSelectedFiles()}>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, untrack } from 'svelte';
 	import { currentUser, serverMembers } from '$lib/presenceIdentity';
 	import { getSocket } from '$lib/socketConnection';
@@ -27,9 +28,9 @@
 	const canEdit = $derived(selectedId === 'new' || Boolean(selected && selected.authorUserId === myUserId));
 
 	function displayAuthor(note: SharedNote): string {
-		if (note.authorUserId === myUserId) return 'You';
+		if (note.authorUserId === myUserId) return $_('admin.you');
 		const member = $serverMembers.find((user) => user.dbUserId === note.authorUserId || user.id === `user-${note.authorUserId}`);
-		return member?.username || `Member ${note.authorUserId}`;
+		return member?.username || $_('shared_notes.member', { values: { id: note.authorUserId } });
 	}
 
 	function useNote(note: SharedNote) {
@@ -44,7 +45,7 @@
 	}
 
 	function leaveDraft(): boolean {
-		return !changed || window.confirm('Discard unsaved changes to this note?');
+		return !changed || window.confirm($_('shared_notes.confirm_discard'));
 	}
 
 	function select(note: SharedNote) {
@@ -61,7 +62,7 @@
 		savedText = '';
 		baselineRevision = 0;
 		remoteChange = false;
-		status = 'Draft on this device';
+		status = $_('shared_notes.draft_device');
 	}
 
 	async function load() {
@@ -85,12 +86,12 @@
 				}
 			} else if (selectedId && selectedId !== 'new' && !next) {
 				selectedId = null;
-				status = 'This note was removed from the conversation.';
+				status = $_('shared_notes.removed_convo');
 			}
 		} catch (failure) {
 			if (sequence !== requestSequence || room !== channelId) return;
 			loading = false;
-			error = sharedNoteErrorText(failure, 'Could not load shared notes.');
+			error = sharedNoteErrorText(failure, $_('shared_notes.err_load'));
 		}
 	}
 
@@ -99,7 +100,7 @@
 		const room = channelId;
 		const prior = selectedId === 'new' ? undefined : selected;
 		busy = true;
-		status = 'Saving for everyone…';
+		status = $_('shared_notes.saving_everyone');
 		error = '';
 		try {
 			const note = await saveSharedNote(room, { title, text }, prior);
@@ -108,16 +109,16 @@
 				.sort((a, b) => b.updatedAt - a.updatedAt);
 			useNote(note);
 			keepSharedNoteDraft(room, surface, { selectedId, title, text, savedTitle, savedText, baselineRevision });
-			status = 'Saved for everyone';
+			status = $_('shared_notes.saved_everyone');
 		} catch (failure) {
 			if (room !== channelId) return;
-			error = sharedNoteErrorText(failure, 'Could not share this note.');
-			status = 'Not saved';
+			error = sharedNoteErrorText(failure, $_('shared_notes.err_share'));
+			status = $_('shared_notes.not_saved');
 		} finally { busy = false; }
 	}
 
 	async function remove() {
-		if (!selected || !canEdit || busy || !window.confirm('Remove this shared note for everyone in the conversation?')) return;
+		if (!selected || !canEdit || busy || !window.confirm($_('shared_notes.confirm_remove'))) return;
 		const room = channelId;
 		busy = true;
 		try {
@@ -125,10 +126,10 @@
 			if (room !== channelId) return;
 			notes = notes.filter((note) => note.id !== selected?.id);
 			selectedId = null;
-			status = 'Removed for everyone';
+			status = $_('shared_notes.removed_everyone');
 			error = '';
 		} catch (failure) {
-			if (room === channelId) error = sharedNoteErrorText(failure, 'Could not remove this note.');
+			if (room === channelId) error = sharedNoteErrorText(failure, $_('shared_notes.err_remove'));
 		} finally { busy = false; }
 	}
 
@@ -151,7 +152,7 @@
 			baselineRevision = restored?.baselineRevision || 0;
 			loading = true;
 			error = '';
-			status = restored ? 'Unsaved draft restored on this device' : '';
+			status = restored ? $_('shared_notes.restored') : '';
 			privacyMode = 'unknown';
 			void load();
 		});
@@ -187,49 +188,49 @@
 	});
 </script>
 
-<section class="shared-notes" aria-label="Shared conversation notes">
+<section class="shared-notes" aria-label={$_('shared_notes.aria_section')}>
 	<header class="notes-header">
-		<div><h3>Shared notes</h3><p>Everyone in this conversation can see saved notes.</p></div>
-		<button type="button" class="new-note" onclick={startNew}>New note</button>
+		<div><h3>{$_('shared_notes.title')}</h3><p>{$_('shared_notes.subtitle')}</p></div>
+		<button type="button" class="new-note" onclick={startNew}>{$_('panels.new_note')}</button>
 	</header>
-	{#if error}<div class="note-error" role="alert">{error} <button type="button" onclick={() => void load()}>Retry</button></div>{/if}
+	{#if error}<div class="note-error" role="alert">{error} <button type="button" onclick={() => void load()}>{$_('common.retry')}</button></div>{/if}
 	{#if status && !error}<p class="note-status" role="status">{status}</p>{/if}
 	<div class="notes-body">
-		<aside class="notes-list" aria-label="Shared notes list">
-			{#if loading}<p class="notes-empty">Opening shared notes…</p>
-			{:else if !notes.length}<p class="notes-empty">Nothing shared here yet. Create a note when there is something to keep together.</p>
+		<aside class="notes-list" aria-label={$_('shared_notes.aria_list')}>
+			{#if loading}<p class="notes-empty">{$_('shared_notes.opening')}</p>
+			{:else if !notes.length}<p class="notes-empty">{$_('shared_notes.empty_list')}</p>
 			{/if}
 			{#each notes as note (note.id)}
 				<button type="button" class="note-row" class:selected={selectedId === note.id} onclick={() => select(note)}>
 					<strong>{note.title}</strong>
 					<span>{displayAuthor(note)} · {new Date(note.updatedAt).toLocaleDateString()}</span>
-					<small>{note.locked ? 'Unavailable on this device' : note.encrypted ? 'Experimental encryption' : 'Server-readable note'}</small>
+					<small>{note.locked ? $_('shared_notes.unavailable') : note.encrypted ? $_('privacy.state.experimental_encryption') : $_('shared_notes.server_readable_note')}</small>
 				</button>
 			{/each}
 		</aside>
 		<div class="note-detail">
 			{#if selectedId === 'new' || selected}
 				{#if selected?.locked}
-					<div class="note-empty"><h4>Cannot open this note</h4><p>{selected.openError}</p></div>
+					<div class="note-empty"><h4>{$_('shared_notes.cannot_open')}</h4><p>{selected.openError}</p></div>
 				{:else}
 					<div class="detail-top">
-						<span class="scope-label">{selectedId === 'new' ? 'Private draft until saved' : selected?.encrypted ? 'Experimental encryption for this conversation' : 'Server-readable shared note'}</span>
-						{#if remoteChange}<button type="button" onclick={() => selected && useNote(selected)}>Load newer version</button>{/if}
+						<span class="scope-label">{selectedId === 'new' ? $_('shared_notes.private_draft') : selected?.encrypted ? $_('shared_notes.enc_conv') : $_('shared_notes.readable_shared')}</span>
+						{#if remoteChange}<button type="button" onclick={() => selected && useNote(selected)}>{$_('shared_notes.load_newer')}</button>{/if}
 					</div>
-					<input class="note-title" aria-label="Shared note title" placeholder="Note title" maxlength="120" bind:value={title} readonly={!canEdit || busy}/>
-					<textarea aria-label="Shared note text" placeholder="Write something everyone in this conversation should have…" maxlength="20000" bind:value={text} readonly={!canEdit || busy}></textarea>
+					<input class="note-title" aria-label={$_('shared_notes.title_aria')} placeholder={$_('notebook.note_title')} maxlength="120" bind:value={title} readonly={!canEdit || busy}/>
+					<textarea aria-label={$_('shared_notes.text_aria')} placeholder={$_('shared_notes.text_placeholder')} maxlength="20000" bind:value={text} readonly={!canEdit || busy}></textarea>
 					<footer>
-						<span class="save-state" role="status">{busy ? 'Saving…' : changed ? 'Unsaved changes' : selectedId === 'new' ? 'Draft on this device' : 'Saved for everyone'}</span>
-						{#if canEdit}<button type="button" class="save-note" disabled={busy || !changed || !title.trim()} onclick={save}>{selectedId === 'new' ? 'Share note' : 'Save changes'}</button>{/if}
-						{#if selected && canEdit}<button type="button" class="remove-note" disabled={busy} onclick={remove}>Remove</button>{/if}
+						<span class="save-state" role="status">{busy ? $_('shared_notes.saving') : changed ? $_('common.unsaved_changes') : selectedId === 'new' ? $_('shared_notes.draft_device') : $_('shared_notes.saved_everyone')}</span>
+						{#if canEdit}<button type="button" class="save-note" disabled={busy || !changed || !title.trim()} onclick={save}>{selectedId === 'new' ? $_('shared_notes.share_note') : $_('shared_notes.save_changes')}</button>{/if}
+						{#if selected && canEdit}<button type="button" class="remove-note" disabled={busy} onclick={remove}>{$_('shared_notes.remove')}</button>{/if}
 					</footer>
 				{/if}
 			{:else}
-				<div class="note-empty"><h4>Keep it together</h4><p>Open a shared note or create one. Your personal notebook stays private in Notes.</p></div>
+				<div class="note-empty"><h4>{$_('shared_notes.keep_title')}</h4><p>{$_('shared_notes.keep_body')}</p></div>
 			{/if}
 		</div>
 	</div>
-	<p class="privacy-hint">{privacyMode === 'encrypted' ? 'Notes use this conversation’s experimental device encryption. The server stores ciphertext.' : privacyMode === 'pending' ? 'Encryption setup is pending. Notes cannot be shared yet.' : privacyMode === 'unconfirmed' ? 'Confirm server-readable chat in the conversation before sharing a note.' : privacyMode === 'readable' ? 'Saved notes are readable by this server’s operator and remain until removed.' : 'Shared notes follow this conversation’s privacy mode.'}</p>
+	<p class="privacy-hint">{privacyMode === 'encrypted' ? $_('shared_notes.privacy_encrypted') : privacyMode === 'pending' ? $_('shared_notes.privacy_pending') : privacyMode === 'unconfirmed' ? $_('shared_notes.privacy_unconfirmed') : privacyMode === 'readable' ? $_('shared_notes.privacy_readable') : $_('shared_notes.privacy_default')}</p>
 </section>
 
 <style>

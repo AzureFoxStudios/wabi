@@ -134,10 +134,10 @@
 
 	const PLACEHOLDER: Record<PaletteScope, string> = {
 		all: 'Search or jump to',
-		channels: 'Search channels',
-		people: 'Search people',
-		workspaces: 'Search workspaces and documents',
-		actions: 'Search actions'
+		channels: $_('jump_palette.ph_channels'),
+		people: $_('panels.search_people'),
+		workspaces: $_('jump_palette.ph_workspaces'),
+		actions: $_('jump_palette.ph_actions')
 	};
 	const placeholder = $derived(scope === 'all' ? tr('jump.placeholder', PLACEHOLDER.all) : PLACEHOLDER[scope]);
 
@@ -315,7 +315,7 @@
 	);
 	/** What happens next when nothing matches in Everything (§9.6). */
 	const emptyHint = $derived(
-		tr('jump.empty_hint', 'Check the spelling or type fewer letters. This finds channels, people, workspaces and actions by name; it does not search messages.')
+		$_('jump_palette.empty_hint')
 	);
 
 	// ---------------------------------------------------------------- opening a session
@@ -417,8 +417,8 @@
 	// One polite announcement after typing settles: count and scope.
 	$effect(() => {
 		if (!open) return;
-		const failed = documentsFailed ? '. Recent documents could not be read on this device' : '';
-		const text = `${countText}, ${scopeLabel(scope)}${failed}`;
+		const failed = documentsFailed ? $_('jump_palette.docs_unreadable_suffix') : '';
+		const text = $_('jump_palette.announce', { values: { count: countText, scope: scopeLabel(scope), failed } });
 		const timer = setTimeout(() => (announcement = text), 400);
 		return () => clearTimeout(timer);
 	});
@@ -906,8 +906,8 @@
 			<!-- Announced once by the polite count line, so no alert role here. -->
 			<div class="w-notice jump__notice">
 				<Icon name="alert" size={16} />
-				<p class="w-notice__title">Recent documents could not be read on this device.</p>
-				<p class="w-notice__text">Your drafts are unchanged. Workspaces, channels and people still work.</p>
+				<p class="w-notice__title">{$_('jump_palette.docs_unreadable')}</p>
+				<p class="w-notice__text">{$_('jump_palette.docs_unreadable_body')}</p>
 			</div>
 		</div>
 	{/if}
@@ -944,12 +944,12 @@
 					onkeydown={onKeydown}
 				/>
 				<kbd class="w-kbd jump__esc" aria-hidden="true">Esc</kbd>
-				<button type="button" class="w-ibtn jump__close" aria-label="Close" onclick={() => closePalette()}>
+				<button type="button" class="w-ibtn jump__close" aria-label={$_('common.close')} onclick={() => closePalette()}>
 					<Icon name="x" size={20} />
 				</button>
 			</div>
 
-			<div class="jump__scopes" role="group" aria-label="Search in">
+			<div class="jump__scopes" role="group" aria-label={$_('jump_palette.search_in')}>
 				{#each PALETTE_SCOPES as option (option)}
 					<button type="button" class="jump__scope" tabindex="-1" aria-pressed={scope === option} onclick={() => chooseScope(option)}>
 						{#if option !== 'all'}<kbd class="w-kbd jump__prefix" aria-hidden="true">{PALETTE_SCOPE_PREFIX[option]}</kbd>{/if}
@@ -1002,7 +1002,7 @@
 											>{#each highlightParts(item.title, result.ranges) as part, partIndex (partIndex)}{#if part.hit}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}{#if item.live}<span
 													class="jump__live"
 													aria-hidden="true"
-												></span>{/if}{#if item.current}<span class="jump__sr">, you are here</span>{/if}</span
+												></span>{/if}{#if item.current}<span class="jump__sr">{$_('jump_palette.you_are_here')}</span>{/if}</span
 										>
 										{#if item.subtitle}<span class="jump__sub">{item.subtitle}</span>{/if}
 									</span>
@@ -1022,7 +1022,7 @@
 												{/if}
 											{/each}
 											{#if item.unread}
-												<span class="w-badge w-badge--sm" aria-label="{item.unread} unread">{item.unread > 99 ? '99+' : item.unread}</span>
+												<span class="w-badge w-badge--sm" aria-label={$_('sidebar.unread_count', { values: { count: item.unread } })}>{item.unread > 99 ? '99+' : item.unread}</span>
 											{/if}
 										</span>
 									{/if}
@@ -1032,7 +1032,7 @@
 					{/each}
 					{#if documentsSlot >= sections.length}{@render documentsStatus()}{/if}
 				</div>
-				{#if showSkeleton}<span class="jump__sr" role="status">Loading recent documents</span>{/if}
+				{#if showSkeleton}<span class="jump__sr" role="status">{$_('jump_palette.loading_docs')}</span>{/if}
 
 				{#if flat.length === 0 && !showSkeleton && typed}
 					<div class="jump__empty" role="status">
@@ -1042,7 +1042,7 @@
 						{:else}
 							<button type="button" class="w-btn w-btn--quiet w-btn--sm jump__empty-act" tabindex="-1" onclick={() => chooseScope('all')}>
 								<Icon name="search" size={16} />
-								{tr('jump.search_everything', `Search ${scopeLabel('all')}`)}
+								{$_('jump_palette.search_everything', { values: { scope: scopeLabel('all') } })}
 							</button>
 						{/if}
 					</div>
@@ -1057,7 +1057,7 @@
 				</span>
 				<span class="jump__count">{countText}</span>
 			</div>
-			<span id={helpId} class="jump__sr">Arrow keys move through results, Enter opens one, Tab switches scope, Escape closes.</span>
+			<span id={helpId} class="jump__sr">{$_('jump_palette.help')}</span>
 			<span class="jump__sr" aria-live="polite">{announcement}</span>
 		</div>
 	</div>

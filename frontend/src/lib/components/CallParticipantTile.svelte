@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { RenderTile } from '$lib/callRenderModel';
 	import type { PresenterOverlayElement, PresenterOverlayTool } from '$lib/calling/presenterOverlay';
 	import PresenterOverlayCanvas from './PresenterOverlayCanvas.svelte';
@@ -66,9 +67,9 @@
 			type="button"
 			class="pin-btn"
 			on:click|stopPropagation={() => onPin(tile.id)}
-			title={isPinned ? 'Unpin tile' : 'Pin tile'}
+			title={isPinned ? $_('call_tile.unpin_tile') : $_('call_tile.pin_tile')}
 		>
-			{isPinned ? 'Unpin' : 'Pin'}
+			{isPinned ? $_('panels.unpin') : $_('panels.pin')}
 		</button>
 		<div class="bubble-avatar">
 			{#if avatarUrl}
@@ -81,7 +82,7 @@
 		{#if isMuted || isScreenSharing}
 			<div class="tile-status-chips">
 				{#if isMuted}
-					<span class="status-chip" title="Muted" aria-label="Muted">
+					<span class="status-chip" title={$_('calls.muted')} aria-label={$_('calls.muted')}>
 						<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<line x1="3" y1="3" x2="21" y2="21" />
 							<path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
@@ -91,7 +92,7 @@
 					</span>
 				{/if}
 				{#if isScreenSharing}
-					<span class="status-chip" title="Screen sharing" aria-label="Screen sharing">
+					<span class="status-chip" title={$_('call_tile.screen_sharing')} aria-label={$_('call_tile.screen_sharing')}>
 						<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
 							<line x1="8" y1="21" x2="16" y2="21" />
@@ -114,9 +115,9 @@
 			type="button"
 			class="pin-btn"
 			on:click|stopPropagation={() => onPin(tile.id)}
-			title={isPinned ? 'Unpin tile' : 'Pin tile'}
+			title={isPinned ? $_('call_tile.unpin_tile') : $_('call_tile.pin_tile')}
 		>
-			{isPinned ? 'Unpin' : 'Pin'}
+			{isPinned ? $_('panels.unpin') : $_('panels.pin')}
 		</button>
 		{#if tile.kind === 'avatar' || !tile.stream}
 			<div class="tile-avatar">
@@ -155,7 +156,7 @@
 		{#if isMuted || isScreenSharing}
 			<div class="tile-status-chips">
 				{#if isMuted}
-					<span class="status-chip" title="Muted" aria-label="Muted">
+					<span class="status-chip" title={$_('calls.muted')} aria-label={$_('calls.muted')}>
 						<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<line x1="3" y1="3" x2="21" y2="21" />
 							<path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
@@ -165,7 +166,7 @@
 					</span>
 				{/if}
 				{#if isScreenSharing}
-					<span class="status-chip" title="Screen sharing" aria-label="Screen sharing">
+					<span class="status-chip" title={$_('call_tile.screen_sharing')} aria-label={$_('call_tile.screen_sharing')}>
 						<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
 							<line x1="8" y1="21" x2="16" y2="21" />
@@ -176,7 +177,7 @@
 			</div>
 		{/if}
 		{#if isDisconnected}
-			<div class="tile-status">Disconnected</div>
+			<div class="tile-status">{$_('call_tile.disconnected')}</div>
 		{/if}
 	</article>
 {/if}

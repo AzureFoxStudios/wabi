@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, untrack, type Snippet } from 'svelte';
 	import type { LoreFileInfo } from '$lib/api/lore';
 	import { LoreConflictError, downloadLoreFileText, getSignedLoreUrl, saveLoreFileContent } from '$lib/api/lore';
@@ -33,7 +34,7 @@
 	let { filePath, fileContent, fileInfo, loading, onClose, mediaUrl = null, canEdit = false, token, channelId, onSaved, onDirtyChange, actions, highlightLines = null, onLinkLines }: Props = $props();
 	let viewer = $state<HTMLElement>();
 	let expanded = $state(false);
-	async function toggleFullscreen() { try { if (document.fullscreenElement === viewer) await document.exitFullscreen(); else await viewer?.requestFullscreen(); } catch { error = 'Fullscreen is unavailable in this window.'; } }
+	async function toggleFullscreen() { try { if (document.fullscreenElement === viewer) await document.exitFullscreen(); else await viewer?.requestFullscreen(); } catch { error = $_('lore_viewer.fullscreen_unavailable'); } }
 	let mode = $state<'read' | 'source' | 'edit'>('read');
 	let host = $state<HTMLDivElement>();
 	let editor: EditorView | undefined;
@@ -106,14 +107,14 @@
 		try {
 			const result = await downloadLoreFileText(token, channelId, filePath);
 			if (!requests.current(request)) return;
-			if (result.content.length > 1024 * 1024) throw new Error('This file is too large for the inline editor. Use your local folder.');
+			if (result.content.length > 1024 * 1024) throw new Error($_('lore_viewer.too_large_editor'));
 			submittedContent = null; baseline = result.content; draft = result.content; baselineEtag = result.etag; conflict = null; mode = 'edit';
-		} catch (e) { if (requests.current(request)) error = e instanceof Error ? e.message : 'Could not open editor.'; }
+		} catch (e) { if (requests.current(request)) error = e instanceof Error ? e.message : $_('lore_viewer.open_editor_failed'); }
 		finally { if (requests.current(request)) busy = false; }
 	}
 	async function saveRevision(replaceConflict = false) {
 		if (!token || channelId === undefined || busy || mode !== 'edit' || !editor || (!dirty && !conflict)) return;
-		if (replaceConflict && !window.confirm('Replace the current server version with your edited content? A revision will be published.')) return;
+		if (replaceConflict && !window.confirm($_('lore_viewer.replace_confirm'))) return;
 		const content = editor.state.doc.toString();
 		const expected = replaceConflict ? conflict?.currentEtag ?? null : baselineEtag;
 		const request = requests.begin(); busy = true; error = ''; notice = '';
@@ -121,21 +122,21 @@
 			const result = await saveLoreFileContent(token, channelId, filePath, content, expected, `Edit ${filePath} in Wabi`);
 			if (!requests.current(request)) return;
 			if (result.pending_review) {
-				notice = 'Submitted for review. The official file has not been replaced.';
+				notice = $_('lore_viewer.submitted_review');
 				submittedContent = content; // Avoid resubmitting the same bytes; keep the official baseline unchanged.
 			} else {
 				baseline = content; baselineEtag = result.etag ?? baselineEtag; savedContent = content;
-				notice = result.wdbRecorded === false ? 'File accepted; activity recording failed on the server.' : 'Revision saved.';
+				notice = result.wdbRecorded === false ? $_('lore_viewer.record_failed') : $_('lore_viewer.revision_saved');
 			}
 			conflict = null; onSaved?.();
 		} catch (e) {
 			if (!requests.current(request)) return;
 			if (e instanceof LoreConflictError) conflict = { currentEtag: e.currentEtag };
-			else error = e instanceof Error ? e.message : 'Save failed. Your edits are still here.';
+			else error = e instanceof Error ? e.message : $_('lore_viewer.save_failed');
 		} finally { if (requests.current(request)) busy = false; }
 	}
 	function finishEditing() {
-		if (busy || (dirty && !window.confirm('Discard your unsaved editor changes?'))) return;
+		if (busy || (dirty && !window.confirm($_('lore_viewer.discard_confirm')))) return;
 		mode = 'read'; conflict = null; error = '';
 	}
 	function linkSelectedLines() {
@@ -147,7 +148,7 @@
 		const end = doc.lineAt(to > from && doc.lineAt(to).from === to ? to - 1 : to).number;
 		onLinkLines(start, Math.max(start, end));
 	}
-	function close() { if (!busy && (!dirty || window.confirm('Discard your unsaved editor changes and close this file?'))) onClose(); }
+	function close() { if (!busy && (!dirty || window.confirm($_('lore_viewer.discard_close_confirm')))) onClose(); }
 	async function download() {
 		if (!token || channelId === undefined) return;
 		const request = filePath;
@@ -155,44 +156,44 @@
 			const url = await getSignedLoreUrl(token, channelId, request);
 			if (request !== filePath) return;
 			const anchor = document.createElement('a'); anchor.href = url; anchor.download = filePath.split('/').pop() ?? 'file'; anchor.rel = 'noopener'; anchor.click();
-		} catch (e) { error = e instanceof Error ? e.message : 'Download failed.'; }
+		} catch (e) { error = e instanceof Error ? e.message : $_('lore_project.download_failed'); }
 	}
 </script>
 
 <svelte:window onbeforeunload={(event) => { if (dirty || busy) { event.preventDefault(); event.returnValue = ''; } }} />
 <svelte:document onfullscreenchange={() => expanded = document.fullscreenElement === viewer} />
-<section bind:this={viewer} class="lore-file-viewer" aria-label={`File ${filePath}`}>
+<section bind:this={viewer} class="lore-file-viewer" aria-label={$_('lore_viewer.file_label', { values: { path: filePath } })}>
 	<header class="viewer-header">
 		<div class="viewer-filename"><LoreIcon name="file" /><span title={filePath}>{filePath}</span>{#if fileInfo}<small>{formatBytes(fileInfo.size)}</small>{/if}</div>
 		<div class="viewer-actions">
-			<button onclick={toggleFullscreen}>{expanded ? 'Exit fullscreen' : 'Fullscreen'}</button>
+			<button onclick={toggleFullscreen}>{expanded ? $_('lore_viewer.exit_fullscreen') : $_('lore_viewer.fullscreen')}</button>
 			{#if actions}{@render actions()}{/if}
 			{#if mode === 'edit'}
-				<span class="viewer-save-state">{dirty ? 'Unsaved edits' : submittedContent === draft ? 'Submitted for review' : 'No unsaved edits'}</span>
-				<button disabled={busy} onclick={finishEditing}>{dirty ? 'Discard edits' : 'Done'}</button>
-				<button class="viewer-primary" disabled={busy || !dirty || !!conflict} onclick={() => void saveRevision()}>{busy ? 'Saving…' : 'Save revision'}</button>
+				<span class="viewer-save-state">{dirty ? $_('lore_viewer.unsaved_edits') : submittedContent === draft ? $_('lore_viewer.submitted_review_state') : $_('lore_viewer.no_unsaved')}</span>
+				<button disabled={busy} onclick={finishEditing}>{dirty ? $_('lore_viewer.discard_edits') : $_('login.wizard.step_done')}</button>
+				<button class="viewer-primary" disabled={busy || !dirty || !!conflict} onclick={() => void saveRevision()}>{busy ? $_('lore_viewer.saving') : $_('lore_viewer.save_revision')}</button>
 			{:else}
-				{#if onLinkLines && source !== null && !(mode === 'read' && readable)}<button onclick={linkSelectedLines} title="Select some lines first; this copies a link that opens this file scrolled to them">Link selected lines</button>{/if}
-				{#if source !== null}<button onclick={() => void navigator.clipboard.writeText(source!).then(() => notice = 'Content copied.').catch(() => error = 'Could not copy content.')}>Copy</button>{/if}
-				{#if readable}<button aria-pressed={mode === 'source'} onclick={() => mode = mode === 'source' ? 'read' : 'source'}>{mode === 'source' ? 'Read document' : 'View source'}</button>{/if}
-				{#if editable}<button disabled={busy} onclick={() => void enterEdit()}>{busy ? 'Opening…' : 'Edit'}</button>{/if}
+				{#if onLinkLines && source !== null && !(mode === 'read' && readable)}<button onclick={linkSelectedLines} title={$_('lore_viewer.link_lines_title')}>{$_('lore_viewer.link_lines')}</button>{/if}
+				{#if source !== null}<button onclick={() => void navigator.clipboard.writeText(source!).then(() => notice = $_('lore_viewer.content_copied')).catch(() => error = $_('lore_viewer.copy_failed'))}>{$_('lore_viewer.copy')}</button>{/if}
+				{#if readable}<button aria-pressed={mode === 'source'} onclick={() => mode = mode === 'source' ? 'read' : 'source'}>{mode === 'source' ? $_('lore_viewer.read_document') : $_('lore_viewer.view_source')}</button>{/if}
+				{#if editable}<button disabled={busy} onclick={() => void enterEdit()}>{busy ? $_('lore_viewer.opening') : $_('office.editor.edit')}</button>{/if}
 			{/if}
-			<button class="viewer-icon" onclick={() => void download()} aria-label="Download this file" title="Download this file"><LoreIcon name="download" /></button>
-			<button class="viewer-icon" onclick={close} disabled={busy} aria-label="Close file" title="Close file"><LoreIcon name="close" /></button>
+			<button class="viewer-icon" onclick={() => void download()} aria-label={$_('lore_viewer.download_this')} title={$_('lore_viewer.download_this')}><LoreIcon name="download" /></button>
+			<button class="viewer-icon" onclick={close} disabled={busy} aria-label={$_('lore_viewer.close_file')} title={$_('lore_viewer.close_file')}><LoreIcon name="close" /></button>
 		</div>
 	</header>
 	{#if error}<p class="viewer-notice error" role="alert">{error}</p>{/if}
 	{#if notice}<p class="viewer-notice" role="status">{notice}</p>{/if}
 	{#if conflict}
-		<div class="viewer-notice" role="alert"><strong>The server file changed.</strong> Your edits have not been published.
-			<button disabled={busy} onclick={() => void saveRevision(true)}>Replace server version…</button>
-			<button disabled={busy} onclick={() => { conflict = null; }}>Keep editing</button>
+		<div class="viewer-notice" role="alert"><strong>{$_('lore_viewer.changed_strong')}</strong> {$_('lore_viewer.edits_not_published')}
+			<button disabled={busy} onclick={() => void saveRevision(true)}>{$_('lore_viewer.replace_server')}</button>
+			<button disabled={busy} onclick={() => { conflict = null; }}>{$_('lore_viewer.keep_editing')}</button>
 		</div>
 	{/if}
 	<div class="viewer-body">
-		{#if loading}<p class="viewer-empty" role="status">Loading file…</p>
+		{#if loading}<p class="viewer-empty" role="status">{$_('lore_viewer.loading_file')}</p>
 		{:else if mediaUrl}<div class="viewer-image"><img src={mediaUrl} alt={filePath} /></div>
-		{:else if source === null}<div class="viewer-empty"><h3>Preview not available</h3><p>Download this file or open it from your connected folder.</p><button onclick={() => void download()}>Download file</button></div>
+		{:else if source === null}<div class="viewer-empty"><h3>{$_('lore_viewer.preview_unavailable')}</h3><p>{$_('lore_viewer.preview_download_body')}</p><button onclick={() => void download()}>{$_('lore_project.download_file')}</button></div>
 		{:else if mode === 'read' && readable}<article class="lore-document">{@html renderLoreDocument(source)}</article>
 		{:else}<div class="viewer-editor" bind:this={host}></div>{/if}
 	</div>

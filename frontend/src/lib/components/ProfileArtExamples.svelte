@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { PROFILE_ART_EXAMPLES, type ProfileArtExample } from '$lib/profileArtExamples';
 	import { profileMotionAllowed } from '$lib/profileAppearance';
 	import ProfileName from './ProfileName.svelte';
@@ -10,23 +11,23 @@
 
 <section class="art-examples" aria-labelledby="art-examples-heading">
 	<div class="examples-heading">
-		<div><h4 id="art-examples-heading">Try a complete look</h4><p>Example artwork and editable name designs. Downloads are separate; choose what to use.</p></div>
-		<button type="button" class="examples-motion" disabled={!$profileMotionAllowed} aria-pressed={playing && $profileMotionAllowed} onclick={() => playing = !playing}>{playing && $profileMotionAllowed ? 'Pause example' : 'Play animated example'}</button>
+		<div><h4 id="art-examples-heading">{$_('profile_art.heading')}</h4><p>{$_('profile_art.heading_help')}</p></div>
+		<button type="button" class="examples-motion" disabled={!$profileMotionAllowed} aria-pressed={playing && $profileMotionAllowed} onclick={() => playing = !playing}>{playing && $profileMotionAllowed ? $_('profile_art.pause') : $_('profile_art.play')}</button>
 	</div>
-	{#if !$profileMotionAllowed}<p class="examples-motion-note">Animation is paused by your appearance or reduced motion settings.</p>{/if}
+	{#if !$profileMotionAllowed}<p class="examples-motion-note">{$_('profile_art.motion_note')}</p>{/if}
 	<div class="examples-grid">
 		{#each PROFILE_ART_EXAMPLES as example (example.id)}
 			<article class="example-card">
-				<div class="example-banner"><ProfileMedia src={example.animation && playing && $profileMotionAllowed ? example.banner : example.still} alt={`${example.title} banner example`} class="example-banner-image" /></div>
-				<div class="example-person"><span class="example-avatar" aria-hidden="true">A</span><strong><ProfileName username="Your name" font={example.usernameFont} preview={true} /></strong><span class="example-handle">@your-handle · example</span></div>
+				<div class="example-banner"><ProfileMedia src={example.animation && playing && $profileMotionAllowed ? example.banner : example.still} alt={$_('profile_art.banner_alt', { values: { title: example.title } })} class="example-banner-image" /></div>
+				<div class="example-person"><span class="example-avatar" aria-hidden="true">A</span><strong><ProfileName username={$_('profile_art.your_name')} font={example.usernameFont} preview={true} /></strong><span class="example-handle">@your-handle · {$_('profile_art.example')}</span></div>
 				<div class="example-info"><h5>{example.title}</h5><p>{example.description}</p><span class="example-spec">{example.canvas}{example.animation ? ` · ${example.animation}` : ''}</span></div>
-				<div class="example-downloads"><a href={example.banner} download>Download banner · {example.animation ? 'WebP' : 'PNG'}</a>{#if example.gif}<a href={example.gif} download>GIF version</a><a href={example.still} download>Still image · PNG</a>{/if}<a href={example.nameFile} download>Name design · JSON</a>{#if example.source}<a href={example.source} download>Editable animation source</a>{/if}</div>
-				<button type="button" class="example-edit" onclick={() => onUseDesign(example)}>Edit {example.title} name design</button>
+				<div class="example-downloads"><a href={example.banner} download>{$_('profile_art.download_banner')} · {example.animation ? 'WebP' : 'PNG'}</a>{#if example.gif}<a href={example.gif} download>{$_('profile_art.gif_version')}</a><a href={example.still} download>{$_('profile_art.still_image')} · PNG</a>{/if}<a href={example.nameFile} download>{$_('profile_art.name_design')} · JSON</a>{#if example.source}<a href={example.source} download>{$_('profile_art.animation_source')}</a>{/if}</div>
+				<button type="button" class="example-edit" onclick={() => onUseDesign(example)}>{$_('profile_art.edit_design', { values: { title: example.title } })}</button>
 			</article>
 		{/each}
 	</div>
-	<p class="examples-footnote">Editing loads the name and plate into your draft. Publish design applies it to your profile. Download a banner and use Upload banner to add the artwork.</p>
-	<a class="examples-pack" href="/profile-art/examples/profile-examples.zip" download>Download both examples, designs & source · ZIP</a>
+	<p class="examples-footnote">{$_('profile_art.footnote')}</p>
+	<a class="examples-pack" href="/profile-art/examples/profile-examples.zip" download>{$_('profile_art.pack')} · ZIP</a>
 </section>
 
 <style>

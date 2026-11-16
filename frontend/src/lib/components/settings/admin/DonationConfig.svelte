@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type {
 		PaymentDonationConfig,
 		PaymentProviderCapability,
@@ -36,23 +37,23 @@
 </script>
 
 <div class="upload-limits-panel">
-	<h4>Server Donations</h4>
-	<p class="admin-help">Configure a single server donation route. Users will see transparency totals and a donate flow based on this setup.</p>
+	<h4>{$_('donation_config.title')}</h4>
+	<p class="admin-help">{$_('donation_config.help')}</p>
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Enable Donations</span>
-			<span class="setting-description">Show the server donation entry and allow donation-tagged payment requests.</span>
+			<span class="setting-label">{$_('donation_config.enable_label')}</span>
+			<span class="setting-description">{$_('donation_config.enable_desc')}</span>
 		</div>
 		<button
 			class="toggle-btn"
 			class:active={adminDonationConfig.enabled}
 			on:click={() => onConfigChange({ ...adminDonationConfig, enabled: !adminDonationConfig.enabled })}
 		>
-			{adminDonationConfig.enabled ? 'ON' : 'OFF'}
+			{adminDonationConfig.enabled ? $_('donation_config.on') : $_('donation_config.off')}
 		</button>
 	</div>
 	<div class="quality-mode-row">
-		<label for="donation-provider-select">Donation Provider</label>
+		<label for="donation-provider-select">{$_('donation_config.provider_label')}</label>
 		<select
 			id="donation-provider-select"
 			class="theme-select"
@@ -67,28 +68,28 @@
 				});
 			}}
 		>
-			<option value="">Select provider</option>
+			<option value="">{$_('donation_config.select_provider')}</option>
 			{#each paymentProviderCapabilities as provider}
 				<option value={provider.pluginId}>{provider.providerName} ({provider.pluginId})</option>
 			{/each}
 		</select>
 	</div>
 	<div class="quality-mode-row">
-		<label for="donation-method-select">Donation Method</label>
+		<label for="donation-method-select">{$_('donation_config.method_label')}</label>
 		<select
 			id="donation-method-select"
 			class="theme-select"
 			value={adminDonationConfig.methodId || ''}
 			on:change={(event) => onConfigChange({ ...adminDonationConfig, methodId: event.currentTarget.value || null })}
 		>
-			<option value="">Select method</option>
+			<option value="">{$_('donation_config.select_method')}</option>
 			{#each adminDonationMethods as method}
 				<option value={method.id}>{method.label}</option>
 			{/each}
 		</select>
 	</div>
 	<div class="quality-mode-row">
-		<label for="donation-currency-select">Currency</label>
+		<label for="donation-currency-select">{$_('donation_config.currency')}</label>
 		{#if adminDonationCurrencyOptions.length > 0}
 			<select
 				id="donation-currency-select"
@@ -111,7 +112,7 @@
 		{/if}
 	</div>
 	<div class="quality-mode-row">
-		<label for="donation-country-select">Country</label>
+		<label for="donation-country-select">{$_('donation_config.country')}</label>
 		{#if adminDonationCountryOptions.length > 0}
 			<select
 				id="donation-country-select"
@@ -136,20 +137,20 @@
 	<div class="donation-audit-panel">
 		<div class="donation-audit-header">
 			<div>
-				<h5>Public Donation Route Preview</h5>
-				<p class="admin-help">This is the exact route the public donation sheet will use.</p>
+				<h5>{$_('donation_config.preview_title')}</h5>
+				<p class="admin-help">{$_('donation_config.preview_help')}</p>
 			</div>
 			<button class="action-btn" on:click={onOpenServerDonation}>
-				Preview Public View
+				{$_('donation_config.preview_btn')}
 			</button>
 		</div>
 		<div class="donation-audit-list">
 			<div class="donation-audit-item">
 				<div class="donation-audit-copy">
-					<strong>{adminDonationSelectedProvider?.providerName || 'No provider selected'}</strong>
-					<span>{adminDonationSelectedMethod?.label || 'No method selected'}</span>
-					<small>{adminDonationConfig.countryCode || 'Any country'} - {adminDonationConfig.currency || 'Any currency'}</small>
-					<small>Suggested amounts: {getDonationRouteSummaryList(parseSuggestedAmountsInput(donationSuggestedAmountsInput))}</small>
+					<strong>{adminDonationSelectedProvider?.providerName || $_('donation_config.no_provider')}</strong>
+					<span>{adminDonationSelectedMethod?.label || $_('donation_config.no_method')}</span>
+					<small>{adminDonationConfig.countryCode || $_('donation_config.any_country')} - {adminDonationConfig.currency || $_('donation_config.any_currency')}</small>
+					<small>{$_('donation_config.suggested_amounts')}: {getDonationRouteSummaryList(parseSuggestedAmountsInput(donationSuggestedAmountsInput))}</small>
 					{#if adminDonationSelectedProvider?.notes}
 						<small>{adminDonationSelectedProvider.notes}</small>
 					{/if}
@@ -162,13 +163,13 @@
 					disabled={!donationRoutePreviewReady}
 					on:click={onOpenServerDonation}
 				>
-					{donationRoutePreviewReady ? 'Route Ready' : 'Needs Setup'}
+					{donationRoutePreviewReady ? $_('donation_config.route_ready') : $_('donation_config.needs_setup')}
 				</button>
 			</div>
 		</div>
 	</div>
 	<div class="quality-mode-row">
-		<label for="donation-headline-input">Headline</label>
+		<label for="donation-headline-input">{$_('donation_config.headline')}</label>
 		<input
 			id="donation-headline-input"
 			class="emoji-name-input"
@@ -178,7 +179,7 @@
 		/>
 	</div>
 	<div class="quality-mode-row">
-		<label for="donation-description-input">Description</label>
+		<label for="donation-description-input">{$_('donation_config.description')}</label>
 		<input
 			id="donation-description-input"
 			class="emoji-name-input"
@@ -188,7 +189,7 @@
 		/>
 	</div>
 	<div class="quality-mode-row">
-		<label for="donation-amounts-input">Suggested Amounts</label>
+		<label for="donation-amounts-input">{$_('donation_config.amounts_label')}</label>
 		<input
 			id="donation-amounts-input"
 			class="emoji-name-input"
@@ -198,26 +199,26 @@
 		/>
 	</div>
 	<button class="action-btn" on:click={onSaveDonationConfig} disabled={!canManageAdmin || adminDonationConfigLoading || adminDonationConfigSaving}>
-		{adminDonationConfigSaving ? 'Saving...' : 'Save Donation Settings'}
+		{adminDonationConfigSaving ? $_('donation_config.saving') : $_('donation_config.save_btn')}
 	</button>
 	<div class="donation-audit-panel">
 		<div class="donation-audit-header">
 			<div>
-				<h5>Donation Audit Trail</h5>
-				<p class="admin-help">This covers server donations only. Direct user-to-user payments stay private.</p>
+				<h5>{$_('donation_config.audit_title')}</h5>
+				<p class="admin-help">{$_('donation_config.audit_help')}</p>
 			</div>
 			<button
 				class="action-btn"
 				on:click={onRefreshAudit}
 				disabled={adminDonationAuditLoading || adminDonationRefundingIntentId !== ''}
 			>
-				{adminDonationAuditLoading ? 'Refreshing...' : 'Refresh Audit'}
+				{adminDonationAuditLoading ? $_('donation_config.refreshing') : $_('donation_config.refresh_audit')}
 			</button>
 		</div>
 		{#if adminDonationAuditLoading && adminDonationAudit.length === 0}
-			<p class="admin-help">Loading donation audit trail...</p>
+			<p class="admin-help">{$_('donation_config.audit_loading')}</p>
 		{:else if adminDonationAudit.length === 0}
-			<p class="admin-help">No donation activity yet.</p>
+			<p class="admin-help">{$_('donation_config.audit_empty')}</p>
 		{:else}
 			<div class="donation-audit-list">
 				{#each adminDonationAudit as entry (entry.intentId)}
@@ -232,7 +233,7 @@
 							disabled={!entry.canRefund || adminDonationRefundingIntentId !== '' || !canManageAdmin}
 							on:click={() => onRefund(entry)}
 						>
-							{adminDonationRefundingIntentId === entry.intentId ? 'Refunding...' : (entry.canRefund ? 'Refund' : 'Closed')}
+							{adminDonationRefundingIntentId === entry.intentId ? $_('donation_config.refunding') : (entry.canRefund ? $_('donation_config.refund') : $_('login.wizard.join_closed_label'))}
 						</button>
 					</div>
 				{/each}

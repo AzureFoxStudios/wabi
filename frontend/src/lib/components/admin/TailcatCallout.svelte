@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Discoverability callout for private access (the "informed default"
 	 * contract's first half): on the admin overview, when the pipe is off,
@@ -33,11 +34,11 @@
 {#if show}
 	<div class="callout">
 		<div>
-			<strong>Family &amp; friends server?</strong>
-			Enable private access — members connect with one code, no port forwarding, nothing public.
-			Find it in <em>Runtime → Private access</em>.
+			<strong>{$_('tailcat_callout.title')}</strong>
+			{$_('tailcat_callout.body')}
+			{$_('tailcat_callout.find_in')} <em>{$_('tailcat_callout.runtime_path')}</em>.
 		</div>
-		<button aria-label="Dismiss" onclick={dismiss}>×</button>
+		<button aria-label={$_('common.dismiss')} onclick={dismiss}>×</button>
 	</div>
 {/if}
 

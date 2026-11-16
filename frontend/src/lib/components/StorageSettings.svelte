@@ -23,17 +23,17 @@
   let mounted = false;
   const isTauri = isTauriRuntime();
   // Said once, under "Waiting on this device"; the rows above describe what they do.
-  const NOT_READY = `Not ready yet. Check again once ${brandName} has connected.`;
+  const NOT_READY = $_('storage_settings.not_ready', { values: { brand: brandName } });
 
   /** The member-facing scopes: chat sends can be switched; required app actions are a fact. */
   const chatScope = $derived(scopes.find((scope) => scope.scopeId === 'corechat') ?? null);
   const otherScopes = $derived(scopes.filter((scope) => scope.scopeId !== 'corechat' && scope.scopeId !== 'system' && scope.userControl !== 'always'));
   const queueWords = $derived(
     queueCounts.failed
-      ? `${queueCounts.failed} ${queueCounts.failed === 1 ? 'action' : 'actions'} didn't reach the server.`
+      ? (queueCounts.failed === 1 ? $_('storage_settings.failed_one', { values: { count: queueCounts.failed } }) : $_('storage_settings.failed_many', { values: { count: queueCounts.failed } }))
       : queueCounts.pending
-        ? `${queueCounts.pending} ${queueCounts.pending === 1 ? 'action is' : 'actions are'} waiting for a connection.`
-        : 'Nothing is waiting. Everything has reached the server.'
+        ? (queueCounts.pending === 1 ? $_('storage_settings.pending_one', { values: { count: queueCounts.pending } }) : $_('storage_settings.pending_many', { values: { count: queueCounts.pending } }))
+        : $_('storage_settings.nothing_waiting')
   );
 
   async function refreshQueue() {
@@ -69,7 +69,7 @@
       if (!db) throw new Error(get(_)('storage.archiveBoundary.queueUnavailable'));
       await db.retryFailed();
       if (mounted) notice = get(_)('storage.archiveBoundary.retryMarked');
-    }, "The retry didn't start.");
+    }, $_('storage_settings.retry_failed'));
   }
 
   async function toggleScope(scopeId: string, enable: boolean) {
@@ -77,7 +77,7 @@
       const db = getWabiDB();
       if (!db) throw new Error(get(_)('storage.archiveBoundary.queueUnavailable'));
       if (enable) await db.enableScope(scopeId); else await db.disableScope(scopeId);
-    }, "That change didn't save.");
+    }, $_('storage_settings.change_not_saved'));
   }
 
   function scopeLabel(scope: ScopeStatus): string {
@@ -93,11 +93,11 @@
 
 <div class="storage-settings">
   <section class="settings-block" aria-labelledby="storage-history-title">
-    <h3 class="settings-block__title" id="storage-history-title">Chat history</h3>
+    <h3 class="settings-block__title" id="storage-history-title">{$_('storage.archiveBoundary.title')}</h3>
     <p class="settings-block__hint">{$_('storage.archiveBoundary.explanation')}</p>
     {#if isTauri}<p class="storage-settings__note">{$_('storage.archiveBoundary.native')}</p>{/if}
     <button type="button" class="w-disclosure storage-settings__disclosure" aria-expanded={olderOpen} aria-controls="storage-older" onclick={() => (olderOpen = !olderOpen)}>
-      <Icon name="chevRight" />Older saved files
+      <Icon name="chevRight" />{$_('storage_settings.older_saved')}
     </button>
     {#if olderOpen}
       <div class="w-disclosure__body" id="storage-older">
@@ -107,26 +107,26 @@
   </section>
 
   <section class="settings-block" aria-labelledby="storage-offline-title" aria-busy={working}>
-    <h3 class="settings-block__title" id="storage-offline-title">While you're offline</h3>
+    <h3 class="settings-block__title" id="storage-offline-title">{$_('storage_settings.offline_title')}</h3>
     <p class="settings-block__hint">{$_('storage.archiveBoundary.queueExplanation')}</p>
 
     {#if error}
       <div class="w-notice storage-settings__notice" role="alert">
         <Icon name="alert" />
         <p class="w-notice__title">{error}</p>
-        <p class="w-notice__text">Nothing waiting on this device was lost.</p>
+        <p class="w-notice__text">{$_('storage_settings.lost_note')}</p>
       </div>
     {/if}
 
     <div class="w-srows">
       <div class="w-srow">
         <div class="w-srow__text">
-          <p class="w-srow__label" id="storage-chat-label">Send chat messages later</p>
+          <p class="w-srow__label" id="storage-chat-label">{$_('storage_settings.send_later')}</p>
           <p class="w-srow__hint">
             {#if ready && !chatScope}
-              This server doesn't support waiting messages.
+              {$_('storage_settings.not_supported')}
             {:else}
-              Messages you send without a connection wait on this device and go out when {brandName} reconnects.
+              {$_('storage_settings.chat_waits', { values: { brand: brandName } })}
             {/if}
           </p>
         </div>
@@ -147,7 +147,7 @@
         <div class="w-srow">
           <div class="w-srow__text">
             <p class="w-srow__label" id={`storage-scope-${scope.scopeId}`}>{scopeLabel(scope)}</p>
-            <p class="w-srow__hint">Waits on this device until {brandName} reconnects.</p>
+            <p class="w-srow__hint">{$_('storage_settings.scope_waits', { values: { brand: brandName } })}</p>
           </div>
           <div class="w-srow__control">
             <button type="button" class="w-switch" role="switch" aria-labelledby={`storage-scope-${scope.scopeId}`} aria-checked={scope.enabled} disabled={working} onclick={() => toggleScope(scope.scopeId, !scope.enabled)}></button>
@@ -157,12 +157,12 @@
 
       <div class="w-srow">
         <div class="w-srow__text">
-          <p class="w-srow__label">Waiting on this device</p>
+          <p class="w-srow__label">{$_('storage_settings.waiting_h')}</p>
           <p class="w-srow__hint" role="status">{ready ? queueWords : NOT_READY}{#if notice} {notice}{/if}</p>
         </div>
         <div class="w-srow__control">
           <button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={working} aria-busy={working} onclick={() => run()}>
-            Check again
+            {$_('storage_settings.check_again')}
           </button>
           <button type="button" class="w-btn w-btn--sm" disabled={working || !ready || queueCounts.failed === 0} onclick={retry}>
             {$_('storage.offline.retry.button')}
@@ -170,6 +170,6 @@
         </div>
       </div>
     </div>
-    <p class="storage-settings__note">Some app actions always wait for a connection; they can't be turned off.</p>
+    <p class="storage-settings__note">{$_('storage_settings.always_wait')}</p>
   </section>
 </div>

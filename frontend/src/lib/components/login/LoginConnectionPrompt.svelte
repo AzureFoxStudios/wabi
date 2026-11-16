@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import { setConfiguredServerUrl } from '$lib/serverUrl';
 	import { brandConfig, brandName } from '$lib/branding';
@@ -23,7 +24,7 @@
 			dispatch('applied', { serverDomain: normalized });
 		} catch (err) {
 			console.warn('[login] server address rejected', err);
-			connectionError = 'Enter a domain like example.org or a full https:// address.';
+			connectionError = $_('login_connection.invalid');
 		}
 	}
 
@@ -36,10 +37,10 @@
 </script>
 
 <form class="connection-box" on:submit|preventDefault={apply}>
-	<p class="w-kicker connection-kicker">Server connection</p>
-	<h3>Connect to a {brandName} domain</h3>
-	<p class="connection-copy">Point this client at your self-hosted server. You can change it later from the sign-in screen.</p>
-	<label class="w-label" for="login-connection-domain">Domain or URL</label>
+	<p class="w-kicker connection-kicker">{$_('login_connection.server_connection')}</p>
+	<h3>{$_('login_connection.title', { values: { brand: brandName } })}</h3>
+	<p class="connection-copy">{$_('login_connection.copy')}</p>
+	<label class="w-label" for="login-connection-domain">{$_('login_connection.domain_or_url')}</label>
 	<input
 		id="login-connection-domain"
 		class="w-field connection-input"
@@ -59,13 +60,13 @@
 	{/if}
 	<label class="w-choice connection-remember">
 		<input type="checkbox" class="w-check" bind:checked={rememberServer} />
-		<span>Remember this server on this device</span>
+		<span>{$_('login_connection.remember')}</span>
 	</label>
 	<div class="connection-actions">
 		{#if cancellable}
-			<button type="button" class="w-btn w-btn--quiet w-btn--lg" on:click={() => dispatch('cancel')} disabled={loading}>Back to sign in</button>
+			<button type="button" class="w-btn w-btn--quiet w-btn--lg" on:click={() => dispatch('cancel')} disabled={loading}>{$_('login_connection.back')}</button>
 		{/if}
-		<button type="submit" class="w-btn w-btn--primary w-btn--lg connection-submit" disabled={loading}>Continue</button>
+		<button type="submit" class="w-btn w-btn--primary w-btn--lg connection-submit" disabled={loading}>{$_('login_connection.continue')}</button>
 	</div>
 </form>
 

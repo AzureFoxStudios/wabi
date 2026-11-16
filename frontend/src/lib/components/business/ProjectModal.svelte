@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { personalWorkspace } from '$lib/business/personalWorkspace';
 	import { projects } from '$lib/business/store';
 	import { pipableChannels } from '$lib/business/plannerScopes';
@@ -51,24 +52,24 @@
 		}}
 	>
 		<div class="modal-header">
-			<h2>{editingProject ? 'Edit Project' : 'New Project'}</h2>
+			<h2>{editingProject ? $_('project_modal.edit_project') : $_('project_modal.new_project')}</h2>
 			<button class="close-btn" on:click={onClose}>&times;</button>
 		</div>
 		<form on:submit|preventDefault={onSubmit}>
 			<div class="form-group">
-				<label for="projectName">Name *</label>
+				<label for="projectName">{$_('messages.viewer.details_name')} *</label>
 				<input id="projectName" type="text" bind:value={projectName} required />
 			</div>
 
 			<div class="form-group">
-				<label for="projectDesc">Description</label>
+				<label for="projectDesc">{$_('project_modal.description')}</label>
 				<textarea id="projectDesc" bind:value={projectDescription} rows="2"></textarea>
 			</div>
 
 			<div class="form-group">
-				<label for="projectParent">Parent Project</label>
+				<label for="projectParent">{$_('project_modal.parent')}</label>
 				<select id="projectParent" bind:value={projectParentId}>
-					<option value="">No parent (root project)</option>
+					<option value="">{$_('project_modal.no_parent')}</option>
 					{#each $projects.filter(p => p.id !== editingProject?.id) as project}
 						<option value={project.id}>{project.name}</option>
 					{/each}
@@ -77,19 +78,19 @@
 
 			{#if !$personalWorkspace}
 			<div class="form-group">
-				<label for="projectChannel">Channel reference (optional)</label>
+				<label for="projectChannel">{$_('project_modal.channel_ref')}</label>
 				<select id="projectChannel" bind:value={projectChannelId}>
-					<option value="">No channel reference</option>
+					<option value="">{$_('project_modal.no_channel_ref')}</option>
 					{#each $pipableChannels as channel (channel.id)}
 						<option value={channel.id}>#{channel.name}</option>
 					{/each}
 				</select>
-				<small>For your own organization. This reference does not publish or share this plan.</small>
+				<small>{$_('project_modal.channel_help')}</small>
 			</div>
 			{/if}
 
 			<div class="form-group">
-				<span class="form-group-label">Color</span>
+				<span class="form-group-label">{$_('project_modal.color')}</span>
 				<div class="color-picker">
 					{#each colorOptions as color}
 						<button
@@ -97,7 +98,7 @@
 							class="color-option"
 							class:selected={projectColor === color}
 							style="background-color: {color}"
-							aria-label={`Select project color ${color}`}
+							aria-label={$_('project_modal.select_color', { values: { color } })}
 							on:click={() => projectColor = color}
 						></button>
 					{/each}
@@ -106,23 +107,23 @@
 
 			<div class="form-row">
 				<div class="form-group">
-					<label for="startDate">Start Date</label>
+					<label for="startDate">{$_('project_modal.start_date')}</label>
 					<input id="startDate" type="date" bind:value={projectStartDate} />
 				</div>
 				<div class="form-group">
-					<label for="targetDate">Target End Date</label>
+					<label for="targetDate">{$_('project_modal.target_end')}</label>
 					<input id="targetDate" type="date" bind:value={projectTargetDate} />
 				</div>
 			</div>
 
 			<div class="form-group">
-				<SignatureRow bind:draftSignatures={projectDraftSignatures} legacySignedBy={projectLegacySignedBy} label="Names attached" />
+				<SignatureRow bind:draftSignatures={projectDraftSignatures} legacySignedBy={projectLegacySignedBy} label={$_('project_modal.names_attached')} />
 			</div>
 
 			<div class="form-actions">
-				<button type="button" class="cancel-btn" on:click={onClose}>Cancel</button>
+				<button type="button" class="cancel-btn" on:click={onClose}>{$_('common.cancel')}</button>
 				<button type="submit" class="submit-btn">
-					{editingProject ? 'Save Changes' : 'Create Project'}
+					{editingProject ? $_('project_modal.save_changes') : $_('project_modal.create_project')}
 				</button>
 			</div>
 		</form>

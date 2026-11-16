@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, tick } from 'svelte';
 	import { emojis, ensureEmojisLoaded } from '$lib/emoji-store';
 	import { REACTION_EMOJI_PAGE_SIZE, filterReactionEmojis, getReactionEmojiLabel, type ReactionEmojiSource } from '$lib/reactionEmojiOptions';
@@ -70,43 +71,43 @@
 	if (open && !root?.contains(event.target as Node)) close();
 }} onblur={() => close()} />
 
-<div class="reaction-emoji-select" bind:this={root} role="group" aria-label="Reaction emoji">
-	<span id={`${id}-label`} class="reaction-emoji-label">Reaction emoji</span>
+<div class="reaction-emoji-select" bind:this={root} role="group" aria-label={$_('reaction_emoji.label')}>
+	<span id={`${id}-label`} class="reaction-emoji-label">{$_('reaction_emoji.label')}</span>
 	<button bind:this={trigger} type="button" class="reaction-emoji-trigger" {disabled}
 		aria-labelledby={`${id}-label ${id}-value`} aria-expanded={open} aria-controls={`${id}-options`}
 		onclick={toggle} onkeydown={handleKeydown}>
 		{#if selected}<img src={selected.url} alt="" width="24" height="24" />{/if}
-		<span id={`${id}-value`}>{selected ? getReactionEmojiLabel(selected) : value ? 'Emoji unavailable — choose another' : 'Choose emoji'}</span>
+		<span id={`${id}-value`}>{selected ? getReactionEmojiLabel(selected) : value ? $_('reaction_emoji.unavailable') : $_('reaction_emoji.choose')}</span>
 		<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" /></svg>
 	</button>
 	{#if open}
 		<div class="reaction-emoji-picker" id={`${id}-options`}>
 			<label class="reaction-emoji-search">
-				<span>Search emoji</span>
-				<input bind:this={search} type="search" placeholder="Heart, happy, thumbs up…" bind:value={query}
+				<span>{$_('reaction_emoji.search_label')}</span>
+				<input bind:this={search} type="search" placeholder={$_('reaction_emoji.search_placeholder')} bind:value={query}
 					oninput={() => limit = REACTION_EMOJI_PAGE_SIZE} onkeydown={handleKeydown} />
 			</label>
 			<label class="reaction-emoji-source">
-				<span>Emoji source</span>
+				<span>{$_('reaction_emoji.source_label')}</span>
 				<select bind:value={source} onchange={() => limit = REACTION_EMOJI_PAGE_SIZE} onkeydown={handleKeydown}>
-					<option value="all">All emoji</option><option value="bundled">Built-in</option><option value="custom">Custom</option>
+					<option value="all">{$_('reaction_emoji.all')}</option><option value="bundled">{$_('reaction_emoji.builtin')}</option><option value="custom">{$_('emoji_picker.filters.custom')}</option>
 				</select>
 			</label>
-			<p class="reaction-emoji-result-count" role="status">{filtered.length} {filtered.length === 1 ? 'match' : 'matches'}</p>
-			<div class="reaction-emoji-results" bind:this={results} role="group" aria-label="Emoji matches">
+			<p class="reaction-emoji-result-count" role="status">{filtered.length === 1 ? $_('reaction_emoji.match_one', { values: { count: filtered.length } }) : $_('reaction_emoji.match_many', { values: { count: filtered.length } })}</p>
+			<div class="reaction-emoji-results" bind:this={results} role="group" aria-label={$_('reaction_emoji.matches_aria')}>
 				{#each visible as emoji (emoji.id)}
 					<button type="button" data-emoji-option aria-pressed={value === emoji.id} onclick={() => select(emoji.id)} onkeydown={handleKeydown}>
 						<img src={emoji.url} alt="" width="24" height="24" loading="lazy" decoding="async" />
 						<span>{getReactionEmojiLabel(emoji)}</span>
 					</button>
 				{:else}
-					<p class="reaction-emoji-empty">{$emojis.length ? 'No matching emoji. Try another name or source.' : 'No emoji loaded. Reconnect or reload Wabi and try again.'}</p>
+					<p class="reaction-emoji-empty">{$emojis.length ? $_('reaction_emoji.no_match') : $_('reaction_emoji.none_loaded')}</p>
 				{/each}
 				{#if limit < filtered.length}
-					<button type="button" class="reaction-emoji-more" onclick={() => limit += REACTION_EMOJI_PAGE_SIZE} onkeydown={handleKeydown}>Show more emoji ({filtered.length - limit} remaining)</button>
+					<button type="button" class="reaction-emoji-more" onclick={() => limit += REACTION_EMOJI_PAGE_SIZE} onkeydown={handleKeydown}>{$_('reaction_emoji.show_more', { values: { count: filtered.length - limit } })}</button>
 				{/if}
 			</div>
-			<button type="button" class="reaction-emoji-close" onclick={() => close(true)} onkeydown={handleKeydown}>Done</button>
+			<button type="button" class="reaction-emoji-close" onclick={() => close(true)} onkeydown={handleKeydown}>{$_('login.wizard.step_done')}</button>
 		</div>
 	{/if}
 </div>

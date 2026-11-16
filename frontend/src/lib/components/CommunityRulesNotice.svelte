@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	let { autoOpen = true }: { autoOpen?: boolean } = $props();
 	import { onMount } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
@@ -23,7 +24,7 @@
 		loading = true;
 		try {
 			const response = await fetch(`${server}/api/server-center/rules`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
-			if (!response.ok) throw new Error(`Could not read server rules (${response.status}).`);
+			if (!response.ok) throw new Error($_('community_rules.err_read', { values: { status: response.status } }));
 			const data = await response.json();
 			if (server !== $activeServerUrl || token !== getAuthToken(server)) return;
 			rules = data.rules;
@@ -32,7 +33,7 @@
 			if (autoOpen && rules?.text?.trim() && rules.revision > acknowledgedRevision) communityRulesOpen.set(true);
 			error = '';
 		} catch (cause) {
-			if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : 'Could not read server rules.';
+			if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : $_('community_rules.err_read_plain');
 		} finally { loading = false; }
 	}
 
@@ -40,7 +41,7 @@
 		if (!rules || saving) return;
 		const server = $activeServerUrl;
 		const token = getAuthToken(server);
-		if (!token) { error = 'Sign in again to acknowledge the rules.'; return; }
+		if (!token) { error = $_('community_rules.sign_in_ack'); return; }
 		saving = true; error = '';
 		try {
 			const response = await fetch(`${server}/api/server-center/rules/ack`, {
@@ -49,12 +50,12 @@
 			});
 			if (!response.ok) {
 				const data = await response.json().catch(() => ({}));
-				throw new Error(data.error || 'Rules changed. Read the current version and try again.');
+				throw new Error(data.error || $_('community_rules.rules_changed'));
 			}
 			acknowledgedRevision = rules.revision;
 			communityRulesOpen.set(false);
 		} catch (cause) {
-			const message = cause instanceof Error ? cause.message : 'Could not save acknowledgement.';
+			const message = cause instanceof Error ? cause.message : $_('community_rules.err_ack');
 			await refresh(server);
 			error = message;
 		} finally { saving = false; }
@@ -85,11 +86,11 @@
 {#if $communityRulesOpen && (rules?.text?.trim() || loading || error)}
 	<div class="rules-backdrop">
 		<section class="rules-reader" role="dialog" aria-modal="true" aria-labelledby="community-rules-title">
-			<header><div><span>Welcome to this server</span><h2 id="community-rules-title">Community rules</h2></div><div class="rules-controls"><button type="button" aria-label="Smaller rules text" disabled={rulesFontSize <= 14} onclick={() => rulesFontSize = Math.max(14, rulesFontSize - 2)}>A−</button><button type="button" aria-label="Larger rules text" disabled={rulesFontSize >= 24} onclick={() => rulesFontSize = Math.min(24, rulesFontSize + 2)}>A+</button><button type="button" onclick={() => communityRulesOpen.set(false)} aria-label="Close rules">×</button></div></header>
-			{#if loading && !rules}<p>Loading rules…</p>{/if}
+			<header><div><span>{$_('community_rules.welcome')}</span><h2 id="community-rules-title">{$_('community_rules.title')}</h2></div><div class="rules-controls"><button type="button" aria-label={$_('community_rules.smaller_aria')} disabled={rulesFontSize <= 14} onclick={() => rulesFontSize = Math.max(14, rulesFontSize - 2)}>A−</button><button type="button" aria-label={$_('community_rules.larger_aria')} disabled={rulesFontSize >= 24} onclick={() => rulesFontSize = Math.min(24, rulesFontSize + 2)}>A+</button><button type="button" onclick={() => communityRulesOpen.set(false)} aria-label={$_('community_rules.close_aria')}>×</button></div></header>
+			{#if loading && !rules}<p>{$_('community_rules.loading')}</p>{/if}
 			{#if rules?.text?.trim()}<article style:font-size={`${rulesFontSize}px`}>{@html renderedRules}</article>{/if}
 			{#if error}<p class="rules-error" role="alert">{error}</p>{/if}
-			<footer><p>{rules?.requireAckBeforePosting && rules.revision > acknowledgedRevision ? "You can look around. Read and acknowledge the rules before posting. " : ""}Check each room’s retention label. A deliberate report can preserve the message you choose to send to staff.</p>{#if rules?.text?.trim() && rules.revision > acknowledgedRevision}<button type="button" class="rules-primary" onclick={acknowledge} disabled={saving}>{saving ? 'Saving…' : 'I’ve read these rules'}</button>{:else}<button type="button" onclick={() => communityRulesOpen.set(false)}>Done</button>{/if}</footer>
+			<footer><p>{rules?.requireAckBeforePosting && rules.revision > acknowledgedRevision ? $_('community_rules.look_around') : ""}{$_('community_rules.footer')}</p>{#if rules?.text?.trim() && rules.revision > acknowledgedRevision}<button type="button" class="rules-primary" onclick={acknowledge} disabled={saving}>{saving ? $_('community_rules.saving') : $_('community_rules.read_ack')}</button>{:else}<button type="button" onclick={() => communityRulesOpen.set(false)}>{$_('login.wizard.step_done')}</button>{/if}</footer>
 		</section>
 	</div>
 {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	// Prism grammar components are loaded by $lib/prism (see that module for
 	// why they must not be statically imported here).
 	import Prism from '$lib/prism';
@@ -136,15 +137,15 @@
 			<button
 				class="mode-btn {mode === 'unified' ? 'active' : ''}"
 				onclick={() => onModeChange('unified')}
-				aria-label="Unified diff view"
-			>Unified</button>
+				aria-label={$_('lore_diff.unified_aria')}
+			>{$_('lore_diff.unified')}</button>
 			<button
 				class="mode-btn {mode === 'side-by-side' ? 'active' : ''}"
 				onclick={() => onModeChange('side-by-side')}
-				aria-label="Side-by-side diff view"
-			>Side by side</button>
-			<button class="copy-btn" onclick={copyDiff} aria-label="Copy diff">
-				{copied ? '✓ Copied' : 'Copy diff'}
+				aria-label={$_('lore_diff.side_aria')}
+			>{$_('lore_diff.side_by_side')}</button>
+			<button class="copy-btn" onclick={copyDiff} aria-label={$_('lore_diff.copy')}>
+				{copied ? $_('lore_diff.copied') : $_('lore_diff.copy')}
 			</button>
 		</div>
 	</div>

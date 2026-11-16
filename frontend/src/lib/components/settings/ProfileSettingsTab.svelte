@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Settings › Profile (design contract §8.9): a flat preview of how members see you, then one
 	 * form (display name, status message, About me) with one save. The sticky footer
@@ -73,7 +74,7 @@
 	// page's one form stays About you. It stays mounted while closed, so its draft survives.
 	let nameStyleOpen = $state(false);
 
-	const communityName = $derived($currentSavedServer?.effectiveName?.trim() || 'this community');
+	const communityName = $derived($currentSavedServer?.effectiveName?.trim() || $_('profile_settings.this_community'));
 
 	// ── The form: drafts against what is published ──
 	let draft = $state<ProfileDraft>({ name: '', status: '', bio: '' });
@@ -172,10 +173,10 @@
 	// ── Presence (applies right away) ──
 	let selectedPresence = $state<PresenceState>(getStoredPresence());
 	const PRESENCE_OPTIONS: { value: PresenceState; label: string }[] = [
-		{ value: 'active', label: 'Online' },
-		{ value: 'away', label: 'Away' },
-		{ value: 'busy', label: 'Busy' },
-		{ value: 'invisible', label: 'Invisible' }
+		{ value: 'active', label: $_('user.status.online') },
+		{ value: 'away', label: $_('user.status.away') },
+		{ value: 'busy', label: $_('profile_settings.presence_busy') },
+		{ value: 'invisible', label: $_('user.status.invisible') }
 	];
 	function changePresence(next: PresenceState): void {
 		clearActiveCustomStatusPreset();
@@ -217,7 +218,7 @@
 	function makeCurrentLocalWabiDefault(): void {
 		if (!currentLocalWabiAccountKey) return;
 		setDefaultLocalWabiAccount(currentLocalWabiAccountKey);
-		linkedWabiImportStatus = `This account is now the default ${brandName} profile on this device.`;
+		linkedWabiImportStatus = $_('profile_settings.default_set', { values: { brand: brandName } });
 	}
 
 	async function importProfileFromSelectedLocalWabiAccount(): Promise<void> {
@@ -230,10 +231,10 @@
 				markLocalWabiImportPromptHandled(currentLocalWabiAccountKey);
 			}
 			if (!result.success) {
-				linkedWabiImportStatus = result.errors.join(' ') || 'The import did not finish.';
+				linkedWabiImportStatus = result.errors.join(' ') || $_('profile_settings.import_failed');
 				return;
 			}
-			linkedWabiImportStatus = `Copied ${result.importedFields.join(' and ')}.`;
+			linkedWabiImportStatus = $_('profile_settings.copied', { values: { fields: result.importedFields.join(' and ') } });
 		} finally {
 			linkedWabiImporting = false;
 		}
@@ -255,7 +256,7 @@
 		passwordError = '';
 		passwordSuccess = '';
 		if (!currentPasswordDraft) {
-			passwordError = 'Enter your current password first.';
+			passwordError = $_('profile_settings.err_enter_current');
 			return;
 		}
 		passwordStep = 2;
@@ -274,20 +275,20 @@
 		passwordError = '';
 		passwordSuccess = '';
 		if (!currentPasswordDraft || !newPasswordDraft || !confirmNewPasswordDraft) {
-			passwordError = 'Fill in every field to change your password.';
+			passwordError = $_('profile_settings.err_fill_all');
 			return;
 		}
 		if (newPasswordDraft !== confirmNewPasswordDraft) {
-			passwordError = 'The new passwords do not match.';
+			passwordError = $_('profile_settings.err_mismatch');
 			return;
 		}
 		if (newPasswordDraft.length < 8) {
-			passwordError = 'Use at least 8 characters for the new password.';
+			passwordError = $_('profile_settings.err_too_short');
 			return;
 		}
 		const token = getAuthToken();
 		if (!token) {
-			passwordError = 'Sign in again to change your password.';
+			passwordError = $_('profile_settings.err_sign_in_again');
 			return;
 		}
 		changingPassword = true;
@@ -298,9 +299,9 @@
 			confirmNewPasswordDraft = '';
 			mustChangeOwnPassword = false;
 			passwordStep = 1;
-			passwordSuccess = 'Password changed.';
+			passwordSuccess = $_('profile_settings.password_changed');
 		} catch (error) {
-			passwordError = error instanceof Error ? error.message : 'The password was not changed.';
+			passwordError = error instanceof Error ? error.message : $_('profile_settings.password_not_changed');
 		} finally {
 			changingPassword = false;
 		}
@@ -374,7 +375,7 @@
 
 	function cancelOverlayAlign() {
 		if (overlayAlignSaving) return;
-		mediaStatus = overlayPendingUrl ? 'New overlay discarded. Your published overlay is unchanged.' : 'Overlay position unchanged.';
+		mediaStatus = overlayPendingUrl ? $_('profile_settings.overlay_discarded') : $_('profile_settings.overlay_unchanged');
 		overlayAlignMode = false;
 		overlayPendingUrl = '';
 		overlayDrag = null;
@@ -396,19 +397,19 @@
 		if (overlayAlignSaving) return;
 		if (overlayDraftOwner !== overlayOwner()) {
 			cancelOverlayAlign();
-			mediaStatus = 'Your account changed. Choose the overlay again.';
+			mediaStatus = $_('profile_settings.err_account_changed');
 			return;
 		}
 		clampOverlayDrafts();
 		overlayAlignSaving = true;
-		mediaStatus = 'Saving the overlay position…';
+		mediaStatus = $_('profile_settings.overlay_saving');
 		try {
 			await saveProfilePatch({ ...(overlayPendingUrl ? { overlayUrl: overlayPendingUrl } : {}), overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY });
 			overlayPendingUrl = '';
-			mediaStatus = 'Overlay saved.';
+			mediaStatus = $_('profile_settings.overlay_saved');
 			overlayAlignMode = false;
 		} catch (error) {
-			mediaStatus = mediaFailure(error, 'The overlay was not saved.');
+			mediaStatus = mediaFailure(error, $_('profile_settings.overlay_not_saved'));
 		} finally {
 			overlayAlignSaving = false;
 		}
@@ -468,31 +469,31 @@
 	function mediaFailure(error: unknown, lead: string): string {
 		if (error instanceof MediaProblem) return error.message;
 		console.warn('[Profile] picture change failed:', error);
-		if (profileSaveUnconfirmed(error)) return `The server did not confirm the change. ${profileSaveCause(error)}`;
-		return `${lead} ${profileSaveCause(error) ?? 'Try again in a moment.'}`;
+		if (profileSaveUnconfirmed(error)) return $_('profile_settings.server_unconfirmed', { values: { cause: profileSaveCause(error) } });
+		return $_('profile_settings.media_failure_format', { values: { lead, cause: profileSaveCause(error) ?? $_('profile_settings.try_again') } });
 	}
 	function validateProfileMedia(file: File, overlay = false) {
 		const allowed = overlay ? ['image/png', 'image/gif', 'image/webp'] : ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-		if (!allowed.includes(file.type)) throw new MediaProblem(overlay ? 'Choose a PNG, GIF or WebP overlay.' : 'Choose a PNG, JPEG, GIF or WebP banner.');
-		if (file.size > PROFILE_MEDIA_LIMIT) throw new MediaProblem('Export profile artwork at 10 MiB or less.');
+		if (!allowed.includes(file.type)) throw new MediaProblem(overlay ? $_('profile_settings.err_overlay_type') : $_('profile_settings.err_banner_type'));
+		if (file.size > PROFILE_MEDIA_LIMIT) throw new MediaProblem($_('profile_settings.err_artwork_size'));
 	}
 
 	async function removeAvatar() {
 		if (avatarRemoving) return;
 		const confirmed = await confirmAction({
-			title: 'Remove your profile picture?',
-			body: `Members of ${communityName} will see your initial instead.`,
-			confirm: 'Remove picture',
+			title: $_('profile_settings.remove_picture_title'),
+			body: $_('profile_settings.remove_picture_body', { values: { community: communityName } }),
+			confirm: $_('profile_settings.remove_picture_confirm'),
 			danger: true
 		});
 		if (!confirmed) return;
 		avatarRemoving = true;
-		mediaStatus = 'Removing your profile picture…';
+		mediaStatus = $_('profile_settings.removing_picture');
 		try {
 			await saveProfilePatch({ profilePicture: '' });
-			mediaStatus = 'Profile picture removed.';
+			mediaStatus = $_('profile_settings.picture_removed');
 		} catch (error) {
-			mediaStatus = mediaFailure(error, 'Your profile picture was not removed.');
+			mediaStatus = mediaFailure(error, $_('profile_settings.picture_not_removed'));
 		} finally {
 			avatarRemoving = false;
 		}
@@ -500,21 +501,21 @@
 
 	async function removeProfileMedia(kind: 'banner' | 'overlay') {
 		const confirmed = await confirmAction({
-			title: kind === 'banner' ? 'Remove your banner?' : 'Remove your avatar overlay?',
-			body: kind === 'banner' ? 'Your profile shows a plain band instead.' : 'Your profile picture shows without it.',
-			confirm: kind === 'banner' ? 'Remove banner' : 'Remove overlay',
+			title: kind === 'banner' ? $_('profile_settings.remove_banner_title') : $_('profile_settings.remove_overlay_title'),
+			body: kind === 'banner' ? $_('profile_settings.remove_banner_body') : $_('profile_settings.remove_overlay_body'),
+			confirm: kind === 'banner' ? $_('profile_settings.remove_banner_confirm') : $_('profile_settings.remove_overlay_confirm'),
 			danger: true
 		});
 		if (!confirmed) return;
 		if (kind === 'banner') bannerUploading = true;
 		else overlayUploading = true;
-		mediaStatus = kind === 'banner' ? 'Removing your banner…' : 'Removing your overlay…';
+		mediaStatus = kind === 'banner' ? $_('profile_settings.removing_banner') : $_('profile_settings.removing_overlay');
 		try {
 			await saveProfilePatch(kind === 'banner' ? { bannerUrl: '' } : { overlayUrl: '', overlayScale: 1, overlayOffsetX: 0, overlayOffsetY: 0 });
-			mediaStatus = kind === 'banner' ? 'Banner removed.' : 'Overlay removed.';
+			mediaStatus = kind === 'banner' ? $_('profile_settings.banner_removed') : $_('profile_settings.overlay_removed');
 			if (kind === 'overlay') overlayAlignMode = false;
 		} catch (error) {
-			mediaStatus = mediaFailure(error, kind === 'banner' ? 'Your banner was not removed.' : 'Your overlay was not removed.');
+			mediaStatus = mediaFailure(error, kind === 'banner' ? $_('profile_settings.banner_not_removed') : $_('profile_settings.overlay_not_removed'));
 		} finally {
 			if (kind === 'banner') bannerUploading = false;
 			else overlayUploading = false;
@@ -533,23 +534,23 @@
 		const payload = await res.json().catch(() => ({}));
 		if (!res.ok) {
 			console.warn('[Profile] upload refused:', res.status, payload?.error);
-			throw new MediaProblem(res.status === 413 ? 'That file is larger than this server accepts.' : 'The upload did not finish. Try again in a moment.');
+			throw new MediaProblem(res.status === 413 ? $_('profile_settings.file_too_large') : $_('profile_settings.upload_unfinished'));
 		}
 		const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
-		if (!url) throw new MediaProblem('The upload did not finish. Try again in a moment.');
+		if (!url) throw new MediaProblem($_('profile_settings.upload_unfinished'));
 		return url;
 	}
 
 	async function uploadBanner(file: File) {
 		bannerUploading = true;
-		mediaStatus = 'Uploading your banner…';
+		mediaStatus = $_('profile_settings.uploading_banner');
 		try {
 			validateProfileMedia(file);
 			const url = await uploadProfileMedia(file);
 			await saveProfilePatch({ bannerUrl: url });
-			mediaStatus = 'Banner saved.';
+			mediaStatus = $_('profile_settings.banner_saved');
 		} catch (e) {
-			mediaStatus = mediaFailure(e, 'Your banner was not saved.');
+			mediaStatus = mediaFailure(e, $_('profile_settings.banner_not_saved'));
 		} finally {
 			bannerUploading = false;
 		}
@@ -558,7 +559,7 @@
 	async function uploadOverlay(file: File) {
 		const server = getServerUrl(), token = getAuthToken(), generation = authSessionGeneration(server);
 		overlayUploading = true;
-		mediaStatus = 'Uploading your overlay…';
+		mediaStatus = $_('profile_settings.uploading_overlay');
 		try {
 			validateProfileMedia(file, true);
 			const url = await uploadProfileMedia(file);
@@ -573,9 +574,9 @@
 			overlayDraftX = 0;
 			overlayDraftY = 0;
 			overlayAlignMode = true;
-			mediaStatus = 'Position the new overlay, then save it. Your published overlay stays until you do.';
+			mediaStatus = $_('profile_settings.overlay_position_prompt');
 		} catch (e) {
-			mediaStatus = mediaFailure(e, 'The overlay was not uploaded.');
+			mediaStatus = mediaFailure(e, $_('profile_settings.overlay_not_uploaded'));
 		} finally {
 			overlayUploading = false;
 		}
@@ -620,14 +621,14 @@
 	// ── Preview ──
 	const previewName = $derived(draft.name.trim() || $currentUser?.username || 'You');
 	const previewHandle = $derived(
-		$currentUser?.handle ? `@${$currentUser.handle}` : $currentUser?.dbUserId ? 'Registered account' : 'Local account'
+		$currentUser?.handle ? `@${$currentUser.handle}` : $currentUser?.dbUserId ? $_('profile_settings.registered_account') : $_('profile_settings.local_account')
 	);
 	const previewJoined = $derived(
 		$currentUser?.joinedAt
 			? new Date($currentUser.joinedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
 			: ''
 	);
-	const presenceWord = $derived(PRESENCE_OPTIONS.find((option) => option.value === selectedPresence)?.label ?? 'Online');
+	const presenceWord = $derived(PRESENCE_OPTIONS.find((option) => option.value === selectedPresence)?.label ?? $_('user.status.online'));
 	const identityVars = $derived($inkFor($currentUser?.color));
 	const hasBanner = $derived(Boolean($currentUser?.bannerUrl) && !decorationsHidden);
 	const mediaBusy = $derived(bannerUploading || overlayUploading || avatarRemoving || overlayAlignSaving);
@@ -639,7 +640,7 @@
 <div class="w-profile">
 	<!-- How members see you: a flat preview, not a second editor. -->
 	<section class="w-profile__preview" aria-labelledby="profile-preview-kicker">
-		<p class="w-kicker" id="profile-preview-kicker">How others see you</p>
+		<p class="w-kicker" id="profile-preview-kicker">{$_('profile_settings.preview_kicker')}</p>
 		<div class="w-profile-card" style={identityVars}>
 			<div class="w-profile-card__banner" class:has-media={hasBanner} aria-hidden="true">
 				{#if hasBanner && $currentUser?.bannerUrl}<ProfileMedia src={mediaUrl($currentUser.bannerUrl)} class="w-profile-card__banner-media" decorative={true} />{/if}
@@ -656,7 +657,7 @@
 					onpointercancel={onOverlayPointerUp}
 					onwheel={onOverlayWheel}
 					onkeydown={onOverlayKeydown}
-					aria-label={overlayAlignMode ? 'Overlay position. Drag or use the arrow keys to move it; plus and minus change its size.' : 'Change profile picture'}
+					aria-label={overlayAlignMode ? $_('profile_settings.overlay_position_aria') : $_('profile_settings.change_picture_aria')}
 					aria-describedby={overlayAlignMode ? 'profile-overlay-help' : undefined}
 				>
 					{#if $currentUser?.profilePicture}
@@ -675,23 +676,23 @@
 				</div>
 				{#if draft.status.trim()}<p class="w-profile-card__status">{draft.status.trim()}</p>{/if}
 				{#if draft.bio.trim()}<p class="w-profile-card__bio">{draft.bio.trim()}</p>{/if}
-				{#if previewJoined}<p class="w-profile-card__meta">Member since {previewJoined}</p>{/if}
+				{#if previewJoined}<p class="w-profile-card__meta">{$_('profile_settings.member_since', { values: { date: previewJoined } })}</p>{/if}
 			</div>
 		</div>
 		{#if overlayAlignMode}
-			<div class="w-profile-align" role="group" aria-label="Overlay position">
-				<p class="w-profile-align__help" id="profile-overlay-help">Drag the picture above to move the overlay. Scroll, or use − and +, to change its size.</p>
+			<div class="w-profile-align" role="group" aria-label={$_('profile_settings.overlay_position_group')}>
+				<p class="w-profile-align__help" id="profile-overlay-help">{$_('profile_settings.overlay_help')}</p>
 				<div class="w-profile-align__controls">
 					<span class="w-profile-align__scale">
-						<button type="button" class="w-ibtn w-ibtn--sm w-ibtn--edge" onclick={() => nudgeOverlayScale(-0.05)} aria-label="Make the overlay smaller" disabled={overlayAlignSaving}><Icon name="minus" /></button>
+						<button type="button" class="w-ibtn w-ibtn--sm w-ibtn--edge" onclick={() => nudgeOverlayScale(-0.05)} aria-label={$_('profile_settings.overlay_smaller')} disabled={overlayAlignSaving}><Icon name="minus" /></button>
 						<span class="w-profile-align__value" aria-live="polite">{Math.round(overlayDraftScale * 100)}%</span>
-						<button type="button" class="w-ibtn w-ibtn--sm w-ibtn--edge" onclick={() => nudgeOverlayScale(0.05)} aria-label="Make the overlay larger" disabled={overlayAlignSaving}><Icon name="plus" /></button>
+						<button type="button" class="w-ibtn w-ibtn--sm w-ibtn--edge" onclick={() => nudgeOverlayScale(0.05)} aria-label={$_('profile_settings.overlay_larger')} disabled={overlayAlignSaving}><Icon name="plus" /></button>
 					</span>
-					<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={resetOverlayAlign} disabled={overlayAlignSaving}>Reset</button>
+					<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={resetOverlayAlign} disabled={overlayAlignSaving}>{$_('admin.actions.reset')}</button>
 					<span class="w-profile-align__end">
-						<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={cancelOverlayAlign} disabled={overlayAlignSaving}>Cancel</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={cancelOverlayAlign} disabled={overlayAlignSaving}>{$_('common.cancel')}</button>
 						<button type="button" class="w-btn w-btn--sm w-btn--primary" onclick={saveOverlayAlign} disabled={overlayAlignSaving} aria-busy={overlayAlignSaving}>
-							{overlayAlignSaving ? 'Saving…' : 'Save overlay'}
+							{overlayAlignSaving ? $_('profile_settings.saving') : $_('profile_settings.save_overlay')}
 						</button>
 					</span>
 				</div>
@@ -708,13 +709,13 @@
 		onkeydown={handleFormKeydown}
 	>
 		<div class="settings-block__head">
-			<h3 class="settings-block__title" id="profile-about-title">About you</h3>
-			<p class="w-profile__saved" role="status">{#if savedAt && !dirty}Saved {savedAt}{/if}</p>
+			<h3 class="settings-block__title" id="profile-about-title">{$_('profile_settings.about_you')}</h3>
+			<p class="w-profile__saved" role="status">{#if savedAt && !dirty}{$_('locality.saved_at', { values: { time: savedAt } })}{/if}</p>
 		</div>
-		<p class="settings-block__hint">Members of {communityName} see this next to your messages and on your profile.</p>
+		<p class="settings-block__hint">{$_('profile_settings.members_see', { values: { community: communityName } })}</p>
 
 		<div class="w-profile-field">
-			<label class="w-label" for="profile-display-name">Display name</label>
+			<label class="w-label" for="profile-display-name">{$_('settings.sections.display_name')}</label>
 			<input
 				id="profile-display-name"
 				class="w-field"
@@ -732,13 +733,13 @@
 		</div>
 
 		<div class="w-profile-field">
-			<label class="w-label" for="profile-status-message">Status message</label>
+			<label class="w-label" for="profile-status-message">{$_('profile_settings.status_message')}</label>
 			<input
 				id="profile-status-message"
 				class="w-field"
 				type="text"
 				maxlength={PROFILE_LIMITS.status}
-				placeholder="Out walking until 3"
+				placeholder={$_('profile_settings.placeholder_status')}
 				bind:value={draft.status}
 				aria-invalid={issues.status ? 'true' : undefined}
 				aria-describedby="profile-status-message-foot"
@@ -750,13 +751,13 @@
 		</div>
 
 		<div class="w-profile-field">
-			<label class="w-label" for="profile-about-me">About me</label>
+			<label class="w-label" for="profile-about-me">{$_('user.popout.about_me')}</label>
 			<textarea
 				id="profile-about-me"
 				class="w-field"
 				rows="3"
 				maxlength={PROFILE_LIMITS.bio}
-				placeholder="A line or two about you"
+				placeholder={$_('profile_settings.placeholder_bio')}
 				bind:value={draft.bio}
 				aria-invalid={issues.bio ? 'true' : undefined}
 				aria-describedby="profile-about-me-foot"
@@ -769,12 +770,12 @@
 	</form>
 
 	<section class="settings-block" aria-labelledby="profile-presence-title">
-		<h3 class="settings-block__title" id="profile-presence-title">Presence</h3>
+		<h3 class="settings-block__title" id="profile-presence-title">{$_('shell.you.presence')}</h3>
 		<div class="w-srows">
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="profile-presence-label">Show me as</p>
-					<p class="w-srow__hint">Changes right away. Invisible members appear offline.</p>
+					<p class="w-srow__label" id="profile-presence-label">{$_('profile_settings.show_me_as')}</p>
+					<p class="w-srow__hint">{$_('profile_settings.presence_hint')}</p>
 				</div>
 				<div class="w-srow__control">
 					<Segmented labelledby="profile-presence-label" options={PRESENCE_OPTIONS} value={selectedPresence} onchange={(value) => changePresence(value as PresenceState)} />
@@ -784,59 +785,59 @@
 	</section>
 
 	<section class="settings-block" aria-labelledby="profile-pictures-title">
-		<h3 class="settings-block__title" id="profile-pictures-title">Pictures</h3>
-		<p class="settings-block__hint">Changes publish when the upload finishes.</p>
+		<h3 class="settings-block__title" id="profile-pictures-title">{$_('profile_settings.pictures')}</h3>
+		<p class="settings-block__hint">{$_('profile_settings.pictures_hint')}</p>
 		<div class="w-srows">
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label">Profile picture</p>
-					<p class="w-srow__hint">Shown beside your messages and in People.</p>
+					<p class="w-srow__label">{$_('settings.sections.profile_picture')}</p>
+					<p class="w-srow__hint">{$_('profile_settings.profile_picture_hint')}</p>
 				</div>
 				<div class="w-srow__control">
-					{#if $currentUser?.profilePicture}<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={removeAvatar}>Remove</button>{/if}
-					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} onclick={() => dispatch('openAvatarEditor')}>Change picture</button>
+					{#if $currentUser?.profilePicture}<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={removeAvatar}>{$_('profile_settings.remove')}</button>{/if}
+					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} onclick={() => dispatch('openAvatarEditor')}>{$_('profile_settings.change_picture')}</button>
 				</div>
 			</div>
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label">Banner</p>
-					<p class="w-srow__hint">1200 × 400 PNG, JPEG, GIF or WebP, up to 10 MiB.</p>
+					<p class="w-srow__label">{$_('profile_settings.banner')}</p>
+					<p class="w-srow__hint">{$_('profile_settings.banner_hint')}</p>
 				</div>
 				<div class="w-srow__control">
-					{#if $currentUser?.bannerUrl}<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={() => removeProfileMedia('banner')}>Remove</button>{/if}
-					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} aria-busy={bannerUploading} onclick={() => bannerInput?.click()}>{bannerUploading ? 'Uploading…' : 'Change banner'}</button>
+					{#if $currentUser?.bannerUrl}<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={() => removeProfileMedia('banner')}>{$_('profile_settings.remove')}</button>{/if}
+					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} aria-busy={bannerUploading} onclick={() => bannerInput?.click()}>{bannerUploading ? $_('wb.uploading') : $_('profile_settings.change_banner')}</button>
 				</div>
 			</div>
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label">Avatar overlay</p>
-					<p class="w-srow__hint">A transparent frame drawn over your picture: 512 × 512 PNG, GIF or WebP.</p>
+					<p class="w-srow__label">{$_('profile_settings.avatar_overlay')}</p>
+					<p class="w-srow__hint">{$_('profile_settings.overlay_hint')}</p>
 				</div>
 				<div class="w-srow__control">
 					{#if $currentUser?.overlayUrl && !overlayAlignMode}
-						<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={() => removeProfileMedia('overlay')}>Remove</button>
-						<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={enterOverlayAlign}>Position</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={() => removeProfileMedia('overlay')}>{$_('profile_settings.remove')}</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={enterOverlayAlign}>{$_('wb.lock_position')}</button>
 					{/if}
-					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} aria-busy={overlayUploading} onclick={() => overlayInput?.click()}>{overlayUploading ? 'Uploading…' : 'Change overlay'}</button>
+					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} aria-busy={overlayUploading} onclick={() => overlayInput?.click()}>{overlayUploading ? $_('wb.uploading') : $_('profile_settings.change_overlay')}</button>
 				</div>
 			</div>
 		</div>
 		<p class="w-profile__media-status" role="status">{mediaStatus}</p>
 		{#if decorationsHidden}
-			<p class="w-profile__note">Banners and overlays are hidden on this device (Appearance › Profile decorations), so the preview leaves them out.</p>
+			<p class="w-profile__note">{$_('profile_settings.media_hidden_note')}</p>
 		{/if}
 		<button type="button" class="w-disclosure" aria-expanded={guideOpen} aria-controls="profile-art-guide" onclick={() => (guideOpen = !guideOpen)}>
-			<Icon name="chevRight" />Artwork guide and templates
+			<Icon name="chevRight" />{$_('profile_settings.artwork_guide')}
 		</button>
 		{#if guideOpen}
 			<div class="w-disclosure__body w-profile__guide" id="profile-art-guide">
-				<p><strong>Banner:</strong> 1200 × 400 px, 3:1. Keep key artwork inside the template’s safe area; your picture overlaps the lower left and smaller views may crop the edges.</p>
-				<p><strong>Avatar overlay:</strong> 512 × 512 px with a transparent center. Check both the rounded-square profile crop and the round crop in messages and People. PNG for still art; GIF or WebP for animation.</p>
-				<p><strong>Animation:</strong> a looping GIF or animated WebP at 10 MiB or less; a 3–6 second loop at 12–24 fps is a good start. Choose a calm first frame: people can pause artwork or reduce motion. Video and SVG files are not accepted.</p>
+				<p><strong>{$_('profile_settings.guide_banner_label')}</strong> {$_('profile_settings.guide_banner_body')}</p>
+				<p><strong>{$_('profile_settings.guide_overlay_label')}</strong> {$_('profile_settings.guide_overlay_body')}</p>
+				<p><strong>{$_('profile_settings.guide_anim_label')}</strong> {$_('profile_settings.guide_anim_body')}</p>
 				<p class="w-profile__downloads">
-					<a href="/profile-art/banner-guide.svg" download>Banner template (SVG)</a>
-					<a href="/profile-art/avatar-overlay-guide.svg" download>Overlay template (SVG)</a>
-					<a href="/profile-art/artist-guide.md" download>Full artist guide</a>
+					<a href="/profile-art/banner-guide.svg" download>{$_('profile_settings.download_banner')}</a>
+					<a href="/profile-art/avatar-overlay-guide.svg" download>{$_('profile_settings.download_overlay')}</a>
+					<a href="/profile-art/artist-guide.md" download>{$_('profile_settings.download_guide')}</a>
 				</p>
 				<ProfileArtExamples onUseDesign={useExampleDesign} />
 			</div>
@@ -844,10 +845,10 @@
 	</section>
 
 	<section class="settings-block w-profile__studio" aria-labelledby="profile-name-style-title">
-		<h3 class="settings-block__title" id="profile-name-style-title">Name style</h3>
-		<p class="settings-block__hint">Fonts, colors and effects for your name, with a save of their own.</p>
+		<h3 class="settings-block__title" id="profile-name-style-title">{$_('profile_settings.name_style_heading')}</h3>
+		<p class="settings-block__hint">{$_('profile_settings.name_style_hint')}</p>
 		<button type="button" class="w-disclosure" aria-expanded={nameStyleOpen} aria-controls="profile-name-style" onclick={() => (nameStyleOpen = !nameStyleOpen)}>
-			<Icon name="chevRight" />Design your name
+			<Icon name="chevRight" />{$_('profile_settings.design_name')}
 		</button>
 		<div class="w-disclosure__body w-profile__studio-body" id="profile-name-style" hidden={!nameStyleOpen}>
 			<UsernameFontCustomizer bind:this={nameDesignStudio} />
@@ -856,12 +857,12 @@
 
 	{#if $currentUser?.badges?.length}
 		<section class="settings-block" aria-labelledby="profile-badges-title">
-			<h3 class="settings-block__title" id="profile-badges-title">Badges</h3>
+			<h3 class="settings-block__title" id="profile-badges-title">{$_('profile_settings.badges_heading')}</h3>
 			<div class="w-srows">
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label">Given by admins of {communityName}</p>
-						<p class="w-srow__hint">Shown next to your name.</p>
+						<p class="w-srow__label">{$_('profile_settings.badges_given', { values: { community: communityName } })}</p>
+						<p class="w-srow__hint">{$_('profile_settings.badges_hint')}</p>
 					</div>
 					<div class="w-srow__control"><RoleBadge user={$currentUser} size="md" maxBadges={8} /></div>
 				</div>
@@ -872,25 +873,25 @@
 	<!-- Payment surfaces are left out entirely unless the server permits payments. -->
 	{#if $paymentAccessStore.canViewPaymentUi}
 		<section class="settings-block" aria-labelledby="profile-payments-title">
-			<h3 class="settings-block__title" id="profile-payments-title">Payments</h3>
+			<h3 class="settings-block__title" id="profile-payments-title">{$_('profile_settings.payments_heading')}</h3>
 			<div class="w-srows">
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label">Payment requests</p>
-						<p class="w-srow__hint">Requests you created, and the references you saved for them.</p>
+						<p class="w-srow__label">{$_('profile_settings.payment_requests')}</p>
+						<p class="w-srow__hint">{$_('profile_settings.payment_requests_hint')}</p>
 					</div>
 					<div class="w-srow__control">
-						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openPaymentConnections')} disabled={!$currentUser?.dbUserId}>Saved references</button>
-						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openPaymentHistory')} disabled={!$currentUser?.dbUserId}>History</button>
+						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openPaymentConnections')} disabled={!$currentUser?.dbUserId}>{$_('profile_settings.saved_references')}</button>
+						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openPaymentHistory')} disabled={!$currentUser?.dbUserId}>{$_('profile_settings.history')}</button>
 					</div>
 				</div>
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label">Support {communityName}</p>
-						<p class="w-srow__hint">Send a contribution to the people who run this server.</p>
+						<p class="w-srow__label">{$_('profile_settings.support_community', { values: { community: communityName } })}</p>
+						<p class="w-srow__hint">{$_('profile_settings.support_hint')}</p>
 					</div>
 					<div class="w-srow__control">
-						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openServerDonation')}>Support</button>
+						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openServerDonation')}>{$_('profile_settings.support')}</button>
 					</div>
 				</div>
 			</div>
@@ -899,19 +900,19 @@
 
 	{#if $currentUser?.dbUserId}
 		<section class="settings-block" aria-labelledby="profile-account-title">
-			<h3 class="settings-block__title" id="profile-account-title">Account</h3>
+			<h3 class="settings-block__title" id="profile-account-title">{$_('settings.groups.account')}</h3>
 			<div class="w-srows">
 				<div class="w-srow w-profile__password">
 					<div class="w-srow__text">
-						<p class="w-srow__label" id="profile-password-label">Password</p>
-						<p class="w-srow__hint">There is no email recovery. If you are locked out, ask an owner or admin of {communityName}.</p>
+						<p class="w-srow__label" id="profile-password-label">{$_('login.auth.password_placeholder')}</p>
+						<p class="w-srow__hint">{$_('profile_settings.no_email_recovery', { values: { community: communityName } })}</p>
 						{#if mustChangeOwnPassword}
-							<p class="w-profile__warn"><span class="w-dot w-dot--warn" aria-hidden="true"></span>You signed in with a temporary password. Change it now.</p>
+							<p class="w-profile__warn"><span class="w-dot w-dot--warn" aria-hidden="true"></span>{$_('profile_settings.temp_password_warn')}</p>
 						{/if}
 					</div>
 					<div class="w-profile__password-form" role="group" aria-labelledby="profile-password-label">
 						{#if passwordStep === 1}
-							<label class="w-label" for="profile-current-password">Current password</label>
+							<label class="w-label" for="profile-current-password">{$_('profile_settings.current_password')}</label>
 							<div class="w-profile__inline">
 								<input
 									id="profile-current-password"
@@ -922,17 +923,17 @@
 									autocomplete="current-password"
 									onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); advancePasswordStep(); } }}
 								/>
-								<button type="button" class="w-btn" onclick={advancePasswordStep}>Continue</button>
+								<button type="button" class="w-btn" onclick={advancePasswordStep}>{$_('profile_settings.continue')}</button>
 							</div>
 						{:else}
-							<label class="w-label" for="profile-new-password">New password</label>
+							<label class="w-label" for="profile-new-password">{$_('profile_settings.new_password')}</label>
 							<input id="profile-new-password" type="password" class="w-field" bind:this={newPasswordInput} bind:value={newPasswordDraft} autocomplete="new-password" />
-							<label class="w-label" for="profile-confirm-password">Repeat new password</label>
+							<label class="w-label" for="profile-confirm-password">{$_('profile_settings.repeat_new_password')}</label>
 							<input id="profile-confirm-password" type="password" class="w-field" bind:value={confirmNewPasswordDraft} autocomplete="new-password" onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void changeOwnPassword(); } }} />
 							<div class="w-profile__inline w-profile__inline--end">
-								<button type="button" class="w-btn w-btn--quiet" onclick={backPasswordStep}>Back</button>
+								<button type="button" class="w-btn w-btn--quiet" onclick={backPasswordStep}>{$_('login.wizard.back')}</button>
 								<button type="button" class="w-btn" onclick={changeOwnPassword} disabled={changingPassword} aria-busy={changingPassword}>
-									{changingPassword ? 'Changing…' : 'Change password'}
+									{changingPassword ? $_('profile_settings.changing') : $_('profile_settings.change_password')}
 								</button>
 							</div>
 						{/if}
@@ -943,14 +944,14 @@
 
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label">Default profile on this device</p>
+						<p class="w-srow__label">{$_('profile_settings.default_profile_heading')}</p>
 						<p class="w-srow__hint">
-							{$defaultLocalWabiAccountStore ? getLocalWabiAccountDisplayLabel($defaultLocalWabiAccountStore) : 'None chosen yet'}. New servers can start from its look.
+							{$defaultLocalWabiAccountStore ? getLocalWabiAccountDisplayLabel($defaultLocalWabiAccountStore) : $_('profile_settings.none_chosen')}. {$_('profile_settings.new_servers_look')}
 						</p>
 					</div>
 					<div class="w-srow__control">
 						<button type="button" class="w-btn w-btn--sm" onclick={makeCurrentLocalWabiDefault} disabled={!currentLocalWabiAccountKey || currentLocalWabiAccountIsDefault}>
-							{currentLocalWabiAccountIsDefault ? 'This is the default' : 'Make this the default'}
+							{currentLocalWabiAccountIsDefault ? $_('profile_settings.this_is_default') : $_('profile_settings.make_default')}
 						</button>
 					</div>
 				</div>
@@ -958,15 +959,15 @@
 				{#if otherLocalWabiAccounts.length > 0}
 					<div class="w-srow">
 						<div class="w-srow__text">
-							<p class="w-srow__label" id="profile-import-label">Copy your look from another account</p>
+							<p class="w-srow__label" id="profile-import-label">{$_('profile_settings.copy_look_heading')}</p>
 							<p class="w-srow__hint">
-								{#if linkedWabiImportPreview?.canImport}Copies {linkedWabiImportPreview.importableFields.join(', ')}.{:else}Nothing new to copy from that account.{/if}
+								{#if linkedWabiImportPreview?.canImport}{$_('profile_settings.copies', { values: { fields: linkedWabiImportPreview.importableFields.join(', ') } })}{:else}{$_('profile_settings.nothing_to_copy')}{/if}
 							</p>
 						</div>
 						<div class="w-srow__control">
-							<Select ariaLabel="Account to copy from" options={localAccountOptions} bind:value={linkedWabiImportSourceKey} align="end" />
+							<Select ariaLabel={$_('profile_settings.copy_from_aria')} options={localAccountOptions} bind:value={linkedWabiImportSourceKey} align="end" />
 							<button type="button" class="w-btn w-btn--sm" onclick={importProfileFromSelectedLocalWabiAccount} disabled={!linkedWabiImportPreview?.canImport || linkedWabiImporting} aria-busy={linkedWabiImporting}>
-								{linkedWabiImporting ? 'Copying…' : 'Copy look'}
+								{linkedWabiImporting ? $_('profile_settings.copying') : $_('profile_settings.copy_look')}
 							</button>
 						</div>
 					</div>
@@ -977,15 +978,15 @@
 	{/if}
 
 	{#if dirty || saving}
-		<div class="w-profile__savebar" role="region" aria-label="Unsaved profile changes">
+		<div class="w-profile__savebar" role="region" aria-label={$_('profile_settings.unsaved_region_aria')}>
 			{#if saveError}
-				<p class="w-profile__savebar-text is-error" role="alert"><Icon name="alert" size={14} />{saveError} Your edits are still here.</p>
+				<p class="w-profile__savebar-text is-error" role="alert"><Icon name="alert" size={14} />{saveError} {$_('profile_settings.edits_still_here')}</p>
 			{:else}
-				<p class="w-profile__savebar-text"><span class="w-dot w-dot--warn" aria-hidden="true"></span>Unsaved changes</p>
+				<p class="w-profile__savebar-text"><span class="w-dot w-dot--warn" aria-hidden="true"></span>{$_('common.unsaved_changes')}</p>
 			{/if}
-			<button type="button" class="w-btn w-btn--quiet" onclick={discard} disabled={saving}>Discard</button>
+			<button type="button" class="w-btn w-btn--quiet" onclick={discard} disabled={saving}>{$_('common.discard')}</button>
 			<button type="button" class="w-btn w-btn--primary" onclick={() => void save()} disabled={saving || !dirty} aria-disabled={!canSave} aria-busy={saving}>
-				{saving ? 'Saving…' : 'Save'}
+				{saving ? $_('profile_settings.saving') : $_('common.save')}
 			</button>
 		</div>
 	{/if}

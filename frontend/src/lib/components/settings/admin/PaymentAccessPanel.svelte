@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { PaymentAccessPolicy } from '$lib/api';
 	import { canConfirmDisable, DISABLE_CONFIRM_PHRASE } from '$lib/payments/paymentAccessStore';
 
@@ -17,22 +18,20 @@
 </script>
 
 <div class="upload-limits-panel">
-	<h4>Payments Access</h4>
+	<h4>{$_('payment_access_panel.title')}</h4>
 	<p class="admin-help">
-		Master switch for the payments UI. When disabled, every payment button and entry point is hidden
-		for all users; existing intents and history remain visible. When enabled, users can create
-		payment intents (crypto, EU SEPA, US app-switch) on rails this server has compiled in.
+		{$_('payment_access_panel.help')}
 	</p>
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Payments Enabled</span>
+			<span class="setting-label">{$_('payment_access_panel.enabled_label')}</span>
 			<span class="setting-description">
 				{#if accessLoading}
-					Loading policy…
+					{$_('payment_access_panel.loading')}
 				{:else if enabled}
-					Payment buttons are visible to everyone on this server.
+					{$_('payment_access_panel.on_desc')}
 				{:else}
-					Payment entry points are omitted from the UI. No one sees an empty payment button.
+					{$_('payment_access_panel.off_desc')}
 				{/if}
 			</span>
 		</div>
@@ -42,27 +41,27 @@
 			disabled={!canManageAdmin || accessLoading || accessSaving}
 			on:click={() => (enabled ? undefined : onEnable())}
 		>
-			{enabled ? 'ON' : 'OFF'}
+			{enabled ? $_('payment_access_panel.on') : $_('payment_access_panel.off')}
 		</button>
 	</div>
 
 	{#if enabled}
 		<div class="setting-item danger-zone">
 			<div class="setting-info">
-				<span class="setting-label">Disable Payments</span>
+				<span class="setting-label">{$_('payment_access_panel.disable_title')}</span>
 				<span class="setting-description">
-					Hiding payments is a deliberate act: every payment button will disappear for all users.
-					Confirm the acknowledgment and type <code>{DISABLE_CONFIRM_PHRASE}</code> to unlock the button.
+					{$_('payment_access_panel.disable_desc')}
+					{$_('payment_access_panel.confirm_type')} <code>{DISABLE_CONFIRM_PHRASE}</code> {$_('payment_access_panel.to_unlock')}
 				</span>
 			</div>
 			<label class="ack-row">
 				<input type="checkbox" bind:checked={ackChecked} disabled={!canManageAdmin || accessSaving} />
-				<span>I understand payment buttons will disappear for everyone until re-enabled.</span>
+				<span>{$_('payment_access_panel.ack')}</span>
 			</label>
 			<div class="ack-row">
 				<input
 					type="text"
-					placeholder={`Type ${DISABLE_CONFIRM_PHRASE} to confirm`}
+					placeholder={$_('payment_access_panel.type_to_confirm', { values: { phrase: DISABLE_CONFIRM_PHRASE } })}
 					bind:value={phraseInput}
 					disabled={!canManageAdmin || accessSaving}
 				/>
@@ -71,7 +70,7 @@
 					disabled={!canManageAdmin || accessSaving || !disableReady}
 					on:click={onDisable}
 				>
-					{accessSaving ? 'Saving…' : 'Disable Payments'}
+					{accessSaving ? $_('payment_access_panel.saving') : $_('payment_access_panel.disable_title')}
 				</button>
 			</div>
 		</div>

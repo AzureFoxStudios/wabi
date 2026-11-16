@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * This device's sharing choices, shown under Settings › Privacy & security (§8.9, §9.4): the
 	 * old Server page put an admin-sounding heading over personal options, so the page now says whose they
@@ -25,11 +26,11 @@
 			try {
 				const granted = await requestDirectionsGpsPermission();
 				if (!granted) {
-					directionsGpsStatus = 'Location access was not allowed, so directions cards show only the destination.';
+					directionsGpsStatus = $_('device_sharing.gps_denied');
 					directionsGpsEnabled = false;
 					return;
 				}
-				directionsGpsStatus = 'Your location is used on this device only when you make a directions card.';
+				directionsGpsStatus = $_('device_sharing.gps_on');
 				directionsGpsEnabled = true;
 				setDirectionsGpsEnabled(true);
 			} finally {
@@ -39,18 +40,18 @@
 		}
 		directionsGpsEnabled = false;
 		setDirectionsGpsEnabled(false);
-		directionsGpsStatus = 'Directions cards no longer use your location.';
+		directionsGpsStatus = $_('device_sharing.gps_off');
 	}
 </script>
 
 <section class="settings-block" aria-labelledby="device-sharing-title">
-	<h3 class="settings-block__title" id="device-sharing-title">This device</h3>
-	<p class="settings-block__hint">Saved on this device · not shared. These choices don't change your account on other devices.</p>
+	<h3 class="settings-block__title" id="device-sharing-title">{$_('settings.groups.this_device')}</h3>
+	<p class="settings-block__hint">{$_('device_sharing.hint')}</p>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="device-gps-label">Directions GPS</p>
-				<p class="w-srow__hint" id="device-gps-hint">Use this device's location for directions cards. It is never uploaded.</p>
+				<p class="w-srow__label" id="device-gps-label">{$_('device_sharing.directions_gps')}</p>
+				<p class="w-srow__hint" id="device-gps-hint">{$_('device_sharing.gps_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<button

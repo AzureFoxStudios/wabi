@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import NotesWorkspace from './NotesWorkspace.svelte';
 	import { isSettledSave, stripEdges, stripPeekWidth, stripWheelDelta } from './keepNotesCompanion';
 
@@ -10,9 +11,9 @@
 
 	// A single Notes panel says "Only you · this device" once, in the frame's title row (§9.3), so
 	// the compact empty line does not repeat it; center stage keeps the locality in its words.
-	const COMPACT_EMPTY_MESSAGE = 'Keep personal notes, links and reminders here.';
-	const PAGE_EMPTY_MESSAGE = 'Keep personal notes, links, and reminders on this device.';
-	const LOCALITY = 'Only you · this device';
+	const COMPACT_EMPTY_MESSAGE = $_('keep_notes.compact_empty');
+	const PAGE_EMPTY_MESSAGE = $_('keep_notes.page_empty');
+	const LOCALITY = $_('locality.only_you_device');
 
 	/**
 	 * The companion reads NotesWorkspace's chrome (that markup belongs to the notebook):
@@ -116,19 +117,19 @@
 		     said here, once, above the notebook (see the style block). -->
 		<p class="keep-notes-scope"><span class="w-tag">{LOCALITY}</span></p>
 		<NotesWorkspace
-			title="Notes"
+			title={$_('places.notes')}
 			showHeader={false}
 			compact
 			emptyMessage={COMPACT_EMPTY_MESSAGE}
-			placeholder="Write a note…"
+			placeholder={$_('keep_notes.placeholder')}
 		/>
 	</div>
 {:else}
 	<NotesWorkspace
-		title="Notes"
+		title={$_('places.notes')}
 		showHeader
 		emptyMessage={PAGE_EMPTY_MESSAGE}
-		placeholder="Write a note…"
+		placeholder={$_('keep_notes.placeholder')}
 	/>
 {/if}
 

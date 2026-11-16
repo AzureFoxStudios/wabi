@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, onMount } from 'svelte';
 	import { getAuthToken, getStoredDbUserId, authSessionGeneration } from '$lib/authSession';
 	import { getApiBase } from '$lib/api/utils';
@@ -50,9 +51,9 @@
 	let canPublish = $derived(!!snapshot?.online && !snapshot.readOnly && !snapshot.reviewRequired && stagedCount > 0 && staleCount === 0 && !!summary.trim());
 
 	function token(): string {
-		if (!active()) throw new Error('Account or server changed. Reopen Local changes.');
+		if (!active()) throw new Error($_('lore_local.err_account_changed'));
 		const value = getAuthToken(serverUrl);
-		if (!value) throw new Error('Sign in before using this project.');
+		if (!value) throw new Error($_('lore_local.err_sign_in'));
 		return value;
 	}
 	function reflect() { if (active() && workspace) { staged = { ...workspace.state.staged }; snapshot = workspace.snapshot; } }
@@ -85,7 +86,7 @@
 		await workspace.refresh(token()); reflect(); lastChecked = new Date().toLocaleTimeString();
 	}
 	async function connect() {
-		if (!numericId) throw new Error('Select a valid Project channel.');
+		if (!numericId) throw new Error($_('lore_local.err_select_channel'));
 		token();
 		// Do not dispose from inside its own manual queue: wait for the old watcher first.
 		const previous = detector; detector = null;
@@ -96,71 +97,71 @@
 			workspace = selected; snapshot = null; staged = {}; lastChecked = ''; summary = '';
 			await selected.save();
 			await refresh();
-			status = 'Folder connected. Changes are detected automatically; pulling and publishing are your decisions.';
+			status = $_('lore_local.folder_connected');
 		} finally { if (workspace && active()) startDetection(workspace); }
 	}
 	async function publish() {
 		if (!workspace) return;
 		const deletions = Object.values(staged).filter((item) => item.localHash === null);
-		if (deletions.length && !window.confirm(`Publish ${deletions.length} file deletion(s) to ${projectName}?\n\n${deletions.map((item) => item.path).join('\n')}`)) return;
+		if (deletions.length && !window.confirm($_('lore_local.confirm_publish', { values: { count: deletions.length, project: projectName, files: deletions.map((item) => item.path).join('\n') } }))) return;
 		const result = await workspace.publish(token(), summary);
 		summary = '';
 		await refresh();
-		status = `Published ${result.completed.length} file(s), with one revision per file. ${result.warnings.join(' ')}`;
+		status = $_('lore_local.published', { values: { count: result.completed.length, warnings: result.warnings.join(' ') } });
 	}
 	async function pull(selection: Change[]) {
 		if (!workspace || !selection.length) return;
-		if (!window.confirm(`Apply ${selection.length} server change(s) to your local folder?\n\n${selection.map((c) => `${c.remoteEtag === null ? 'Remove' : 'Download'}: ${c.path}`).join('\n')}\n\nExisting local versions are preserved in .wabi-workspace/backups.`)) return;
+		if (!window.confirm(`${$_('lore_local.confirm_pull', { values: { count: selection.length } })}\n\n${selection.map((c) => `${c.remoteEtag === null ? $_('lore_local.word_remove') : $_('context_menu.download')}: ${c.path}`).join('\n')}\n\n${$_('lore_local.pull_preserved')}`)) return;
 		const count = await workspace.pull(token(), selection);
-		await refresh(); status = `Applied ${count} server change(s).`;
+		await refresh(); status = $_('lore_local.applied', { values: { count } });
 	}
 	async function resolveLocal(change: Change) {
-		if (!workspace || !window.confirm(`Keep your local version of ${change.path}?\n\nThis stages ${change.localHash === null ? 'a remote deletion' : 'your local file'} against the current server version. Nothing is published until you click Publish staged.`)) return;
+		if (!workspace || !window.confirm($_('lore_local.confirm_keep', { values: { path: change.path, what: change.localHash === null ? $_('lore_local.what_remote_deletion') : $_('lore_local.what_local_file') } }))) return;
 		await workspace.resolveKeepLocal(change); await refresh();
 	}
-	function size(bytes: number) { return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MiB` : `${Math.ceil(bytes / 1024)} KiB`; }
+	function size(bytes: number) { return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} ${$_('lore_local.unit_mib')}` : `${Math.ceil(bytes / 1024)} ${$_('lore_local.unit_kib')}`; }
 </script>
 
-<section class="local-workspace" aria-label="Local project changes" aria-busy={busy}>
+<section class="local-workspace" aria-label={$_('lore_local.aria_label')} aria-busy={busy}>
 	<header>
-		<div><h2>{projectName}: local changes</h2><p>Changes appear automatically. You decide what to stage, publish, or pull.</p></div>
-		{#if native}<button disabled={busy} onclick={() => perform(connect, false)}>{workspace ? 'Choose another folder' : 'Use this project on my computer'}</button>{/if}
+		<div><h2>{projectName}: {$_('lore_local.heading')}</h2><p>{$_('lore_local.intro')}</p></div>
+		{#if native}<button disabled={busy} onclick={() => perform(connect, false)}>{workspace ? $_('lore_local.choose_folder') : $_('lore_local.use_on_computer')}</button>{/if}
 	</header>
 	{#if !native}
-		<div class="notice"><h3>Local folders are a desktop feature</h3><p>The website can browse repositories and download copies, but it cannot silently monitor a folder on your computer. Open this project in the Wabi desktop app to connect a folder and stage changes.</p><p>A downloaded ZIP is still an unlinked copy. Existing command-line wabi-sync remains a separate automatic-sync workflow.</p></div>
+		<div class="notice"><h3>{$_('lore_local.desktop_title')}</h3><p>{$_('lore_local.desktop_body')}</p><p>{$_('lore_local.zip_note')}</p></div>
 	{:else}
 		{#if error}<p role="alert" class="notice error">{error}</p>{/if}
 		{#if status}<p role="status" class="notice">{status}</p>{/if}
 		{#if workspace}
-			<div class="folder-bar"><div><strong>Local folder</strong><code>{workspace.folder}</code><small>{lastChecked ? `Last checked ${lastChecked}` : 'Not checked yet'} · {detectionStatus.paused ? 'Detection paused' : detectionStatus.checking ? 'Checking for changes…' : 'Automatic detection on'} · Manual publishing and pulling</small></div><div class="actions"><button disabled={busy} onclick={() => perform(async () => { await workspace?.openFolder(); })}>Open folder</button><button disabled={busy} onclick={() => perform(refresh)}>Check now</button><button disabled={busy} aria-pressed={detectionStatus.paused} onclick={() => detector?.setPaused(!detectionStatus.paused)}>{detectionStatus.paused ? 'Resume detection' : 'Pause detection'}</button><button disabled={busy || !snapshot?.online || !incoming.length} onclick={() => perform(() => pull(incoming))}>Pull incoming ({incoming.length})</button></div></div>
+			<div class="folder-bar"><div><strong>{$_('lore_local.folder_label')}</strong><code>{workspace.folder}</code><small>{lastChecked ? $_('lore_local.last_checked', { values: { time: lastChecked } }) : $_('lore_local.not_checked')} · {detectionStatus.paused ? $_('lore_local.detection_paused') : detectionStatus.checking ? $_('lore_local.checking') : $_('lore_local.detection_on')} · {$_('lore_local.manual_note')}</small></div><div class="actions"><button disabled={busy} onclick={() => perform(async () => { await workspace?.openFolder(); })}>{$_('lore_local.open_folder')}</button><button disabled={busy} onclick={() => perform(refresh)}>{$_('lore_local.check_now')}</button><button disabled={busy} aria-pressed={detectionStatus.paused} onclick={() => detector?.setPaused(!detectionStatus.paused)}>{detectionStatus.paused ? $_('lore_local.resume_detection') : $_('lore_local.pause_detection')}</button><button disabled={busy || !snapshot?.online || !incoming.length} onclick={() => perform(() => pull(incoming))}>{$_('lore_local.pull_incoming', { values: { count: incoming.length } })}</button></div></div>
 			{#if detectionStatus.warning}<p role="status" class="notice">{detectionStatus.warning}</p>{/if}
 			{#if snapshot?.notice}<p role="status" class="notice">{snapshot.notice}</p>{/if}
-			{#if incoming.length && snapshot?.online}<p role="status" class="notice">{incoming.length} incoming change(s) available. Your local files have not been changed. Review the list and choose Pull incoming to apply them.</p>{/if}
-			{#if snapshot?.readOnly}<p class="notice">Read-only mirror: pulling is available, but local changes cannot be published here.</p>{/if}
-			{#if snapshot?.reviewRequired}<p class="notice">This project requires review. Use its Repository review workflow to publish; local staging does not bypass review.</p>{/if}
+			{#if incoming.length && snapshot?.online}<p role="status" class="notice">{$_('lore_local.incoming_available', { values: { count: incoming.length } })}</p>{/if}
+			{#if snapshot?.readOnly}<p class="notice">{$_('lore_local.read_only')}</p>{/if}
+			{#if snapshot?.reviewRequired}<p class="notice">{$_('lore_local.review_required')}</p>{/if}
 			<div class="changes-layout">
 				<div class="changes-list">
-					<h3>Your changes ({outgoing.length})</h3>
+					<h3>{$_('lore_local.your_changes', { values: { count: outgoing.length } })}</h3>
 					{#each outgoing as change (change.path)}
-						<label class="change-row"><input type="checkbox" checked={!!staged[change.path]} disabled={busy || snapshot?.readOnly || snapshot?.reviewRequired} onchange={(event) => { const checked = event.currentTarget.checked; void perform(async () => { await workspace?.stage(change, checked); }); }} /><span class="kind">{change.kind}</span><span class="filename">{change.path}{#if staged[change.path] && !stageStillMatches(staged[change.path], change)}<small>Changed after staging or awaiting review — review before restaging.</small>{/if}</span><span class="file-size">{size(change.size)}</span></label>
-					{:else}<p class="muted">No outgoing changes in the last comparison.</p>{/each}
-					<h3>Incoming ({incoming.length})</h3>
-					{#each incoming as change (change.path)}<div class="change-row"><span class="kind">{change.remoteEtag === null ? 'removed' : 'updated'}</span><span class="filename">{change.path}</span><span class="file-size">{size(change.size)}</span></div>{:else}<p class="muted">No incoming changes in the last comparison.</p>{/each}
-					<h3>Conflicts ({conflicts.length})</h3>
-					{#each conflicts as change (change.path)}<div class="conflict"><strong>{change.path}</strong><p>Local and server versions differ. Neither will be overwritten automatically.</p><div class="actions"><button disabled={busy || !snapshot?.online || snapshot.readOnly || snapshot.reviewRequired} onclick={() => perform(() => resolveLocal(change))}>Keep local and stage</button><button disabled={busy || !snapshot?.online} onclick={() => perform(() => pull([change]))}>Use server version</button></div></div>{:else}<p class="muted">No conflicts.</p>{/each}
+						<label class="change-row"><input type="checkbox" checked={!!staged[change.path]} disabled={busy || snapshot?.readOnly || snapshot?.reviewRequired} onchange={(event) => { const checked = event.currentTarget.checked; void perform(async () => { await workspace?.stage(change, checked); }); }} /><span class="kind">{change.kind}</span><span class="filename">{change.path}{#if staged[change.path] && !stageStillMatches(staged[change.path], change)}<small>{$_('lore_local.changed_after')}</small>{/if}</span><span class="file-size">{size(change.size)}</span></label>
+					{:else}<p class="muted">{$_('lore_local.no_outgoing')}</p>{/each}
+					<h3>{$_('lore_local.incoming_h', { values: { count: incoming.length } })}</h3>
+					{#each incoming as change (change.path)}<div class="change-row"><span class="kind">{change.remoteEtag === null ? $_('lore_local.kind_removed') : $_('lore_local.kind_updated')}</span><span class="filename">{change.path}</span><span class="file-size">{size(change.size)}</span></div>{:else}<p class="muted">{$_('lore_local.no_incoming')}</p>{/each}
+					<h3>{$_('lore_local.conflicts_h', { values: { count: conflicts.length } })}</h3>
+					{#each conflicts as change (change.path)}<div class="conflict"><strong>{change.path}</strong><p>{$_('lore_local.conflict_body')}</p><div class="actions"><button disabled={busy || !snapshot?.online || snapshot.readOnly || snapshot.reviewRequired} onclick={() => perform(() => resolveLocal(change))}>{$_('lore_local.keep_local')}</button><button disabled={busy || !snapshot?.online} onclick={() => perform(() => pull([change]))}>{$_('lore_local.use_server')}</button></div></div>{:else}<p class="muted">{$_('lore_local.no_conflicts')}</p>{/each}
 				</div>
 				<aside class="publish-panel">
-					<h3>Staged ({stagedCount})</h3>
-					<p>Staging records the version you reviewed. Editing it again requires restaging; it will not silently publish newer edits.</p>
-					{#if staleCount}<p role="status">{staleCount} staged selection(s) need review. Uncheck and select changed files again, or unstage them. Automatic detection never restages your work.</p>{/if}
+					<h3>{$_('lore_local.staged_h', { values: { count: stagedCount } })}</h3>
+					<p>{$_('lore_local.staging_note')}</p>
+					{#if staleCount}<p role="status">{$_('lore_local.stale_note', { values: { count: staleCount } })}</p>{/if}
 					{#each Object.values(staged) as entry (entry.path)}<code>{entry.path}</code>{/each}
-					<button disabled={busy || !stagedCount} onclick={() => perform(async () => { await workspace?.unstageAll(); })}>Unstage all</button>
-					<label for="local-publish-summary">Change summary</label><textarea id="local-publish-summary" rows="3" maxlength="2000" bind:value={summary} disabled={busy} placeholder="What changed, and why?"></textarea>
-					<button class="primary" disabled={busy || !canPublish} onclick={() => perform(publish)}>{busy ? 'Working…' : `Publish staged (${stagedCount})`}</button>
-					<small>Each published file creates its own Lore revision. This is not one atomic multi-file commit, and publishing stops at the first failure.</small>
+					<button disabled={busy || !stagedCount} onclick={() => perform(async () => { await workspace?.unstageAll(); })}>{$_('lore_local.unstage_all')}</button>
+					<label for="local-publish-summary">{$_('lore_local.change_summary')}</label><textarea id="local-publish-summary" rows="3" maxlength="2000" bind:value={summary} disabled={busy} placeholder={$_('lore_local.summary_placeholder')}></textarea>
+					<button class="primary" disabled={busy || !canPublish} onclick={() => perform(publish)}>{busy ? $_('lore_local.working') : $_('lore_local.publish_staged', { values: { count: stagedCount } })}</button>
+					<small>{$_('lore_local.publish_note')}</small>
 				</aside>
 			</div>
-		{:else}<div class="notice"><p>Choose an empty folder to pull an existing project, or choose your own project folder to review its differences first. Existing files are never assumed safe to overwrite.</p><p>Use a separate folder from any automatic wabi-sync process. Local credentials are not stored in the project.</p></div>{/if}
+		{:else}<div class="notice"><p>{$_('lore_local.empty_folder')}</p><p>{$_('lore_local.separate_folder')}</p></div>{/if}
 	{/if}
 </section>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { todos, projects, overdueTodos } from '$lib/business/store';
 	import GanttChart from './GanttChart.svelte';
 	import PlannerAvatar from './PlannerAvatar.svelte';
@@ -18,10 +19,10 @@
 	 */
 
 	const STATUS_META: Array<{ id: TodoStatus; label: string; color: string }> = [
-		{ id: 'ideas', label: 'Ideas', color: '#a855f7' },
-		{ id: 'todo', label: 'To Do', color: '#64748b' },
-		{ id: 'in_progress', label: 'In Progress', color: '#3b82f6' },
-		{ id: 'done', label: 'Done', color: '#10b981' }
+		{ id: 'ideas', label: $_('insights.status_ideas'), color: '#a855f7' },
+		{ id: 'todo', label: $_('insights.status_todo'), color: '#64748b' },
+		{ id: 'in_progress', label: $_('insights.status_progress'), color: '#3b82f6' },
+		{ id: 'done', label: $_('login.wizard.step_done'), color: '#10b981' }
 	];
 
 	$: statusCounts = STATUS_META.map((meta) => ({
@@ -62,7 +63,7 @@
 	<div class="insights-grid">
 		<!-- Status summary -->
 		<section class="insight-card status-card">
-			<h3>Task status</h3>
+			<h3>{$_('insights.task_status')}</h3>
 			<div class="status-chips">
 				{#each statusCounts as s}
 					<span class="status-chip" style="--chip-color: {s.color}">
@@ -73,17 +74,17 @@
 				{/each}
 			</div>
 			{#if $overdueTodos.length > 0}
-				<p class="overdue-note"><strong>{$overdueTodos.length}</strong> overdue task{$overdueTodos.length === 1 ? '' : 's'} need attention</p>
+				<p class="overdue-note"><strong>{$overdueTodos.length}</strong>{$overdueTodos.length === 1 ? $_('insights.overdue_one') : $_('insights.overdue_many')}</p>
 			{:else}
-				<p class="ok-note">Nothing overdue</p>
+				<p class="ok-note">{$_('insights.nothing_overdue')}</p>
 			{/if}
 		</section>
 
 		<!-- Workload -->
 		<section class="insight-card workload-card">
-			<h3>Open workload</h3>
+			<h3>{$_('insights.open_workload')}</h3>
 			{#if workload.length === 0}
-				<p class="empty-line">No assigned open tasks{unassignedCount > 0 ? ` (${unassignedCount} unassigned)` : ''}</p>
+				<p class="empty-line">{$_('insights.no_assigned')}{unassignedCount > 0 ? `${$_('insights.unassigned', { values: { count: unassignedCount } })}` : ''}</p>
 			{:else}
 				<ul class="workload-list">
 					{#each workload as w (w.id)}
@@ -108,16 +109,16 @@
 					{/each}
 				</ul>
 				{#if unassignedCount > 0}
-					<p class="muted-line">{unassignedCount} unassigned open task{unassignedCount === 1 ? '' : 's'}</p>
+					<p class="muted-line">{unassignedCount === 1 ? $_('insights.unassigned_one', { values: { count: unassignedCount } }) : $_('insights.unassigned_many', { values: { count: unassignedCount } })}</p>
 				{/if}
 			{/if}
 		</section>
 
 		<!-- Piped plans -->
 		<section class="insight-card piped-card">
-			<h3>Piped plans</h3>
+			<h3>{$_('insights.piped_title')}</h3>
 			{#if pipedProjects.length === 0}
-				<p class="empty-line">All projects are personal. Edit a project to pipe it to a channel and share its plan.</p>
+				<p class="empty-line">{$_('insights.all_personal')}</p>
 			{:else}
 				<ul class="piped-list">
 					{#each pipedProjects as p (p.id)}
@@ -133,7 +134,7 @@
 
 		<!-- Cross-project timeline -->
 		<section class="insight-card gantt-card">
-			<h3>Timeline — all projects</h3>
+			<h3>{$_('insights.timeline')}</h3>
 			<GanttChart selectedProjectId={null} showHeader={false} />
 		</section>
 	</div>

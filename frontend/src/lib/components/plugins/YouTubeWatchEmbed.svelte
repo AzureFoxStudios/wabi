@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, onMount } from 'svelte';
 	import { getSocket } from '$lib/socket';
 	import ArtAssetsOverlay from './ArtAssetsOverlay.svelte';
@@ -41,7 +42,7 @@
 		return null;
 	}
 	function thumbFor(videoId: string): string { return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`; }
-	function titleFor(item: QueueItem | null): string { if (!item) return 'Unknown video'; return item.title || videoTitles[item.videoId] || `Video ${item.videoId}`; }
+	function titleFor(item: QueueItem | null): string { if (!item) return $_('yt.unknown_video'); return item.title || videoTitles[item.videoId] || $_('yt.video_n', { values: { id: item.videoId } }); }
 	function requestCountFor(videoId?: string): number { if (!videoId) return 0; return room?.videoRequestStats?.[videoId]?.count || 0; }
 	function displayId(videoId?: string): string { if (!videoId) return ''; return videoId.length > 8 ? `${videoId.slice(0, 8)}...` : videoId; }
 	async function ensureVideoTitle(videoId: string): Promise<void> {
@@ -68,9 +69,11 @@
 	$: if (room?.queue?.length) room.queue.forEach((item) => void ensureVideoTitle(item.videoId));
 	$: if (room?.pendingQueue?.length) room.pendingQueue.forEach((item) => void ensureVideoTitle(item.videoId));
 
-	function emitWatch(event: string, payload: Record<string, any> = {}): void { if (!socket || !channelId) return; socket.emit(event, { channelId, ...payload }); }
+	function modeWord(mode: string): string { return mode === 'open' ? $_('common.open') : mode === 'vote' ? $_('yt.mode_vote') : $_('yt.mode_presenter'); }
+		function actionWord(type: string): string { return type === 'play' ? $_('yt.action_play') : type === 'pause' ? $_('yt.action_pause') : type === 'seek' ? $_('yt.action_seek') : type === 'skip' ? $_('yt.action_skip') : type; }
+		function emitWatch(event: string, payload: Record<string, any> = {}): void { if (!socket || !channelId) return; socket.emit(event, { channelId, ...payload }); }
 	function requestState(): void { emitWatch('watch:get-state'); }
-	function queueThisVideo(): void { if (!initialVideoId) return; emitWatch('watch:add', { url }); queued = true; infoMessage = room?.queueModerated ? 'Submitted for moderator approval' : 'Queued in watch room'; }
+	function queueThisVideo(): void { if (!initialVideoId) return; emitWatch('watch:add', { url }); queued = true; infoMessage = room?.queueModerated ? $_('yt.queued_pending') : $_('yt.queued_room'); }
 	function claimPresenter(): void { emitWatch('watch:presenter:set'); }
 	function setMode(mode: 'open' | 'presenter' | 'vote'): void { emitWatch('watch:mode:set', { mode }); }
 	function startVote(actionType: 'play' | 'pause' | 'seek' | 'skip'): void { const payload: Record<string, any> = { actionType }; if (actionType === 'seek') { const positionSec = Number.parseFloat(seekInput); if (!Number.isFinite(positionSec)) return; payload.positionSec = positionSec; } emitWatch('watch:vote:start', payload); }
@@ -83,7 +86,7 @@
 	function queuePlayNext(queueId: string): void { emitWatch('watch:queue:play-next', { queueId }); }
 	function queueMove(queueId: string, direction: 'up' | 'down'): void { emitWatch('watch:queue:move', { queueId, direction }); }
 	function queueRemove(queueId: string): void { emitWatch('watch:queue:remove', { queueId }); }
-	function queueClear(): void { if (!room?.queue?.length) return; if (!window.confirm('Clear the entire watch queue?')) return; emitWatch('watch:queue:clear'); }
+	function queueClear(): void { if (!room?.queue?.length) return; if (!window.confirm($_('yt.clear_queue_confirm'))) return; emitWatch('watch:queue:clear'); }
 	function setQueueModeration(enabled: boolean): void { emitWatch('watch:queue:moderation:set', { enabled }); }
 	function queueApprove(queueId: string): void { emitWatch('watch:queue:approve', { queueId }); }
 	function queueReject(queueId: string): void { emitWatch('watch:queue:reject', { queueId }); }
@@ -135,11 +138,11 @@
 		if (action.type === 'play') { applySuppressWindow(); player?.playVideo?.(); }
 		if (action.type === 'pause') { applySuppressWindow(); player?.pauseVideo?.(); }
 		if (action.type === 'seek' && Number.isFinite(action.payload?.positionSec)) { applySuppressWindow(); player?.seekTo?.(action.payload?.positionSec, true); seekInput = String(Math.round(action.payload?.positionSec || 0)); }
-		if (action.type === 'skip') infoMessage = 'Skipped to next item';
+		if (action.type === 'skip') infoMessage = $_('yt.skipped');
 	}
 	function onWatchError(payload: { message?: string }): void { if (payload?.message) infoMessage = payload.message; }
-	function onVoteResolved(payload: { channelId: string; passed: boolean; action: { type: string } }): void { if (!payload || payload.channelId !== channelId) return; infoMessage = payload.passed ? `Vote passed: ${payload.action.type}` : `Vote failed: ${payload.action.type}`; }
-	function onQueuedPending(payload: { channelId: string }): void { if (!payload || payload.channelId !== channelId) return; infoMessage = 'Submitted for approval'; }
+	function onVoteResolved(payload: { channelId: string; passed: boolean; action: { type: string } }): void { if (!payload || payload.channelId !== channelId) return; infoMessage = payload.passed ? $_('yt.vote_passed', { values: { action: actionWord(payload.action.type) } }) : $_('yt.vote_failed', { values: { action: actionWord(payload.action.type) } }); }
+	function onQueuedPending(payload: { channelId: string }): void { if (!payload || payload.channelId !== channelId) return; infoMessage = $_('yt.submitted_approval'); }
 
 	onMount(() => {
 		if (!socket) return;
@@ -159,88 +162,88 @@
 
 <div class="watch-embed">
 	<div class="watch-topbar">
-		<button type="button" class="primary" on:click={() => (expanded = !expanded)}>{expanded ? 'Hide Watch Panel' : 'Open Watch Panel'}</button>
-		<button type="button" on:click={queueThisVideo} disabled={!initialVideoId || queued}>{queued ? 'Queued' : 'Queue This Video'}</button>
-		<button type="button" on:click={requestState}>Refresh</button>
+		<button type="button" class="primary" on:click={() => (expanded = !expanded)}>{expanded ? $_('yt.hide_panel') : $_('yt.open_panel')}</button>
+		<button type="button" on:click={queueThisVideo} disabled={!initialVideoId || queued}>{queued ? $_('yt.queued_btn') : $_('yt.queue_this')}</button>
+		<button type="button" on:click={requestState}>{$_('yt.refresh')}</button>
 	</div>
 
 	{#if expanded}
 		<div class="watch-stage">
-			{#if activeVideoId}<div bind:this={playerHost} class="player-host" aria-label="YouTube watch player"></div>{:else}<div class="no-video">Invalid YouTube link</div>{/if}
+			{#if activeVideoId}<div bind:this={playerHost} class="player-host" aria-label={$_('yt.player_aria')}></div>{:else}<div class="no-video">{$_('yt.invalid_link')}</div>{/if}
 			<ArtAssetsOverlay channelId={channelId} enabled={overlayEnabled} />
 		</div>
 
 		<div class="watch-controls">
-			<button type="button" on:click={play} disabled={!canPresent && room?.controlMode !== 'vote'}>Play</button>
-			<button type="button" on:click={pause} disabled={!canPresent && room?.controlMode !== 'vote'}>Pause</button>
-			<button type="button" on:click={skip} disabled={!canPresent && room?.controlMode !== 'vote'}>Skip</button>
-			<input type="number" min="0" step="1" bind:value={seekInput} placeholder="Seek sec" />
-			<button type="button" on:click={seek} disabled={!canPresent && room?.controlMode !== 'vote'}>Seek</button>
-			<label class="overlay-toggle"><input type="checkbox" bind:checked={overlayEnabled} /><span>Enable Art Overlay Layer</span></label>
+			<button type="button" on:click={play} disabled={!canPresent && room?.controlMode !== 'vote'}>{$_('yt.play')}</button>
+			<button type="button" on:click={pause} disabled={!canPresent && room?.controlMode !== 'vote'}>{$_('yt.pause')}</button>
+			<button type="button" on:click={skip} disabled={!canPresent && room?.controlMode !== 'vote'}>{$_('login.wizard.skip')}</button>
+			<input type="number" min="0" step="1" bind:value={seekInput} placeholder={$_('yt.seek_placeholder')} />
+			<button type="button" on:click={seek} disabled={!canPresent && room?.controlMode !== 'vote'}>{$_('yt.seek')}</button>
+			<label class="overlay-toggle"><input type="checkbox" bind:checked={overlayEnabled} /><span>{$_('yt.art_overlay')}</span></label>
 		</div>
 
 		<div class="watch-meta">
-			<span>Mode: {room?.controlMode || 'presenter'}</span>
-			<span>Playing: {room?.isPlaying ? 'Yes' : 'No'}</span>
-			<span>Time: {Math.round(room?.positionSec || 0)}s</span>
-			<span>Queue: {room?.queue?.length || 0}</span>
-			<span>Moderation: {room?.queueModerated ? 'On' : 'Off'}</span>
+			<span>{$_('yt.mode_value', { values: { mode: modeWord(room?.controlMode || 'presenter') } })}</span>
+			<span>{$_('yt.playing_value', { values: { value: room?.isPlaying ? $_('yt.yes') : $_('yt.no') } })}</span>
+			<span>{$_('yt.time_value', { values: { seconds: Math.round(room?.positionSec || 0) } })}</span>
+			<span>{$_('yt.queue_value', { values: { count: room?.queue?.length || 0 } })}</span>
+			<span>{$_('yt.moderation_value', { values: { value: room?.queueModerated ? $_('yt.on') : $_('yt.off') } })}</span>
 		</div>
 
 		<div class="watch-queue-panel">
-			<div class="queue-section-head"><div class="queue-section-title">Now Playing</div></div>
-			{#if nowPlayingItem}<article class="queue-card current"><img src={thumbFor(nowPlayingItem.videoId)} alt="Now playing thumbnail" loading="lazy" /><div class="queue-card-meta"><div class="queue-card-title">{titleFor(nowPlayingItem)}</div><div class="queue-card-sub">ID: {displayId(nowPlayingItem.videoId)}</div>{#if requestCountFor(nowPlayingItem.videoId) > 1}<div class="queue-card-trend">Requested {requestCountFor(nowPlayingItem.videoId)} times</div>{/if}</div></article>{:else}<div class="queue-empty">Nothing is playing yet.</div>{/if}
+			<div class="queue-section-head"><div class="queue-section-title">{$_('yt.now_playing')}</div></div>
+			{#if nowPlayingItem}<article class="queue-card current"><img src={thumbFor(nowPlayingItem.videoId)} alt={$_('yt.now_thumb_alt')} loading="lazy" /><div class="queue-card-meta"><div class="queue-card-title">{titleFor(nowPlayingItem)}</div><div class="queue-card-sub">{$_('yt.id_value', { values: { id: displayId(nowPlayingItem.videoId) } })}</div>{#if requestCountFor(nowPlayingItem.videoId) > 1}<div class="queue-card-trend">{$_('yt.requested_times', { values: { count: requestCountFor(nowPlayingItem.videoId) } })}</div>{/if}</div></article>{:else}<div class="queue-empty">{$_('yt.nothing_playing')}</div>{/if}
 
-			<div class="queue-section-head"><div class="queue-section-title">Up Next</div><button type="button" class="queue-clear-btn" on:click={queueClear} disabled={!canManageQueue || !room?.queue?.length}>Clear Queue</button></div>
+			<div class="queue-section-head"><div class="queue-section-title">{$_('yt.up_next')}</div><button type="button" class="queue-clear-btn" on:click={queueClear} disabled={!canManageQueue || !room?.queue?.length}>{$_('yt.clear_queue')}</button></div>
 			{#if room?.queue?.length}
 				<div class="queue-list">
 					{#each room.queue as item, idx (item.id)}
 						<article class="queue-card">
-							<img src={thumbFor(item.videoId)} alt="Queue thumbnail" loading="lazy" />
+							<img src={thumbFor(item.videoId)} alt={$_('yt.queue_thumb_alt')} loading="lazy" />
 							<div class="queue-card-meta">
 								<div class="queue-card-title">{titleFor(item)}</div>
-								<div class="queue-card-sub">{#if item.requestedBy}Added by {item.requestedBy}{:else}Added by unknown{/if}</div>
-								{#if requestCountFor(item.videoId) > 1}<div class="queue-card-trend">Requested {requestCountFor(item.videoId)} times</div>{/if}
+								<div class="queue-card-sub">{#if item.requestedBy}{$_('yt.added_by', { values: { name: item.requestedBy } })}{:else}{$_('yt.added_unknown')}{/if}</div>
+								{#if requestCountFor(item.videoId) > 1}<div class="queue-card-trend">{$_('yt.requested_times', { values: { count: requestCountFor(item.videoId) } })}</div>{/if}
 								<div class="queue-card-actions">
-									<button type="button" on:click={() => queuePlayNow(item.id)} disabled={!canManageQueue}>Now</button>
-									<button type="button" on:click={() => queuePlayNext(item.id)} disabled={!canManageQueue}>Next</button>
-									<button type="button" on:click={() => queueMove(item.id, 'up')} disabled={!canManageQueue || idx === 0}>Up</button>
-									<button type="button" on:click={() => queueMove(item.id, 'down')} disabled={!canManageQueue || idx === (room?.queue?.length || 0) - 1}>Down</button>
-									<button type="button" on:click={() => queueRemove(item.id)} disabled={!canManageQueue}>Remove</button>
+									<button type="button" on:click={() => queuePlayNow(item.id)} disabled={!canManageQueue}>{$_('yt.now_btn')}</button>
+									<button type="button" on:click={() => queuePlayNext(item.id)} disabled={!canManageQueue}>{$_('messages.viewer.next')}</button>
+									<button type="button" on:click={() => queueMove(item.id, 'up')} disabled={!canManageQueue || idx === 0}>{$_('yt.up_btn')}</button>
+									<button type="button" on:click={() => queueMove(item.id, 'down')} disabled={!canManageQueue || idx === (room?.queue?.length || 0) - 1}>{$_('yt.down_btn')}</button>
+									<button type="button" on:click={() => queueRemove(item.id)} disabled={!canManageQueue}>{$_('yt.remove_btn')}</button>
 								</div>
 							</div>
 						</article>
 					{/each}
 				</div>
-			{:else}<div class="queue-empty">Queue is empty.</div>{/if}
+			{:else}<div class="queue-empty">{$_('yt.queue_empty')}</div>{/if}
 
 			{#if room?.queueModerated}
-				<div class="queue-section-head"><div class="queue-section-title">Pending Approval</div><div class="queue-pending-count">{room?.pendingQueue?.length || 0} pending</div></div>
+				<div class="queue-section-head"><div class="queue-section-title">{$_('yt.pending_approval')}</div><div class="queue-pending-count">{$_('yt.pending_count', { values: { count: room?.pendingQueue?.length || 0 } })}</div></div>
 				{#if room?.pendingQueue?.length}
 					<div class="queue-list">
 						{#each room.pendingQueue as item (item.id)}
 							<article class="queue-card pending">
-								<img src={thumbFor(item.videoId)} alt="Pending queue thumbnail" loading="lazy" />
+								<img src={thumbFor(item.videoId)} alt={$_('yt.pending_thumb_alt')} loading="lazy" />
 								<div class="queue-card-meta">
 									<div class="queue-card-title">{titleFor(item)}</div>
-									<div class="queue-card-sub">{#if item.requestedBy}Requested by {item.requestedBy}{:else}Requested by unknown{/if}</div>
-									{#if requestCountFor(item.videoId) > 1}<div class="queue-card-trend">Requested {requestCountFor(item.videoId)} times</div>{/if}
-									{#if canModerateQueue}<div class="queue-card-actions"><button type="button" on:click={() => queueApprove(item.id)}>Approve</button><button type="button" on:click={() => queueReject(item.id)}>Reject</button></div>{/if}
+									<div class="queue-card-sub">{#if item.requestedBy}{$_('yt.requested_by', { values: { name: item.requestedBy } })}{:else}{$_('yt.requested_unknown')}{/if}</div>
+									{#if requestCountFor(item.videoId) > 1}<div class="queue-card-trend">{$_('yt.requested_times', { values: { count: requestCountFor(item.videoId) } })}</div>{/if}
+									{#if canModerateQueue}<div class="queue-card-actions"><button type="button" on:click={() => queueApprove(item.id)}>{$_('yt.approve')}</button><button type="button" on:click={() => queueReject(item.id)}>{$_('yt.reject')}</button></div>{/if}
 								</div>
 							</article>
 						{/each}
 					</div>
-				{:else}<div class="queue-empty">No pending links.</div>{/if}
+				{:else}<div class="queue-empty">{$_('yt.no_pending')}</div>{/if}
 			{/if}
 		</div>
 
 		<div class="watch-mode-controls">
-			<button type="button" on:click={claimPresenter}>Claim Presenter</button>
-			<button type="button" on:click={() => setMode('open')}>Open Mode</button>
-			<button type="button" on:click={() => setMode('presenter')}>Presenter Mode</button>
-			<button type="button" on:click={() => setMode('vote')}>Vote Mode</button>
-			<button type="button" on:click={() => setQueueModeration(!(room?.queueModerated || false))} disabled={!canModerateQueue}>{room?.queueModerated ? 'Disable Queue Moderation' : 'Enable Queue Moderation'}</button>
-			{#if room?.pendingVote}<button type="button" on:click={() => castVote(true)}>Vote Yes</button><button type="button" on:click={() => castVote(false)}>Vote No</button>{/if}
+			<button type="button" on:click={claimPresenter}>{$_('yt.claim_presenter')}</button>
+			<button type="button" on:click={() => setMode('open')}>{$_('yt.open_mode')}</button>
+			<button type="button" on:click={() => setMode('presenter')}>{$_('yt.presenter_mode')}</button>
+			<button type="button" on:click={() => setMode('vote')}>{$_('yt.vote_mode')}</button>
+			<button type="button" on:click={() => setQueueModeration(!(room?.queueModerated || false))} disabled={!canModerateQueue}>{room?.queueModerated ? $_('yt.disable_mod') : $_('yt.enable_mod')}</button>
+			{#if room?.pendingVote}<button type="button" on:click={() => castVote(true)}>{$_('yt.vote_yes')}</button><button type="button" on:click={() => castVote(false)}>{$_('yt.vote_no')}</button>{/if}
 		</div>
 	{/if}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import './MediaAlbumsTabImpl.css';
 	import SurfaceHeader from '../SurfaceHeader.svelte';
 	import { onDestroy, onMount, tick } from 'svelte';
@@ -62,11 +63,11 @@
 		if (!albumsOffHere && scopeId) void refreshAlbums(true);
 	}
 	$: scopeLabel = (() => {
-		if (!scopeId) return 'Select a channel to browse albums.';
+		if (!scopeId) return $_('media_albums.select_channel');
 		if (scopeType === 'dm') {
-			return activeChannel?.name ? `Conversation albums (${activeChannel.name})` : 'Conversation albums';
+			return activeChannel?.name ? $_('media_albums.conversation_albums_named', { values: { name: activeChannel.name } }) : $_('media_albums.conversation_albums');
 		}
-		return activeChannel?.name ? `Channel albums (#${activeChannel.name})` : 'Channel albums';
+		return activeChannel?.name ? $_('media_albums.channel_albums_named', { values: { name: activeChannel.name } }) : $_('media_albums.channel_albums');
 	})();
 
 	let albums: MediaAlbum[] = [];
@@ -153,9 +154,9 @@
 	}
 
 	function albumRowStatus(album: MediaAlbum): string | null {
-		if (selectedAlbumId === album.id && isUploadingAlbumFile) return 'Uploading';
-		if (lastUploadedAlbumId === album.id) return 'Updated';
-		if (selectedAlbumId === album.id) return album.itemCount > 0 ? 'Selected' : 'Ready';
+		if (selectedAlbumId === album.id && isUploadingAlbumFile) return $_('media_albums.uploading');
+		if (lastUploadedAlbumId === album.id) return $_('wiki.updated');
+		if (selectedAlbumId === album.id) return album.itemCount > 0 ? $_('media_albums.selected') : $_('media_albums.ready');
 		return null;
 	}
 
@@ -327,7 +328,7 @@
 			return;
 		}
 		albumViewerAlbumId = albumId;
-		albumViewerAlbumName = album?.name || 'Album';
+		albumViewerAlbumName = album?.name || $_('media_albums.album_label');
 		albumViewerItems = mediaItems;
 		albumViewerIndex = Math.max(0, Math.min(preferredIndex, mediaItems.length - 1));
 		albumViewerOpen = true;
@@ -351,7 +352,7 @@
 		if (mediaItems.length > 0) {
 			const itemIndex = Math.max(0, mediaItems.findIndex((mediaItem) => mediaItem.id === item.id));
 			albumViewerAlbumId = selectedAlbumId;
-			albumViewerAlbumName = selectedAlbum()?.name || 'Album';
+			albumViewerAlbumName = selectedAlbum()?.name || $_('media_albums.album_label');
 			albumViewerItems = mediaItems;
 			albumViewerIndex = itemIndex;
 			albumViewerOpen = true;
@@ -396,10 +397,10 @@
 			resetUploadDraft();
 			await refreshAlbums(false);
 			lastUploadedAlbumId = selectedAlbumId;
-			successMessage = `Added "${uploaded.fileName}" to "${selectedAlbum()?.name || 'album'}".`;
+			successMessage = $_('media_albums.added_to_album', { values: { file: uploaded.fileName, album: selectedAlbum()?.name || $_('media_albums.album_fallback') } });
 		} catch (error) {
 			clearSuccess();
-			errorMessage = formatAlbumActionError(error, 'Failed to upload album file', { mode: 'upload' });
+			errorMessage = formatAlbumActionError(error, $_('media_albums.err_upload_file'), { mode: 'upload' });
 		} finally {
 			isUploadingAlbumFile = false;
 		}
@@ -466,7 +467,7 @@
 				}
 			}
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to load media albums';
+			errorMessage = error instanceof Error ? error.message : $_('media_albums.err_load_albums');
 		} finally {
 			isLoadingAlbums = false;
 		}
@@ -491,10 +492,10 @@
 			await refreshAlbums(false);
 			selectedAlbumId = created.id;
 			await loadAlbumItems(created.id);
-			successMessage = `Created album "${created.name}".`;
+			successMessage = $_('media_albums.created_album', { values: { name: created.name } });
 			sendMessage(scopeId, buildAlbumAnnouncement(created), 'text');
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to create album';
+			errorMessage = error instanceof Error ? error.message : $_('media_albums.err_create_album');
 		} finally {
 			isCreatingAlbum = false;
 		}
@@ -518,7 +519,7 @@
 			};
 			return response.items;
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to load album items';
+			errorMessage = error instanceof Error ? error.message : $_('media_albums.err_load_items');
 			albumItems = [];
 			return [];
 		} finally {
@@ -535,7 +536,7 @@
 		const token = getAuthToken();
 		if (!token || isSavingFeaturedAlbum) return;
 		if (!canFeatureAlbum(album)) {
-			errorMessage = 'Only album owner or moderators can change featured album state.';
+			errorMessage = $_('media_albums.err_feature_permission');
 			return;
 		}
 
@@ -553,7 +554,7 @@
 			});
 			albums = sortAlbumsForDisplay(mapped);
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to update featured album state';
+			errorMessage = error instanceof Error ? error.message : $_('media_albums.err_feature');
 		} finally {
 			isSavingFeaturedAlbum = false;
 		}
@@ -572,7 +573,7 @@
 			}
 			await refreshAlbums(false);
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to save album item order';
+			errorMessage = error instanceof Error ? error.message : $_('media_albums.err_save_order');
 			await loadAlbumItems(selectedAlbumId);
 		} finally {
 			isSavingItemOrder = false;
@@ -597,7 +598,7 @@
 		}
 		const album = selectedAlbum();
 		if (!canFeatureAlbum(album)) {
-			errorMessage = 'Only album owner or moderators can reorder this album.';
+			errorMessage = $_('media_albums.err_reorder_permission');
 			draggingItemId = null;
 			return;
 		}
@@ -632,9 +633,9 @@
 			await loadAlbumItems(selectedAlbumId);
 			await refreshAlbums(false);
 			lastUploadedAlbumId = selectedAlbumId;
-			successMessage = `Added "${attachmentName}" to "${selectedAlbum()?.name || 'album'}".`;
+			successMessage = $_('media_albums.added_to_album', { values: { file: attachmentName, album: selectedAlbum()?.name || $_('media_albums.album_fallback') } });
 		} catch (error) {
-			errorMessage = formatAlbumActionError(error, 'Failed to add album item', { mode: 'url' });
+			errorMessage = formatAlbumActionError(error, $_('media_albums.err_add_item'), { mode: 'url' });
 		} finally {
 			isAddingItem = false;
 		}
@@ -645,11 +646,11 @@
 		if (!token || !albumId || isDeletingAlbum) return;
 		const album = albums.find((entry) => entry.id === albumId) || null;
 		if (!canDeleteAlbum(album)) {
-			errorMessage = 'Only album owner or moderators can delete this album.';
+			errorMessage = $_('media_albums.err_delete_permission');
 			return;
 		}
 		const label = album?.name || `#${albumId}`;
-		if (!confirm(`Delete album "${label}"? This removes all album items.`)) return;
+		if (!confirm($_('media_albums.confirm_delete_album', { values: { name: label } }))) return;
 
 		isDeletingAlbum = true;
 		clearSuccess();
@@ -666,16 +667,16 @@
 			if (albumViewerAlbumId === albumId) {
 				closeAlbumViewer();
 			}
-			const { [albumId]: _, ...remainingPreviewMap } = albumPreviewMap;
+			const { [albumId]: _removed, ...remainingPreviewMap } = albumPreviewMap;
 			albumPreviewMap = remainingPreviewMap;
 			closeAlbumContextMenu();
 			await refreshAlbums(true);
 			if (lastUploadedAlbumId === albumId) {
 				lastUploadedAlbumId = null;
 			}
-			successMessage = `Deleted album "${label}".`;
+			successMessage = $_('media_albums.deleted_album', { values: { name: label } });
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to delete album';
+			errorMessage = error instanceof Error ? error.message : $_('media_albums.err_delete_album');
 		} finally {
 			isDeletingAlbum = false;
 		}
@@ -691,15 +692,15 @@
 		if (!token || !selectedAlbumId || deletingItemId !== null) return;
 		const item = albumItems.find((entry) => entry.id === itemId);
 		if (!item) {
-			errorMessage = 'Album item not found.';
+			errorMessage = $_('media_albums.err_item_not_found');
 			return;
 		}
 		if (!canDeleteItem(item, selectedAlbum())) {
-			errorMessage = 'Only item owner, album owner, or moderators can delete this item.';
+			errorMessage = $_('media_albums.err_delete_item_permission');
 			return;
 		}
-		const label = item?.attachmentName || `item #${itemId}`;
-		if (!confirm(`Delete "${label}" from this album?`)) return;
+		const label = item?.attachmentName || $_('media_albums.item_fallback', { values: { id: itemId } });
+		if (!confirm($_('media_albums.confirm_delete_item', { values: { name: label } }))) return;
 
 		deletingItemId = itemId;
 		clearSuccess();
@@ -708,9 +709,9 @@
 			await deleteMediaAlbumItem(token, selectedAlbumId, itemId);
 			await loadAlbumItems(selectedAlbumId);
 			await refreshAlbums(false);
-			successMessage = `Removed "${label}" from "${selectedAlbum()?.name || 'album'}".`;
+			successMessage = $_('media_albums.removed_from_album', { values: { file: label, album: selectedAlbum()?.name || $_('media_albums.album_fallback') } });
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : 'Failed to delete album item';
+			errorMessage = error instanceof Error ? error.message : $_('media_albums.err_delete_item');
 		} finally {
 			deletingItemId = null;
 		}
@@ -788,17 +789,17 @@
 
 <div class="media-albums-tab" class:media-albums-full={variant === 'full'}>
 	{#if variant === 'full'}
-		<SurfaceHeader title="Media" description={scopeLabel} />
+		<SurfaceHeader title={$_('places.media')} description={scopeLabel} />
 	{:else}
 	<div class="section-header">
-		<h3>Media</h3>
+		<h3>{$_('places.media')}</h3>
 	</div>
-	<p class="scope-label">{scopeLabel} Pins and uploads stay scoped to the current channel or DM.</p>
+	<p class="scope-label">{scopeLabel} {$_('media_albums.scope_hint')}</p>
 	{/if}
 
 	{#if !getAuthToken()}
 		<div class="empty-state">
-			Sign in to create and browse persistent albums.
+			{$_('media_albums.sign_in')}
 		</div>
 	{:else if albumsOff}
 		<div class="album-list is-empty">
@@ -816,8 +817,8 @@
 			<input
 				type="text"
 				bind:value={newAlbumName}
-				placeholder="New album name"
-				aria-label="New album name"
+				placeholder={$_('media_albums.new_album_name')}
+				aria-label={$_('media_albums.new_album_name')}
 				maxlength="80"
 				on:keydown={(event) => {
 					if (event.key === 'Enter') {
@@ -830,7 +831,7 @@
 				on:click={() => void createAlbumFromInput()}
 				disabled={!scopeId || !newAlbumName.trim() || isCreatingAlbum}
 			>
-				{isCreatingAlbum ? 'Creating...' : 'Create'}
+				{isCreatingAlbum ? $_('media_albums.creating') : $_('media_albums.create')}
 			</button>
 		</div>
 
@@ -843,15 +844,15 @@
 
 		<div class="album-list" class:is-empty={albums.length === 0}>
 		{#if isLoadingAlbums}
-				<div class="empty-state" role="status">Loading albums…</div>
+				<div class="empty-state" role="status">{$_('media_albums.loading_albums')}</div>
 			{:else if albums.length === 0}
 				<div class="empty-state">
 					{#if variant === 'full'}
 						<svg class="media-empty-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
-						<h3>{scopeType === 'dm' ? 'No albums in this conversation yet' : 'No albums in this channel yet'}</h3>
-						<p>Create an album above to collect images, videos, and files together.</p>
+						<h3>{scopeType === 'dm' ? $_('media_albums.no_albums_dm') : $_('media_albums.no_albums_channel')}</h3>
+						<p>{$_('media_albums.create_hint')}</p>
 					{:else}
-						{scopeType === 'dm' ? 'No albums in this conversation yet.' : 'No albums in this channel yet.'}
+						{scopeType === 'dm' ? $_('media_albums.no_albums_dm_full') : $_('media_albums.no_albums_channel_full')}
 					{/if}
 				</div>
 			{:else}
@@ -878,20 +879,20 @@
 			<div
 				class="album-context-menu"
 				role="menu"
-				aria-label="Album actions"
+				aria-label={$_('media_albums.album_actions')}
 				tabindex="-1"
 				style={`left: ${albumContextMenu.x}px; top: ${albumContextMenu.y}px;`}
 				on:pointerdown|stopPropagation
 			>
 				<button type="button" on:click={() => { closeAlbumContextMenu(); void openAlbum(contextMenuAlbumValue.id); }}>
-					Open album
+					{$_('media_albums.open_album')}
 				</button>
 				<button type="button" on:click={() => { closeAlbumContextMenu(); void openAlbumUpload(contextMenuAlbumValue.id); }}>
-					Add file
+					{$_('media_albums.add_file')}
 				</button>
 				{#if canFeatureAlbum(contextMenuAlbumValue)}
 					<button type="button" on:click={() => { closeAlbumContextMenu(); void toggleFeaturedAlbum(contextMenuAlbumValue); }}>
-						{contextMenuAlbumValue.isFeatured ? 'Unfeature album' : 'Feature album'}
+						{contextMenuAlbumValue.isFeatured ? $_('media_albums.unfeature_album') : $_('media_albums.feature_album')}
 					</button>
 				{/if}
 				{#if canDeleteAlbum(contextMenuAlbumValue)}
@@ -900,7 +901,7 @@
 						class="danger"
 						on:click={() => { closeAlbumContextMenu(); void removeAlbum(contextMenuAlbumValue.id); }}
 					>
-						Delete album
+						{$_('media_albums.delete_album')}
 					</button>
 				{/if}
 			</div>
@@ -926,7 +927,7 @@
 								type="button"
 								class="album-preview-chip"
 								title={previewItem.attachmentName}
-								aria-label={`Open ${previewItem.attachmentName}`}
+								aria-label={$_('shell.open_group', { values: { name: previewItem.attachmentName } })}
 								on:click={() => void openSelectedAlbumViewerAtItem(previewItem)}
 							>
 								{#if isVideoAlbumItem(previewItem)}
@@ -949,7 +950,7 @@
 					</div>
 				{/if}
 				{#if !canDeleteAlbum(selectedAlbumValue)}
-					<div class="permission-hint">Only the album owner or moderators can delete this album.</div>
+					<div class="permission-hint">{$_('media_albums.permission_hint')}</div>
 				{/if}
 
 				<AlbumUploadForm
@@ -965,17 +966,17 @@
 				<!-- A developer instrument (§9.4): adding an item by URL and MIME type is for dev builds only. -->
 				{#if import.meta.env.DEV}
 				<details class="debug-add-item">
-					<summary>Advanced: add item by URL</summary>
+					<summary>{$_('media_albums.advanced')}</summary>
 					<div class="debug-form">
-						<input type="text" bind:value={draftAttachmentUrl} placeholder="Attachment URL" />
-						<input type="text" bind:value={draftAttachmentName} placeholder="Attachment name" />
-						<input type="text" bind:value={draftAttachmentMime} placeholder="MIME type (optional)" />
-						<input type="text" bind:value={draftCaption} placeholder="Caption (optional)" />
+						<input type="text" bind:value={draftAttachmentUrl} placeholder={$_('media_albums.attachment_url')} />
+						<input type="text" bind:value={draftAttachmentName} placeholder={$_('media_albums.attachment_name')} />
+						<input type="text" bind:value={draftAttachmentMime} placeholder={$_('media_albums.mime_optional')} />
+						<input type="text" bind:value={draftCaption} placeholder={$_('media_albums.caption_optional')} />
 						<button
 							on:click={() => void addDebugItem()}
 							disabled={isAddingItem || !draftAttachmentUrl.trim() || !draftAttachmentName.trim()}
 						>
-							{isAddingItem ? 'Adding...' : 'Add'}
+							{isAddingItem ? $_('media_albums.adding') : $_('media_albums.add')}
 						</button>
 					</div>
 				</details>
@@ -986,44 +987,44 @@
 						<input
 							type="search"
 							bind:value={itemSearchQuery}
-							placeholder="Search album items..."
+							placeholder={$_('media_albums.search_items')}
 						/>
 					</div>
 					<div class="item-toolbar-right">
 						<select bind:value={itemSortMode}>
-							<option value="manual">Manual order</option>
-							<option value="newest">Newest first</option>
-							<option value="oldest">Oldest first</option>
-							<option value="name">Name (A-Z)</option>
+							<option value="manual">{$_('media_albums.sort_manual')}</option>
+							<option value="newest">{$_('media_albums.sort_newest')}</option>
+							<option value="oldest">{$_('media_albums.sort_oldest')}</option>
+							<option value="name">{$_('messages.zip_preview.sort.name_asc')}</option>
 						</select>
 						<div class="view-toggle">
-							<button class:active={itemViewMode === 'grid'} on:click={() => (itemViewMode = 'grid')}>Grid</button>
-							<button class:active={itemViewMode === 'list'} on:click={() => (itemViewMode = 'list')}>List</button>
+							<button class:active={itemViewMode === 'grid'} on:click={() => (itemViewMode = 'grid')}>{$_('wb.pattern_grid')}</button>
+							<button class:active={itemViewMode === 'list'} on:click={() => (itemViewMode = 'list')}>{$_('media_albums.list')}</button>
 						</div>
 					</div>
 				</div>
 
 				<div class="item-toolbar-summary">
-					Showing {pagedAlbumItems.length} of {filteredAlbumItems.length} items
+					{$_('media_albums.showing', { values: { shown: pagedAlbumItems.length, total: filteredAlbumItems.length } })}
 					{#if isManualSortMode}
 						{#if normalizedItemSearch}
-							&middot; clear search to reorder items
+							&middot; {$_('media_albums.clear_search_reorder')}
 						{:else if canDragReorderItems}
-							&middot; drag and drop to reorder
+							&middot; {$_('media_albums.drag_to_reorder')}
 						{/if}
 					{/if}
 					{#if isSavingItemOrder}
-						&middot; saving order...
+						&middot; {$_('media_albums.saving_order')}
 					{/if}
 				</div>
 
 				<div class="item-list" class:grid-view={itemViewMode === 'grid'}>
 					{#if isLoadingItems}
-						<div class="empty-state">Loading items...</div>
+						<div class="empty-state">{$_('media_albums.loading_items')}</div>
 					{:else if albumItems.length === 0}
-						<div class="empty-state">No items in this album yet.</div>
+						<div class="empty-state">{$_('media_albums.no_items')}</div>
 					{:else if filteredAlbumItems.length === 0}
-						<div class="empty-state">No items match this search.</div>
+						<div class="empty-state">{$_('media_albums.no_items_match')}</div>
 					{:else}
 							{#each pagedAlbumItems as item}
 								<AlbumItemRow
@@ -1045,11 +1046,11 @@
 				{#if !isLoadingItems && !isManualSortMode && filteredAlbumItems.length > ITEMS_PER_PAGE}
 					<div class="pagination-row">
 						<button on:click={() => currentItemsPage = Math.max(1, currentItemsPage - 1)} disabled={currentItemsPage <= 1}>
-							Previous
+							{$_('messages.viewer.previous')}
 						</button>
-						<span>Page {currentItemsPage} / {totalItemPages}</span>
+						<span>{$_('media_albums.page_of', { values: { current: currentItemsPage, total: totalItemPages } })}</span>
 						<button on:click={() => currentItemsPage = Math.min(totalItemPages, currentItemsPage + 1)} disabled={currentItemsPage >= totalItemPages}>
-							Next
+							{$_('messages.viewer.next')}
 						</button>
 					</div>
 				{/if}

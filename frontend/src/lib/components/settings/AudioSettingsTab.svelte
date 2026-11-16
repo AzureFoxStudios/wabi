@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Settings › Audio & video (§8.9): devices first, then disclosures for spatial audio, sharing
 	 * quality and recording, and a Troubleshooting disclosure that holds the one per-device
@@ -78,53 +79,53 @@
 	}
 
 	const micOptions = $derived([
-		{ value: '', label: 'System default' },
-		...audioInputDevices.map((device, index) => ({ value: device.deviceId, label: device.label || `Microphone ${index + 1}` }))
+		{ value: '', label: $_('audio_settings.system_default') },
+		...audioInputDevices.map((device, index) => ({ value: device.deviceId, label: device.label || $_('audio_settings.microphone_n', { values: { n: index + 1 } }) }))
 	]);
 	const cameraOptions = $derived([
-		{ value: '', label: 'System default' },
-		...videoInputDevices.map((device, index) => ({ value: device.deviceId, label: device.label || `Camera ${index + 1}` }))
+		{ value: '', label: $_('audio_settings.system_default') },
+		...videoInputDevices.map((device, index) => ({ value: device.deviceId, label: device.label || $_('audio_settings.camera_n', { values: { n: index + 1 } }) }))
 	]);
 	const PROCESSING_OPTIONS = [
-		{ value: 'auto', label: 'Automatic' },
-		{ value: 'dsp', label: 'Light', hint: 'uses less power' },
-		{ value: 'rnn', label: 'Strong noise suppression' },
-		{ value: 'studio', label: 'Off', hint: 'raw microphone' }
+		{ value: 'auto', label: $_('audio_settings.automatic') },
+		{ value: 'dsp', label: $_('audio_settings.light'), hint: $_('audio_settings.uses_less_power') },
+		{ value: 'rnn', label: $_('audio_settings.strong_noise') },
+		{ value: 'studio', label: $_('audio_settings.off'), hint: $_('audio_settings.raw_microphone') }
 	];
 	const SPATIAL_MODE_OPTIONS = [
-		{ value: 'auto', label: 'Automatic' },
-		{ value: 'pan_distance', label: 'Stereo with distance' },
-		{ value: 'full_3d', label: 'Full 3D (headphones)' },
-		{ value: 'off', label: 'Off' }
+		{ value: 'auto', label: $_('audio_settings.automatic') },
+		{ value: 'pan_distance', label: $_('audio_settings.stereo_distance') },
+		{ value: 'full_3d', label: $_('audio_settings.full_3d') },
+		{ value: 'off', label: $_('audio_settings.off') }
 	];
 	const SHARE_QUALITY_OPTIONS = [
-		{ value: 'auto', label: 'Automatic' },
+		{ value: 'auto', label: $_('audio_settings.automatic') },
 		{ value: '1080p', label: '1080p' },
 		{ value: '720p', label: '720p' },
 		{ value: '480p', label: '480p' },
-		{ value: '144p-mobile', label: '144p', hint: 'saves data' },
-		{ value: 'source-unbounded', label: 'Source', hint: 'no bitrate cap' }
+		{ value: '144p-mobile', label: '144p', hint: $_('audio_settings.saves_data') },
+		{ value: 'source-unbounded', label: $_('audio_settings.source'), hint: $_('audio_settings.no_bitrate_cap') }
 	];
 	const MUTE_OPTIONS = [
-		{ value: 'mute-local-input', label: 'Calls and my recordings' },
-		{ value: 'outbound-only', label: 'Calls only' }
+		{ value: 'mute-local-input', label: $_('audio_settings.calls_recordings') },
+		{ value: 'outbound-only', label: $_('audio_settings.calls_only') }
 	];
 	const STEM_OPTIONS = [
-		{ value: 'mixed-only', label: 'One mixed file' },
-		{ value: 'mixed-plus-mic', label: 'Mixed file + my microphone' },
-		{ value: 'mixed-plus-all-audio', label: 'Mixed file + every voice' }
+		{ value: 'mixed-only', label: $_('audio_settings.one_mixed') },
+		{ value: 'mixed-plus-mic', label: $_('audio_settings.mixed_mic') },
+		{ value: 'mixed-plus-all-audio', label: $_('audio_settings.mixed_all') }
 	];
 	const TRANSPORT_OPTIONS = [
-		{ value: 'auto', label: 'Automatic', hint: 'this server first' },
-		{ value: 'p2p-only', label: 'Direct (peer-to-peer) only' },
-		{ value: 'sfu-preferred', label: 'Media server first' },
-		{ value: 'wabidb', label: 'Through this server only' }
+		{ value: 'auto', label: $_('audio_settings.automatic'), hint: $_('audio_settings.this_server_first') },
+		{ value: 'p2p-only', label: $_('audio_settings.direct_only') },
+		{ value: 'sfu-preferred', label: $_('audio_settings.media_server_first') },
+		{ value: 'wabidb', label: $_('audio_settings.through_server') }
 	];
 	const processingFallbackWord = $derived(
 		$audioProcessingRuntimeStatus.reason === 'performance_guard'
-			? 'Using light processing for now, to keep calls smooth on this device.'
+			? $_('audio_settings.light_processing_now')
 			: $audioProcessingRuntimeStatus.reason === 'native_not_supported'
-				? 'Strong noise suppression is not available here, so light processing is used.'
+				? $_('audio_settings.strong_unavailable')
 				: ''
 	);
 	const rangeFill = (value: number, min: number, max: number) => `--w-range-fill: ${Math.round(((value - min) / (max - min)) * 100)}%`;
@@ -143,13 +144,13 @@
 	async function saveDesktopHelperProfile(): Promise<void> {
 		if (!browser) return;
 		const normalizedName = desktopHelperProfileName.trim();
-		if (desktopHelperProfileMode !== 'off' && !normalizedName) { desktopHelperProfileStatus = 'Pick a helper name before using helper mode.'; return; }
+		if (desktopHelperProfileMode !== 'off' && !normalizedName) { desktopHelperProfileStatus = $_('audio_settings.helper_name_required'); return; }
 		try {
 			localStorage.setItem(DESKTOP_HELPER_PROFILE_KEY, JSON.stringify({ name: normalizedName, mode: desktopHelperProfileMode }));
-			desktopHelperProfileStatus = desktopHelperProfileMode === 'off' ? 'Desktop helper profile saved. Helper mode stays off.' : 'Desktop helper profile saved. Activating desktop helper...';
+			desktopHelperProfileStatus = desktopHelperProfileMode === 'off' ? $_('audio_settings.helper_saved_off') : $_('audio_settings.helper_saved_on');
 			await syncDesktopHelperService();
 			desktopHelperProfileStatus = get(desktopHelperState).message || desktopHelperProfileStatus;
-		} catch { desktopHelperProfileStatus = 'Failed to save desktop helper profile locally.'; }
+		} catch { desktopHelperProfileStatus = $_('audio_settings.helper_save_failed'); }
 	}
 	function updateMediaQualityMode(mode: MediaQualityMode) { mediaQualityMode = mode; setMediaQualityMode(mode); }
 	function updateAudioProcessingMode(mode: AudioProcessingMode) { audioProcessingMode = mode; setAudioProcessingMode(mode); clearAudioPerformanceFallbackOverride(); void applyCurrentAudioProcessingToLocalTrack(); }
@@ -212,7 +213,7 @@
 		} catch (error) {
 			if (generation !== micTestGeneration) return;
 			console.error('Mic test failed:', error); micTestState = 'idle'; cleanupMicTest();
-			micTestError = `Your microphone didn't start. Allow microphone access for ${brandName}, then try again.`;
+			micTestError = $_('audio_settings.mic_failed', { values: { brand: brandName } });
 		}
 	}
 
@@ -255,92 +256,92 @@
 </script>
 
 <section class="settings-block audio-tab" aria-labelledby="audio-devices-title">
-	<h3 class="settings-block__title" id="audio-devices-title">Devices</h3>
-	<p class="settings-block__hint">Choosing a device does not turn it on. Mute and camera live in the call controls.</p>
+	<h3 class="settings-block__title" id="audio-devices-title">{$_('audio_settings.devices_title')}</h3>
+	<p class="settings-block__hint">{$_('audio_settings.devices_hint')}</p>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="audio-mic-label">Microphone</p>
-				<p class="w-srow__hint">Used for calls and the test below.</p>
+				<p class="w-srow__label" id="audio-mic-label">{$_('audio_settings.microphone')}</p>
+				<p class="w-srow__hint">{$_('audio_settings.mic_used')}</p>
 			</div>
 			<div class="w-srow__control">
-				<Select ariaLabel="Microphone" options={micOptions} value={selectedMicDeviceId} align="end" onchange={handleMicDeviceChange} />
+				<Select ariaLabel={$_('audio_settings.microphone')} options={micOptions} value={selectedMicDeviceId} align="end" onchange={handleMicDeviceChange} />
 			</div>
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="audio-camera-label">Camera</p>
-				<p class="w-srow__hint">Used when you turn video on in a call.</p>
+				<p class="w-srow__label" id="audio-camera-label">{$_('calls.camera')}</p>
+				<p class="w-srow__hint">{$_('audio_settings.camera_used')}</p>
 			</div>
 			<div class="w-srow__control">
-				<Select ariaLabel="Camera" options={cameraOptions} value={selectedCameraDeviceId} align="end" onchange={handleCameraDeviceChange} />
+				<Select ariaLabel={$_('calls.camera')} options={cameraOptions} value={selectedCameraDeviceId} align="end" onchange={handleCameraDeviceChange} />
 			</div>
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="audio-processing-label">Noise suppression</p>
-				<p class="w-srow__hint">{processingFallbackWord || 'How much background sound is removed before others hear you.'}</p>
+				<p class="w-srow__label" id="audio-processing-label">{$_('audio_settings.noise_suppression')}</p>
+				<p class="w-srow__hint">{processingFallbackWord || $_('audio_settings.noise_help')}</p>
 			</div>
 			<div class="w-srow__control">
-				<Select ariaLabel="Noise suppression" options={PROCESSING_OPTIONS} value={audioProcessingMode} align="end" onchange={(value) => updateAudioProcessingMode(value as AudioProcessingMode)} />
+				<Select ariaLabel={$_('audio_settings.noise_suppression')} options={PROCESSING_OPTIONS} value={audioProcessingMode} align="end" onchange={(value) => updateAudioProcessingMode(value as AudioProcessingMode)} />
 			</div>
 		</div>
 		<div class="w-srow audio-test">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="audio-test-label">Test your microphone</p>
-				<p class="w-srow__hint">Records four seconds with the device and processing above, then plays it back. Separate from any call.</p>
+				<p class="w-srow__label" id="audio-test-label">{$_('audio_settings.test_mic_label')}</p>
+				<p class="w-srow__hint">{$_('audio_settings.test_mic_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<button type="button" class="w-btn w-btn--sm" onclick={runMicTest} disabled={micTestState === 'recording'} aria-busy={micTestState === 'recording'}>
-					<Icon name="mic" size={16} />{micTestState === 'recording' ? 'Recording…' : 'Test microphone'}
+					<Icon name="mic" size={16} />{micTestState === 'recording' ? $_('audio_settings.recording') : $_('audio_settings.test_microphone')}
 				</button>
 			</div>
 			{#if micTestState === 'recording' || micTestAudioUrl || micTestError}
 				<div class="audio-test__result">
 					{#if micTestState === 'recording'}
-						<div class="audio-meter" role="meter" aria-label="Microphone level" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(micTestLevel * 100)}><span style:width={`${Math.round(micTestLevel * 100)}%`}></span></div>
+						<div class="audio-meter" role="meter" aria-label={$_('audio_settings.mic_level')} aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(micTestLevel * 100)}><span style:width={`${Math.round(micTestLevel * 100)}%`}></span></div>
 					{/if}
-					{#if micTestAudioUrl && micTestState !== 'recording'}<audio src={micTestAudioUrl} controls aria-label="Your microphone test"></audio>{/if}
+					{#if micTestAudioUrl && micTestState !== 'recording'}<audio src={micTestAudioUrl} controls aria-label={$_('audio_settings.mic_test_aria')}></audio>{/if}
 					{#if micTestError}<p class="audio-note is-error" role="alert"><Icon name="alert" size={14} />{micTestError}</p>{/if}
 				</div>
 			{/if}
 		</div>
 	</div>
 	{#if audioInputDevices.length === 0 || videoInputDevices.length === 0}
-		<p class="audio-note">Some devices stay hidden until you allow access. System default uses your device's own choice.</p>
+		<p class="audio-note">{$_('audio_settings.some_hidden')}</p>
 	{/if}
 
 	<button type="button" class="w-disclosure" aria-expanded={open.spatial} aria-controls="audio-spatial" onclick={() => (open.spatial = !open.spatial)}>
-		<Icon name="chevRight" />Spatial audio<span class="w-count audio-count">{spatialAudioEnabled ? 'On' : 'Off'}</span>
+		<Icon name="chevRight" />{$_('audio_settings.spatial_audio')}<span class="w-count audio-count">{spatialAudioEnabled ? $_('audio_settings.on') : $_('audio_settings.off')}</span>
 	</button>
 	{#if open.spatial}
 		<div class="w-disclosure__body" id="audio-spatial">
 			<div class="w-srows audio-subrows">
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label" id="audio-spatial-label">Place voices around you</p>
-						<p class="w-srow__hint">Voices come from where people sit in the room, in stereo or 3D.</p>
+						<p class="w-srow__label" id="audio-spatial-label">{$_('audio_settings.place_voices')}</p>
+						<p class="w-srow__hint">{$_('audio_settings.place_voices_hint')}</p>
 					</div>
 					<div class="w-srow__control"><Switch labelledby="audio-spatial-label" checked={spatialAudioEnabled} onchange={toggleSpatialAudio} /></div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><p class="w-srow__label">Rendering</p><p class="w-srow__hint">Full 3D sounds best with headphones.</p></div>
-					<div class="w-srow__control"><Select ariaLabel="Spatial rendering" options={SPATIAL_MODE_OPTIONS} value={spatialAudioMode} align="end" disabled={!spatialAudioEnabled} onchange={(value) => updateSpatialAudioMode(value as SpatialAudioMode)} /></div>
+					<div class="w-srow__text"><p class="w-srow__label">{$_('audio_settings.rendering')}</p><p class="w-srow__hint">{$_('audio_settings.full3d_hint')}</p></div>
+					<div class="w-srow__control"><Select ariaLabel={$_('audio_settings.spatial_rendering')} options={SPATIAL_MODE_OPTIONS} value={spatialAudioMode} align="end" disabled={!spatialAudioEnabled} onchange={(value) => updateSpatialAudioMode(value as SpatialAudioMode)} /></div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><label class="w-srow__label" for="audio-spatial-strength">Strength</label><p class="w-srow__hint">{Math.round(spatialAudioStrength * 100)}%</p></div>
+					<div class="w-srow__text"><label class="w-srow__label" for="audio-spatial-strength">{$_('audio_settings.strength')}</label><p class="w-srow__hint">{Math.round(spatialAudioStrength * 100)}%</p></div>
 					<div class="w-srow__control"><input id="audio-spatial-strength" type="range" class="w-range audio-range" min="0" max="1" step="0.05" value={spatialAudioStrength} style={rangeFill(spatialAudioStrength, 0, 1)} aria-valuetext={`${Math.round(spatialAudioStrength * 100)}%`} disabled={!spatialAudioEnabled} oninput={(event) => updateSpatialAudioStrength(parseFloat(event.currentTarget.value))} /></div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><label class="w-srow__label" for="audio-spatial-distance">Distance</label><p class="w-srow__hint">How quickly voices fade with distance: {spatialAudioDistanceScale.toFixed(1)}×</p></div>
-					<div class="w-srow__control"><input id="audio-spatial-distance" type="range" class="w-range audio-range" min="0.4" max="4" step="0.1" value={spatialAudioDistanceScale} style={rangeFill(spatialAudioDistanceScale, 0.4, 4)} aria-valuetext={`${spatialAudioDistanceScale.toFixed(1)} times`} disabled={!spatialAudioEnabled} oninput={(event) => updateSpatialAudioDistanceScale(parseFloat(event.currentTarget.value))} /></div>
+					<div class="w-srow__text"><label class="w-srow__label" for="audio-spatial-distance">{$_('audio_settings.distance')}</label><p class="w-srow__hint">{$_('audio_settings.distance_hint', { values: { scale: spatialAudioDistanceScale.toFixed(1) } })}</p></div>
+					<div class="w-srow__control"><input id="audio-spatial-distance" type="range" class="w-range audio-range" min="0.4" max="4" step="0.1" value={spatialAudioDistanceScale} style={rangeFill(spatialAudioDistanceScale, 0.4, 4)} aria-valuetext={$_('audio_settings.times', { values: { n: spatialAudioDistanceScale.toFixed(1) } })} disabled={!spatialAudioEnabled} oninput={(event) => updateSpatialAudioDistanceScale(parseFloat(event.currentTarget.value))} /></div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><p class="w-srow__label" id="audio-spatial-warn-label">Quiet fallback notices</p><p class="w-srow__hint">Don't tell me when spatial audio falls back to normal sound.</p></div>
+					<div class="w-srow__text"><p class="w-srow__label" id="audio-spatial-warn-label">{$_('audio_settings.quiet_fallback')}</p><p class="w-srow__hint">{$_('audio_settings.quiet_hint')}</p></div>
 					<div class="w-srow__control"><Switch labelledby="audio-spatial-warn-label" checked={spatialAudioWarningsMuted} onchange={toggleSpatialWarningsMuted} /></div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><p class="w-srow__label" id="audio-spatial-quick-label">Spatial button in calls</p><p class="w-srow__hint">Show a spatial audio button in the call controls.</p></div>
+					<div class="w-srow__text"><p class="w-srow__label" id="audio-spatial-quick-label">{$_('audio_settings.spatial_button')}</p><p class="w-srow__hint">{$_('audio_settings.spatial_button_hint')}</p></div>
 					<div class="w-srow__control"><Switch labelledby="audio-spatial-quick-label" checked={spatialAudioQuickToggleVisible} onchange={toggleSpatialQuickToggleVisible} /></div>
 				</div>
 			</div>
@@ -348,26 +349,26 @@
 	{/if}
 
 	<button type="button" class="w-disclosure" aria-expanded={open.sharing} aria-controls="audio-sharing" onclick={() => (open.sharing = !open.sharing)}>
-		<Icon name="chevRight" />Screen sharing and quality
+		<Icon name="chevRight" />{$_('audio_settings.screen_sharing')}
 	</button>
 	{#if open.sharing}
 		<div class="w-disclosure__body" id="audio-sharing">
 			<div class="w-srows audio-subrows">
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label">Media quality</p>
-						<p class="w-srow__hint">{localAppRuntime ? 'The desktop app can use enhanced media.' : 'Enhanced media needs the desktop app. Calls work here as they are.'}</p>
+						<p class="w-srow__label">{$_('audio_settings.media_quality')}</p>
+						<p class="w-srow__hint">{localAppRuntime ? $_('audio_settings.enhanced_on') : $_('audio_settings.enhanced_needs')}</p>
 					</div>
 					<div class="w-srow__control">
-						<Select ariaLabel="Media quality" align="end" value={mediaQualityMode} onchange={(value) => updateMediaQualityMode(value as MediaQualityMode)} options={[{ value: 'web-baseline', label: 'Standard' }, { value: 'local-enhanced', label: 'Enhanced', hint: 'desktop app', disabled: !localAppRuntime }]} />
+						<Select ariaLabel={$_('audio_settings.media_quality')} align="end" value={mediaQualityMode} onchange={(value) => updateMediaQualityMode(value as MediaQualityMode)} options={[{ value: 'web-baseline', label: $_('audio_settings.standard') }, { value: 'local-enhanced', label: $_('audio_settings.enhanced'), hint: $_('audio_settings.desktop_app'), disabled: !localAppRuntime }]} />
 					</div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><p class="w-srow__label">Screen share resolution</p><p class="w-srow__hint">Lower resolutions use less data.</p></div>
-					<div class="w-srow__control"><Select ariaLabel="Screen share resolution" options={SHARE_QUALITY_OPTIONS} value={screenShareQualityPreset} align="end" onchange={(value) => updateScreenShareQualityPreset(value as ScreenShareQualityPreset)} /></div>
+					<div class="w-srow__text"><p class="w-srow__label">{$_('audio_settings.screen_res')}</p><p class="w-srow__hint">{$_('audio_settings.lower_res_hint')}</p></div>
+					<div class="w-srow__control"><Select ariaLabel={$_('audio_settings.screen_res')} options={SHARE_QUALITY_OPTIONS} value={screenShareQualityPreset} align="end" onchange={(value) => updateScreenShareQualityPreset(value as ScreenShareQualityPreset)} /></div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><label class="w-srow__label" for="audio-share-bitrate">Bitrate limit (kbps)</label><p class="w-srow__hint">0 follows the resolution above; any other number overrides it.</p></div>
+					<div class="w-srow__text"><label class="w-srow__label" for="audio-share-bitrate">{$_('audio_settings.bitrate_limit')}</label><p class="w-srow__hint">{$_('audio_settings.bitrate_hint')}</p></div>
 					<div class="w-srow__control"><input id="audio-share-bitrate" class="w-field audio-number" type="number" min="0" max="200000" step="250" value={screenShareBitrateKbps} onchange={(event) => updateScreenShareBitrateKbps(parseInt(event.currentTarget.value || '0', 10) || 0)} /></div>
 				</div>
 			</div>
@@ -375,49 +376,49 @@
 	{/if}
 
 	<button type="button" class="w-disclosure" aria-expanded={open.recording} aria-controls="audio-recording" onclick={() => (open.recording = !open.recording)}>
-		<Icon name="chevRight" />Recording and mute
+		<Icon name="chevRight" />{$_('audio_settings.recording_mute')}
 	</button>
 	{#if open.recording}
 		<div class="w-disclosure__body" id="audio-recording">
 			<div class="w-srows audio-subrows">
 				<div class="w-srow">
-					<div class="w-srow__text"><p class="w-srow__label">Muting silences you in</p><p class="w-srow__hint">"Calls only" keeps your microphone in your own recordings while others can't hear you.</p></div>
-					<div class="w-srow__control"><Select ariaLabel="Muting silences you in" options={MUTE_OPTIONS} value={callMuteBehavior} align="end" onchange={(value) => updateCallMuteBehavior(value as CallMuteBehavior)} /></div>
+					<div class="w-srow__text"><p class="w-srow__label">{$_('audio_settings.muting_in')}</p><p class="w-srow__hint">{$_('audio_settings.mute_hint')}</p></div>
+					<div class="w-srow__control"><Select ariaLabel={$_('audio_settings.muting_in')} options={MUTE_OPTIONS} value={callMuteBehavior} align="end" onchange={(value) => updateCallMuteBehavior(value as CallMuteBehavior)} /></div>
 				</div>
 				<div class="w-srow">
-					<div class="w-srow__text"><p class="w-srow__label">Recording files</p><p class="w-srow__hint">Separate voice tracks use more processing power and disk space.</p></div>
-					<div class="w-srow__control"><Select ariaLabel="Recording files" options={STEM_OPTIONS} value={callRecordingStemMode} align="end" onchange={(value) => updateCallRecordingStemMode(value as CallRecordingStemMode)} /></div>
+					<div class="w-srow__text"><p class="w-srow__label">{$_('audio_settings.recording_files')}</p><p class="w-srow__hint">{$_('audio_settings.stems_hint')}</p></div>
+					<div class="w-srow__control"><Select ariaLabel={$_('audio_settings.recording_files')} options={STEM_OPTIONS} value={callRecordingStemMode} align="end" onchange={(value) => updateCallRecordingStemMode(value as CallRecordingStemMode)} /></div>
 				</div>
 			</div>
 		</div>
 	{/if}
 
 	<button type="button" class="w-disclosure" aria-expanded={open.troubleshooting} aria-controls="audio-troubleshooting" onclick={() => (open.troubleshooting = !open.troubleshooting)}>
-		<Icon name="chevRight" />Troubleshooting
+		<Icon name="chevRight" />{$_('calls.troubleshooting')}
 	</button>
 	{#if open.troubleshooting}
 		<div class="w-disclosure__body" id="audio-troubleshooting">
 			<div class="w-srows audio-subrows">
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label" id="audio-conn-label">Show connection details during calls</p>
-						<p class="w-srow__hint" id="audio-conn-hint">Latency, packet loss and the route on the Calls page, from your next call. During a call, open them from the call's options.</p>
+						<p class="w-srow__label" id="audio-conn-label">{$_('calls.show_connection_details')}</p>
+						<p class="w-srow__hint" id="audio-conn-hint">{$_('audio_settings.conn_hint')}</p>
 					</div>
 					<div class="w-srow__control"><Switch labelledby="audio-conn-label" describedby="audio-conn-hint" checked={connectionDetailsDuringCalls} onchange={setConnectionDetailsDuringCalls} /></div>
 				</div>
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label">Call route</p>
+						<p class="w-srow__label">{$_('audio_settings.call_route')}</p>
 						<p class="w-srow__hint">
-							Automatic tries this server's relay first, then a direct connection.
-							{#if mediaRuntimeSnapshot && !mediaRuntimeSnapshot.media?.turn?.configured} This server has no TURN relay, so direct calls can fail between some networks.{/if}
+							{$_('audio_settings.route_hint')}
+							{#if mediaRuntimeSnapshot && !mediaRuntimeSnapshot.media?.turn?.configured} {$_('audio_settings.no_turn')}{/if}
 						</p>
 					</div>
-					<div class="w-srow__control"><Select ariaLabel="Call route" options={TRANSPORT_OPTIONS} value={callTransportMode} align="end" onchange={(value) => updateCallTransportMode(value as CallTransportMode)} /></div>
+					<div class="w-srow__control"><Select ariaLabel={$_('audio_settings.call_route')} options={TRANSPORT_OPTIONS} value={callTransportMode} align="end" onchange={(value) => updateCallTransportMode(value as CallTransportMode)} /></div>
 				</div>
 				{#if localAppRuntime && mediaRuntimeSnapshot?.media?.boosterRelay?.components?.gatewayConfigured}
 					<div class="w-srow">
-						<div class="w-srow__text"><p class="w-srow__label" id="audio-srt-label">SRT gateway</p><p class="w-srow__hint">Streams through gateway workers your host provides.</p></div>
+						<div class="w-srow__text"><p class="w-srow__label" id="audio-srt-label">{$_('audio_settings.srt_gateway')}</p><p class="w-srow__hint">{$_('audio_settings.srt_hint')}</p></div>
 						<div class="w-srow__control"><Switch labelledby="audio-srt-label" checked={srtGatewayEnabled} onchange={toggleSrtGateway} /></div>
 					</div>
 				{/if}

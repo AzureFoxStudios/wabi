@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { openWorkspace } from '$lib/workspaces/bridge';
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
@@ -105,15 +106,15 @@
 	});
 
 	function saveLabel(activeDocument: ReaderLocalDocument | null, saveState: string, online: boolean): string {
-		if (!activeDocument) return 'Read only';
-		if (saveState === 'dirty' || saveState === 'saving') return 'Saving locally…';
-		if (saveState === 'error') return 'Local save needs attention';
-		const base = saveState === 'saved' ? 'Saved locally' : 'Local draft';
-		return online ? base : `${base} · Offline`;
+		if (!activeDocument) return $_('reader_doc.read_only');
+		if (saveState === 'dirty' || saveState === 'saving') return $_('reader_doc.saving_locally');
+		if (saveState === 'error') return $_('reader_doc.local_save_attention');
+		const base = saveState === 'saved' ? $_('reader_doc.saved_locally') : $_('locality.local_draft');
+		return online ? base : $_('reader_doc.with_offline', { values: { base } });
 	}
 
 	function kindLabel(document: ReaderLocalDocument): string {
-		return document.kind === 'native' ? 'Wabi document' : 'Local draft';
+		return document.kind === 'native' ? $_('reader_doc.wabi_document') : $_('locality.local_draft');
 	}
 
 	function syncPreview(title: string, content: string): void {
@@ -262,7 +263,7 @@
         const id = activeDocumentId, selected = selection.id, scope = get(readerDocumentScope);
         await flushReaderDocument(id);
         if (get(readerDocumentScope) !== scope || get(readerSelection)?.id !== selected) return null;
-        if (get(readerDocumentSaveState)[id] === 'error') { remoteNotice = 'Local save failed. Retry saving or download recovery before publishing.'; return null; }
+        if (get(readerDocumentSaveState)[id] === 'error') { remoteNotice = $_('reader_doc.local_save_failed'); return null; }
         const document = get(readerDocuments)[id];
         if (!document) return null;
         return { title: document.title, content: document.content, format: document.format, sourceKey: `reader:${document.documentId}:revision:${document.revision}` };
@@ -271,18 +272,18 @@
         try {
             const source = await prepareWorkspaceSource();
             if (source) openWorkspace('documents', { source, shareMode: action === 'live' ? 'live' : 'snapshot' });
-        } catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not open the sharing workspace. Your Reader draft is retained.'; }
+        } catch (error) { remoteNotice = error instanceof Error ? error.message : $_('reader_doc.could_open_sharing'); }
     }
     async function makePresentationFromReader(): Promise<void> {
         try { const source = await prepareWorkspaceSource(); if (source) openWorkspace('present', { source }); }
-        catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not prepare a private presentation.'; }
+        catch (error) { remoteNotice = error instanceof Error ? error.message : $_('reader_doc.could_prepare_presentation'); }
     }
 
 	function formatUpdated(timestamp: number): string {
 		const age = Math.max(0, Date.now() - timestamp);
-		if (age < 60_000) return 'just now';
-		if (age < 3_600_000) return `${Math.floor(age / 60_000)}m ago`;
-		if (age < 86_400_000) return `${Math.floor(age / 3_600_000)}h ago`;
+		if (age < 60_000) return $_('reader_doc.just_now');
+		if (age < 3_600_000) return $_('reader_doc.minutes_ago', { values: { n: Math.floor(age / 60_000) } });
+		if (age < 86_400_000) return $_('reader_doc.hours_ago', { values: { n: Math.floor(age / 3_600_000) } });
 		return new Date(timestamp).toLocaleDateString();
 	}
 	async function returnToNote(): Promise<void> {
@@ -291,15 +292,15 @@
 		if (activeDocumentId) {
 			const id = activeDocumentId;
 			await flushReaderDocument(id);
-			if (get(readerDocumentSaveState)[id] === 'error') { remoteNotice = 'Your Reader copy has unsaved changes. Download it or retry saving before returning to Notes.'; return; }
+			if (get(readerDocumentSaveState)[id] === 'error') { remoteNotice = $_('reader_doc.unsaved_return'); return; }
 		}
 		if (get(readerSelection)?.id !== current || !owner.isCurrent()) return;
 		try {
 			const note = await new LocalNotebook(owner).get(target.noteId);
 			if (get(readerSelection)?.id !== current || !owner.isCurrent()) return;
-			if (!note) { remoteNotice = 'The original note was deleted. This Reader copy is still available.'; return; }
+			if (!note) { remoteNotice = $_('reader_doc.original_deleted'); return; }
 			openNotesSurface(target);
-		} catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not reopen the original note.'; }
+		} catch (error) { remoteNotice = error instanceof Error ? error.message : $_('reader_doc.could_reopen'); }
 	}
 	async function downloadRecovery(): Promise<void> {
 		const scope = get(readerDocumentScope), identity = get(notebookOwner);
@@ -309,7 +310,7 @@
 			const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
 			const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'wabi-reader-recovery.json'; anchor.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
-		} catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not export Reader recovery sources.'; }
+		} catch (error) { remoteNotice = error instanceof Error ? error.message : $_('reader_doc.could_export'); }
 	}
 </script>
 
@@ -318,58 +319,58 @@
 		<div class="reader-document-identity">
 			{#if activeDocument}
 				<span class="reader-document-kind">{kindLabel(activeDocument)}</span>
-				<span class="reader-document-privacy">Private · this device</span>
+				<span class="reader-document-privacy">{$_('locality.private_device')}</span>
 			{:else if selection}
-				<span class="reader-document-kind">Reader</span>
-				<span class="reader-document-privacy">Source unchanged</span>
+				<span class="reader-document-kind">{$_('places.reader')}</span>
+				<span class="reader-document-privacy">{$_('reader_doc.source_unchanged')}</span>
 			{:else}
-				<span class="reader-document-kind">Reader</span>
-				<span class="reader-document-privacy">Private · this device</span>
+				<span class="reader-document-kind">{$_('places.reader')}</span>
+				<span class="reader-document-privacy">{$_('locality.private_device')}</span>
 			{/if}
 		</div>
 
 		{#if selection && canWork}
-			<div class="reader-work-modes" role="group" aria-label="Document mode">
-				<button type="button" class:active={mode === 'read'} on:click={() => enterMode('read')}>Read</button>
-				<button type="button" class:active={mode === 'edit'} on:click={() => enterMode('edit')}>Edit</button>
+			<div class="reader-work-modes" role="group" aria-label={$_('reader_doc.document_mode')}>
+				<button type="button" class:active={mode === 'read'} on:click={() => enterMode('read')}>{$_('office.editor.read')}</button>
+				<button type="button" class:active={mode === 'edit'} on:click={() => enterMode('edit')}>{$_('office.editor.edit')}</button>
 				<button type="button" class:active={mode === 'suggest'} on:click={() => enterMode('suggest')}>
-					Suggest{openSuggestionCount ? ` ${openSuggestionCount}` : ''}
+					{$_('reader_doc.suggest')}{openSuggestionCount ? ` ${openSuggestionCount}` : ''}
 				</button>
 				<button type="button" class:active={mode === 'comment'} on:click={() => enterMode('comment')}>
-					Comment{unresolvedCommentCount ? ` ${unresolvedCommentCount}` : ''}
+					{$_('office.editor.comment')}{unresolvedCommentCount ? ` ${unresolvedCommentCount}` : ''}
 				</button>
 			</div>
 		{/if}
 
 		<div class="reader-document-actions">
-			{#if canReturnToNote}<button type="button" class="reader-action-emphasis" on:click={returnToNote}>Return to note</button>{/if}
+			{#if canReturnToNote}<button type="button" class="reader-action-emphasis" on:click={returnToNote}>{$_('reader_doc.return_to_note')}</button>{/if}
 			{#if activeDocument}
 				<span class="reader-local-save" class:error={saveState === 'error'}>{saveLabel(activeDocument, saveState, online)}</span>
 				{#if activeDocument.kind === 'working-copy'}
-					<button type="button" class="reader-action-emphasis" on:click={promoteCurrentDocument}>Save as Wabi Document</button>
+					<button type="button" class="reader-action-emphasis" on:click={promoteCurrentDocument}>{$_('reader_doc.save_as_wabi')}</button>
 					{#if showingLocalDraft}
-						<button type="button" on:click={viewSourceSnapshot}>View source</button>
+						<button type="button" on:click={viewSourceSnapshot}>{$_('reader_doc.view_source')}</button>
 					{:else}
-						<button type="button" on:click={resumeLocalDraft}>Resume local</button>
+						<button type="button" on:click={resumeLocalDraft}>{$_('reader_doc.resume_local')}</button>
 					{/if}
-					<button type="button" class="reader-action-danger" on:click={discardCurrentWorkingCopy}>Discard draft</button>
+					<button type="button" class="reader-action-danger" on:click={discardCurrentWorkingCopy}>{$_('reader_doc.discard_draft')}</button>
 				{/if}
-				<button type="button" on:click={() => explainRemoteState('share')}>Share</button>
-				<button type="button" on:click={() => explainRemoteState('live')}>Collaborate</button>
-				<button type="button" on:click={makePresentationFromReader}>Make presentation</button>
+				<button type="button" on:click={() => explainRemoteState('share')}>{$_('office.share.share')}</button>
+				<button type="button" on:click={() => explainRemoteState('live')}>{$_('reader_doc.collaborate')}</button>
+				<button type="button" on:click={makePresentationFromReader}>{$_('reader_doc.make_presentation')}</button>
 			{/if}
 			<div class="reader-documents-menu-wrap">
 				<button type="button" class:active={documentsOpen} on:click={() => (documentsOpen = !documentsOpen)}>
-					Documents{localDocuments.length ? ` ${localDocuments.length}` : ''}
+					{$_('places.documents')}{localDocuments.length ? ` ${localDocuments.length}` : ''}
 				</button>
 				{#if documentsOpen}
 					<div class="reader-documents-menu">
 						<div class="reader-documents-menu-head">
-							<strong>Local documents</strong>
-							<span>{localDocuments.length} on this device</span>
+							<strong>{$_('reader_doc.local_documents')}</strong>
+							<span>{$_('reader_doc.count_on_device', { values: { count: localDocuments.length } })}</span>
 						</div>
 						{#if localDocuments.length === 0}
-							<p>Edit anything in Reader and the first change becomes a private local draft.</p>
+							<p>{$_('reader_doc.first_change_hint')}</p>
 						{:else}
 							{#each localDocuments as document (document.documentId)}
 								<button type="button" class="reader-document-row" on:click={() => openLocalDocument(document)}>
@@ -387,31 +388,31 @@
 		</div>
 	</div>
 	{#if $readerStorageError}
-		<div class="reader-storage-notice" role="alert"><span>{$readerStorageError}</span><button type="button" on:click={() => retryReaderDocumentStorage()}>Retry device storage</button><button type="button" on:click={downloadRecovery}>Download recovery sources</button></div>
+		<div class="reader-storage-notice" role="alert"><span>{$readerStorageError}</span><button type="button" on:click={() => retryReaderDocumentStorage()}>{$_('reader_doc.retry_storage')}</button><button type="button" on:click={downloadRecovery}>{$_('reader_doc.download_recovery')}</button></div>
 	{/if}
 	{#if $readerRecoveryAvailable.legacyDocuments || $readerRecoveryAvailable.localSources}
-		<div class="reader-storage-notice"><span>Older Reader writing is preserved. Unassigned records need an explicit account choice before import.</span><button type="button" on:click={downloadRecovery}>Download older writing</button></div>
+		<div class="reader-storage-notice"><span>{$_('reader_doc.older_writing_notice')}</span><button type="button" on:click={downloadRecovery}>{$_('reader_doc.download_older')}</button></div>
 	{/if}
 
 	{#if remoteNotice}
 		<div class="reader-remote-notice" role="status">
 			<span>{remoteNotice}</span>
-			<button type="button" aria-label="Dismiss" on:click={() => (remoteNotice = '')}>×</button>
+			<button type="button" aria-label={$_('common.dismiss')} on:click={() => (remoteNotice = '')}>×</button>
 		</div>
 	{/if}
 
 	<div class="reader-workbench-body" class:editing={mode === 'edit' || mode === 'suggest'} class:commenting={mode === 'comment'}>
 		{#if (mode === 'edit' || mode === 'suggest') && activeDocument}
-			<section class="reader-editor-pane" aria-label={mode === 'suggest' ? 'Suggestion editor' : 'Document editor'}>
+			<section class="reader-editor-pane" aria-label={mode === 'suggest' ? $_('reader_doc.suggestion_editor') : $_('reader_doc.document_editor')}>
 				<div class="reader-editor-head">
 					<div>
-						<strong>{mode === 'suggest' ? 'Suggestion' : 'Local editor'}</strong>
-						<small>{mode === 'suggest' ? 'Canonical document is unchanged until this suggestion is applied.' : 'Every change is persisted locally before sync exists.'}</small>
+						<strong>{mode === 'suggest' ? $_('reader_doc.suggestion_label') : $_('reader_doc.local_editor')}</strong>
+						<small>{mode === 'suggest' ? $_('reader_doc.canonical_note') : $_('reader_doc.persisted_note')}</small>
 					</div>
 					<span>{activeDocument.format}{activeDocument.language ? ` · ${activeDocument.language}` : ''}</span>
 				</div>
 				<label class="reader-editor-title">
-					<span>Title</span>
+					<span>{$_('reader_doc.title_label')}</span>
 					<input bind:value={editorTitle} on:input={handleEditorChange} />
 				</label>
 				<textarea
@@ -419,20 +420,20 @@
 					bind:value={editorText}
 					on:input={handleEditorChange}
 					spellcheck={activeDocument.format !== 'code'}
-					aria-label="Document content"
+					aria-label={$_('reader_doc.document_content')}
 				></textarea>
 				<div class="reader-editor-foot">
-					<span>{editorText.length.toLocaleString()} characters · {saveLabel(activeDocument, saveState, online)}</span>
+					<span>{editorText.length.toLocaleString()} {$_('reader_doc.characters')} · {saveLabel(activeDocument, saveState, online)}</span>
 					{#if mode === 'suggest' && activeSuggestionId}
 						<div class="reader-suggestion-actions">
-							<button type="button" class="reader-action-emphasis" on:click={() => applySuggestion(activeSuggestionId!)}>Apply suggestion</button>
-							<button type="button" on:click={() => discardSuggestion(activeSuggestionId!)}>Reject</button>
+							<button type="button" class="reader-action-emphasis" on:click={() => applySuggestion(activeSuggestionId!)}>{$_('reader_doc.apply_suggestion')}</button>
+							<button type="button" on:click={() => discardSuggestion(activeSuggestionId!)}>{$_('reader_doc.reject')}</button>
 						</div>
 					{/if}
 				</div>
 				{#if mode === 'suggest' && openSuggestionCount > 0}
 					<div class="reader-open-suggestions">
-						<strong>Open suggestions</strong>
+						<strong>{$_('reader_doc.open_suggestions')}</strong>
 						{#each activeDocument.suggestions.filter((suggestion) => suggestion.status === 'open') as suggestion (suggestion.id)}
 							<div class="reader-suggestion-row" class:active={suggestion.id === activeSuggestionId}>
 								<button type="button" class="reader-suggestion-copy" on:click={() => {
@@ -441,11 +442,11 @@
 									editorText = suggestion.content;
 									syncPreview(suggestion.title, suggestion.content);
 								}}>
-									<span>Revision {suggestion.baseRevision + 1}</span>
+									<span>{$_('reader_doc.revision_n', { values: { n: suggestion.baseRevision + 1 } })}</span>
 									<small>{formatUpdated(suggestion.updatedAt)}</small>
 								</button>
-								<button type="button" on:click={() => applySuggestion(suggestion.id)}>Apply</button>
-								<button type="button" on:click={() => discardSuggestion(suggestion.id)}>Reject</button>
+								<button type="button" on:click={() => applySuggestion(suggestion.id)}>{$_('reader_doc.apply')}</button>
+								<button type="button" on:click={() => discardSuggestion(suggestion.id)}>{$_('reader_doc.reject')}</button>
 							</div>
 						{/each}
 					</div>
@@ -458,31 +459,31 @@
 		</div>
 
 		{#if mode === 'comment' && activeDocument}
-			<aside class="reader-comments-pane" aria-label="Document comments">
+			<aside class="reader-comments-pane" aria-label={$_('reader_doc.document_comments')}>
 				<div class="reader-comments-head">
 					<div>
-						<strong>Comments</strong>
-						<small>Stored locally with this document.</small>
+						<strong>{$_('reader_doc.comments_heading')}</strong>
+						<small>{$_('reader_doc.comments_stored')}</small>
 					</div>
-					<span>{unresolvedCommentCount} open</span>
+					<span>{$_('reader_doc.open_count', { values: { count: unresolvedCommentCount } })}</span>
 				</div>
 				<div class="reader-comment-compose">
-					<textarea bind:value={commentDraft} placeholder="Add a comment about this document…"></textarea>
-					<button type="button" class="reader-action-emphasis" disabled={!commentDraft.trim()} on:click={addComment}>Add comment</button>
+					<textarea bind:value={commentDraft} placeholder={$_('reader_doc.add_comment_placeholder')}></textarea>
+					<button type="button" class="reader-action-emphasis" disabled={!commentDraft.trim()} on:click={addComment}>{$_('reader_doc.add_comment')}</button>
 				</div>
 				<div class="reader-comments-list">
 					{#if activeDocument.comments.length === 0}
-						<p>No comments yet.</p>
+						<p>{$_('reader_doc.no_comments')}</p>
 					{:else}
 						{#each [...activeDocument.comments].reverse() as comment (comment.id)}
 							<article class:resolved={comment.resolved}>
 								<div class="reader-comment-meta">
-									<span>{comment.resolved ? 'Resolved' : 'Open'} · {formatUpdated(comment.updatedAt)}</span>
+									<span>{comment.resolved ? $_('reader_doc.resolved') : $_('common.open')} · {formatUpdated(comment.updatedAt)}</span>
 									<button type="button" on:click={() => removeReaderDocumentComment(activeDocument.documentId, comment.id)}>×</button>
 								</div>
 								<p>{comment.body}</p>
 								<button type="button" on:click={() => setReaderDocumentCommentResolved(activeDocument.documentId, comment.id, !comment.resolved)}>
-									{comment.resolved ? 'Reopen' : 'Resolve'}
+									{comment.resolved ? $_('reader_doc.reopen') : $_('reader_doc.resolve')}
 								</button>
 							</article>
 						{/each}
@@ -493,7 +494,7 @@
 	</div>
 
 	{#if activeDocument && $readerStoragePersistent === false}
-		<div class="reader-storage-caveat">Browser storage is not marked persistent. Your draft is still saved locally, but the browser may evict site data under storage pressure.</div>
+		<div class="reader-storage-caveat">{$_('reader_doc.storage_caveat')}</div>
 	{/if}
 </div>
 

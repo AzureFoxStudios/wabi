@@ -71,17 +71,17 @@
 	export let onHandleAlbumAnnouncementKeydown: (event: KeyboardEvent, meta: any, hasFiles: boolean, message?: Message) => void;
 
 	function getAlbumAnnouncementStatusLabel(meta: { name: string }, itemCount = 0): string {
-		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name)) return 'Deleted';
-		if (albumAnnouncementUploadName === meta.name) return 'Uploading';
-		return itemCount > 0 ? `${itemCount} items` : 'Empty album';
+		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name)) return $_('message_content.album_deleted_status');
+		if (albumAnnouncementUploadName === meta.name) return $_('message_content.album_uploading_status');
+		return itemCount > 0 ? $_('message_content.album_items_count', { values: { count: itemCount } }) : $_('message_content.album_empty_status');
 	}
 
 	function getAlbumAnnouncementSupportText(meta: { name: string }, itemCount = 0): string {
 		if (isAlbumDeletedByNameSet($deletedAlbumNames, meta.name))
-			return 'This album was deleted. The chat message remains for history.';
-		if (albumAnnouncementUploadName === meta.name) return 'Uploading files into this shared album now.';
-		if (itemCount > 0) return 'Open Albums to browse this shared album or add more files.';
-		return 'This shared album has no files yet. Use Add Media to drop the first one, or Open Albums to manage it.';
+			return $_('message_content.album_deleted_support');
+		if (albumAnnouncementUploadName === meta.name) return $_('message_content.album_uploading_support');
+		if (itemCount > 0) return $_('message_content.album_open_browse');
+		return $_('message_content.album_empty_support');
 	}
 
 	// Content kept on the device (privacy/contentEgress.ts), derived here from the message and the
@@ -112,7 +112,7 @@
 	$: loreChannel = currentChannelRecord?.type === 'lore';
 	$: chatCitations = loreChannel ? parseChatCitations(messageText) : [];
 	$: isLongReaderMessage = shouldPromoteLongMessage(message.type, messageText);
-	$: longMessageContextLabel = currentChannelRecord?.name ? `#${currentChannelRecord.name}` : 'Chat';
+	$: longMessageContextLabel = currentChannelRecord?.name ? `#${currentChannelRecord.name}` : $_('places.chat');
 
 	function parseChatCitations(text: string): Array<{ path: string; startLine?: number; endLine?: number; channelId: string }> {
 		const citations: Array<{ path: string; startLine?: number; endLine?: number; channelId: string }> = [];
@@ -157,7 +157,7 @@
 
 <div class="message-content">
 	{#if chatCitations.length > 0}
-		<div class="chat-citation-list" aria-label="Code citations">
+		<div class="chat-citation-list" aria-label={$_('message_content.code_citations')}>
 			{#each chatCitations as citation (citation.path)}
 				<LoreChatCitation path={citation.path} startLine={citation.startLine} endLine={citation.endLine} channelId={citation.channelId} />
 			{/each}
@@ -169,49 +169,49 @@
 			<div class="directions-card">
 				<div class="directions-card-head">
 					<div class="directions-card-copy">
-						<div class="directions-card-kicker">Local Directions</div>
+						<div class="directions-card-kicker">{$_('message_content.local_directions')}</div>
 						<div class="directions-card-title">{directions.placeLabel}</div>
 					</div>
 					<div class="directions-card-expiry">{formatDirectionsExpiry(directions.expiresAt)}</div>
 				</div>
 				<div class="directions-card-details">
 					<div class="directions-detail-row">
-						<span class="directions-detail-label">Place</span>
+						<span class="directions-detail-label">{$_('message_content.place_label')}</span>
 						<span class="directions-detail-value">{directions.placeLabel}</span>
 					</div>
 					{#if directions.poiLabel}
 						<div class="directions-detail-row">
-							<span class="directions-detail-label">POI</span>
+							<span class="directions-detail-label">{$_('message_content.poi_label')}</span>
 							<span class="directions-detail-value">{directions.poiLabel}</span>
 						</div>
 					{/if}
 					{#if directions.layerLabel}
 						<div class="directions-detail-row">
-							<span class="directions-detail-label">Layer</span>
+							<span class="directions-detail-label">{$_('message_content.layer_label')}</span>
 							<span class="directions-detail-value">{directions.layerLabel}</span>
 						</div>
 					{/if}
 					{#if directions.building}
 						<div class="directions-detail-row">
-							<span class="directions-detail-label">Building</span>
+							<span class="directions-detail-label">{$_('message_content.building_label')}</span>
 							<span class="directions-detail-value">{directions.building}</span>
 						</div>
 					{/if}
 					{#if directions.floor}
 						<div class="directions-detail-row">
-							<span class="directions-detail-label">Floor</span>
+							<span class="directions-detail-label">{$_('message_content.floor_label')}</span>
 							<span class="directions-detail-value">{directions.floor}</span>
 						</div>
 					{/if}
 					{#if directions.coordinates}
 						<div class="directions-detail-row">
-							<span class="directions-detail-label">Coordinates</span>
+							<span class="directions-detail-label">{$_('message_content.coordinates_label')}</span>
 							<span class="directions-detail-value">{directions.coordinates}</span>
 						</div>
 					{/if}
 					{#if directions.originCoordinates}
 						<div class="directions-detail-row">
-							<span class="directions-detail-label">From</span>
+							<span class="directions-detail-label">{$_('message_content.from_label')}</span>
 							<span class="directions-detail-value">{directions.originCoordinates}</span>
 						</div>
 					{/if}
@@ -226,7 +226,7 @@
 								poiId: directions.poiId || null
 							})}
 					>
-						Mini Map
+						{$_('message_content.mini_map')}
 					</button>
 					<button
 						type="button"
@@ -237,7 +237,7 @@
 								poiId: directions.poiId || null
 							})}
 					>
-						Full Map
+						{$_('message_content.full_map')}
 					</button>
 					<button
 						type="button"
@@ -248,7 +248,7 @@
 								poiId: directions.poiId || null
 							})}
 					>
-						Smart Open
+						{$_('message_content.smart_open')}
 					</button>
 					{#if directions.externalUrl}
 						<button
@@ -256,7 +256,7 @@
 							class="directions-card-btn"
 							on:click={() => onOpenDirectionsExternal(directions.externalUrl)}
 						>
-							{directions.externalLabel || 'Open OSM'}
+							{directions.externalLabel || $_('message_content.open_osm')}
 						</button>
 					{/if}
 				</div>
@@ -280,7 +280,7 @@
 			<div class="album-message-main">
 				<div class="album-message-head">
 					<div class="album-message-copy">
-						<div class="album-message-kicker">Shared album</div>
+						<div class="album-message-kicker">{$_('message_content.shared_album')}</div>
 						<div class="album-message-title">{albumAnnouncement.name}</div>
 					</div>
 					<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement)}</span>
@@ -293,7 +293,7 @@
 			</div>
 			{#if albumAnnouncementDeleted}
 				<div class="album-message-actions">
-					<span class="album-message-deleted-note">Album deleted</span>
+					<span class="album-message-deleted-note">{$_('message_content.album_deleted_note')}</span>
 				</div>
 			{:else if keepReason}
 				<div class="album-message-actions">
@@ -307,10 +307,10 @@
 						disabled={albumAnnouncementUploadName === albumAnnouncement.name}
 						on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement, message)}
 					>
-						{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
+						{albumAnnouncementUploadName === albumAnnouncement.name ? $_('message_content.uploading_ellipsis') : $_('message_content.album_add_media')}
 					</button>
 					<button type="button" class="album-message-btn primary" on:click|stopPropagation={onOpenAlbumPanel}>
-						Open Albums
+						{$_('message_content.open_albums')}
 					</button>
 				</div>
 			{/if}
@@ -400,10 +400,10 @@
 	{:else if message.type === 'emoji' && message.emojiUrl}
 		{#if contentOnDevice && !isWabiServerMediaUrl(message.emojiUrl)}
 			<RemoteMediaGate url={message.emojiUrl}>
-				<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} decoding="async" referrerpolicy="no-referrer" />
+				<img src={message.emojiUrl} alt={message.emojiName || $_('message_content.emoji_alt')} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} decoding="async" referrerpolicy="no-referrer" />
 			</RemoteMediaGate>
 		{:else}
-			<img src={message.emojiUrl} alt={message.emojiName || 'emoji'} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
+			<img src={message.emojiUrl} alt={message.emojiName || $_('message_content.emoji_alt')} class="emoji-large {effectiveSpoiler ? 'spoiler' : ''}" data-spoiler={effectiveSpoiler ? 'true' : 'false'} loading="lazy" decoding="async" />
 		{/if}
 	{:else if isLongReaderMessage}
 		<LongMessagePreview

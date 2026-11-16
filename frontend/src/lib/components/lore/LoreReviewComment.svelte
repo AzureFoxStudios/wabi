@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	interface Props {
 		comment: {
 			id: string;
@@ -25,11 +26,11 @@
 	</div>
 	<div class="comment-actions">
 		{#if !comment.resolved}
-			<button class="comment-action" onclick={onResolve}>✓ Resolve</button>
+			<button class="comment-action" onclick={onResolve}>✓ {$_('lore_review.resolve')}</button>
 		{:else}
-			<button class="comment-action" onclick={onResolve}>↻ Unresolve</button>
+			<button class="comment-action" onclick={onResolve}>↻ {$_('lore_review.unresolve')}</button>
 		{/if}
-		<button class="comment-action" onclick={onReply}>↩ Reply</button>
+		<button class="comment-action" onclick={onReply}>↩ {$_('messages.actions.reply')}</button>
 	</div>
 </div>
 

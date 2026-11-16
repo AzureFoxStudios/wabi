@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { OfflineDonationLedgerEntry } from '$lib/api';
 
 	export let canManageAdmin: boolean;
@@ -25,20 +26,20 @@
 <div class="donation-audit-panel">
 	<div class="donation-audit-header">
 		<div>
-			<h5>Offline / Manual Donations</h5>
-			<p class="admin-help">Record in-person cash or off-platform donations here. These are visible in server donation transparency, but they are not provider-verified.</p>
+			<h5>{$_('offline_donations.title')}</h5>
+			<p class="admin-help">{$_('offline_donations.help')}</p>
 		</div>
 		<button
 			class="action-btn"
 			on:click={onRefreshAudit}
 			disabled={adminOfflineDonationAuditLoading || adminOfflineDonationVoidingSettlementId !== '' || adminOfflineDonationSaving}
 		>
-			{adminOfflineDonationAuditLoading ? 'Refreshing...' : 'Refresh Offline Log'}
+			{adminOfflineDonationAuditLoading ? $_('offline_donations.refreshing') : $_('offline_donations.refresh_log')}
 		</button>
 	</div>
 	<div class="offline-donation-form">
 		<label class="upload-limit-row">
-			<span>Amount</span>
+			<span>{$_('offline_donations.amount')}</span>
 			<input
 				type="text"
 				placeholder="10.00"
@@ -48,7 +49,7 @@
 			/>
 		</label>
 		<label class="upload-limit-row">
-			<span>Currency</span>
+			<span>{$_('offline_donations.currency')}</span>
 			<input
 				type="text"
 				maxlength="3"
@@ -59,7 +60,7 @@
 			/>
 		</label>
 		<label class="upload-limit-row">
-			<span>Masked Donor Label</span>
+			<span>{$_('offline_donations.donor_label')}</span>
 			<input
 				type="text"
 				maxlength="120"
@@ -70,11 +71,11 @@
 			/>
 		</label>
 		<label class="upload-limit-row">
-			<span>Note</span>
+			<span>{$_('user.popout.note')}</span>
 			<input
 				type="text"
 				maxlength="280"
-				placeholder="Paid in cash after local meetup"
+				placeholder={$_('offline_donations.note_placeholder')}
 				value={offlineDonationDescription}
 				on:input={(e) => onDescriptionInput((e.currentTarget as HTMLInputElement).value)}
 				disabled={!canManageAdmin || adminOfflineDonationSaving}
@@ -82,12 +83,12 @@
 		</label>
 	</div>
 	<button class="action-btn" on:click={onCreateOfflineDonation} disabled={!canManageAdmin || adminOfflineDonationSaving}>
-		{adminOfflineDonationSaving ? 'Recording...' : 'Record Offline Donation'}
+		{adminOfflineDonationSaving ? $_('offline_donations.recording') : $_('offline_donations.record_btn')}
 	</button>
 	{#if adminOfflineDonationAuditLoading && adminOfflineDonationAudit.length === 0}
-		<p class="admin-help">Loading offline donation log...</p>
+		<p class="admin-help">{$_('offline_donations.loading_log')}</p>
 	{:else if adminOfflineDonationAudit.length === 0}
-		<p class="admin-help">No offline donations recorded yet.</p>
+		<p class="admin-help">{$_('offline_donations.empty')}</p>
 	{:else}
 		<div class="donation-audit-list">
 			{#each adminOfflineDonationAudit as entry (entry.settlementId)}
@@ -95,7 +96,7 @@
 					<div class="donation-audit-copy">
 						<strong>{entry.donorLabel}</strong>
 						<span>{formatDonationAuditAmount(entry.amountMinor, entry.currency)}</span>
-						<small>{formatDonationAuditWhen(entry)} | {entry.status} | {entry.recordedByLabel || 'Admin record'}</small>
+						<small>{formatDonationAuditWhen(entry)} | {entry.status} | {entry.recordedByLabel || $_('offline_donations.admin_record')}</small>
 						{#if entry.description}
 							<small>{entry.description}</small>
 						{/if}
@@ -105,7 +106,7 @@
 						disabled={!entry.canVoid || adminOfflineDonationVoidingSettlementId !== '' || !canManageAdmin}
 						on:click={() => onVoid(entry)}
 					>
-						{adminOfflineDonationVoidingSettlementId === entry.settlementId ? 'Voiding...' : (entry.canVoid ? 'Void' : 'Closed')}
+						{adminOfflineDonationVoidingSettlementId === entry.settlementId ? $_('offline_donations.voiding') : (entry.canVoid ? $_('offline_donations.void') : $_('login.wizard.join_closed_label'))}
 					</button>
 				</div>
 			{/each}

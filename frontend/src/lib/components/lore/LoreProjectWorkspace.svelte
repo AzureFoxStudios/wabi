@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { pendingNav, takePendingNav } from '$lib/pendingNav';
 	import { copyToClipboard } from '$lib/shareToChannel';
 	import { onMount, onDestroy } from 'svelte';
@@ -119,7 +120,7 @@
 	let canEdit = $derived(!preview && (canManage || roleName.toLowerCase() === 'developer'));
 	let readOnly = $derived(isMirror(repo));
 	let canWrite = $derived(!preview && !readOnly && (canEdit || roleName.toLowerCase() === 'artist'));
-	$effect(() => { if (!preview && !loading && repo && $pendingNav?.kind === 'lore_file' && $pendingNav.channelId === channelKey) { const ref = takePendingNav('lore_file', channelKey); if (ref?.kind === 'lore_file') { if (files.some(file => file.path === ref.filePath)) void openFile(ref.filePath, ref.lines ?? null); else error = 'The linked file is not available in this project.'; } } });
+	$effect(() => { if (!preview && !loading && repo && $pendingNav?.kind === 'lore_file' && $pendingNav.channelId === channelKey) { const ref = takePendingNav('lore_file', channelKey); if (ref?.kind === 'lore_file') { if (files.some(file => file.path === ref.filePath)) void openFile(ref.filePath, ref.lines ?? null); else error = $_('lore_project.linked_missing'); } } });
 	let selectedFile = $derived(files.find(file => file.path === selectedPath) ?? null);
 	let reviewQueue = $derived(branches.filter(branch => branch.name.startsWith('uploads/')));
 	let changeCount = $derived(counts.outgoing + counts.incoming + counts.conflicts);
@@ -134,8 +135,8 @@
 			authSessionGeneration(serverUrl) === session && String(getStoredDbUserId(serverUrl) ?? '') === accountId;
 	}
 	function token(): string {
-		if (!active()) throw new Error('Your account or server changed. Reopen this project.');
-		const value = getAuthToken(serverUrl); if (!value) throw new Error('Sign in to access this project.'); return value;
+		if (!active()) throw new Error($_('lore_project.account_changed'));
+		const value = getAuthToken(serverUrl); if (!value) throw new Error($_('lore_project.sign_in_project')); return value;
 	}
 	async function reload() {
 		const request = loads.begin(); loading = true;
@@ -151,7 +152,7 @@
 				initialReadmeOpened = true;
 				const path = initialFilePath || findReadmePath(files); if (path && !selectedPath && tab === 'files') void openFile(path);
 			}
-		} catch (e) { if (active() && loads.current(request)) error = e instanceof Error ? e.message : 'Could not load repository data. Previous results have been retained.'; }
+		} catch (e) { if (active() && loads.current(request)) error = e instanceof Error ? e.message : $_('lore_project.load_repo_failed'); }
 		finally { if (loads.current(request)) loading = false; }
 	}
 	async function refreshHealth() {
@@ -176,7 +177,7 @@
 		if (busy) return;
 		busy = label; error = ''; notice = '';
 		try { await action(token()); if (active()) await reload(); }
-		catch (e) { if (active()) error = e instanceof Error ? e.message : `${label} failed.`; }
+		catch (e) { if (active()) error = e instanceof Error ? e.message : $_('lore_project.action_failed', { values: { label } }); }
 		finally { if (alive) busy = ''; }
 	}
 	function menuDismiss(node: HTMLElement) {
@@ -192,13 +193,15 @@
 		node.addEventListener('click', close); node.addEventListener('keydown', escape);
 		return { destroy() { node.removeEventListener('click', close); node.removeEventListener('keydown', escape); } };
 	}
-	function navigate(next: string) {
+	function tabLabel(item: string) { return ({ files: $_('places.files'), changes: $_('lore_project.tab_changes'), history: $_('lore_project.tab_history'), review: $_('lore_project.tab_review'), settings: $_('settings.title') } as Record<string, string>)[item] ?? item; }
+		function starterLabel(name: string) { return ({ 'Document': $_('lore_project.starter_document'), 'Rust module': $_('lore_project.starter_rust'), 'TypeScript module': $_('lore_project.starter_typescript'), 'Python script': $_('lore_project.starter_python'), 'Cargo manifest': $_('lore_project.starter_cargo'), 'Package manifest': $_('lore_project.starter_package') } as Record<string, string>)[name] ?? name; }
+		function navigate(next: string) {
 		tab = next;
 		if (next === 'changes') localOpened = true;
 		if (next === 'history') historyOpened = true;
 	}
 	function canLeave() {
-		return !busy && (!(fileDirty || permissionDirty || reviewDirty) || window.confirm('Leave this project and discard unsaved editor or settings changes? Staged local files remain saved.'));
+		return !busy && (!(fileDirty || permissionDirty || reviewDirty) || window.confirm($_('lore_project.discard_leave')));
 	}
 	function chooseProject(event: Event) {
 		const input = event.currentTarget as HTMLSelectElement;
@@ -206,7 +209,7 @@
 	}
 	let linkedLines = $state<{ start: number; end: number } | null>(null);
 	async function openFile(path: string, lines: { start: number; end: number } | null = null) {
-		if (fileDirty && !window.confirm('Discard unsaved editor changes before opening this file?')) return;
+		if (fileDirty && !window.confirm($_('lore_project.discard_editor'))) return;
 		const request = previews.begin();
 		linkedLines = lines; previewKey++; selectedPath = path; selectedContent = null; selectedMedia = null; fileLoading = true; fileError = ''; fileDirty = false; stalePreview = false; navigate('files');
 		const info = files.find(file => file.path === path), kind = previewKind(path);
@@ -219,19 +222,19 @@
 				const url = await getSignedLoreUrl(auth, channelId, path);
 				if (active() && previews.current(request)) selectedMedia = url;
 			}
-		} catch (e) { if (active() && previews.current(request)) fileError = e instanceof Error ? e.message : 'Could not load this file.'; }
+		} catch (e) { if (active() && previews.current(request)) fileError = e instanceof Error ? e.message : $_('lore_project.load_file_failed'); }
 		finally { if (previews.current(request)) fileLoading = false; }
 	}
 	function copyLineLink(start: number, end: number) {
 		if (!selectedPath) return;
 		const params = new URLSearchParams({ wabiNav: 'lore_file', channelId: channelKey, path: selectedPath, lines: start === end ? String(start) : `${start}-${end}` });
-		void copyToClipboard(`${serverUrl.replace(/\/$/, '')}/?${params}`).catch(() => { error = 'Could not copy the link.'; });
+		void copyToClipboard(`${serverUrl.replace(/\/$/, '')}/?${params}`).catch(() => { error = $_('lore_project.copy_link_failed'); });
 	}
 	function closeFile() { previews.begin(); selectedPath = null; selectedContent = null; selectedMedia = null; fileDirty = false; fileLoading = false; fileError = ''; }
 	function comparePath(path: string) { historyPath = path; contextTarget = null; navigate('history'); }
 	async function download(path: string) {
 		try { const url = await getSignedLoreUrl(token(), channelId, path); if (!active()) return; const anchor = document.createElement('a'); anchor.href = url; anchor.download = path.split('/').pop() ?? 'file'; anchor.rel = 'noopener'; anchor.click(); }
-		catch (e) { if (active()) error = e instanceof Error ? e.message : 'Download failed.'; }
+		catch (e) { if (active()) error = e instanceof Error ? e.message : $_('lore_project.download_failed'); }
 	}
 	function queueFiles(event: Event, folder: boolean) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -242,21 +245,21 @@
 	async function uploadSelection() {
 		if (!queue.length || !uploadSummary.trim() || !canWrite) return;
 		const selected = [...queue], summary = uploadSummary.trim(); cancelUpload = false;
-		await run('Uploading files', async auth => {
+		await run($_('lore_project.busy_uploading_files'), async auth => {
 			// Validate every destination before starting, and use preconditions for overwrites.
 			const planned = selected.map(file => ({ file, path: plannedPath(file) }));
-			if (new Set(planned.map(item => item.path)).size !== planned.length) throw new Error('Two selected files have the same destination. Upload them separately.');
+			if (new Set(planned.map(item => item.path)).size !== planned.length) throw new Error($_('lore_project.same_destination'));
 			for (let index = 0; index < planned.length; index++) {
 				if (cancelUpload || !active()) break;
 				const item = planned[index], previous = files.find(file => file.path === item.path);
-				if (previous && !previous.etag) throw new Error(`The server did not provide a version identifier for ${item.path}. Reload before replacing it.`);
+				if (previous && !previous.etag) throw new Error($_('lore_project.version_id_missing', { values: { path: item.path } }));
 				uploadProgress = `${index + 1} of ${planned.length}`;
 				const result = await uploadLoreFile(auth, channelId, item.path, item.file, summary, previous?.etag ?? null);
 				if (!active()) return;
 				queue = queue.filter(file => file !== item.file);
-				notice = result.pending_review ? 'Files submitted to the review queue.' : 'Files uploaded as individual revisions.';
+				notice = result.pending_review ? $_('lore_project.sent_review') : $_('lore_project.uploaded_revisions');
 			}
-			if (cancelUpload) notice = 'Upload stopped. Files already accepted remain on the server; the rest are still selected.';
+			if (cancelUpload) notice = $_('lore_project.upload_stopped');
 		});
 		uploadProgress = '';
 	}
@@ -267,84 +270,84 @@
 	async function executeConfirmation() {
 		const action = confirmation;
 		if (!action || confirmationText !== action.expected || !action.expected) return;
-		await run('Applying confirmed change', async auth => {
+		await run($_('lore_project.busy_applying_change'), async auth => {
 			if (action.kind === 'file') {
-				if (!action.etag) throw new Error('No file version identifier was returned. Reload the repository before deleting this file.');
+				if (!action.etag) throw new Error($_('lore_project.no_version_id'));
 				await deleteLoreFile(auth, channelId, action.path, `Delete ${action.path}`, action.etag);
 			} else await deleteLoreRepo(auth, channelId, action.kind);
 			if (!active()) return; confirmation = null;
 			if (action.kind !== 'file' || selectedPath === action.path) closeFile();
-			notice = action.kind === 'detach' ? 'Repository detached. Its files and history remain on the server.' : 'Confirmed change completed.';
+			notice = action.kind === 'detach' ? $_('lore_project.detached_notice') : $_('lore_project.change_done');
 		});
 	}
 	function settingsPane(next: 'general' | 'permissions') {
-		if (permissionDirty && next !== settingsSection && !window.confirm('Discard unsaved permission changes?')) return;
+		if (permissionDirty && next !== settingsSection && !window.confirm($_('lore_project.discard_perms'))) return;
 		settingsSection = next;
 	}
 </script>
 
-<section use:menuDismiss class="lore-workbench" aria-label={`${projectName} project workspace`}>
+<section use:menuDismiss class="lore-workbench" aria-label={$_('lore_project.workspace_label', { values: { project: projectName } })}>
 	<header class="lw-project-header" class:compact={compactHeader}>
-		<div class="lw-project-identity"><span class="lw-project-mark"><LoreIcon name="folder" size={24} /></span><div><p class="lw-eyebrow">Project repository</p><h1>{repo?.repoName ?? projectName}</h1></div><span class="lw-badge">{readOnly ? 'Read-only mirror' : repo?.imported_from ? 'Imported' : 'Lore'}</span></div>
+		<div class="lw-project-identity"><span class="lw-project-mark"><LoreIcon name="folder" size={24} /></span><div><p class="lw-eyebrow">{$_('lore_project.project_repository')}</p><h1>{repo?.repoName ?? projectName}</h1></div><span class="lw-badge">{readOnly ? $_('lore_project.read_only_mirror') : repo?.imported_from ? $_('lore_project.imported') : $_('lore_project.lore_badge')}</span></div>
 		<div class="lw-header-actions">
-			{#if onSelectProject && projects.length > 1}<label class="lw-project-picker"><span class="lw-sr-only">Switch project</span><select value={channelKey} onchange={chooseProject} disabled={!!busy}>{#each projects as project (project.id)}<option value={project.id}>{project.name}</option>{/each}</select></label>{/if}
-			<span class="lw-service" title="Repository service availability, not local sync status"><span class:online={health === 'ok'}></span>{health === 'ok' ? 'Service online' : health === 'checking' ? 'Checking service' : 'Service unavailable'}</span>
-			<button class="lw-button" onclick={() => navigate('changes')}><LoreIcon name="folder" />Local folder</button>
-			<button class="lw-button" disabled={!repo || !!busy} onclick={() => void run('Preparing download', auth => downloadLoreProject(auth, channelId))}><LoreIcon name="download" />Download a copy</button>
+			{#if onSelectProject && projects.length > 1}<label class="lw-project-picker"><span class="lw-sr-only">{$_('lore_project.switch_project')}</span><select value={channelKey} onchange={chooseProject} disabled={!!busy}>{#each projects as project (project.id)}<option value={project.id}>{project.name}</option>{/each}</select></label>{/if}
+			<span class="lw-service" title={$_('lore_project.service_title')}><span class:online={health === 'ok'}></span>{health === 'ok' ? $_('lore_project.service_online') : health === 'checking' ? $_('lore_project.service_checking') : $_('lore_project.service_unavailable')}</span>
+			<button class="lw-button" onclick={() => navigate('changes')}><LoreIcon name="folder" />{$_('lore_project.local_folder')}</button>
+			<button class="lw-button" disabled={!repo || !!busy} onclick={() => void run($_('lore_project.busy_prepare_download'), auth => downloadLoreProject(auth, channelId))}><LoreIcon name="download" />{$_('lore_project.download_copy')}</button>
 		</div>
 	</header>
-	<nav class="lw-navigation" aria-label="Project sections">
-		{#each PROJECT_TABS as item}<button class="lw-nav-button" class:is-active={tab === item} aria-current={tab === item ? 'page' : undefined} onclick={() => navigate(item)}><LoreIcon name={item} />{item[0].toUpperCase() + item.slice(1)}{#if item === 'changes' && changeCount}<span class="lw-count">{changeCount}</span>{/if}{#if item === 'review' && reviewQueue.length}<span class="lw-count">{reviewQueue.length}</span>{/if}</button>{/each}
-		<details class="lw-tools"><summary><LoreIcon name="tools" />Tools<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => navigate('timeline')}>Activity timeline</button><button disabled={!repo} onclick={() => showTokens = true}>Command-line connections</button></div></details>
+	<nav class="lw-navigation" aria-label={$_('lore_project.project_sections')}>
+		{#each PROJECT_TABS as item}<button class="lw-nav-button" class:is-active={tab === item} aria-current={tab === item ? 'page' : undefined} onclick={() => navigate(item)}><LoreIcon name={item} />{tabLabel(item)}{#if item === 'changes' && changeCount}<span class="lw-count">{changeCount}</span>{/if}{#if item === 'review' && reviewQueue.length}<span class="lw-count">{reviewQueue.length}</span>{/if}</button>{/each}
+		<details class="lw-tools"><summary><LoreIcon name="tools" />{$_('wb.group_tools')}<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => navigate('timeline')}>{$_('lore_project.activity_timeline')}</button><button disabled={!repo} onclick={() => showTokens = true}>{$_('lore_project.command_connections')}</button></div></details>
 	</nav>
-	{#if error}<div class="lw-alert" role="alert">{error}<button class="lw-button" disabled={loading} onclick={() => void reload()}>Retry</button></div>{/if}
+	{#if error}<div class="lw-alert" role="alert">{error}<button class="lw-button" disabled={loading} onclick={() => void reload()}>{$_('common.retry')}</button></div>{/if}
 	{#if notice}<p class="lw-notice" role="status">{notice}</p>{/if}
-	{#if counts.incoming || counts.conflicts}<div class="lw-incoming" role="status"><span>{counts.incoming} incoming · {counts.conflicts} conflicts. Nothing has been applied to your folder.</span><button class="lw-button" onclick={() => navigate('changes')}>Review changes</button></div>{/if}
+	{#if counts.incoming || counts.conflicts}<div class="lw-incoming" role="status"><span>{$_('lore_project.incoming_summary', { values: { incoming: counts.incoming, conflicts: counts.conflicts } })}</span><button class="lw-button" onclick={() => navigate('changes')}>{$_('lore_project.review_changes')}</button></div>{/if}
 
 	<div class="lw-content">
 		{#if !repo}
-			<div class="lw-setup"><LoreIcon name="folder" size={36} /><h2>{loading ? 'Loading repository…' : 'Connect this project'}</h2><p>Keep shared files and their revision history here. A local folder can be connected after the repository is ready.</p>{#if !loading && canEdit}<div class="lw-actions"><button class="lw-button lw-primary" disabled={!!busy} onclick={() => void run('Creating repository', async auth => { await createLoreRepo(auth, channelId, projectName); })}>Create repository</button><button class="lw-button" onclick={() => showConnect = true}>Link or import existing…</button></div>{/if}</div>
+			<div class="lw-setup"><LoreIcon name="folder" size={36} /><h2>{loading ? $_('lore_project.loading_repo') : $_('lore_project.connect_project')}</h2><p>{$_('lore_project.connect_body')}</p>{#if !loading && canEdit}<div class="lw-actions"><button class="lw-button lw-primary" disabled={!!busy} onclick={() => void run($_('lore_project.busy_creating_repo'), async auth => { await createLoreRepo(auth, channelId, projectName); })}>{$_('lore_project.create_repository')}</button><button class="lw-button" onclick={() => showConnect = true}>{$_('lore_project.link_import')}</button></div>{/if}</div>
 		{:else}
 			<!-- Stable mounts retain editor state, tree expansion and the local detection lease. -->
-			<section hidden={tab !== 'files'} class="lw-panel lw-files" aria-label="Repository files">
-				<div class="lw-file-tools"><div class="lw-actions"><button class="lw-button" aria-expanded={fileTreeVisible} onclick={() => fileTreeVisible = !fileTreeVisible}><LoreIcon name="menu" />Files</button><span class="lw-muted">{files.length} files</span></div><div class="lw-actions">
-					<details class="lw-tools"><summary><LoreIcon name="branch" />Branches ({branches.length})</summary><div class="lw-menu"><p>Branch listing only. This server does not expose a working-tree branch switch.</p>{#each branches as branch (branch.name)}<code>{branch.name}</code>{/each}{#if canEdit && !readOnly}<button onclick={() => { branchFrom = branches.find(item => item.name === 'main')?.name ?? branches[0]?.name ?? ''; branchOpen = true; }}>Create branch…</button>{/if}</div></details>
-					{#if canWrite}<details class="lw-tools"><summary class="lw-primary"><LoreIcon name="plus" />Add files</summary><div class="lw-menu"><button onclick={() => { destination = 'uploads'; uploadInput.click(); }}>Upload files…</button><button onclick={() => { destination = 'uploads'; folderInput.click(); }}>Upload a folder…</button><button onclick={() => createOpen = true}>New text file…</button></div></details>{/if}
+			<section hidden={tab !== 'files'} class="lw-panel lw-files" aria-label={$_('lore_project.repository_files')}>
+				<div class="lw-file-tools"><div class="lw-actions"><button class="lw-button" aria-expanded={fileTreeVisible} onclick={() => fileTreeVisible = !fileTreeVisible}><LoreIcon name="menu" />{$_('places.files')}</button><span class="lw-muted">{$_('lore_project.file_count', { values: { count: files.length } })}</span></div><div class="lw-actions">
+					<details class="lw-tools"><summary><LoreIcon name="branch" />{$_('lore_project.branches_count', { values: { count: branches.length } })}</summary><div class="lw-menu"><p>{$_('lore_project.branch_listing_note')}</p>{#each branches as branch (branch.name)}<code>{branch.name}</code>{/each}{#if canEdit && !readOnly}<button onclick={() => { branchFrom = branches.find(item => item.name === 'main')?.name ?? branches[0]?.name ?? ''; branchOpen = true; }}>{$_('lore_project.create_branch_more')}</button>{/if}</div></details>
+					{#if canWrite}<details class="lw-tools"><summary class="lw-primary"><LoreIcon name="plus" />{$_('lore_project.add_files')}</summary><div class="lw-menu"><button onclick={() => { destination = 'uploads'; uploadInput.click(); }}>{$_('lore_project.upload_files')}</button><button onclick={() => { destination = 'uploads'; folderInput.click(); }}>{$_('lore_project.upload_folder')}</button><button onclick={() => createOpen = true}>{$_('lore_project.new_text_file')}</button></div></details>{/if}
 				</div></div>
 				<div class="lw-file-layout" class:tree-hidden={!fileTreeVisible}>
-					<aside class="lw-tree" hidden={!fileTreeVisible} aria-label="Project file browser"><LoreFileTree {files} {selectedPath} loading={loading && !files.length} onSelect={() => {}} onOpen={openFile} onContextMenu={(path, event, folder = false) => { event.preventDefault(); contextTarget = { path, folder }; }} /></aside>
+					<aside class="lw-tree" hidden={!fileTreeVisible} aria-label={$_('lore_project.file_browser_aria')}><LoreFileTree {files} {selectedPath} loading={loading && !files.length} onSelect={() => {}} onOpen={openFile} onContextMenu={(path, event, folder = false) => { event.preventDefault(); contextTarget = { path, folder }; }} /></aside>
 					<div class="lw-preview">
 						{#if selectedPath}
-							{#snippet fileActions()}<button class="lw-text-button" onclick={() => comparePath(selectedPath!)}>History & compare</button><details class="lw-tools"><summary>File actions<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => void copyToClipboard(`${serverUrl.replace(/\/$/, '')}/?${new URLSearchParams({ wabiNav: 'lore_file', channelId: channelKey, path: selectedPath! })}`).catch(() => { error = 'Could not copy the file link.'; })}>Copy file link</button><button onclick={() => void navigator.clipboard.writeText(selectedPath!).catch(() => { error = 'Could not copy the path.'; })}>Copy path</button>{#if canWrite}<button onclick={() => void run('Updating lock', auth => selectedFile?.lockedBy ? unlockLoreFile(auth, channelId, selectedPath!) : lockLoreFile(auth, channelId, selectedPath!))}>{selectedFile?.lockedBy ? 'Unlock file' : 'Lock file'}</button><button class="lw-danger-text" onclick={() => confirmAction('file', selectedPath!)}>Delete file…</button>{/if}</div></details>{/snippet}
-							{#if stalePreview}<p class="lw-notice">A newer server version may be available. <button class="lw-text-button" onclick={() => void openFile(selectedPath!)}>Reload preview</button></p>{/if}
-							{#if fileError}<p class="lw-alert" role="alert">{fileError}<button class="lw-button" onclick={() => void openFile(selectedPath!)}>Retry preview</button></p>{/if}
-							{#if selectedMedia && ['audio', 'video'].includes(previewKind(selectedPath))}<div class="lw-media">{@render fileActions()}<h2>{selectedPath.split('/').pop()}</h2>{#if previewKind(selectedPath) === 'audio'}<audio controls src={selectedMedia}></audio>{:else}<video controls src={selectedMedia}><track kind="captions" /></video>{/if}<button class="lw-button" onclick={() => void download(selectedPath!)}>Download file</button></div>
+							{#snippet fileActions()}<button class="lw-text-button" onclick={() => comparePath(selectedPath!)}>{$_('lore_project.history_compare')}</button><details class="lw-tools"><summary>{$_('lore_project.file_actions')}<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => void copyToClipboard(`${serverUrl.replace(/\/$/, '')}/?${new URLSearchParams({ wabiNav: 'lore_file', channelId: channelKey, path: selectedPath! })}`).catch(() => { error = $_('lore_project.copy_file_link_failed'); })}>{$_('lore_project.copy_file_link')}</button><button onclick={() => void navigator.clipboard.writeText(selectedPath!).catch(() => { error = $_('lore_project.copy_path_failed'); })}>{$_('lore_project.copy_path')}</button>{#if canWrite}<button onclick={() => void run($_('lore_project.busy_updating_lock'), auth => selectedFile?.lockedBy ? unlockLoreFile(auth, channelId, selectedPath!) : lockLoreFile(auth, channelId, selectedPath!))}>{selectedFile?.lockedBy ? $_('lore_project.unlock_file') : $_('lore_project.lock_file')}</button><button class="lw-danger-text" onclick={() => confirmAction('file', selectedPath!)}>{$_('lore_project.delete_file_action')}</button>{/if}</div></details>{/snippet}
+							{#if stalePreview}<p class="lw-notice">{$_('lore_project.newer_version')} <button class="lw-text-button" onclick={() => void openFile(selectedPath!)}>{$_('lore_project.reload_preview')}</button></p>{/if}
+							{#if fileError}<p class="lw-alert" role="alert">{fileError}<button class="lw-button" onclick={() => void openFile(selectedPath!)}>{$_('lore_project.retry_preview')}</button></p>{/if}
+							{#if selectedMedia && ['audio', 'video'].includes(previewKind(selectedPath))}<div class="lw-media">{@render fileActions()}<h2>{selectedPath.split('/').pop()}</h2>{#if previewKind(selectedPath) === 'audio'}<audio controls src={selectedMedia}></audio>{:else}<video controls src={selectedMedia}><track kind="captions" /></video>{/if}<button class="lw-button" onclick={() => void download(selectedPath!)}>{$_('lore_project.download_file')}</button></div>
 							{:else}{#key previewKey}<LoreFileViewer highlightLines={linkedLines} onLinkLines={copyLineLink} filePath={selectedPath} fileContent={selectedContent} fileInfo={selectedFile} loading={fileLoading} mediaUrl={selectedMedia} canEdit={canWrite} token={getAuthToken(serverUrl) ?? undefined} {channelId} onClose={closeFile} onSaved={() => void reload()} onDirtyChange={(value) => fileDirty = value} actions={fileActions} />{/key}{/if}
-						{:else}<div class="lw-setup"><LoreIcon name="file" size={36} /><h2>Choose a file</h2><p>Read documents, inspect code, and preview assets without leaving your project.</p></div>{/if}
+						{:else}<div class="lw-setup"><LoreIcon name="file" size={36} /><h2>{$_('lore_project.choose_file')}</h2><p>{$_('lore_project.choose_file_body')}</p></div>{/if}
 					</div>
 				</div>
 			</section>
-			{#if localOpened}<section class="lw-panel lw-local" hidden={tab !== 'changes'} aria-label="Local changes">{#if accountId}<LoreLocalChanges channelId={channelKey} {projectName} {serverUrl} {accountId} onCounts={(value) => counts = value} />{:else}<p class="lw-empty-inline">Sign in to connect a local project folder.</p>{/if}</section>{/if}
-			{#if historyOpened}<section class="lw-panel" hidden={tab !== 'history'} aria-label="Repository history"><LorePushCalendar {revisions} /><LoreHistoryBrowser {revisions} {files} {channelId} getToken={token} isActive={active} initialPath={historyPath} /></section>{/if}
-			<section class="lw-panel lw-scroll" hidden={tab !== 'review'} aria-label="Review queue"><div class="lw-page"><p class="lw-eyebrow">Team workflow</p><h2>Review</h2><p class="lw-lead">Uploads waiting to become official. Approval and rejection are deliberate actions.</p>{#each reviewQueue as branch (branch.name)}<article class="lw-review-card"><div><span class="lw-badge">Awaiting review</span><h3>{branch.name.replace(/^uploads\//, '')}</h3><code>{branch.name}</code></div>{#if canEdit}<div class="lw-actions"><button class="lw-button" disabled={!!busy} onclick={() => { if (window.confirm(`Reject ${branch.name}?`)) void run('Rejecting upload', auth => reviewLoreBranch(auth, channelId, branch.name, 'reject')); }}>Reject…</button><button class="lw-button lw-primary" disabled={!!busy} onclick={() => { if (window.confirm(`Approve ${branch.name} and make its uploads official?`)) void run('Approving upload', auth => reviewLoreBranch(auth, channelId, branch.name, 'approve')); }}>Approve…</button></div>{/if}</article>{:else}<div class="lw-empty-card"><LoreIcon name="review" size={28} /><h3>No uploads awaiting review</h3><p>{repo.auto_branch_on_upload ? 'New uploads will appear here for approval.' : 'Review is optional for this repository. You can change its policy in Settings.'}</p></div>{/each}</div></section>
-			<section class="lw-panel lw-scroll" hidden={tab !== 'settings'} aria-label="Project settings"><div class="lw-page"><p class="lw-eyebrow">Project configuration</p><h2>Settings</h2><nav class="lw-settings-nav" aria-label="Settings sections"><button class="lw-button" aria-pressed={settingsSection === 'general'} onclick={() => settingsPane('general')}>General & workflow</button>{#if canManage}<button class="lw-button" aria-pressed={settingsSection === 'permissions'} onclick={() => settingsPane('permissions')}>Permissions</button>{/if}</nav>
+			{#if localOpened}<section class="lw-panel lw-local" hidden={tab !== 'changes'} aria-label={$_('lore_project.local_changes')}>{#if accountId}<LoreLocalChanges channelId={channelKey} {projectName} {serverUrl} {accountId} onCounts={(value) => counts = value} />{:else}<p class="lw-empty-inline">{$_('lore_project.sign_in_local')}</p>{/if}</section>{/if}
+			{#if historyOpened}<section class="lw-panel" hidden={tab !== 'history'} aria-label={$_('lore_project.repository_history')}><LorePushCalendar {revisions} /><LoreHistoryBrowser {revisions} {files} {channelId} getToken={token} isActive={active} initialPath={historyPath} /></section>{/if}
+			<section class="lw-panel lw-scroll" hidden={tab !== 'review'} aria-label={$_('lore_project.review_queue')}><div class="lw-page"><p class="lw-eyebrow">{$_('lore_project.team_workflow')}</p><h2>{$_('lore_project.tab_review')}</h2><p class="lw-lead">{$_('lore_project.review_intro')}</p>{#each reviewQueue as branch (branch.name)}<article class="lw-review-card"><div><span class="lw-badge">{$_('lore_project.awaiting_review')}</span><h3>{branch.name.replace(/^uploads\//, '')}</h3><code>{branch.name}</code></div>{#if canEdit}<div class="lw-actions"><button class="lw-button" disabled={!!busy} onclick={() => { if (window.confirm($_('lore_project.confirm_reject', { values: { name: branch.name } }))) void run($_('lore_project.busy_rejecting'), auth => reviewLoreBranch(auth, channelId, branch.name, 'reject')); }}>{$_('lore_project.reject')}</button><button class="lw-button lw-primary" disabled={!!busy} onclick={() => { if (window.confirm($_('lore_project.confirm_approve', { values: { name: branch.name } }))) void run($_('lore_project.busy_approving'), auth => reviewLoreBranch(auth, channelId, branch.name, 'approve')); }}>{$_('lore_project.approve')}</button></div>{/if}</article>{:else}<div class="lw-empty-card"><LoreIcon name="review" size={28} /><h3>{$_('lore_project.no_uploads')}</h3><p>{repo.auto_branch_on_upload ? $_('lore_project.review_new_uploads') : $_('lore_project.review_optional')}</p></div>{/each}</div></section>
+			<section class="lw-panel lw-scroll" hidden={tab !== 'settings'} aria-label={$_('lore_project.project_settings')}><div class="lw-page"><p class="lw-eyebrow">{$_('lore_project.project_configuration')}</p><h2>{$_('settings.title')}</h2><nav class="lw-settings-nav" aria-label={$_('lore_project.settings_sections')}><button class="lw-button" aria-pressed={settingsSection === 'general'} onclick={() => settingsPane('general')}>{$_('lore_project.general_workflow')}</button>{#if canManage}<button class="lw-button" aria-pressed={settingsSection === 'permissions'} onclick={() => settingsPane('permissions')}>{$_('lore_project.permissions')}</button>{/if}</nav>
 				{#if settingsSection === 'permissions'}<LoreRolesAdmin onClose={() => settingsPane('general')} onDirtyChange={(value) => permissionDirty = value} />{:else}
-					<section class="lw-settings-card"><h3>Repository</h3><dl><dt>Name</dt><dd>{repo.repoName}</dd><dt>Channel</dt><dd>{projectName}</dd><dt>Storage</dt><dd>{readOnly ? 'Read-only external mirror' : 'Versioned Lore repository'}</dd>{#if repo.imported_from}<dt>Imported from</dt><dd>{repo.imported_from}</dd>{/if}</dl><p class="lw-help">Repository settings apply to the shared project.</p></section>
-					<section class="lw-settings-card"><h3>Review policy</h3><label class="lw-setting-toggle"><input type="checkbox" checked={reviewDraft ?? !!repo.auto_branch_on_upload} disabled={!canManage || readOnly || !!busy} onchange={(event) => reviewDraft = event.currentTarget.checked} /><span><strong>Require review for uploads</strong><small>New uploads go to a review branch instead of immediately becoming official.</small></span></label><div class="lw-form-footer"><span>{reviewDirty ? 'Unsaved policy change' : 'Current server policy'}</span><button class="lw-button" disabled={!reviewDirty || !!busy} onclick={() => reviewDraft = null}>Cancel</button><button class="lw-button lw-primary" disabled={!canManage || !reviewDirty || !!busy} onclick={() => void run('Saving review policy', async auth => { await updateLoreRepoSettings(auth, channelId, { auto_branch_on_upload: !!reviewDraft }); if (active()) reviewDraft = null; })}>Save policy</button></div></section>
-					<section class="lw-settings-card"><h3>On this computer</h3><p>Connect a local folder and manage automatic detection in Changes. Detected changes are never pulled or published automatically.</p><button class="lw-button" onclick={() => navigate('changes')}>Manage local folder</button></section>
-					{#if canManage}<section class="lw-settings-card lw-danger-zone"><h3>Danger zone</h3><p>Detaching preserves files and history on the server. Deleting permanently erases both.</p><div class="lw-actions"><button class="lw-button" disabled={!!busy} onclick={() => confirmAction('detach', repo!.repoName)}>Detach repository…</button><button class="lw-button lw-danger-text" disabled={!!busy} onclick={() => confirmAction('delete', repo!.repoName)}>Delete repository…</button></div></section>{/if}
+					<section class="lw-settings-card"><h3>{$_('lore_project.repository_heading')}</h3><dl><dt>{$_('messages.viewer.details_name')}</dt><dd>{repo.repoName}</dd><dt>{$_('lore_project.channel_label')}</dt><dd>{projectName}</dd><dt>{$_('settings.tabs.storage')}</dt><dd>{readOnly ? $_('lore_project.read_only_external') : $_('lore_project.versioned_repo')}</dd>{#if repo.imported_from}<dt>{$_('lore_project.imported_from')}</dt><dd>{repo.imported_from}</dd>{/if}</dl><p class="lw-help">{$_('lore_project.repo_settings_note')}</p></section>
+					<section class="lw-settings-card"><h3>{$_('lore_project.review_policy')}</h3><label class="lw-setting-toggle"><input type="checkbox" checked={reviewDraft ?? !!repo.auto_branch_on_upload} disabled={!canManage || readOnly || !!busy} onchange={(event) => reviewDraft = event.currentTarget.checked} /><span><strong>{$_('lore_project.require_review')}</strong><small>{$_('lore_project.review_policy_help')}</small></span></label><div class="lw-form-footer"><span>{reviewDirty ? $_('lore_project.unsaved_policy') : $_('lore_project.current_policy')}</span><button class="lw-button" disabled={!reviewDirty || !!busy} onclick={() => reviewDraft = null}>{$_('common.cancel')}</button><button class="lw-button lw-primary" disabled={!canManage || !reviewDirty || !!busy} onclick={() => void run($_('lore_project.busy_saving_policy'), async auth => { await updateLoreRepoSettings(auth, channelId, { auto_branch_on_upload: !!reviewDraft }); if (active()) reviewDraft = null; })}>{$_('lore_project.save_policy')}</button></div></section>
+					<section class="lw-settings-card"><h3>{$_('lore_project.on_this_computer')}</h3><p>{$_('lore_project.on_computer_body')}</p><button class="lw-button" onclick={() => navigate('changes')}>{$_('lore_project.manage_local_folder')}</button></section>
+					{#if canManage}<section class="lw-settings-card lw-danger-zone"><h3>{$_('lore_project.danger_zone')}</h3><p>{$_('lore_project.danger_body')}</p><div class="lw-actions"><button class="lw-button" disabled={!!busy} onclick={() => confirmAction('detach', repo!.repoName)}>{$_('lore_project.detach_repo')}</button><button class="lw-button lw-danger-text" disabled={!!busy} onclick={() => confirmAction('delete', repo!.repoName)}>{$_('lore_project.delete_repo')}</button></div></section>{/if}
 				{/if}
 			</div></section>
-			{#if tab === 'timeline'}<section class="lw-panel lw-scroll"><div class="lw-page"><h2>Activity timeline</h2><LoreActivityFeed {activity} /></div></section>{/if}
+			{#if tab === 'timeline'}<section class="lw-panel lw-scroll"><div class="lw-page"><h2>{$_('lore_project.activity_timeline')}</h2><LoreActivityFeed {activity} /></div></section>{/if}
 		{/if}
 	</div>
-	<input class="lw-hidden-input" tabindex="-1" type="file" multiple bind:this={uploadInput} onchange={(event) => queueFiles(event, false)} aria-label="Choose files to upload" />
-	<input class="lw-hidden-input" tabindex="-1" type="file" multiple webkitdirectory bind:this={folderInput} onchange={(event) => queueFiles(event, true)} aria-label="Choose folder to upload" />
-	{#if queue.length}<LoreDialog title="Add files to this repository" busy={!!busy} onClose={() => queue = []}><p>Uploads create individual revisions{repo?.auto_branch_on_upload ? ' in a review branch' : ' on the server'}. This does not connect or watch the source folder.</p><label class="lw-field">Destination folder<input bind:value={destination} disabled={!!busy} placeholder="uploads" /></label><label class="lw-field">Change summary<input bind:value={uploadSummary} disabled={!!busy} maxlength="2000" /></label><div class="lw-upload-list">{#each queue as file}<p><code>{file.webkitRelativePath || file.name}</code><span>{formatBytes(file.size)}</span></p>{/each}</div>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<p class="lw-help">Existing paths are replaced only if the version you loaded still matches.</p><div class="lw-form-footer">{#if busy}<span role="status">Uploading {uploadProgress}</span><button class="lw-button" onclick={() => cancelUpload = true}>Stop after current file</button>{:else}<button class="lw-button" onclick={() => queue = []}>Cancel</button><button class="lw-button lw-primary" disabled={!uploadSummary.trim()} onclick={() => void uploadSelection()}>Upload {queue.length} files</button>{/if}</div></LoreDialog>{/if}
-	{#if createOpen}<LoreDialog title="New text file" busy={!!busy} onClose={() => createOpen = false}><label class="lw-field">Start from<select disabled={!!busy} onchange={(event) => { const starter = starters[Number(event.currentTarget.value)]; if (starter) { newPath = starter.path; newText = starter.text; } }}><option value="">Custom text file</option>{#each starters as starter, index}<option value={index}>{starter.name}</option>{/each}</select></label><label class="lw-field">Repository path<input bind:value={newPath} disabled={!!busy} /></label><label class="lw-field">Starter content<textarea bind:value={newText} rows="8" disabled={!!busy}></textarea></label>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<div class="lw-form-footer"><button class="lw-button" onclick={() => createOpen = false} disabled={!!busy}>Cancel</button><button class="lw-button lw-primary" disabled={!!busy || !newPath.trim()} onclick={() => void run('Creating file', async auth => { const path = uploadPath(newPath.trim(), '', ''); await uploadLoreFile(auth, channelId, path, newText, `Create ${path}`, null); if (active()) createOpen = false; })}>Create revision</button></div></LoreDialog>{/if}
-	{#if branchOpen}<LoreDialog title="Create a branch" busy={!!busy} onClose={() => branchOpen = false}><p>Creates a branch on the server. It does not switch the file browser's working tree.</p><label class="lw-field">Branch name<input bind:value={newBranch} disabled={!!busy} /></label><label class="lw-field">From branch<select bind:value={branchFrom} disabled={!!busy}>{#each branches as branch (branch.name)}<option value={branch.name}>{branch.name}</option>{/each}</select></label>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<div class="lw-form-footer"><button class="lw-button lw-primary" disabled={!!busy || !newBranch.trim() || !branchFrom} onclick={() => void run('Creating branch', async auth => { await createLoreBranch(auth, channelId, newBranch.trim(), branchFrom); if (active()) branchOpen = false; })}>Create branch</button></div></LoreDialog>{/if}
-	{#if confirmation}<LoreDialog title={confirmation.kind === 'file' ? 'Delete file' : confirmation.kind === 'detach' ? 'Detach repository' : 'Permanently delete repository'} busy={!!busy} onClose={() => confirmation = null}><p>{confirmation.kind === 'file' ? 'This publishes a deletion of the selected file.' : confirmation.kind === 'detach' ? 'The channel will be disconnected. All files and history remain on the server.' : 'Every file and revision in this repository will be permanently erased. There is no undo.'}</p><p><strong>{confirmation.path}</strong></p><label class="lw-field">Type “{confirmation.expected}” to confirm<input bind:value={confirmationText} disabled={!!busy} autocomplete="off" /></label>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<div class="lw-form-footer"><button class="lw-button" disabled={!!busy} onclick={() => confirmation = null}>Cancel</button><button class="lw-button lw-danger-text" disabled={!!busy || confirmationText !== confirmation.expected} onclick={() => void executeConfirmation()}>{confirmation.kind === 'detach' ? 'Detach and keep data' : 'Confirm deletion'}</button></div></LoreDialog>{/if}
-	{#if contextTarget}<LoreDialog title="File actions" busy={!!busy} onClose={() => contextTarget = null}><code>{contextTarget.path}</code><div class="lw-context-actions">{#if contextTarget.folder && canWrite}<button class="lw-button" onclick={() => { destination = contextTarget!.path; contextTarget = null; uploadInput.click(); }}>Upload files here…</button>{/if}{#if !contextTarget.folder}<button class="lw-button" onclick={() => comparePath(contextTarget!.path)}>History & compare</button><button class="lw-button" onclick={() => void download(contextTarget!.path)}>Download file</button>{#if canWrite}<button class="lw-button" disabled={!!busy} onclick={() => void run('Updating lock', auth => files.find(file => file.path === contextTarget!.path)?.lockedBy ? unlockLoreFile(auth, channelId, contextTarget!.path) : lockLoreFile(auth, channelId, contextTarget!.path))}>{files.find(file => file.path === contextTarget!.path)?.lockedBy ? 'Unlock file' : 'Lock file'}</button><button class="lw-button lw-danger-text" onclick={() => confirmAction('file', contextTarget!.path)}>Delete file…</button>{/if}{/if}</div></LoreDialog>{/if}
+	<input class="lw-hidden-input" tabindex="-1" type="file" multiple bind:this={uploadInput} onchange={(event) => queueFiles(event, false)} aria-label={$_('lore_project.choose_files_aria')} />
+	<input class="lw-hidden-input" tabindex="-1" type="file" multiple webkitdirectory bind:this={folderInput} onchange={(event) => queueFiles(event, true)} aria-label={$_('lore_project.choose_folder_aria')} />
+	{#if queue.length}<LoreDialog title={$_('lore_project.upload_dialog_title')} busy={!!busy} onClose={() => queue = []}><p>{$_('lore_project.upload_note', { values: { target: repo?.auto_branch_on_upload ? $_('lore_project.target_review') : $_('lore_project.target_server') } })}</p><label class="lw-field">{$_('lore_project.destination_folder')}<input bind:value={destination} disabled={!!busy} placeholder="uploads" /></label><label class="lw-field">{$_('lore_project.change_summary')}<input bind:value={uploadSummary} disabled={!!busy} maxlength="2000" /></label><div class="lw-upload-list">{#each queue as file}<p><code>{file.webkitRelativePath || file.name}</code><span>{formatBytes(file.size)}</span></p>{/each}</div>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<p class="lw-help">{$_('lore_project.existing_paths')}</p><div class="lw-form-footer">{#if busy}<span role="status">{$_('lore_project.uploading_progress', { values: { progress: uploadProgress } })}</span><button class="lw-button" onclick={() => cancelUpload = true}>{$_('lore_project.stop_after_file')}</button>{:else}<button class="lw-button" onclick={() => queue = []}>{$_('common.cancel')}</button><button class="lw-button lw-primary" disabled={!uploadSummary.trim()} onclick={() => void uploadSelection()}>{$_('chat.upload.upload_files_many', { values: { count: queue.length } })}</button>{/if}</div></LoreDialog>{/if}
+	{#if createOpen}<LoreDialog title={$_('lore_project.new_text_file_title')} busy={!!busy} onClose={() => createOpen = false}><label class="lw-field">{$_('lore_project.start_from')}<select disabled={!!busy} onchange={(event) => { const starter = starters[Number(event.currentTarget.value)]; if (starter) { newPath = starter.path; newText = starter.text; } }}><option value="">{$_('lore_project.custom_text_file')}</option>{#each starters as starter, index}<option value={index}>{starterLabel(starter.name)}</option>{/each}</select></label><label class="lw-field">{$_('lore_project.repository_path')}<input bind:value={newPath} disabled={!!busy} /></label><label class="lw-field">{$_('lore_project.starter_content')}<textarea bind:value={newText} rows="8" disabled={!!busy}></textarea></label>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<div class="lw-form-footer"><button class="lw-button" onclick={() => createOpen = false} disabled={!!busy}>{$_('common.cancel')}</button><button class="lw-button lw-primary" disabled={!!busy || !newPath.trim()} onclick={() => void run($_('lore_project.busy_creating_file'), async auth => { const path = uploadPath(newPath.trim(), '', ''); await uploadLoreFile(auth, channelId, path, newText, `Create ${path}`, null); if (active()) createOpen = false; })}>{$_('lore_project.create_revision')}</button></div></LoreDialog>{/if}
+	{#if branchOpen}<LoreDialog title={$_('lore_project.create_branch_title')} busy={!!busy} onClose={() => branchOpen = false}><p>{$_('lore_project.branch_help')}</p><label class="lw-field">{$_('lore_project.branch_name')}<input bind:value={newBranch} disabled={!!busy} /></label><label class="lw-field">{$_('lore_project.from_branch')}<select bind:value={branchFrom} disabled={!!busy}>{#each branches as branch (branch.name)}<option value={branch.name}>{branch.name}</option>{/each}</select></label>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<div class="lw-form-footer"><button class="lw-button lw-primary" disabled={!!busy || !newBranch.trim() || !branchFrom} onclick={() => void run($_('lore_project.busy_creating_branch'), async auth => { await createLoreBranch(auth, channelId, newBranch.trim(), branchFrom); if (active()) branchOpen = false; })}>{$_('lore_project.create_branch')}</button></div></LoreDialog>{/if}
+	{#if confirmation}<LoreDialog title={confirmation.kind === 'file' ? $_('lore_project.delete_file_title') : confirmation.kind === 'detach' ? $_('lore_project.detach_title') : $_('lore_project.delete_repo_title')} busy={!!busy} onClose={() => confirmation = null}><p>{confirmation.kind === 'file' ? $_('lore_project.delete_file_body') : confirmation.kind === 'detach' ? $_('lore_project.detach_body') : $_('lore_project.delete_repo_body')}</p><p><strong>{confirmation.path}</strong></p><label class="lw-field">{$_('lore_project.type_to_confirm', { values: { name: confirmation.expected } })}<input bind:value={confirmationText} disabled={!!busy} autocomplete="off" /></label>{#if error}<p class="lw-alert" role="alert">{error}</p>{/if}<div class="lw-form-footer"><button class="lw-button" disabled={!!busy} onclick={() => confirmation = null}>{$_('common.cancel')}</button><button class="lw-button lw-danger-text" disabled={!!busy || confirmationText !== confirmation.expected} onclick={() => void executeConfirmation()}>{confirmation.kind === 'detach' ? $_('lore_project.detach_confirm') : $_('lore_project.delete_confirm')}</button></div></LoreDialog>{/if}
+	{#if contextTarget}<LoreDialog title={$_('lore_project.file_actions')} busy={!!busy} onClose={() => contextTarget = null}><code>{contextTarget.path}</code><div class="lw-context-actions">{#if contextTarget.folder && canWrite}<button class="lw-button" onclick={() => { destination = contextTarget!.path; contextTarget = null; uploadInput.click(); }}>{$_('lore_project.upload_here')}</button>{/if}{#if !contextTarget.folder}<button class="lw-button" onclick={() => comparePath(contextTarget!.path)}>{$_('lore_project.history_compare')}</button><button class="lw-button" onclick={() => void download(contextTarget!.path)}>{$_('lore_project.download_file')}</button>{#if canWrite}<button class="lw-button" disabled={!!busy} onclick={() => void run($_('lore_project.busy_updating_lock'), auth => files.find(file => file.path === contextTarget!.path)?.lockedBy ? unlockLoreFile(auth, channelId, contextTarget!.path) : lockLoreFile(auth, channelId, contextTarget!.path))}>{files.find(file => file.path === contextTarget!.path)?.lockedBy ? $_('lore_project.unlock_file') : $_('lore_project.lock_file')}</button><button class="lw-button lw-danger-text" onclick={() => confirmAction('file', contextTarget!.path)}>{$_('lore_project.delete_file_action')}</button>{/if}{/if}</div></LoreDialog>{/if}
 	{#if showConnect}<LoreConnectModal channelId={channelKey} onConnected={() => { showConnect = false; void reload(); void refreshHealth(); }} onClose={() => showConnect = false} />{/if}
 	{#if showTokens}<LoreConnectPanel {channelKey} repoId={channelId} repoName={repo?.repoName ?? null} onclose={() => showTokens = false} />{/if}
 </section>

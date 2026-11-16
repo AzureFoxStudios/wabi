@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import {
@@ -18,11 +19,11 @@
 	const MB = 1024 * 1024;
 	const uploadRoleOrder: UploadRoleTier[] = ['new', 'trusted', 'moderator', 'admin', 'owner'];
 	const uploadRoleLabels: Record<UploadRoleTier, string> = {
-		new: 'New',
-		trusted: 'Trusted',
-		moderator: 'Moderator',
-		admin: 'Admin',
-		owner: 'Owner'
+		new: $_('messages.new_kicker'),
+		trusted: $_('server_policy.role_trusted'),
+		moderator: $_('server_policy.role_moderator'),
+		admin: $_('settings.tabs.admin'),
+		owner: $_('server_policy.role_owner')
 	};
 
 	function bytesToMbInput(bytes: number | null): string {
@@ -36,7 +37,7 @@
 		if (!trimmed) return null;
 		const mb = Number(trimmed);
 		if (!Number.isFinite(mb) || mb <= 0) {
-			throw new Error('Limits must be positive MB values or blank for unlimited.');
+			throw new Error($_('server_policy.err_positive_mb'));
 		}
 		return Math.floor(mb * MB);
 	}
@@ -81,7 +82,7 @@
 			uploadLimitInputs = uploadInputsFrom(cfg.config);
 			globalUploadLimitInput = bytesToMbInput(cfg.config.globalUploadCapBytes);
 		} catch (e) {
-			uploadError = (e as Error).message || 'Failed to load upload limits';
+			uploadError = (e as Error).message || $_('server_policy.err_load_upload');
 		} finally {
 			uploadLoading = false;
 		}
@@ -108,9 +109,9 @@
 			uploadConfig = saved;
 			uploadLimitInputs = uploadInputsFrom(saved);
 			globalUploadLimitInput = bytesToMbInput(saved.globalUploadCapBytes);
-			uploadStatus = 'Saved upload limits.';
+			uploadStatus = $_('server_policy.saved_upload');
 		} catch (e) {
-			uploadError = (e as Error).message || 'Failed to save upload limits';
+			uploadError = (e as Error).message || $_('server_policy.err_save_upload');
 		} finally {
 			uploadSaving = false;
 		}
@@ -152,7 +153,7 @@
 			downloadLimitInputs = downloadInputsFrom(cfg.config);
 			globalDownloadLimitInput = bytesToMbInput(cfg.config.globalDownloadCapBytes);
 		} catch (e) {
-			downloadError = (e as Error).message || 'Failed to load download limits';
+			downloadError = (e as Error).message || $_('server_policy.err_load_download');
 		} finally {
 			downloadLoading = false;
 		}
@@ -179,9 +180,9 @@
 			downloadConfig = saved;
 			downloadLimitInputs = downloadInputsFrom(saved);
 			globalDownloadLimitInput = bytesToMbInput(saved.globalDownloadCapBytes);
-			downloadStatus = 'Saved download limits.';
+			downloadStatus = $_('server_policy.saved_download');
 		} catch (e) {
-			downloadError = (e as Error).message || 'Failed to save download limits';
+			downloadError = (e as Error).message || $_('server_policy.err_save_download');
 		} finally {
 			downloadSaving = false;
 		}
@@ -213,7 +214,7 @@
 			announcementsConfig = cfg.config;
 			announcementsDraft = { ...cfg.config };
 		} catch (e) {
-			announcementsError = (e as Error).message || 'Failed to load announcements policy';
+			announcementsError = (e as Error).message || $_('server_policy.err_load_announce');
 		} finally {
 			announcementsLoading = false;
 		}
@@ -239,9 +240,9 @@
 			);
 			announcementsConfig = saved;
 			announcementsDraft = { ...saved };
-			announcementsStatus = 'Saved community node announcements policy.';
+			announcementsStatus = $_('server_policy.saved_announce');
 		} catch (e) {
-			announcementsError = (e as Error).message || 'Failed to save announcements policy';
+			announcementsError = (e as Error).message || $_('server_policy.err_save_announce');
 		} finally {
 			announcementsSaving = false;
 		}
@@ -268,7 +269,7 @@
 			accessConfig = cfg.config;
 			accessDraft = { mode: cfg.config.mode, allowedUsers: [...(cfg.config.allowedUsers || [])] };
 		} catch (e) {
-			accessError = (e as Error).message || 'Failed to load access policy';
+			accessError = (e as Error).message || $_('server_policy.err_load_access');
 		} finally {
 			accessLoading = false;
 		}
@@ -277,12 +278,12 @@
 	function addAllowedUser() {
 		const id = Number(newAllowedUserId.trim());
 		if (!Number.isFinite(id) || id <= 0) {
-			accessError = 'User ID must be a positive number.';
+			accessError = $_('server_policy.err_user_id');
 			return;
 		}
 		accessError = '';
 		if (accessDraft.allowedUsers.some((u) => u.userId === id)) {
-			accessStatus = 'That user is already in the allow list.';
+			accessStatus = $_('server_policy.already_allowed');
 			return;
 		}
 		accessDraft.allowedUsers = [
@@ -311,9 +312,9 @@
 			const saved = await saveAdminPolicy<CommunityNodeAccessPolicy>(tk, 'community_node_access', next);
 			accessConfig = saved;
 			accessDraft = { mode: saved.mode, allowedUsers: [...(saved.allowedUsers || [])] };
-			accessStatus = 'Saved community node access policy.';
+			accessStatus = $_('server_policy.saved_access');
 		} catch (e) {
-			accessError = (e as Error).message || 'Failed to save access policy';
+			accessError = (e as Error).message || $_('server_policy.err_save_access');
 		} finally {
 			accessSaving = false;
 		}
@@ -329,10 +330,10 @@
 
 <div class="server-policy">
 	<section class="sp-section">
-		<h3 class="sp-heading">Upload Limits</h3>
-		<p class="sp-help">Maximum upload size per role in MB. Leave a field blank for unlimited. Enforced on the backend.</p>
+		<h3 class="sp-heading">{$_('server_policy.upload_title')}</h3>
+		<p class="sp-help">{$_('server_policy.upload_help')}</p>
 		{#if uploadLoading}
-			<p class="sp-muted">Loading…</p>
+			<p class="sp-muted">{$_('common.loading')}</p>
 		{:else}
 			<div class="sp-limit-grid">
 				{#each uploadRoleOrder as tier}
@@ -343,7 +344,7 @@
 							type="number"
 							min="1"
 							step="1"
-							placeholder="Unlimited"
+							placeholder={$_('server_policy.unlimited')}
 							value={uploadLimitInputs[tier]}
 							on:input={(e) => (uploadLimitInputs[tier] = (e.currentTarget as HTMLInputElement).value)}
 							disabled={!canManageAdmin || uploadLoading || uploadSaving}
@@ -351,13 +352,13 @@
 					</label>
 				{/each}
 				<label class="sp-limit-row">
-					<span>Global Cap</span>
+					<span>{$_('server_policy.global_cap')}</span>
 					<input
 						class="sp-input"
 						type="number"
 						min="1"
 						step="1"
-						placeholder="Unlimited"
+						placeholder={$_('server_policy.unlimited')}
 						value={globalUploadLimitInput}
 						on:input={(e) => (globalUploadLimitInput = (e.currentTarget as HTMLInputElement).value)}
 						disabled={!canManageAdmin || uploadLoading || uploadSaving}
@@ -365,7 +366,7 @@
 				</label>
 			</div>
 			<button class="sp-btn" on:click={saveUploadLimits} disabled={!canManageAdmin || uploadLoading || uploadSaving}>
-				{uploadSaving ? 'Saving…' : 'Save Upload Limits'}
+				{uploadSaving ? $_('server_policy.saving') : $_('server_policy.save_upload')}
 			</button>
 		{/if}
 		{#if uploadError}<p class="sp-error">{uploadError}</p>{/if}
@@ -373,10 +374,10 @@
 	</section>
 
 	<section class="sp-section">
-		<h3 class="sp-heading">Download Limits</h3>
-		<p class="sp-help">Maximum download size per role in MB. Leave a field blank for unlimited.</p>
+		<h3 class="sp-heading">{$_('server_policy.download_title')}</h3>
+		<p class="sp-help">{$_('server_policy.download_help')}</p>
 		{#if downloadLoading}
-			<p class="sp-muted">Loading…</p>
+			<p class="sp-muted">{$_('common.loading')}</p>
 		{:else}
 			<div class="sp-limit-grid">
 				{#each uploadRoleOrder as tier}
@@ -387,7 +388,7 @@
 							type="number"
 							min="1"
 							step="1"
-							placeholder="Unlimited"
+							placeholder={$_('server_policy.unlimited')}
 							value={downloadLimitInputs[tier]}
 							on:input={(e) => (downloadLimitInputs[tier] = (e.currentTarget as HTMLInputElement).value)}
 							disabled={!canManageAdmin || downloadLoading || downloadSaving}
@@ -395,13 +396,13 @@
 					</label>
 				{/each}
 				<label class="sp-limit-row">
-					<span>Global Cap</span>
+					<span>{$_('server_policy.global_cap')}</span>
 					<input
 						class="sp-input"
 						type="number"
 						min="1"
 						step="1"
-						placeholder="Unlimited"
+						placeholder={$_('server_policy.unlimited')}
 						value={globalDownloadLimitInput}
 						on:input={(e) => (globalDownloadLimitInput = (e.currentTarget as HTMLInputElement).value)}
 						disabled={!canManageAdmin || downloadLoading || downloadSaving}
@@ -409,7 +410,7 @@
 				</label>
 			</div>
 			<button class="sp-btn" on:click={saveDownloadLimits} disabled={!canManageAdmin || downloadLoading || downloadSaving}>
-				{downloadSaving ? 'Saving…' : 'Save Download Limits'}
+				{downloadSaving ? $_('server_policy.saving') : $_('server_policy.save_download')}
 			</button>
 		{/if}
 		{#if downloadError}<p class="sp-error">{downloadError}</p>{/if}
@@ -417,10 +418,10 @@
 	</section>
 
 	<section class="sp-section">
-		<h3 class="sp-heading">Community Node Announcements</h3>
-		<p class="sp-help">Broadcast server online/offline status to a channel.</p>
+		<h3 class="sp-heading">{$_('server_policy.announce_title')}</h3>
+		<p class="sp-help">{$_('server_policy.announce_help')}</p>
 		{#if announcementsLoading}
-			<p class="sp-muted">Loading…</p>
+			<p class="sp-muted">{$_('common.loading')}</p>
 		{:else}
 			<label class="sp-toggle">
 				<input
@@ -428,20 +429,20 @@
 					bind:checked={announcementsDraft.enabled}
 					disabled={!canManageAdmin || announcementsSaving}
 				/>
-				<span>Enabled</span>
+				<span>{$_('server_policy.enabled')}</span>
 			</label>
 			<label class="sp-field">
-				<span>Channel ID</span>
+				<span>{$_('server_policy.channel_id')}</span>
 				<input
 					class="sp-input"
 					type="text"
-					placeholder="channel id"
+					placeholder={$_('server_policy.channel_id_placeholder')}
 					bind:value={announcementsDraft.channelId}
 					disabled={!canManageAdmin || announcementsSaving}
 				/>
 			</label>
 			<label class="sp-field">
-				<span>Online Template</span>
+				<span>{$_('server_policy.online_template')}</span>
 				<textarea
 					class="sp-input sp-textarea"
 					rows="2"
@@ -450,7 +451,7 @@
 				></textarea>
 			</label>
 			<label class="sp-field">
-				<span>Offline Template</span>
+				<span>{$_('server_policy.offline_template')}</span>
 				<textarea
 					class="sp-input sp-textarea"
 					rows="2"
@@ -459,7 +460,7 @@
 				></textarea>
 			</label>
 			<button class="sp-btn" on:click={saveAnnouncements} disabled={!canManageAdmin || announcementsSaving}>
-				{announcementsSaving ? 'Saving…' : 'Save Announcements Policy'}
+				{announcementsSaving ? $_('server_policy.saving') : $_('server_policy.save_announce')}
 			</button>
 		{/if}
 		{#if announcementsError}<p class="sp-error">{announcementsError}</p>{/if}
@@ -467,23 +468,23 @@
 	</section>
 
 	<section class="sp-section">
-		<h3 class="sp-heading">Community Node Access</h3>
-		<p class="sp-help">Control who may register community nodes.</p>
+		<h3 class="sp-heading">{$_('server_policy.access_title')}</h3>
+		<p class="sp-help">{$_('server_policy.access_help')}</p>
 		{#if accessLoading}
-			<p class="sp-muted">Loading…</p>
+			<p class="sp-muted">{$_('common.loading')}</p>
 		{:else}
 			<label class="sp-field">
-				<span>Mode</span>
+				<span>{$_('server_policy.mode')}</span>
 				<select class="sp-input" bind:value={accessDraft.mode} disabled={!canManageAdmin || accessSaving}>
-					<option value="open">Open</option>
-					<option value="approval_required">Approval required</option>
-					<option value="whitelist_only">Whitelist only</option>
+					<option value="open">{$_('common.open')}</option>
+					<option value="approval_required">{$_('server_policy.mode_approval')}</option>
+					<option value="whitelist_only">{$_('server_policy.mode_whitelist')}</option>
 				</select>
 			</label>
 			<div class="sp-allowed">
-				<span class="sp-sub">Allowed Users</span>
+				<span class="sp-sub">{$_('server_policy.allowed_users')}</span>
 				{#if accessDraft.allowedUsers.length === 0}
-					<p class="sp-muted">No users whitelisted.</p>
+					<p class="sp-muted">{$_('server_policy.no_users')}</p>
 				{:else}
 					<ul class="sp-allowed-list">
 						{#each accessDraft.allowedUsers as user (user.userId)}
@@ -494,7 +495,7 @@
 									on:click={() => removeAllowedUser(user.userId)}
 									disabled={!canManageAdmin || accessSaving}
 								>
-									Remove
+									{$_('server_policy.remove')}
 								</button>
 							</li>
 						{/each}
@@ -505,26 +506,26 @@
 						class="sp-input sp-input-sm"
 						type="number"
 						min="1"
-						placeholder="User ID"
-						aria-label="Allowed user ID"
+						placeholder={$_('server_policy.user_id_placeholder')}
+						aria-label={$_('server_policy.aria_user_id')}
 						bind:value={newAllowedUserId}
 						disabled={!canManageAdmin || accessSaving}
 					/>
 					<input
 						class="sp-input sp-input-sm"
 						type="text"
-						placeholder="Username (optional)"
-						aria-label="Allowed username (optional)"
+						placeholder={$_('server_policy.username_placeholder')}
+						aria-label={$_('server_policy.aria_username')}
 						bind:value={newAllowedUsername}
 						disabled={!canManageAdmin || accessSaving}
 					/>
 					<button class="sp-btn-small" on:click={addAllowedUser} disabled={!canManageAdmin || accessSaving}>
-						Add
+						{$_('server_policy.add')}
 					</button>
 				</div>
 			</div>
 			<button class="sp-btn" on:click={saveAccess} disabled={!canManageAdmin || accessSaving}>
-				{accessSaving ? 'Saving…' : 'Save Access Policy'}
+				{accessSaving ? $_('server_policy.saving') : $_('server_policy.save_access')}
 			</button>
 		{/if}
 		{#if accessError}<p class="sp-error">{accessError}</p>{/if}

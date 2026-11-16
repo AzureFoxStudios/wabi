@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { MediaAlbumItem } from '$lib/api';
 	import { isVideoAlbumItem, resolveAlbumAssetUrl } from './mediaAlbumHelpers';
 
@@ -52,16 +53,16 @@
 						target="_blank"
 						rel="noopener noreferrer"
 					>
-						Open original
+						{$_('album_viewer.open_original')}
 					</a>
 					<button
 						type="button"
 						class="album-viewer-action"
 						on:click={() => albumId && onAddMedia(albumId)}
 					>
-						Add media
+						{$_('chat.compose.add_media')}
 					</button>
-					<button type="button" class="album-viewer-close" on:click={onClose} aria-label="Close album viewer">
+					<button type="button" class="album-viewer-close" on:click={onClose} aria-label={$_('album_viewer.close_aria')}>
 						X
 					</button>
 				</div>
@@ -83,10 +84,10 @@
 					{/if}
 				{/key}
 				{#if items.length > 1}
-					<button type="button" class="album-viewer-nav album-viewer-nav-prev" on:click={() => navigate('prev')} aria-label="Previous album item">
+					<button type="button" class="album-viewer-nav album-viewer-nav-prev" on:click={() => navigate('prev')} aria-label={$_('album_viewer.prev_aria')}>
 						&lt;
 					</button>
-					<button type="button" class="album-viewer-nav album-viewer-nav-next" on:click={() => navigate('next')} aria-label="Next album item">
+					<button type="button" class="album-viewer-nav album-viewer-nav-next" on:click={() => navigate('next')} aria-label={$_('album_viewer.next_aria')}>
 						&gt;
 					</button>
 				{/if}

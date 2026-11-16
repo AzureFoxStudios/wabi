@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { currentUser } from '$lib/socket';
 	import { getApiBase } from '$lib/api/utils';
@@ -31,22 +32,22 @@
 	onDestroy(() => { alive = false; onDirtyChange?.(false); });
 	function active() { return alive && isAdmin && getApiBase() === server && authSessionGeneration(server) === generation; }
 	function token() {
-		if (!active()) throw new Error('Your session changed. Reopen the role editor.');
-		const value = getAuthToken(server); if (!value) throw new Error('Sign in to manage repository roles.'); return value;
+		if (!active()) throw new Error($_('lore_roles.err_session'));
+		const value = getAuthToken(server); if (!value) throw new Error($_('lore_roles.err_sign_in')); return value;
 	}
 	function apply(state: LoreRolesState) { roles = state.roles; policy = state.defaultPolicy; }
 	function choose(id: string, ask = true) {
-		if (busy || (ask && dirty && !window.confirm('Discard unsaved permission changes?'))) return;
+		if (busy || (ask && dirty && !window.confirm($_('lore_roles.confirm_discard_perm')))) return;
 		selected = id; policyDraft = policy;
 		const found = roles.find(item => item.id === id);
 		draft = found ? { name: found.name, description: found.description, capabilities: [...found.capabilities] } : { name: '', description: '', capabilities: [] };
 		error = ''; status = '';
 	}
 	async function load() {
-		if (busy || (dirty && !window.confirm('Discard unsaved changes and reload roles?'))) return;
+		if (busy || (dirty && !window.confirm($_('lore_roles.confirm_reload')))) return;
 		loading = true; error = '';
 		try { const state = await fetchLoreRoles(token()); if (!active()) return; apply(state); choose(roles[0]?.id ?? '@new', false); }
-		catch (e) { if (alive) error = e instanceof Error ? e.message : 'Could not load repository roles.'; }
+		catch (e) { if (alive) error = e instanceof Error ? e.message : $_('lore_roles.err_load'); }
 		finally { if (alive) loading = false; }
 	}
 	onMount(() => { if (isAdmin) void load(); else loading = false; });
@@ -57,7 +58,7 @@
 	async function save() {
 		if (busy || !dirty || locked) return;
 		error = ''; status = '';
-		if (selected !== '@policy' && !draft.name.trim()) { error = 'Give this role a name.'; return; }
+		if (selected !== '@policy' && !draft.name.trim()) { error = $_('lore_roles.err_name'); return; }
 		busy = true;
 		try {
 			const existing = new Set(roles.map(item => item.id));
@@ -69,55 +70,55 @@
 			if (isNew) selected = state.roles.find(item => !existing.has(item.id))?.id ?? '@new';
 			const updated = roles.find(item => item.id === selected);
 			if (updated) draft = { name: updated.name, description: updated.description, capabilities: [...updated.capabilities] };
-			policyDraft = policy; status = 'Changes saved on the server.';
-		} catch (e) { if (alive) error = e instanceof Error ? e.message : 'Save failed. Your draft is still here.'; }
+			policyDraft = policy; status = $_('lore_roles.saved');
+		} catch (e) { if (alive) error = e instanceof Error ? e.message : $_('lore_roles.err_save'); }
 		finally { if (alive) busy = false; }
 	}
 	async function remove() {
 		if (busy || !role || BUILT_IN_LORE_ROLES.includes(role.id)) return;
-		if (!window.confirm(`Delete the “${role.name}” role across this server? Members lose the access provided by it.`)) return;
+		if (!window.confirm($_('lore_roles.confirm_delete', { values: { name: role.name } }))) return;
 		busy = true; error = '';
 		try {
 			const state = await deleteLoreRole(token(), role.id); if (!active()) return;
-			apply(state); busy = false; choose(roles[0]?.id ?? '@new', false); status = 'Role deleted.';
-		} catch (e) { if (alive) error = e instanceof Error ? e.message : 'Could not delete this role.'; }
+			apply(state); busy = false; choose(roles[0]?.id ?? '@new', false); status = $_('lore_roles.role_deleted');
+		} catch (e) { if (alive) error = e instanceof Error ? e.message : $_('lore_roles.err_delete'); }
 		finally { if (alive) busy = false; }
 	}
-	function close() { if (!busy && (!dirty || window.confirm('Discard unsaved permission changes?'))) onClose(); }
+	function close() { if (!busy && (!dirty || window.confirm($_('lore_roles.confirm_discard_perm')))) onClose(); }
 </script>
 
-<section class="roles-admin" aria-label="Repository role editor" aria-busy={busy || loading}>
-	<header class="roles-head"><div><h2>Repository permissions</h2><p>Server-wide roles. Changes apply across projects, not just this repository.</p></div><button onclick={close} disabled={busy} aria-label="Close role editor"><LoreIcon name="close" /></button></header>
-	{#if !isAdmin}<p role="alert">Only server administrators can edit repository roles.</p>
-	{:else if loading}<p role="status">Loading repository roles…</p>
+<section class="roles-admin" aria-label={$_('lore_roles.editor_label')} aria-busy={busy || loading}>
+	<header class="roles-head"><div><h2>{$_('lore_roles.title')}</h2><p>{$_('lore_roles.title_help')}</p></div><button onclick={close} disabled={busy} aria-label={$_('lore_roles.close_aria')}><LoreIcon name="close" /></button></header>
+	{#if !isAdmin}<p role="alert">{$_('lore_roles.only_admin')}</p>
+	{:else if loading}<p role="status">{$_('lore_roles.loading')}</p>
 	{:else}
-		{#if error}<p class="roles-error" role="alert">{error} <button disabled={busy} onclick={() => void load()}>Reload roles</button></p>{/if}
+		{#if error}<p class="roles-error" role="alert">{error} <button disabled={busy} onclick={() => void load()}>{$_('lore_roles.reload')}</button></p>{/if}
 		{#if status}<p class="roles-status" role="status">{status}</p>{/if}
 		<div class="roles-layout">
-			<nav class="roles-list" aria-label="Choose a repository role">
-				<p class="roles-eyebrow">Roles</p>
-				{#each roles as item (item.id)}<button class:chosen={selected === item.id} aria-current={selected === item.id ? 'true' : undefined} disabled={busy} onclick={() => choose(item.id)}><span>{item.name}</span><small>{['owner', 'admin'].includes(item.id) ? 'System role' : `${item.capabilities.length} permissions`}</small></button>{/each}
-				<button class:chosen={isNew} disabled={busy} onclick={() => choose('@new')}>+ New role</button>
-				<hr /><button class:chosen={selected === '@policy'} disabled={busy} onclick={() => choose('@policy')}>Default access<small>Members without a role</small></button>
+			<nav class="roles-list" aria-label={$_('lore_roles.choose_aria')}>
+				<p class="roles-eyebrow">{$_('lore_roles.roles_eyebrow')}</p>
+				{#each roles as item (item.id)}<button class:chosen={selected === item.id} aria-current={selected === item.id ? 'true' : undefined} disabled={busy} onclick={() => choose(item.id)}><span>{item.name}</span><small>{['owner', 'admin'].includes(item.id) ? $_('lore_roles.system_role') : $_('lore_roles.n_permissions', { values: { count: item.capabilities.length } })}</small></button>{/each}
+				<button class:chosen={isNew} disabled={busy} onclick={() => choose('@new')}>+ {$_('lore_roles.new_role')}</button>
+				<hr /><button class:chosen={selected === '@policy'} disabled={busy} onclick={() => choose('@policy')}>{$_('lore_roles.default_access')}<small>{$_('lore_roles.default_access_sub')}</small></button>
 			</nav>
 			<div class="role-editor">
 				<div class="role-fields">
 					{#if selected === '@policy'}
-						<h3>Default repository access</h3><p>Choose what members without a recognized repository role can do.</p>
-						<label class="permission-row"><input type="radio" name="lore-policy" value="view" bind:group={policyDraft} disabled={busy} /><span><strong>View only</strong><small>Members need an assigned role to make changes. Recommended.</small></span></label>
-						<label class="permission-row"><input type="radio" name="lore-policy" value="open" bind:group={policyDraft} disabled={busy} /><span><strong>Open access</strong><small>Grants the server's open-access policy to members without a recognized role.</small></span></label>
+						<h3>{$_('lore_roles.policy_title')}</h3><p>{$_('lore_roles.policy_help')}</p>
+						<label class="permission-row"><input type="radio" name="lore-policy" value="view" bind:group={policyDraft} disabled={busy} /><span><strong>{$_('lore_roles.view_only')}</strong><small>{$_('lore_roles.view_only_desc')}</small></span></label>
+						<label class="permission-row"><input type="radio" name="lore-policy" value="open" bind:group={policyDraft} disabled={busy} /><span><strong>{$_('lore_roles.open_access')}</strong><small>{$_('lore_roles.open_access_desc')}</small></span></label>
 					{:else if locked}
-						<div class="system-role"><LoreIcon name="shield" size={30} /><h3>{role?.name}</h3><p>System role — all repository capabilities.</p><p>The server enforces this access. It cannot be removed here.</p></div>
+						<div class="system-role"><LoreIcon name="shield" size={30} /><h3>{role?.name}</h3><p>{$_('lore_roles.system_role_desc')}</p><p>{$_('lore_roles.system_role_enforced')}</p></div>
 					{:else}
-						<label class="role-field">Role name<input bind:value={draft.name} maxlength="48" disabled={busy} placeholder="For example, Animator" /></label>
-						<label class="role-field">Description<textarea bind:value={draft.description} maxlength="280" rows="2" disabled={busy} placeholder="What does this role do?"></textarea></label>
-						<h3>Permissions</h3>
+						<label class="role-field">{$_('lore_roles.role_name')}<input bind:value={draft.name} maxlength="48" disabled={busy} placeholder={$_('lore_roles.role_name_placeholder')} /></label>
+						<label class="role-field">{$_('lore_roles.description')}<textarea bind:value={draft.description} maxlength="280" rows="2" disabled={busy} placeholder={$_('lore_roles.description_placeholder')}></textarea></label>
+						<h3>{$_('lore_roles.permissions')}</h3>
 						{#each ALL_LORE_CAPABILITIES as capability}<label class="permission-row"><input type="checkbox" checked={draft.capabilities.includes(capability)} disabled={busy} onchange={() => toggle(capability)} /><span><strong>{CAPABILITY_LABELS[capability] ?? capability}</strong><small>{CAPABILITY_DESCRIPTIONS[capability] ?? capability}</small></span></label>{/each}
 					{/if}
 				</div>
-				<footer class="role-footer"><span>{dirty ? 'Unsaved changes' : 'No unsaved changes'}</span><div>
-					{#if role && !BUILT_IN_LORE_ROLES.includes(role.id)}<button class="role-delete" disabled={busy} onclick={() => void remove()}>Delete role…</button>{/if}
-					<button disabled={busy || !dirty} onclick={() => choose(selected)}>Cancel</button><button class="role-save" disabled={busy || !dirty || locked} onclick={() => void save()}>{busy ? 'Saving…' : isNew ? 'Create role' : 'Save changes'}</button>
+				<footer class="role-footer"><span>{dirty ? $_('common.unsaved_changes') : $_('lore_roles.no_unsaved')}</span><div>
+					{#if role && !BUILT_IN_LORE_ROLES.includes(role.id)}<button class="role-delete" disabled={busy} onclick={() => void remove()}>{$_('lore_roles.delete_role')}</button>{/if}
+					<button disabled={busy || !dirty} onclick={() => choose(selected)}>{$_('common.cancel')}</button><button class="role-save" disabled={busy || !dirty || locked} onclick={() => void save()}>{busy ? $_('lore_roles.saving') : isNew ? $_('lore_roles.create_role') : $_('lore_roles.save_changes')}</button>
 				</div></footer>
 			</div>
 		</div>

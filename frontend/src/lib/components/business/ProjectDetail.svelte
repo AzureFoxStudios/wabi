@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * My Planner — one project (design contract §8.6). A crumb row ("Projects › A field guide to
 	 * belonging", with the project-tree toggle), the serif title with the project's colour as a dot
@@ -52,14 +53,14 @@
 	type DetailView = 'overview' | 'board' | 'reports';
 	let detailView: DetailView = 'overview';
 	const detailViews = [
-		{ value: 'overview' as const, label: 'Overview' },
-		{ value: 'board' as const, label: 'Board' },
-		{ value: 'reports' as const, label: 'Reports' }
+		{ value: 'overview' as const, label: $_('project_detail.tab_overview') },
+		{ value: 'board' as const, label: $_('project_detail.tab_board') },
+		{ value: 'reports' as const, label: $_('project_detail.tab_reports') }
 	];
 	let activeTab: 'burndown' | 'gantt' = 'burndown';
 	const chartTabs = [
-		{ value: 'burndown' as const, label: 'Burndown' },
-		{ value: 'gantt' as const, label: 'Gantt' }
+		{ value: 'burndown' as const, label: $_('project_detail.chart_burndown') },
+		{ value: 'gantt' as const, label: $_('project_detail.chart_gantt') }
 	];
 	/** Burn range control: auto (sprint/project) or fixed windows. */
 	let burnRange: 'auto' | '30d' | '90d' = 'auto';
@@ -122,14 +123,14 @@
 	$: latestBurnPoint = burnChartData.length ? burnChartData[burnChartData.length - 1] : null;
 	$: estimated = hasEstimates(ownTasks);
 	$: burnRanges = [
-		{ value: 'auto' as const, label: activeSprint ? activeSprint.name : 'Project dates', title: 'The active sprint, or the project’s dates' },
-		{ value: '30d' as const, label: '30 days' },
-		{ value: '90d' as const, label: '90 days' }
+		{ value: 'auto' as const, label: activeSprint ? activeSprint.name : $_('project_detail.project_dates'), title: $_('project_detail.burn_title') },
+		{ value: '30d' as const, label: $_('project_detail.days_30') },
+		{ value: '90d' as const, label: $_('project_detail.days_90') }
 	];
 
 	function formatHours(value: number | undefined): string {
 		const hours = value || 0;
-		return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
+		return $_('project_detail.hours_suffix', { values: { n: Number.isInteger(hours) ? hours : hours.toFixed(1) } });
 	}
 
 	function generateChartPath(data: BurnChartDataPoint[], key: 'remainingPoints' | 'completedPoints', chartWidth: number): string {
@@ -159,9 +160,9 @@
 
 	// ── ⋯ project actions ──
 	$: moreItems = [
-		{ id: 'edit', label: 'Edit project…', icon: 'pencil', disabled: isReadOnly, hint: isReadOnly ? 'Read-only here' : undefined, onSelect: () => onOpenProjectModal(selectedProject) },
+		{ id: 'edit', label: $_('project_detail.edit_project'), icon: 'pencil', disabled: isReadOnly, hint: isReadOnly ? $_('project_detail.read_only_here') : undefined, onSelect: () => onOpenProjectModal(selectedProject) },
 		{ id: 'sep', type: 'separator', label: '' },
-		{ id: 'delete', label: 'Delete project…', icon: 'trash', danger: true, disabled: isReadOnly, onSelect: () => onDeleteProject(selectedProject) }
+		{ id: 'delete', label: $_('project_detail.delete_project'), icon: 'trash', danger: true, disabled: isReadOnly, onSelect: () => onDeleteProject(selectedProject) }
 	] satisfies MenuEntry[];
 
 	// ── tasks on the Board ──
@@ -172,22 +173,22 @@
 		if (isReadOnly) return;
 		const { patch, undo } = completeTask(todo);
 		updateTodo(todo.id, patch);
-		toast(`Marked “${todo.title}” done`, {
-			action: 'Undo',
+		toast($_('project_detail.marked_done', { values: { title: todo.title } }), {
+			action: $_('project_detail.undo'),
 			onAction: () => updateTodo(todo.id, { status: undo.status, completedAt: undo.completedAt })
 		});
 	}
 </script>
 
 <div class="pj-detail">
-	<nav class="pj-crumb" aria-label="Project">
-		<Tooltip text={treeOpen ? 'Hide the project tree' : 'Show the project tree'}>
-			<button type="button" class="w-ibtn pj-crumb__tree" aria-label="Project tree" aria-pressed={treeOpen} on:click={onToggleTree}>
+	<nav class="pj-crumb" aria-label={$_('places.project')}>
+		<Tooltip text={treeOpen ? $_('project_detail.tree_hide') : $_('project_detail.tree_show')}>
+			<button type="button" class="w-ibtn pj-crumb__tree" aria-label={$_('project_detail.project_tree')} aria-pressed={treeOpen} on:click={onToggleTree}>
 				<Icon name="sidebarLeft" />
 			</button>
 		</Tooltip>
 		<ol class="pj-crumb__list">
-			<li><button type="button" class="pj-crumb__link" on:click={onBack}>Projects</button></li>
+			<li><button type="button" class="pj-crumb__link" on:click={onBack}>{$_('project_detail.projects_crumb')}</button></li>
 			{#each path as parent (parent.id)}
 				<li>
 					<Icon name="chevRight" size={14} class="pj-crumb__sep" />
@@ -209,7 +210,7 @@
 		<p class="pj-facts">
 			<span class="pj-facts__status"><span class="w-dot w-dot--{status.tone}" aria-hidden="true"></span>{status.word}</span>
 			<span>{progressWords({ total: scopeTasks.length, done: doneCount })}</span>
-			{#if selectedProject.targetEndDate}<span>Target {formatDate(selectedProject.targetEndDate)}</span>{/if}
+			{#if selectedProject.targetEndDate}<span>{$_('project_detail.target_date', { values: { date: formatDate(selectedProject.targetEndDate) } })}</span>{/if}
 		</p>
 		{#if selectedProject.description}
 			<p class="pj-desc">{selectedProject.description}</p>
@@ -217,15 +218,15 @@
 	</header>
 
 	<div class="pj-tools">
-		<Segmented label="Project view" options={detailViews} bind:value={detailView} />
+		<Segmented label={$_('project_detail.project_view_label')} options={detailViews} bind:value={detailView} />
 		<div class="pj-tools__end">
-			<button type="button" class="w-btn" on:click={() => onOpenProjectModal(undefined, selectedProject.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only: sub-projects cannot be added here' : undefined}>
-				<Icon name="plus" size={16} />Add sub-project
+			<button type="button" class="w-btn" on:click={() => onOpenProjectModal(undefined, selectedProject.id)} disabled={isReadOnly} title={isReadOnly ? $_('project_detail.read_only_subprojects') : undefined}>
+				<Icon name="plus" size={16} />{$_('project_detail.add_subproject')}
 			</button>
-			<button type="button" class="w-btn" on:click={() => onOpenSprintModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only: sprints cannot be added here' : undefined}>
-				<Icon name="plus" size={16} />New sprint
+			<button type="button" class="w-btn" on:click={() => onOpenSprintModal()} disabled={isReadOnly} title={isReadOnly ? $_('project_detail.read_only_sprints') : undefined}>
+				<Icon name="plus" size={16} />{$_('planner.new_sprint')}
 			</button>
-			<Menu label="Project actions" triggerLabel="Project actions" class="w-ibtn" align="end" heading={selectedProject.name} items={moreItems}>
+			<Menu label={$_('project_detail.project_actions')} triggerLabel={$_('project_detail.project_actions')} class="w-ibtn" align="end" heading={selectedProject.name} items={moreItems}>
 				<Icon name="more" />
 			</Menu>
 		</div>
@@ -248,7 +249,7 @@
 									{#if task.status === 'done'}
 										<Icon name="check" size={16} class="pj-row__done" />
 									{:else}
-										<input type="checkbox" class="w-check" aria-label={`Mark “${task.title}” done`} checked={false} disabled={isReadOnly} on:change={() => complete(task)} />
+										<input type="checkbox" class="w-check" aria-label={$_('project_detail.mark_done_label', { values: { title: task.title } })} checked={false} disabled={isReadOnly} on:change={() => complete(task)} />
 									{/if}
 									<button type="button" class="pj-row__title" on:click={() => (dialogTodo = task)}>{task.title}</button>
 									<span class="pj-row__meta">
@@ -260,8 +261,8 @@
 						</ul>
 					{/if}
 					{#if !isReadOnly}
-						<button type="button" class="pj-lane__add" on:click={() => (newTaskLane = lane.id)} aria-label={`Add task to ${lane.label}`}>
-							<Icon name="plus" size={16} />Add task
+						<button type="button" class="pj-lane__add" on:click={() => (newTaskLane = lane.id)} aria-label={$_('planner.add_task_to', { values: { lane: lane.label } })}>
+							<Icon name="plus" size={16} />{$_('planner.add_task')}
 						</button>
 					{/if}
 				</section>
@@ -270,33 +271,33 @@
 	{:else}
 		<div class="pj-reports">
 			<!-- Sprints: what is running, or a plain sentence; "New sprint" is always in the tools row. -->
-			<section class="pj-sprint" aria-label="Sprint">
+			<section class="pj-sprint" aria-label={$_('project_detail.sprint_region')}>
 				{#if activeSprint}
 					<div class="pj-sprint__line">
-						<span class="w-kicker">{activeSprint.startDate <= Date.now() ? 'Active sprint' : 'Next sprint'}</span>
+						<span class="w-kicker">{activeSprint.startDate <= Date.now() ? $_('project_detail.active_sprint') : $_('project_detail.next_sprint')}</span>
 						<span class="pj-sprint__name">{activeSprint.name}</span>
 						<span class="pj-sprint__range">{formatDate(activeSprint.startDate)} – {formatDate(activeSprint.endDate)}</span>
-						<button type="button" class="w-btn w-btn--sm" on:click={() => onOpenSprintModal(activeSprint ?? undefined)}>Edit sprint</button>
+						<button type="button" class="w-btn w-btn--sm" on:click={() => onOpenSprintModal(activeSprint ?? undefined)}>{$_('project_detail.edit_sprint')}</button>
 					</div>
 					{#if activeSprint.goals?.length}
-						<ul class="pj-goals" aria-label="Sprint goals">
+						<ul class="pj-goals" aria-label={$_('project_detail.sprint_goals')}>
 							{#each activeSprint.goals as goal}<li>{goal}</li>{/each}
 						</ul>
 					{/if}
 				{:else}
 					<p class="pj-sprint__none">
-						{hasSprints ? 'No sprint is running right now.' : 'No sprints yet.'}
-						Use New sprint to plan a stretch of work with an end date.
+						{hasSprints ? $_('project_detail.no_sprint_running') : $_('project_detail.no_sprints_yet')}
+						{$_('project_detail.plan_sprint_hint')}
 					</p>
 				{/if}
 			</section>
 
 			<dl class="pj-figures">
-				<div class="pj-figure"><dt>Tasks</dt><dd>{scopeTasks.length}</dd></div>
-				<div class="pj-figure"><dt>Done</dt><dd>{doneCount}</dd></div>
-				<div class="pj-figure"><dt>In progress</dt><dd>{progressCount}</dd></div>
+				<div class="pj-figure"><dt>{$_('project_detail.figure_tasks')}</dt><dd>{scopeTasks.length}</dd></div>
+				<div class="pj-figure"><dt>{$_('login.wizard.step_done')}</dt><dd>{doneCount}</dd></div>
+				<div class="pj-figure"><dt>{$_('project_detail.figure_in_progress')}</dt><dd>{progressCount}</dd></div>
 				<div class="pj-figure">
-					<dt>Progress</dt>
+					<dt>{$_('project_detail.figure_progress')}</dt>
 					<dd>{progress}%</dd>
 					<span class="pj-bar pj-bar--figure" aria-hidden="true"><span class="pj-bar__fill" style:width={`${progress}%`}></span></span>
 				</div>
@@ -304,15 +305,15 @@
 
 			{#if selectedProject.startDate || selectedProject.targetEndDate}
 				<p class="pj-timeline">
-					{#if selectedProject.startDate}<span>Started {formatDate(selectedProject.startDate)}</span>{/if}
-					{#if selectedProject.targetEndDate}<span>Target {formatDate(selectedProject.targetEndDate)}</span>{/if}
+					{#if selectedProject.startDate}<span>{$_('office.editor.started', { values: { date: formatDate(selectedProject.startDate) } })}</span>{/if}
+					{#if selectedProject.targetEndDate}<span>{$_('project_detail.target_date', { values: { date: formatDate(selectedProject.targetEndDate) } })}</span>{/if}
 				</p>
 			{/if}
 
 			<section class="pj-charts" aria-labelledby="pj-charts-title">
 				<div class="pj-charts__head">
-					<h3 class="pj-charts__title" id="pj-charts-title">Analysis</h3>
-					<Segmented label="Chart" options={chartTabs} bind:value={activeTab} />
+					<h3 class="pj-charts__title" id="pj-charts-title">{$_('project_detail.analysis')}</h3>
+					<Segmented label={$_('project_detail.chart_label')} options={chartTabs} bind:value={activeTab} />
 				</div>
 
 				{#if activeTab === 'burndown'}
@@ -320,24 +321,24 @@
 						<EmptyState
 							icon="clock"
 							as="p"
-							title="Add time estimates to tasks to see a burndown"
-							text="Turn on “Time estimate” in a task of this project; the chart follows the hours left."
+							title={$_('project_detail.add_estimates_title')}
+							text={$_('project_detail.add_estimates_text')}
 							class="pj-empty"
 						/>
 					{:else if burnChartData.length > 1}
 						<div class="pj-burn">
 							<div class="pj-burn__top">
 								<p class="pj-burn__facts">
-									<span>Remaining <strong>{formatHours(latestBurnPoint?.remainingPoints)}</strong></span>
-									<span>Scope <strong>{formatHours(burnChartData[0]?.totalPoints)}</strong></span>
+									<span>{$_('project_detail.remaining')} <strong>{formatHours(latestBurnPoint?.remainingPoints)}</strong></span>
+									<span>{$_('project_detail.scope')} <strong>{formatHours(burnChartData[0]?.totalPoints)}</strong></span>
 								</p>
-								<Segmented label="Burndown range" options={burnRanges} bind:value={burnRange} />
+								<Segmented label={$_('project_detail.burndown_range')} options={burnRanges} bind:value={burnRange} />
 							</div>
 							{#if hasSubprojects}
-								<p class="pj-burn__note">Hours of this project’s own tasks; each sub-project has its own burndown.</p>
+								<p class="pj-burn__note">{$_('project_detail.burn_note')}</p>
 							{/if}
 							<div class="pj-burn__frame" bind:clientWidth={burnFrameWidth}>
-								<svg class="pj-burn__chart" width={chartWidth} height={chartHeight} viewBox="0 0 {chartWidth} {chartHeight}" role="img" aria-label={`Burndown: ${formatHours(latestBurnPoint?.remainingPoints)} remaining of ${formatHours(burnChartData[0]?.totalPoints)}`}>
+								<svg class="pj-burn__chart" width={chartWidth} height={chartHeight} viewBox="0 0 {chartWidth} {chartHeight}" role="img" aria-label={$_('project_detail.burn_aria', { values: { remaining: formatHours(latestBurnPoint?.remainingPoints), scope: formatHours(burnChartData[0]?.totalPoints) } })}>
 									<g class="pj-burn__grid">
 										{#each [0, 0.25, 0.5, 0.75, 1] as ratio}
 											{@const y = chartHeight - chartPadding - ratio * (chartHeight - chartPadding * 2)}
@@ -355,13 +356,13 @@
 								</svg>
 							</div>
 							<ul class="pj-legend">
-								<li><span class="pj-legend__key pj-legend__key--remaining" aria-hidden="true"></span>Remaining hours</li>
-								<li><span class="pj-legend__key pj-legend__key--done" aria-hidden="true"></span>Done hours</li>
-								<li><span class="pj-legend__key pj-legend__key--ideal" aria-hidden="true"></span>Ideal</li>
+								<li><span class="pj-legend__key pj-legend__key--remaining" aria-hidden="true"></span>{$_('project_detail.remaining_hours')}</li>
+								<li><span class="pj-legend__key pj-legend__key--done" aria-hidden="true"></span>{$_('project_detail.done_hours')}</li>
+								<li><span class="pj-legend__key pj-legend__key--ideal" aria-hidden="true"></span>{$_('project_detail.ideal')}</li>
 							</ul>
 						</div>
 					{:else}
-						<EmptyState icon="clock" as="p" title="Not enough days to draw yet" text="The burndown starts once the range covers two days." class="pj-empty" />
+						<EmptyState icon="clock" as="p" title={$_('project_detail.not_enough_days_title')} text={$_('project_detail.not_enough_days_text')} class="pj-empty" />
 					{/if}
 				{:else}
 					<GanttChart selectedProjectId={selectedProject.id} />

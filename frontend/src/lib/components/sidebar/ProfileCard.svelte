@@ -8,6 +8,7 @@
 	edge. In the 60px compact rail only the avatar shows and its menu holds every control.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher, onMount } from 'svelte';
 	import ProfileName from '$lib/components/ProfileName.svelte';
 	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
@@ -61,8 +62,8 @@
 	// R8: never render blank / literal "unknown" for self label in the sidebar foot.
 	$: displayUsername = (() => {
 		const raw = ($currentUser?.username || '').trim();
-		if (!raw) return 'Guest';
-		if (raw.toLowerCase() === 'unknown' || raw.toLowerCase() === 'unknown user') return 'Guest';
+		if (!raw) return $_('login.tabs.guest');
+		if (raw.toLowerCase() === 'unknown' || raw.toLowerCase() === 'unknown user') return $_('login.tabs.guest');
 		return raw;
 	})();
 	$: displayHandle = (() => {
@@ -81,12 +82,12 @@
 	$: activeCustomStatus = getActiveCustomStatusPreset($customStatusPresetsStore);
 
 	const PRESENCE_OPTIONS: Array<{ value: PresenceState; label: string }> = [
-		{ value: 'active', label: 'Online' },
-		{ value: 'away', label: 'Away' },
-		{ value: 'busy', label: 'Do not disturb' },
-		{ value: 'invisible', label: 'Invisible' }
+		{ value: 'active', label: $_('user.status.online') },
+		{ value: 'away', label: $_('user.status.away') },
+		{ value: 'busy', label: $_('user.status.busy') },
+		{ value: 'invisible', label: $_('user.status.invisible') }
 	];
-	$: presenceLabel = PRESENCE_OPTIONS.find((option) => option.value === selectedPresence)?.label ?? 'Online';
+	$: presenceLabel = PRESENCE_OPTIONS.find((option) => option.value === selectedPresence)?.label ?? $_('user.status.online');
 
 	function changePresence(presence: PresenceState): void {
 		selectedPresence = presence;
@@ -103,17 +104,17 @@
 	function overflowSoundItems(overflow: Set<string>, muted: boolean, deafened: boolean): MenuEntry[] {
 		const rows: MenuEntry[] = [];
 		if (overflow.has('mute')) {
-			rows.push({ id: 'foot-mute', label: 'Mute microphone', icon: 'micOff', role: 'menuitemcheckbox', checked: muted, onSelect: toggleMute });
+			rows.push({ id: 'foot-mute', label: $_('profile_card.mute_mic'), icon: 'micOff', role: 'menuitemcheckbox', checked: muted, onSelect: toggleMute });
 		}
 		if (overflow.has('deafen')) {
-			rows.push({ id: 'foot-deafen', label: 'Deafen', icon: 'headphonesOff', role: 'menuitemcheckbox', checked: deafened, onSelect: () => toggleDeafen() });
+			rows.push({ id: 'foot-deafen', label: $_('user.popout.deafen'), icon: 'headphonesOff', role: 'menuitemcheckbox', checked: deafened, onSelect: () => toggleDeafen() });
 		}
 		return rows.length > 0 ? [{ id: 'sound-divider', type: 'separator' }, ...rows] : [];
 	}
 
 	let presenceItems: MenuEntry[] = [];
 	$: presenceItems = [
-		{ id: 'presence-kicker', type: 'kicker', label: 'Presence' },
+		{ id: 'presence-kicker', type: 'kicker', label: $_('shell.you.presence') },
 		...PRESENCE_OPTIONS.map(
 			(option): MenuEntry => ({
 				id: `presence-${option.value}`,
@@ -127,16 +128,16 @@
 		{ id: 'presence-divider', type: 'separator' },
 		{
 			id: 'view-profile',
-			label: 'View profile',
+			label: $_('profile_card.view_profile'),
 			icon: 'user',
 			onSelect: () => openProfilePopout(avatarWrap)
 		},
 		// Settings is always here, whether or not the foot has room for its key.
-		{ id: 'open-settings', label: 'Settings', icon: 'gear', onSelect: () => { dispatch('openSettings'); } },
+		{ id: 'open-settings', label: $_('user.popout.settings'), icon: 'gear', onSelect: () => { dispatch('openSettings'); } },
 		...(overflowControls.has('end')
 			? ([
 					{ id: 'end-divider', type: 'separator' },
-					{ id: 'foot-end', label: 'End call', icon: 'phoneOff', danger: true, onSelect: () => endCall(getSocket()) }
+					{ id: 'foot-end', label: $_('profile_card.end_call'), icon: 'phoneOff', danger: true, onSelect: () => endCall(getSocket()) }
 				] satisfies MenuEntry[])
 			: [])
 	] as MenuEntry[];
@@ -146,8 +147,8 @@
 	<div class="profile-card sb-foot" class:compact bind:clientWidth={footWidth}>
 		<span class="sb-foot-avatar-wrap" bind:this={avatarWrap}><Menu
 			class="sb-foot-avatar"
-			label="Presence"
-			triggerLabel={`${displayUsername}, ${presenceLabel}. Change presence`}
+			label={$_('shell.you.presence')}
+			triggerLabel={$_('profile_card.trigger', { values: { name: displayUsername, presence: presenceLabel } })}
 			heading={displayUsername}
 			items={presenceItems}
 			bind:open={presenceMenuOpen}
@@ -174,7 +175,7 @@
 			<button
 				type="button"
 				class="sb-foot-me"
-				aria-label={`Your profile: ${displayUsername}, @${displayHandle}`}
+				aria-label={$_('profile_card.your_profile', { values: { name: displayUsername, handle: displayHandle } })}
 				aria-haspopup="dialog"
 				on:click={(event) => openProfilePopout(event.currentTarget)}
 			>
@@ -192,9 +193,9 @@
 					<button
 						type="button"
 						class="w-ibtn sb-foot-toggle"
-						aria-label="Mute microphone"
+						aria-label={$_('profile_card.mute_mic')}
 						aria-pressed={$callMuted}
-						title="Mute microphone"
+						title={$_('profile_card.mute_mic')}
 						on:click={toggleMute}
 					><Icon name={$callMuted ? 'micOff' : 'mic'} size={18} /></button>
 				{/if}
@@ -202,9 +203,9 @@
 					<button
 						type="button"
 						class="w-ibtn sb-foot-toggle"
-						aria-label="Deafen"
+						aria-label={$_('user.popout.deafen')}
 						aria-pressed={$callDeafened}
-						title="Deafen"
+						title={$_('user.popout.deafen')}
 						on:click={() => toggleDeafen()}
 					><Icon name={$callDeafened ? 'headphonesOff' : 'headphones'} size={18} /></button>
 				{/if}
@@ -212,8 +213,8 @@
 					<button
 						type="button"
 						class="w-ibtn sb-foot-end"
-						aria-label="End call"
-						title="End call"
+						aria-label={$_('profile_card.end_call')}
+						title={$_('profile_card.end_call')}
 						on:click={() => endCall(getSocket())}
 					><Icon name="phoneOff" size={18} /></button>
 				{/if}
@@ -221,8 +222,8 @@
 					<button
 						type="button"
 						class="w-ibtn"
-						aria-label="Settings"
-						title="Settings"
+						aria-label={$_('user.popout.settings')}
+						title={$_('user.popout.settings')}
 						on:click={() => dispatch('openSettings')}
 					><Icon name="gear" size={18} /></button>
 				{/if}
