@@ -2,6 +2,8 @@
  * Grid navigation the way Excel does it, as pure functions over row and column indexes.
  * The grid supplies "is this cell filled?" and the sheet's size; nothing here touches the DOM.
  */
+import { columnIndex } from './formula';
+
 export type Direction = 'up' | 'down' | 'left' | 'right';
 export interface Pos { r: number; c: number }
 
@@ -69,4 +71,20 @@ export function pageTarget(from: Pos, direction: 1 | -1, pageRows: number, rows:
 export function commitDirection(key: 'Enter' | 'Tab', shift: boolean): Direction {
 	if (key === 'Enter') return shift ? 'up' : 'down';
 	return shift ? 'left' : 'right';
+}
+
+export interface Address { from: Pos; to: Pos | null }
+
+/**
+ * What the name box accepts: "B7", "$B$7", or a range "B2:D9", inside a sheet of the given size.
+ * Returns zero-based positions, or null when the text is not an address on this sheet.
+ */
+export function parseAddress(text: string, rows: number, columns: number): Address | null {
+	const match = /^\s*\$?([A-Za-z]{1,4})\$?([1-9]\d*)(?:\s*:\s*\$?([A-Za-z]{1,4})\$?([1-9]\d*))?\s*$/.exec(text);
+	if (!match) return null;
+	const at = (letters: string, digits: string): Pos => ({ r: Number(digits) - 1, c: columnIndex(letters) });
+	const inside = (pos: Pos) => pos.r >= 0 && pos.c >= 0 && pos.r < rows && pos.c < columns;
+	const from = at(match[1], match[2]);
+	const to = match[3] ? at(match[3], match[4]) : null;
+	return inside(from) && (!to || inside(to)) ? { from, to } : null;
 }

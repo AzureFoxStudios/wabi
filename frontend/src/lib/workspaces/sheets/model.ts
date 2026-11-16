@@ -88,7 +88,7 @@ export function reorderRows(data:Y.Map<unknown>,sheetId:string,ids:string[],orig
     if(ids.length!==list.length||new Set(ids).size!==ids.length||list.some(row=>!ids.includes(row.id)))throw new Error('Rows changed. Refresh the view before reordering.');
     const rows=map<Axis>(sheet,'rows'),record=structure(sheet,'reorder');data.doc!.transact(()=>{ids.forEach((id,position)=>rows.set(id,{...rows.get(id)!,position}));record();},origin);
 }
-export function columnWidth(sheet:YSheet,id:string):number {const width=(map<Axis&{width?:number}>(sheet,'columns').get(id))?.width;return typeof width==='number'&&Number.isFinite(width)?Math.max(60,Math.min(600,width)):140;}
+export function columnWidth(sheet:YSheet,id:string):number {const width=(map<Axis&{width?:number}>(sheet,'columns').get(id))?.width;return typeof width==='number'&&Number.isFinite(width)?Math.max(60,Math.min(600,width)):100;}
 export function setColumnWidth(data:Y.Map<unknown>,sheetId:string,id:string,width:number,origin:unknown){
     const sheet=activeSheet(data,sheetId),columns=map<Axis&{width?:number}>(sheet,'columns'),before=columns.get(id);
     if(!before||before.removed||!Number.isInteger(width)||width<60||width>600)throw new Error('Column width must be 60–600 pixels.');data.doc!.transact(()=>columns.set(id,{...before,width}),origin);
