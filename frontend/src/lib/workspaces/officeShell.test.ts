@@ -69,7 +69,8 @@ describe('keeping a copy', () => {
 		expect(shell).toContain('exports.find(');
 		expect(shell).toContain('Download a copy (${headline.label})');
 		expect(shell).toContain('<svelte:window onkeydown={onOfficeKey} />');
-		expect(shell).toContain('Saved in this browser on this device only.');
+		expect(shell).toContain('savedPrivatelyMessage(persistence)');
+		expect(shell).toContain('await requestPersistence()');
 	});
 
 	test('Ctrl+/ and the options menu open a shortcuts sheet built from the tool\'s own list', () => {

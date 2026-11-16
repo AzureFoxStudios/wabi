@@ -21,6 +21,7 @@
 	import { compactStatus } from './officeStatus';
 	import { officeKeyAction, keyTarget } from './officeKeys';
 	import { shortcutsFor } from './officeShortcuts';
+	import { requestPersistence, savedPrivatelyMessage } from './persistentStorage';
 	import { clearStageHeader, setStageHeader, type StageHeaderAction } from '$lib/stageHeader';
 	import { confirmAction } from '$lib/confirm';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -119,7 +120,9 @@
 				await session.sync();
 				if (alive) note('Synced to this server.');
 			} else {
-				note('Saved in this browser on this device only. Use ⋯ > Backup (.wabi.json) to keep a copy elsewhere.');
+				// Saving is a deliberate action, so it is the moment to ask the browser to keep the file, and to say how that went.
+				const persistence = await requestPersistence();
+				if (alive) note(savedPrivatelyMessage(persistence));
 			}
 		});
 	}
