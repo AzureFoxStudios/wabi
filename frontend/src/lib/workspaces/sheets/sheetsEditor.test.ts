@@ -39,8 +39,20 @@ describe('one toolbar, one formula bar, the grid owns the rest', () => {
 
 	test('the formula bar keeps its label and adds the name box and fx', () => {
 		expect(markup).toContain('aria-label="Cell value or formula"');
-		expect(markup).toContain('<output class="sheet-formula__name" aria-label="Selected cell">');
+		// The name box shows the selected cell and is also where you type an address to go there.
+		expect(markup).toContain('<input class="sheet-formula__name" aria-label="Name box"');
+		expect(markup).toContain('onkeydown={nameKeydown}');
 		expect(markup).toContain('<span class="sheet-formula__fx" aria-hidden="true">fx</span>');
+	});
+
+	test('columns can be resized by dragging their edge, and the cell menu opens from mouse and keyboard', () => {
+		expect(markup).toContain('class="col-resize"');
+		expect(markup).toContain('onpointerdown={event=>resizeStart(event,column.id)}');
+		expect(markup).toContain('autoFit(column.id)');
+		expect(markup).toContain('oncontextmenu={event=>openCellMenu(event,row.id,column.id)}');
+		expect(grid).toContain("key==='ContextMenu'||(event.shiftKey&&key==='F10')");
+		// The fixed-layout table must be given its width, or the browser squeezes the columns to the window.
+		expect(markup).toContain('style:width={`${tableWidth}px`}');
 	});
 
 	test('no developer legend; a cached result is named where it is read', () => {
