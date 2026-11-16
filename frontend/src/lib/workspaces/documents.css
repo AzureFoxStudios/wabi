@@ -179,3 +179,152 @@
 		margin: 22px 0 24px;
 	}
 }
+
+/* ---------- print (Ctrl P): the title, the meta line and the text, dark on white ---------- */
+@media print {
+	@page {
+		margin: 20mm 18mm;
+	}
+	/* Everything on the way from the page to the sheet becomes a plain, unclipped block, and
+	   everything beside that path (app chrome, the contents aside, toasts, menus) goes. */
+	:has(.document-sheet) {
+		position: static !important;
+		display: block !important;
+		width: auto !important;
+		max-width: none !important;
+		height: auto !important;
+		min-height: 0 !important;
+		max-height: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		transform: none !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		background: white !important;
+		container-type: normal !important;
+	}
+	:has(.document-sheet) > :not(:has(.document-sheet)):not(.document-sheet) {
+		display: none !important;
+	}
+	.document-sheet {
+		display: block !important;
+		width: auto !important;
+		max-width: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		color: black;
+		background: white;
+		/* Fixed light roles, whatever the theme: the page prints dark on white. */
+		--w-text: black;
+		--w-mute: color-mix(in srgb, black 72%, white);
+		--w-faint: color-mix(in srgb, black 60%, white);
+		--w-line: color-mix(in srgb, black 28%, white);
+		--w-bg: white;
+		--w-accent: navy;
+	}
+	.document-sheet,
+	.document-sheet * {
+		color-scheme: light;
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
+	}
+	.document-title {
+		color: black;
+		font-size: 26pt;
+		line-height: 1.2;
+		break-after: avoid;
+	}
+	.document-title__input {
+		overflow: visible;
+	}
+	.document-meta {
+		margin-top: 6pt;
+		color: color-mix(in srgb, black 72%, white);
+		font-size: 10pt;
+	}
+	.document-rule {
+		margin: 12pt 0 14pt;
+		border-top-color: color-mix(in srgb, black 40%, white);
+	}
+	/* Chrome inside the sheet: block handle, selection bubble, Insert, find panel, hover boxes. */
+	.document-sheet .cm-w-find,
+	.document-sheet .cm-panels,
+	.document-sheet [role='search'],
+	.document-sheet .cm-cursor,
+	.document-sheet .cm-cursorLayer,
+	.document-sheet .cm-selectionLayer,
+	.document-sheet .cm-placeholder,
+	.document-sheet .cm-gutters,
+	.document-sheet .writing-handle,
+	.document-sheet .writing-bar,
+	.document-sheet .writing-bubble,
+	.document-sheet [role='toolbar'],
+	.document-sheet [role='menu'],
+	.document-sheet [role='dialog'] {
+		display: none !important;
+	}
+	.document-sheet .cm-editor,
+	.document-sheet .cm-scroller,
+	.document-sheet .cm-content,
+	.document-sheet .document-editor,
+	.document-sheet .writing {
+		display: block !important;
+		height: auto !important;
+		min-height: 0 !important;
+		max-height: none !important;
+		overflow: visible !important;
+		margin-left: 0 !important;
+		padding-left: 0 !important;
+		padding-right: 0 !important;
+		padding-bottom: 0 !important;
+		background: white !important;
+		color: black !important;
+	}
+	.document-sheet .cm-line {
+		orphans: 3;
+		widows: 3;
+		color: black;
+	}
+	.document-sheet .cm-w-heading {
+		break-after: avoid;
+		break-inside: avoid;
+		color: black;
+	}
+	.document-sheet .cm-w-code,
+	.document-sheet .cm-w-quote,
+	.document-sheet .cm-w-task {
+		break-inside: avoid;
+	}
+	.document-sheet .cm-w-hang {
+		display: none;
+	}
+	.document-sheet .cm-w-marker {
+		color: color-mix(in srgb, black 60%, white);
+	}
+	.document-sheet .cm-w-link {
+		color: navy;
+		text-decoration: underline;
+	}
+	.document-sheet .document-read {
+		padding-bottom: 0;
+		color: black;
+	}
+	.document-sheet .document-read h1,
+	.document-sheet .document-read h2,
+	.document-sheet .document-read h3,
+	.document-sheet .document-read h4 {
+		break-after: avoid;
+		color: black;
+	}
+	.document-sheet .document-read pre,
+	.document-sheet .document-read blockquote,
+	.document-sheet .document-read tr,
+	.document-sheet .document-read img {
+		break-inside: avoid;
+	}
+	.document-sheet .document-read table {
+		display: table;
+		overflow: visible;
+	}
+}

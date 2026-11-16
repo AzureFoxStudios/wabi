@@ -20,6 +20,8 @@
  *   stays one key away in the sidebar), Ctrl Alt 1-3 / 0 and Ctrl Shift N for headings and
  *   Normal, Ctrl Shift L / 8 / 7 for bullets and numbers (writingBlocks.ts), Ctrl Enter to tick
  *   the checklist item on the caret's line, and Alt F10 to reach the bubble from the keyboard.
+ * - Enter continues lists, Tab / Shift-Tab nest them (writingLists.ts); `writingPaste` turns pasted
+ *   HTML into Markdown (writingPaste.ts).
  * - `writingFind` (writingFind.ts): Ctrl F Find, Ctrl H Find and replace, F3 / Enter to step.
  * - `runEdit`, `formatSelection`, `linkAtSelection`, `insertAtSelection`, `insertText`: dispatch
  *   the pure edits from writingMarkdown.ts as user input, so the host's update listener (and
@@ -29,6 +31,8 @@ import { ChangeSet, Prec, type EditorState, type Extension } from '@codemirror/s
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, placeholder as placeholderText, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { setHeading, toggleList } from './writingBlocks';
 import { writingFind } from './writingFind';
+import { continueMarkup, indentListLess, indentListMore } from './writingLists';
+import { writingPaste } from './writingPaste';
 import {
 	activeMarks,
 	insertInline,
@@ -508,6 +512,9 @@ export function writingKeymap(onBubbleKey?: () => boolean): Extension {
 			{ key: 'Mod-Shift-8', run: (view) => toggleList(view, 'bullet') },
 			{ key: 'Mod-Shift-7', run: (view) => toggleList(view, 'number') },
 			{ key: 'Mod-Enter', run: (view) => toggleTask(view) },
+			{ key: 'Enter', run: (view) => continueMarkup(view) },
+			{ key: 'Tab', run: (view) => indentListMore(view) },
+			{ key: 'Shift-Tab', run: (view) => indentListLess(view) },
 			{ key: 'Alt-F10', run: () => onBubbleKey?.() ?? false }
 		])
 	);
@@ -533,6 +540,7 @@ export function writingSurface(options: { placeholder?: string; onBubbleKey?: ()
 		markdownLineStyles,
 		writingKeymap(options.onBubbleKey),
 		writingFind(),
+		writingPaste(),
 		options.placeholder ? placeholderText(options.placeholder) : [],
 		options.onSlash ? slashTrigger(options.onSlash) : []
 	];
