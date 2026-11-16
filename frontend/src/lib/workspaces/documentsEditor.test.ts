@@ -65,6 +65,15 @@ describe('the page', () => {
 		expect(page).toContain('if (!event.currentTarget.value.trim()) event.currentTarget.value = title;');
 	});
 
+	test('Word files open and export: .docx is accepted, read on this device, and Word is the first export', () => {
+		expect(page).toContain('.docx,.wabi.json"');
+		expect(page).toContain("await import('./docx/docxImport')");
+		expect(page).toContain('imported.title || file.name.replace(');
+		expect(page).toContain("{ name: file.name, type: file.type, blob: file }"); // the original stays with the document
+		expect(page).toContain("if (format === 'markdown') entries.push({ id: 'export-docx', label: 'Word (.docx)'");
+		expect(page).toContain("await import('./docx/docxExport')");
+	});
+
 	test('errors are a notice at the top of the page, raw errors are logged, not shown', () => {
 		expect(page).toContain('{@render failure()}');
 		expect(page).toContain('error={errorDetail}');
