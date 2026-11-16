@@ -11,6 +11,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl } from '$lib/serverUrl';
 	import { isCurrentTailcatProxy, restoreTailcatConnection } from '$lib/tailcatConnection';
 	import { isTauriRuntime } from '$lib/tauri-platform';
+	import { describeConnectionFailure, isNetworkFailure } from '$lib/connectionDiagnostics';
 	import { brandName, selectBrandConfig } from '$lib/branding';
 	import { currentSavedServer } from '$lib/savedServerStore';
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
@@ -37,6 +38,12 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let error = '';
 	/** Where the notice shows: under the form that failed, or under the guest join. */
 	let errorAt: 'form' | 'guest' = 'form';
+	// Filled in after a request never reached the server, to say why.
+	let connectionDetails = '';
+	function explainConnectionFailure(err: unknown) {
+		if (!isNetworkFailure(err)) return;
+		void describeConnectionFailure(getServerUrl()).then((details) => { connectionDetails = details; });
+	}
 	let loading = false;
 	let showConnectionPrompt = true;
 	/** The server address to go back to when "Change server" is cancelled (null: nothing to go back to). */
@@ -221,7 +228,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	}
 
 	async function handleLogin() {
-		error = ''; errorAt = 'form';
+		error = ''; errorAt = 'form'; connectionDetails = '';
 		if (!username || !password) { error = t('login.errors.username_password_required'); return; }
 		loading = true;
 		try {
@@ -232,7 +239,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
 			localStorage.setItem('wabi_has_logged_in', 'true');
 			dispatch('login', { username: result.user.username, token: result.accessToken, authMethod: 'registered', mustChangePassword: result.mustChangePassword === true });
-		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.login_failed'); }
+		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.login_failed'); explainConnectionFailure(err); }
 		finally { loading = false; }
 	}
 
@@ -475,6 +482,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 							{#if error && errorAt === 'form'}
 								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
 							{/if}
+							{#if connectionDetails && error && errorAt === 'form'}
+								<details class="connection-details"><summary>Connection details</summary><pre>{connectionDetails}</pre></details>
+							{/if}
 							<p class="auth-alt-prompt">
 								{#if authPolicy.allowRegister}
 									{$_('login.auth.create_account_prompt')} <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>{$_('login.auth.create_account_link')}</button>
@@ -510,6 +520,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 							</form>
 							{#if error && errorAt === 'form'}
 								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
+							{/if}
+							{#if connectionDetails && error && errorAt === 'form'}
+								<details class="connection-details"><summary>Connection details</summary><pre>{connectionDetails}</pre></details>
 							{/if}
 							<p class="auth-alt-prompt">
 								Already have an account? <button type="button" class="auth-link" on:click={() => switchAuthMode('login')}>{$_('login.tabs.login')}</button>
