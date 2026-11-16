@@ -8,6 +8,7 @@
 	import { captureGroupAccess } from '$lib/groupAccess';
 	import { get } from 'svelte/store';
 	import { channelMessages, channels, currentChannel, currentUser, editMessage, emojis, getDMOtherUser, sendMessage, sendTyping, userLookup, users, type Emoji, type Message, type MessageEntity, type User } from '$lib/socket';
+	import { isOwnMessage } from '$lib/userLookupStore';
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -333,7 +334,8 @@ import type { MediaAlbum } from '$lib/api';
 	export function handleCommandPaletteKeyDown(key: string): boolean { return commandPalette?.handleKeyDown(key) || false; }
 	export async function receiveFiles(files: File[], mode: 'replace' | 'append'): Promise<void> { const prepared = await prepareIncomingFiles(files); if (operationCurrent() && prepared.length > 0) applySelectedFiles(prepared, mode); }
 	export function insertQuickMention(username: string): void { const token = `@${username}`; const needsSpace = messageInput.length > 0 && !/\s$/.test(messageInput); const next = needsSpace ? `${messageInput} ${token} ` : `${token} `; composerEntities = reconcileMessageEntities(messageInput, next, composerEntities); messageInput = next; previousComposerInput = messageInput; showMentionSuggestions = false; textareaElement?.focus(); }
-	export function startEditingLastMessage(): void { const messages = $channelMessages[effectiveChannel] || []; const userMessages = messages.filter((m: Message) => m.userId === $currentUser?.id); if (userMessages.length > 0) { const last = userMessages[userMessages.length - 1]; editingMessage = last; messageInput = last.text; composerEntities = []; previousComposerInput = messageInput; } }
+	export function startEditingLastMessage(): void { const messages = $channelMessages[effectiveChannel] || []; // A message carries the author's socket id or "user-<dbId>" (history loaded after a channel switch uses the latter), so use the same test the message list does.
+		const userMessages = messages.filter((m: Message) => isOwnMessage(m, $currentUser)); if (userMessages.length > 0) { const last = userMessages[userMessages.length - 1]; editingMessage = last; messageInput = last.text; composerEntities = []; previousComposerInput = messageInput; } }
 	function syncComposerEntities() { composerEntities = reconcileMessageEntities(previousComposerInput, messageInput, composerEntities); previousComposerInput = messageInput; }
 	function resetComposerEntityState() { composerEntities = []; previousComposerInput = messageInput; }
 	function resolveOutgoingPlaceEntities(text: string): MessageEntity[] { if (!composerEntities.length || !text) return []; return rebaseMessageEntitiesForText(text, composerEntities); }
@@ -719,7 +721,10 @@ import type { MediaAlbum } from '$lib/api';
 	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'weba' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { showToast('Audio too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
 	function ensureEmojiPickerLoaded(): void { if (EmojiPickerComponent || emojiPickerLoadPromise) return; emojiPickerLoadFailed = false; emojiPickerLoadPromise = import('../EmojiPicker.svelte').then(mod => { EmojiPickerComponent = mod.default; }).catch(err => { console.error('Failed to load EmojiPicker:', err); emojiPickerLoadFailed = true; }).finally(() => { emojiPickerLoadPromise = null; }); }
 	// The attach menu (ui/Menu) closes itself on an outside click, Esc or Tab.
-	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showEmojiPicker = false; showMentionSuggestions = false; }
+	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showEmojiPicker = false; showMentionSuggestions = false;
+		// The inline :emoji suggestions and the /command list also close on a click anywhere except the text field or their own list; they used to stay open, with their buttons, after clicking off.
+		const inField = !!target && (textareaElement?.contains(target) || !!(target as Element).closest?.('.emoji-suggestions, .command-palette'));
+		if (!inField) { showEmojiSuggestions = false; showCommandPalette = false; } }
 	onMount(() => {
 		// An already-issued handoff may settle between construction and mount.
 		const latestDraft = draftOwner.read();
