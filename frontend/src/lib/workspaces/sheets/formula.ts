@@ -52,7 +52,15 @@ export function parseFormula(input:string,book:WorkbookSnapshot,sheetId:string):
 }
 export function renderFormula(expr:Expr,book:WorkbookSnapshot,currentSheet:string):string{
     function ref(r:Ref){const sheet=book.sheets.find(s=>s.id===r.sheet),row=sheet?.rows.findIndex(x=>x.id===r.row)??-1,column=sheet?.columns.findIndex(x=>x.id===r.column)??-1;if(!sheet||row<0||column<0)return '#REF!';return(r.sheet===currentSheet?'':`'${sheet.name.replaceAll("'","''")}'!`)+(r.absoluteColumn?'$':'')+columnName(column)+(r.absoluteRow?'$':'')+(row+1);}
-    function print(e:Expr):string{switch(e.type){case'value':return typeof e.value==='string'?`"${e.value.replaceAll('"','""')}"`:e.value===null?'0':String(e.value).toUpperCase();case'ref':return ref(e);case'range':return `${ref(e.from)}:${ref(e.to)}`;case'unary':return `${e.op}(${print(e.value)})`;case'binary':return `(${print(e.left)}${e.op}${print(e.right)})`;case'call':return `${e.name}(${e.args.map(print).join(',')})`;}}
+    // Parentheses only where the parser would otherwise read the formula differently. These mirror its
+    // precedence and associativity: every operator is left-associative except ^, and a unary sign binds
+    // like ^ (its operand is parsed at level 5). So "=A1*10" comes back as typed, not "=(A1*10)".
+    const PRECEDENCE:Record<string,number>={'=':1,'<>':1,'<':1,'>':1,'<=':1,'>=':1,'&':2,'+':3,'-':3,'*':4,'/':4,'^':5};
+    const level=(e:Expr)=>e.type==='binary'?PRECEDENCE[e.op]:e.type==='unary'?5:99;
+    function print(e:Expr):string{switch(e.type){case'value':return typeof e.value==='string'?`"${e.value.replaceAll('"','""')}"`:e.value===null?'0':String(e.value).toUpperCase();case'ref':return ref(e);case'range':return `${ref(e.from)}:${ref(e.to)}`;
+        case'unary':{const operand=print(e.value);return e.op+(level(e.value)<5?`(${operand})`:operand);}
+        case'binary':{const p=PRECEDENCE[e.op],left=print(e.left),right=print(e.right),rightAssociative=e.op==='^';return(level(e.left)<(rightAssociative?p+1:p)?`(${left})`:left)+e.op+(level(e.right)<(rightAssociative?p:p+1)?`(${right})`:right);}
+        case'call':return `${e.name}(${e.args.map(print).join(',')})`;}}
     return '='+print(expr);
 }
 export function shiftFormula(expr:Expr,book:WorkbookSnapshot,dr:number,dc:number):Expr{
