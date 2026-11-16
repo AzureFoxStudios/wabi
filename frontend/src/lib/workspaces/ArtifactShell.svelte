@@ -19,6 +19,7 @@
 	import { describeAnchor, linkAnchor } from './anchors';
 	import { setWorkspaceAddonEnabled } from './addonState';
 	import { compactStatus } from './officeStatus';
+	import { officeKeyAction, keyTarget } from './officeKeys';
 	import { clearStageHeader, setStageHeader, type StageHeaderAction } from '$lib/stageHeader';
 	import { confirmAction } from '$lib/confirm';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -99,6 +100,34 @@
 	/** A passing confirmation: a toast, never a band that moves the editor. */
 	function note(message: string) {
 		toast(message, { tone: 'info', timeout: 7000 });
+	}
+
+	/**
+	 * Ctrl/Cmd+S, Z and Y while focus is inside this editor (rules in officeKeys.ts). Save writes the
+	 * file where it lives and says where that is, so the key never opens the browser's own Save dialog.
+	 */
+	let root = $state<HTMLElement | null>(null);
+	async function saveNow() {
+		await run(async () => {
+			await session.flush();
+			if (!alive) return;
+			if (session.record.meta) {
+				await session.sync();
+				if (alive) note('Synced to this server.');
+			} else {
+				note('Saved in this browser on this device only. Use ⋯ > Backup (.wabi.json) to keep a copy elsewhere.');
+			}
+		});
+	}
+	function onOfficeKey(event: KeyboardEvent) {
+		if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return;
+		const action = officeKeyAction(event, keyTarget(event.target));
+		if (!action) return;
+		event.preventDefault();
+		if (action === 'save') { void saveNow(); return; }
+		if (!editable || busy) return;
+		if (action === 'undo') session.undo.undo();
+		else session.undo.redo();
 	}
 
 	function showSharing() {
@@ -322,7 +351,7 @@
 				ontitle: (value: string) => editText(session.doc.getText('title'), value, session.origin),
 				onlibrary: () => void run(async () => { await session.flush(); if (alive) await onlibrary(); }),
 				shared: meta ? { role: meta.role, mode: meta.mode } : null,
-				status: compactStatus($sessionState.status, statusAt),
+				status: compactStatus($sessionState.status, statusAt, meta ? 'server' : 'device'),
 				selection: selectionAnchor ? selectedReference.label : null,
 				modes
 			},
@@ -336,7 +365,8 @@
 	});
 </script>
 
-<section class="wabi-workspace" aria-label={`${toolName} editor`}>
+<svelte:window onkeydown={onOfficeKey} />
+<section class="wabi-workspace" aria-label={`${toolName} editor`} bind:this={root}>
 	{#if error || $sessionState.error}
 		<Notice class="workspace-notice" title={error || $sessionState.error} text="Your work is still here on this device.">
 			{#snippet actions()}

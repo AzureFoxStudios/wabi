@@ -12,6 +12,14 @@ describe('office editor header status', () => {
 		expect(compactStatus('Loading', at)).toBe('Opening…');
 	});
 
+	test('a place can be added to the settled states so it survives the collapsed tag', () => {
+		expect(compactStatus('Saved on this device', at, 'device')).toBe(`Saved ${time} · this device only`);
+		expect(compactStatus('Synced to this server', at, 'server')).toBe(`Synced ${time} · on this server`);
+		// Local saves of a shared file are not "this device only", and other states are untouched.
+		expect(compactStatus('Saved on this device', at, 'server')).toBe(`Saved ${time}`);
+		expect(compactStatus('Offline · changes saved here', at, 'device')).toBe('Offline · changes saved here');
+	});
+
 	test('states that carry their own news keep the session words', () => {
 		for (const status of ['Saved here · waiting to sync', 'Offline · changes saved here', 'Needs attention']) {
 			expect(compactStatus(status, at)).toBe(status);
