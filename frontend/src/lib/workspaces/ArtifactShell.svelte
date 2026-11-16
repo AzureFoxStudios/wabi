@@ -324,6 +324,10 @@
 		if (meta) list.push({ id: 'review', label: openReviews ? `Review, ${openReviews} open` : 'Review', icon: 'chat', iconOnly: true, pressed: reviewOpen, onSelect: () => { reviewOpen = !reviewOpen; } });
 		if (meta?.mode === 'snapshot' && meta.role === 'owner') list.push({ id: 'publish', label: 'Publish revision', icon: 'upload', variant: 'default', disabled: busy, onSelect: () => void run(() => session.sync(true)) });
 		list.push(...actions);
+		// Taking a copy away is one click, not a trip into ⋯: the tool's first export is its headline format
+		// (XLSX, Markdown, PPTX). On a phone it stays in ⋯ > Export, so the title keeps its room.
+		const headline = exports.find((entry) => !entry.disabled && typeof entry.onSelect === 'function' && entry.type !== 'separator' && entry.type !== 'kicker');
+		if (headline && !$isMobile) list.push({ id: 'download', label: `Download a copy (${headline.label})`, icon: 'download', iconOnly: true, disabled: busy, onSelect: () => { headline.onSelect?.(); } });
 		// On a phone Share… is the first row of ⋯ instead, so the title keeps its room.
 		if (isOwner && !$isMobile) list.push({ id: 'share', label: 'Share…', icon: 'share', variant: 'default', disabled: busy, onSelect: showSharing });
 		list.push({ id: 'more', label: `${toolName} options`, icon: 'more', iconOnly: true, onSelect: (anchor) => { moreAnchor = anchor; moreOpen = !moreOpen; } });

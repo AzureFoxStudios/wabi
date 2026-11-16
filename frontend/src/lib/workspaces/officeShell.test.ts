@@ -63,6 +63,16 @@ describe('library', () => {
 	});
 });
 
+describe('keeping a copy', () => {
+	test("the header offers a one-click Download of the tool's first export, and Ctrl+S saves where the file lives", () => {
+		expect(shell).toContain("id: 'download'");
+		expect(shell).toContain('exports.find(');
+		expect(shell).toContain('Download a copy (${headline.label})');
+		expect(shell).toContain('<svelte:window onkeydown={onOfficeKey} />');
+		expect(shell).toContain('Saved in this browser on this device only.');
+	});
+});
+
 describe('editor header in row A', () => {
 	test('the shell registers the header with the stage masthead and clears it on destroy', () => {
 		expect(shell).toContain('setStageHeader(HEADER_OWNER, {');

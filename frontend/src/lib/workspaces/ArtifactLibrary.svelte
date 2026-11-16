@@ -108,7 +108,7 @@
 			<h1 class="workspace-library__title">{label}</h1>
 			<span class="w-tag w-tag--mat" title={$_('maturity.preview_title')}>{$_('maturity.preview')}</span>
 		</header>
-		<p class="workspace-library__truth">Private on this device until you share. Shared {noun.many} are server-readable.</p>
+		<p class="workspace-library__truth">Kept in this browser, on this device only, until you share. Shared {noun.many} are server-readable.</p>
 		<div class="workspace-toolbar workspace-library__actions">
 			<button type="button" class="w-btn w-btn--primary" onclick={onnew}><Icon name="plus" size={16} />New {noun.one}</button>
 			<button type="button" class="w-btn" onclick={() => fileInput.click()}><Icon name="upload" size={16} />Open file…</button>
