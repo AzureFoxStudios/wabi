@@ -588,6 +588,28 @@
 				</div>
 			</div>
 		</div>
+		<script>
+			// Pre-paint boot text: the app's i18n is not loaded yet, so the saved language
+			// picks the boot strings here. Keep these in step with the boot keys in locales.
+			(function () {
+				var boot = {
+					th: { status: 'กำลังเปิดแอป', steps: ['เชลล์', 'เซสชัน', 'พื้นที่ทำงาน', 'เรียลไทม์'], retry: 'ลองอีกครั้ง', offline: 'ทำงานออฟไลน์' },
+					es: { status: 'Abriendo la aplicación', steps: ['Interfaz', 'Sesión', 'Espacio de trabajo', 'Tiempo real'], retry: 'Intentar de nuevo', offline: 'Trabajar sin conexión' }
+				};
+				try {
+					var loc = localStorage.getItem('wabi_locale');
+					var d = boot[loc];
+					if (!d) return;
+					var set = function (id, text) { var el = document.getElementById(id); if (el) el.textContent = text; };
+					set('wabi-boot-status', d.status);
+					set('wabi-boot-retry', d.retry);
+					set('wabi-work-offline', d.offline);
+					var items = document.querySelectorAll('#wabi-boot-steps li');
+					for (var i = 0; i < items.length && i < d.steps.length; i++) items[i].lastChild.textContent = d.steps[i];
+					document.documentElement.lang = loc;
+				} catch (e) { /* storage unavailable: keep the English boot text */ }
+			})();
+		</script>
 		<div style="display: contents">%sveltekit.body%</div>
 		<script>
 			(() => {
