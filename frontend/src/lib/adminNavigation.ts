@@ -15,19 +15,19 @@ export type AdminSection =
 	| 'payments';
 
 type ActiveAdminSection = Exclude<AdminSection, 'uploads' | 'settings'>;
-export const ADMIN_SECTIONS: Array<{ id: ActiveAdminSection; label: string; description: string; group: 'Server' | 'People' | 'Safety'; staff?: boolean; ownerOnly?: boolean }> = [
-	{ id: 'overview', label: 'Overview', description: 'Community health, server health and things that need attention', group: 'Server' },
-	{ id: 'moderation', label: 'Moderation', description: 'Reports, staff actions and moderation triage', group: 'Safety', staff: true },
-	{ id: 'safety', label: 'Safety rules', description: 'Simple automatic rules, filters and escalation behavior', group: 'Safety' },
-	{ id: 'privacy', label: 'Privacy & retention', description: 'Choose retention, private-space automation and local data boundaries', group: 'Safety' },
-	{ id: 'users', label: 'People', description: 'Members, roles, account recovery and moderation context', group: 'People', staff: true },
-	{ id: 'roles', label: 'Roles', description: 'Understand and manage the built-in permission levels', group: 'People' },
-	{ id: 'channels', label: 'Channels', description: 'Browse server channels and open their workspaces', group: 'Server' },
-	{ id: 'storage', label: 'Storage', description: 'See what is using disk space and safely revoke uploaded files', group: 'Server' },
-	{ id: 'infrastructure', label: 'Infrastructure', description: 'Connected relays, helpers and node health', group: 'Server' },
-	{ id: 'runtime', label: 'Diagnostics', description: 'Database readiness, uptime, memory and runtime tuning', group: 'Server' },
-	{ id: 'branding', label: 'Branding', description: 'How this server appears to visitors', group: 'Server' },
-	{ id: 'payments', label: 'Payments', description: 'Who can create payment requests', group: 'Server' },
+export const ADMIN_SECTIONS: Array<{ id: ActiveAdminSection; labelKey: string; descriptionKey: string; groupKey: string; staff?: boolean; ownerOnly?: boolean }> = [
+	{ id: 'overview', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'moderation', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_safety', staff: true },
+	{ id: 'safety', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_safety' },
+	{ id: 'privacy', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_safety' },
+	{ id: 'users', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_people', staff: true },
+	{ id: 'roles', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_people' },
+	{ id: 'channels', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'storage', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'infrastructure', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'runtime', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'branding', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'payments', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
 ];
 
 export function canManageServer(role: string | null | undefined): boolean {
