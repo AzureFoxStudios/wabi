@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import ColorPicker from './ColorPicker.svelte';
 
 	export let label: string;
@@ -74,19 +75,19 @@
 		<div class="editor-content">
 			<div class="color-row">
 				<ColorPicker
-					label="Start Color"
+					label={$_('gradient_editor.start_color')}
 					value={startColor}
 					onChange={handleStartColorChange}
 				/>
 				<ColorPicker
-					label="End Color"
+					label={$_('gradient_editor.end_color')}
 					value={endColor}
 					onChange={handleEndColorChange}
 				/>
 			</div>
 
 			<div class="angle-control">
-				<label for="angle-{label}">Angle: {angle}°</label>
+				<label for="angle-{label}">{$_('gradient_editor.angle', { values: { angle } })}</label>
 				<input
 					type="range"
 					id="angle-{label}"
@@ -100,9 +101,9 @@
 			</div>
 
 			<div class="preset-buttons">
-				<button class="preset-btn" on:click={() => setPreset('to-right')}>→ Right</button>
-				<button class="preset-btn" on:click={() => setPreset('to-bottom')}>↓ Bottom</button>
-				<button class="preset-btn" on:click={() => setPreset('diagonal')}>↘ Diagonal</button>
+				<button class="preset-btn" on:click={() => setPreset('to-right')}>→ {$_('gradient_editor.right')}</button>
+				<button class="preset-btn" on:click={() => setPreset('to-bottom')}>↓ {$_('gradient_editor.bottom')}</button>
+				<button class="preset-btn" on:click={() => setPreset('diagonal')}>↘ {$_('gradient_editor.diagonal')}</button>
 			</div>
 		</div>
 	{/if}

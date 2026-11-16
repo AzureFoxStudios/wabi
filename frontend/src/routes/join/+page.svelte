@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { parseInvitation, type JoinInvitation } from '$lib/hostInvites';
 	import { openCommunity, useCommunityAccount, type HostAccount } from '$lib/desktopHosting';
@@ -22,7 +23,7 @@
 	});
 	async function accept() {
 		if (!invitation || busy) return;
-		if (password.length < 8 || password !== repeated) { error = 'Use at least eight characters and repeat the same password.'; return; }
+		if (password.length < 8 || password !== repeated) { error = $_('join_page.password_rule'); return; }
 		const target = invitation; busy = true; error = '';
 		try {
 			await checkCommunityForJoin(target.server);
@@ -32,7 +33,7 @@
 				redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(15000)
 			});
 			const result = await response.json();
-			if (!response.ok) throw new Error(result.error || 'The invitation was refused. It may be expired, revoked or already used. Ask the host for a new invitation.');
+			if (!response.ok) throw new Error(result.error || $_('join_page.refused'));
 			useCommunityAccount(target.server, result as HostAccount);
 			password = ''; repeated = ''; invitation = null;
 			openCommunity(target.server);
@@ -49,23 +50,23 @@
 	}
 </script>
 
-<svelte:head><title>Join a community — Wabi</title><meta name="referrer" content="no-referrer" /><meta name="robots" content="noindex" /></svelte:head>
+<svelte:head><title>{$_('join_page.title')}</title><meta name="referrer" content="no-referrer" /><meta name="robots" content="noindex" /></svelte:head>
 <main class="desktop-communities">
-	<header><p class="eyebrow">Wabi · Invitation</p><h1>Join this community</h1></header>
+	<header><p class="eyebrow">{$_('join_page.eyebrow')}</p><h1>{$_('join_page.heading')}</h1></header>
 	{#if error}<p class="notice error" role="alert">{error}</p>{/if}
 	{#if invitation}
-		<section class="community-card" aria-labelledby="join-title"><h2 id="join-title">Create your member account</h2>
-			<p>Your account will belong to <strong>{invitation.server}</strong>. Continue only if this is the community you intended to join. No server will start on this computer.</p>
-			{#if invitation.server.startsWith('http:')}<p class="notice warning" role="note">This local-network connection uses unencrypted HTTP. Use a trusted network and a unique password.</p>{/if}
+		<section class="community-card" aria-labelledby="join-title"><h2 id="join-title">{$_('join_page.create_account')}</h2>
+			<p>{$_('join_page.belongs_to')} <strong>{invitation.server}</strong>. {$_('join_page.confirm_community')}</p>
+			{#if invitation.server.startsWith('http:')}<p class="notice warning" role="note">{$_('join_page.unencrypted')}</p>{/if}
 			<form onsubmit={(event) => { event.preventDefault(); void accept(); }}>
-				<label for="new-name">Username</label><input id="new-name" bind:value={username} required minlength="2" maxlength="64" autocomplete="username" autocapitalize="none" />
-				<label for="new-password">Password</label><input id="new-password" type="password" bind:value={password} required minlength="8" autocomplete="new-password" />
-				<label for="repeat-password">Repeat password</label><input id="repeat-password" type="password" bind:value={repeated} required minlength="8" autocomplete="new-password" />
-				<div class="actions"><button disabled={busy}>{busy ? 'Joining…' : 'Accept invitation & create account'}</button></div>
+				<label for="new-name">{$_('join_page.username')}</label><input id="new-name" bind:value={username} required minlength="2" maxlength="64" autocomplete="username" autocapitalize="none" />
+				<label for="new-password">{$_('login.auth.password_placeholder')}</label><input id="new-password" type="password" bind:value={password} required minlength="8" autocomplete="new-password" />
+				<label for="repeat-password">{$_('join_page.repeat_password')}</label><input id="repeat-password" type="password" bind:value={repeated} required minlength="8" autocomplete="new-password" />
+				<div class="actions"><button disabled={busy}>{busy ? $_('login.guest.joining') : $_('join_page.accept')}</button></div>
 			</form>
-			<p class="small">This invitation admits one new member. Reloading clears it from this page; reopen the original link to try again.</p>
-			<button class="secondary" disabled={busy} onclick={signIn}>Already a member? Sign in</button>
+			<p class="small">{$_('join_page.one_member')}</p>
+			<button class="secondary" disabled={busy} onclick={signIn}>{$_('join_page.already_member')}</button>
 		</section>
 	{/if}
-	<footer><a href="/host">My communities · Join another community</a></footer>
+	<footer><a href="/host">{$_('join_page.my_communities')}</a></footer>
 </main>

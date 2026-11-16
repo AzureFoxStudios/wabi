@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	interface Props {
 		review: {
 			id: string;
@@ -39,14 +40,14 @@
 		</div>
 		<div class="review-actions">
 			{#if review.status === 'Open'}
-				<button class="action-btn approve" onclick={onApprove}>Approve</button>
-				<button class="action-btn changes" onclick={onRequestChanges}>Request Changes</button>
+				<button class="action-btn approve" onclick={onApprove}>{$_('lore_review.approve')}</button>
+				<button class="action-btn changes" onclick={onRequestChanges}>{$_('lore_review.request_changes')}</button>
 			{/if}
 			{#if review.status === 'Approved'}
-				<button class="action-btn merge" onclick={onMerge}>Merge</button>
+				<button class="action-btn merge" onclick={onMerge}>{$_('lore_review.merge')}</button>
 			{/if}
 			{#if review.status !== 'Merged' && review.status !== 'Closed'}
-				<button class="action-btn close" onclick={onClose}>Close</button>
+				<button class="action-btn close" onclick={onClose}>{$_('common.close')}</button>
 			{/if}
 		</div>
 	</div>
@@ -56,8 +57,8 @@
 			<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
 			{review.source_branch} → {review.target_branch}
 		</span>
-		<span class="meta-item">📦 {review.commit_count} commits</span>
-		<span class="meta-item">📄 {review.file_change_count} files</span>
+		<span class="meta-item">📦 {$_('lore_review.commits', { values: { count: review.commit_count } })}</span>
+		<span class="meta-item">📄 {$_('lore_review.files', { values: { count: review.file_change_count } })}</span>
 		<span class="meta-item diff-stats">
 			<span class="insertions">+{review.insertions}</span>
 			<span class="deletions">-{review.deletions}</span>

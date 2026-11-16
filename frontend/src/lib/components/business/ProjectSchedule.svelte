@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * The project's cards laid out by day: an itinerary you can read at a glance and copy as plain text.
 	 * It reads the same shared cards as the board (due date, owner, status); there is no second copy of the data.
@@ -18,7 +19,7 @@
 	let error = $state('');
 	let notice = $state('');
 
-	const STATUS: Record<string, string> = { ideas: 'Idea', todo: 'To do', in_progress: 'In progress', done: 'Done', scrapped: 'Set aside' };
+	const STATUS: Record<string, string> = { ideas: $_('project_schedule.idea'), todo: $_('project_schedule.to_do'), in_progress: $_('project_schedule.in_progress'), done: $_('project_schedule.done'), scrapped: $_('project_schedule.set_aside') };
 	const base = $derived(`${getServerUrl()}/api/projects/${encodeURIComponent(channelId)}`);
 	const headers = () => { const token = getAuthToken(); return token ? { Authorization: `Bearer ${token}` } : {}; };
 
@@ -29,7 +30,7 @@
 				fetchChannel(channelId, `${base}/tasks`, { headers: headers() }),
 				fetchChannel(channelId, `${base}/members`, { headers: headers() }).catch(() => null)
 			]);
-			if (!tasksResponse.ok) throw new Error(tasksResponse.status === 403 ? 'Project access was removed.' : `Could not load the schedule (${tasksResponse.status}).`);
+			if (!tasksResponse.ok) throw new Error(tasksResponse.status === 403 ? $_('project_schedule.access_removed') : $_('project_schedule.load_failed', { values: { status: tasksResponse.status } }));
 			const data = await tasksResponse.json();
 			items = (Array.isArray(data.tasks) ? data.tasks : []).filter((task: Item) => !task.isArchived && task.status !== 'scrapped');
 			if (membersResponse?.ok) {
@@ -37,7 +38,7 @@
 				members = Object.fromEntries((Array.isArray(list) ? list : []).map((member: { id: number; name: string }) => [member.id, member.name]));
 			}
 			error = '';
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not load the schedule.'; }
+		} catch (cause) { error = cause instanceof Error ? cause.message : $_('project_schedule.load_failed_generic'); }
 		finally { loading = false; }
 	}
 	onMount(() => { void load(); });
@@ -53,33 +54,33 @@
 			label: new Date(rows[0].dueDateMillis!).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 		}));
 		const undated = items.filter((item) => item.dueDateMillis == null);
-		return undated.length ? [...out, { key: 'none', rows: undated, overdue: false, today: false, label: 'No date yet' }] : out;
+		return undated.length ? [...out, { key: 'none', rows: undated, overdue: false, today: false, label: $_('project_schedule.no_date') }] : out;
 	});
-	const who = (id: number | null) => (id == null ? '' : members[id] ?? `Member #${id}`);
+	const who = (id: number | null) => (id == null ? '' : members[id] ?? $_('project_schedule.member_id', { values: { id } }));
 
 	async function copyText(): Promise<void> {
 		const text = groups.map((group) => `${group.label}\n${group.rows.map((row) => `  - ${row.title}${row.assigneeUserId != null ? ` (${who(row.assigneeUserId)})` : ''} [${STATUS[row.status] ?? row.status}]`).join('\n')}`).join('\n\n');
-		try { await copyToClipboard(text); notice = 'Schedule copied as plain text.'; } catch { notice = 'Could not copy the schedule.'; }
+		try { await copyToClipboard(text); notice = $_('project_schedule.copied'); } catch { notice = $_('project_schedule.copy_failed'); }
 		setTimeout(() => { notice = ''; }, 3000);
 	}
 </script>
 
-<section class="schedule" aria-label="Project schedule">
+<section class="schedule" aria-label={$_('project_schedule.aria_label')}>
 	<header>
-		<div><p class="kicker">By day</p><h2>Schedule</h2><p class="hint">Cards with a due date, in order. Add or change dates on the board.</p></div>
-		<div class="actions">{#if notice}<span class="notice" role="status">{notice}</span>{/if}<button type="button" onclick={copyText} disabled={!groups.length}>Copy as text</button><button type="button" onclick={() => void load()} disabled={loading}>Refresh</button></div>
+		<div><p class="kicker">{$_('project_schedule.by_day')}</p><h2>{$_('project_schedule.heading')}</h2><p class="hint">{$_('project_schedule.hint')}</p></div>
+		<div class="actions">{#if notice}<span class="notice" role="status">{notice}</span>{/if}<button type="button" onclick={copyText} disabled={!groups.length}>{$_('project_schedule.copy_as_text')}</button><button type="button" onclick={() => void load()} disabled={loading}>{$_('network_health.refresh')}</button></div>
 	</header>
 	{#if error}<p class="error" role="alert">{error}</p>
-	{:else if loading}<p class="hint" role="status">Loading the schedule…</p>
-	{:else if !groups.length}<p class="hint">No cards yet. Add a card on the board and give it a due date.</p>
+	{:else if loading}<p class="hint" role="status">{$_('project_schedule.loading')}</p>
+	{:else if !groups.length}<p class="hint">{$_('project_schedule.empty')}</p>
 	{:else}
 		<div class="table-scroll"><table>
-			<thead><tr><th>Day</th><th>What</th><th>Who</th><th>Status</th></tr></thead>
+			<thead><tr><th>{$_('project_schedule.th_day')}</th><th>{$_('project_schedule.th_what')}</th><th>{$_('project_schedule.th_who')}</th><th>{$_('project_schedule.th_status')}</th></tr></thead>
 			<tbody>
 				{#each groups as group (group.key)}
 					{#each group.rows as row, index (row.taskId)}
 						<tr class:done={row.status === 'done'} class:overdue={group.overdue && row.status !== 'done'}>
-							<td class="day">{#if index === 0}<span class:today={group.today}>{group.label}</span>{#if group.today}<em>today</em>{:else if group.overdue}<em class="late">overdue</em>{/if}{/if}</td>
+							<td class="day">{#if index === 0}<span class:today={group.today}>{group.label}</span>{#if group.today}<em>{$_('project_schedule.today')}</em>{:else if group.overdue}<em class="late">{$_('project_schedule.overdue')}</em>{/if}{/if}</td>
 							<td class="what">{row.title}</td>
 							<td class="who">{who(row.assigneeUserId)}</td>
 							<td class="state">{STATUS[row.status] ?? row.status}</td>

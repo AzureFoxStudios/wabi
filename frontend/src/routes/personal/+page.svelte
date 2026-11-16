@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
@@ -12,13 +13,13 @@
 	}
 </script>
 
-<svelte:head><title>Personal workspace · Wabi</title><meta name="robots" content="noindex" /></svelte:head>
+<svelte:head><title>{$_('personal_page.title')}</title><meta name="robots" content="noindex" /></svelte:head>
 <main class="personal-shell">
 	<header class="personal-header">
-		<div><p class="eyebrow">Your own space</p><h1>Personal Planner</h1><p>Calendar, tasks, journal and projects. No community account needed.</p></div>
-		<button onclick={leave}>Communities</button>
+		<div><p class="eyebrow">{$_('personal_page.eyebrow')}</p><h1>{$_('personal_page.heading')}</h1><p>{$_('personal_page.intro')}</p></div>
+		<button onclick={leave}>{$_('personal_page.communities')}</button>
 	</header>
-	<p class="personal-policy">{desktop ? 'Stored in your Wabi app folder. Works offline.' : 'Stored in this browser. Export a backup to keep a separate copy.'} Sharing and AI are off.</p>
+	<p class="personal-policy">{desktop ? $_('personal_page.stored_app') : $_('personal_page.stored_browser')} {$_('personal_page.sharing_off')}</p>
 	<section class="personal-content"><PlannerWorkspace /></section>
 </main>
 <style>

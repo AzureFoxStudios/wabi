@@ -5,6 +5,7 @@
 	tab here (one name, one way in: the sidebar's DMs row). Roles and kit only.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import { currentUser } from '$lib/socket';
 	import { currentSavedServer } from '$lib/savedServers';
@@ -16,7 +17,7 @@
 
 	const dispatch = createEventDispatcher<{ back: void; browse: void; openRoom: void; messages: void; members: void; settings: void; profileSettings: void; manage: void; complete: void }>();
 	$: serverName = $currentSavedServer?.effectiveName || (() => {
-		try { return new URL(getServerUrl()).hostname; } catch { return 'This server'; }
+		try { return new URL(getServerUrl()).hostname; } catch { return $_('server_hub.this_server'); }
 	})();
 	function finishWelcome(): void { if (welcome) { welcome = false; dispatch('complete'); } }
 	function handleWelcomeKeydown(event: KeyboardEvent): void { if (welcome && event.key === 'Escape') finishWelcome(); }
@@ -28,17 +29,17 @@
 <section class="server-hub" class:focused={welcome && $currentSavedServer?.frontendMetadata?.deskFocusedWelcome === true} aria-labelledby="server-hub-title">
 	<header class="server-hub-mast">
 		<div class="server-hub-top">
-			<h2 id="server-hub-title" class="server-hub-title">{welcome ? 'Welcome' : 'Server home'}</h2>
+			<h2 id="server-hub-title" class="server-hub-title">{welcome ? $_('server_hub.welcome') : $_('server_hub.server_home')}</h2>
 			<div class="server-tools">
-				<button type="button" class="w-btn w-btn--sm" on:click={() => dispatch('settings')}>Server settings</button>
-				{#if canManage}<button type="button" class="w-btn w-btn--sm" on:click={() => dispatch('manage')}>Manage server</button>{/if}
-				{#if welcome}<button type="button" class="w-btn w-btn--primary w-btn--sm" on:click={finishWelcome}>Explore server</button>{/if}
+				<button type="button" class="w-btn w-btn--sm" on:click={() => dispatch('settings')}>{$_('server_hub.server_settings')}</button>
+				{#if canManage}<button type="button" class="w-btn w-btn--sm" on:click={() => dispatch('manage')}>{$_('server_hub.manage_server')}</button>{/if}
+				{#if welcome}<button type="button" class="w-btn w-btn--primary w-btn--sm" on:click={finishWelcome}>{$_('server_hub.explore_server')}</button>{/if}
 			</div>
 		</div>
 		{#if !welcome}
-			<nav class="hub-tabs" aria-label={`${serverName} home views`}>
-				<button type="button" class="hub-tab" class:active={hubView === 'overview'} aria-current={hubView === 'overview' ? 'page' : undefined} on:click={() => hubView = 'overview'}>Overview</button>
-				<button type="button" class="hub-tab" class:active={hubView === 'people'} aria-current={hubView === 'people' ? 'page' : undefined} on:click={() => hubView = 'people'}>People</button>
+			<nav class="hub-tabs" aria-label={$_('server_hub.views_label', { values: { name: serverName } })}>
+				<button type="button" class="hub-tab" class:active={hubView === 'overview'} aria-current={hubView === 'overview' ? 'page' : undefined} on:click={() => hubView = 'overview'}>{$_('server_hub.overview')}</button>
+				<button type="button" class="hub-tab" class:active={hubView === 'people'} aria-current={hubView === 'people' ? 'page' : undefined} on:click={() => hubView = 'people'}>{$_('server_hub.people')}</button>
 			</nav>
 		{/if}
 	</header>

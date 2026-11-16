@@ -78,13 +78,13 @@
 
 	$: statusOptions = $kanbanColumns.map((col) => ({ value: col.id, label: laneLabel(col) })) satisfies SelectOption[];
 	const priorityOptions: SelectOption[] = [
-		{ value: 'low', label: 'Low' },
-		{ value: 'medium', label: 'Medium' },
-		{ value: 'high', label: 'High' },
-		{ value: 'urgent', label: 'Urgent' }
+		{ value: 'low', label: $_('kanban_task.low') },
+		{ value: 'medium', label: $_('kanban_task.medium') },
+		{ value: 'high', label: $_('kanban_task.high') },
+		{ value: 'urgent', label: $_('kanban_task.urgent') }
 	];
 	$: projectOptions = [
-		{ value: '', label: 'No project' },
+		{ value: '', label: $_('kanban_task.no_project') },
 		...$projects.map((project) => ({ value: project.id, label: project.name }))
 	] satisfies SelectOption[];
 
@@ -107,9 +107,9 @@
 			.sort((a, b) => a.username.localeCompare(b.username))
 			.map((user) => ({ value: String(user.user_id), label: user.username }));
 		if (current && !users.some((user) => user.user_id === current)) {
-			people.unshift({ value: String(current), label: getAssigneeName(current) || `Member ${current}` });
+			people.unshift({ value: String(current), label: getAssigneeName(current) || $_('kanban_task.member', { values: { id: current } }) });
 		}
-		return [{ value: '', label: 'Unassigned' }, ...people];
+		return [{ value: '', label: $_('kanban_task.unassigned') }, ...people];
 	}
 	function chooseAssignee(value: string): void {
 		const user = registeredUsers.find((candidate) => String(candidate.user_id) === value);
@@ -155,20 +155,20 @@
 	onClose={closeModal}
 	size="md"
 	padded
-	title={editingTodo ? 'Edit task' : $_('planner.new_task')}
-	note={isReadOnly ? 'Read-only: changes cannot be saved here' : ''}
+	title={editingTodo ? $_('kanban_task.edit_title') : $_('planner.new_task')}
+	note={isReadOnly ? $_('kanban_task.read_only_note') : ''}
 	initialFocus={FIELD_SELECTOR[initialField]}
 	panelClass="planner-task-dialog"
 >
 	<form id="planner-task-form" class="ptd-form" on:submit|preventDefault={submit} novalidate use:watchScroll>
 		<div class="ptd-field">
-			<label class="w-label" for="planner-task-title">Title</label>
+			<label class="w-label" for="planner-task-title">{$_('kanban_task.title')}</label>
 			<input
 				id="planner-task-title"
 				class="w-field"
 				type="text"
 				bind:value={formTitle}
-				placeholder="What needs doing?"
+				placeholder={$_('kanban_task.title_ph')}
 				required
 				aria-required="true"
 				maxlength="300"
@@ -177,66 +177,66 @@
 		</div>
 
 		<div class="ptd-field">
-			<label class="w-label" for="planner-task-description">Description</label>
-			<textarea id="planner-task-description" class="w-field" bind:value={formDescription} placeholder="Add details, links or notes" rows="3" disabled={isReadOnly}></textarea>
+			<label class="w-label" for="planner-task-description">{$_('kanban_task.description')}</label>
+			<textarea id="planner-task-description" class="w-field" bind:value={formDescription} placeholder={$_('kanban_task.description_ph')} rows="3" disabled={isReadOnly}></textarea>
 		</div>
 
 		<div class="ptd-pair">
 			<div class="ptd-field">
-				<span class="w-label" id="planner-task-status-label">Status</span>
-				<Select id="planner-task-status" ariaLabel="Status" options={statusOptions} bind:value={statusValue} disabled={isReadOnly} heading="Status" class="ptd-select" />
+				<span class="w-label" id="planner-task-status-label">{$_('kanban_task.status')}</span>
+				<Select id="planner-task-status" ariaLabel={$_('kanban_task.status')} options={statusOptions} bind:value={statusValue} disabled={isReadOnly} heading={$_('kanban_task.status')} class="ptd-select" />
 			</div>
 			<div class="ptd-field">
-				<span class="w-label" id="planner-task-priority-label">Priority</span>
-				<Select id="planner-task-priority" ariaLabel="Priority" options={priorityOptions} bind:value={priorityValue} disabled={isReadOnly} heading="Priority" class="ptd-select" />
+				<span class="w-label" id="planner-task-priority-label">{$_('kanban_task.priority')}</span>
+				<Select id="planner-task-priority" ariaLabel={$_('kanban_task.priority')} options={priorityOptions} bind:value={priorityValue} disabled={isReadOnly} heading={$_('kanban_task.priority')} class="ptd-select" />
 			</div>
 		</div>
 
 		<div class="ptd-pair">
 			<div class="ptd-field ptd-assignee">
-				<span class="w-label" id="planner-task-assignee-label">Assignee</span>
+				<span class="w-label" id="planner-task-assignee-label">{$_('kanban_task.assignee')}</span>
 				<Select
 					id="planner-task-assignee"
-					ariaLabel="Assignee"
+					ariaLabel={$_('kanban_task.assignee')}
 					options={assigneeOptions}
 					bind:value={assigneeValue}
 					onchange={chooseAssignee}
 					disabled={isReadOnly}
-					heading="Assignee"
+					heading={$_('kanban_task.assignee')}
 					class="ptd-select"
 				/>
 			</div>
 			<div class="ptd-field">
-				<span class="w-label" id="planner-task-project-label">Project</span>
-				<Select id="planner-task-project" ariaLabel="Project" options={projectOptions} bind:value={projectValue} disabled={isReadOnly} heading="Project" class="ptd-select" />
+				<span class="w-label" id="planner-task-project-label">{$_('kanban_task.project')}</span>
+				<Select id="planner-task-project" ariaLabel={$_('kanban_task.project')} options={projectOptions} bind:value={projectValue} disabled={isReadOnly} heading={$_('kanban_task.project')} class="ptd-select" />
 			</div>
 		</div>
 
 		<div class="ptd-field ptd-field--date">
-			<label class="w-label" for="planner-task-due">Due date</label>
+			<label class="w-label" for="planner-task-due">{$_('kanban_task.due_date')}</label>
 			<input id="planner-task-due" class="w-field" type="date" bind:value={formDueDate} disabled={isReadOnly} />
 		</div>
 
 		<div class="w-srow ptd-srow">
 			<div class="w-srow__text">
 				<span class="w-srow__label" id="planner-task-estimate-label">{$_('planner.time_estimate')}</span>
-				<span class="w-srow__hint" id="planner-task-estimate-hint">Used for the project burndown</span>
+				<span class="w-srow__hint" id="planner-task-estimate-hint">{$_('kanban_task.burndown_hint')}</span>
 			</div>
 			<Switch bind:checked={formHasTimeEstimate} labelledby="planner-task-estimate-label" describedby="planner-task-estimate-hint" disabled={isReadOnly} />
 		</div>
 		{#if formHasTimeEstimate}
 			<div class="ptd-field ptd-field--hours">
-				<label class="w-label" for="planner-task-hours">Hours</label>
+				<label class="w-label" for="planner-task-hours">{$_('kanban_task.hours')}</label>
 				<input id="planner-task-hours" class="w-field" type="number" min="0.25" step="0.25" inputmode="decimal" bind:value={formEstimatedHours} disabled={isReadOnly} />
 			</div>
 		{/if}
 
 		<div class="ptd-field ptd-signatures">
-			<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" disabled={isReadOnly} />
+			<SignatureRow bind:draftSignatures {legacySignedBy} label={$_('sprint_modal.names_attached')} disabled={isReadOnly} />
 		</div>
 
 		<div class="ptd-field">
-			<label class="w-label" for="planner-task-links">Project file links</label>
+			<label class="w-label" for="planner-task-links">{$_('kanban_task.file_links')}</label>
 			<input
 				id="planner-task-links"
 				class="w-field"
@@ -250,7 +250,7 @@
 			/>
 			{#if linksUnread > 0}
 				<div class="w-field-foot">
-					<span class="w-field-error" id="planner-task-links-error"><Icon name="alert" size={14} />{linksUnread === 1 ? 'One link is not a Project file link and was left out.' : `${linksUnread} links are not Project file links and were left out.`}</span>
+					<span class="w-field-error" id="planner-task-links-error"><Icon name="alert" size={14} />{linksUnread === 1 ? $_('kanban_task.one_link') : $_('kanban_task.many_links', { values: { count: linksUnread } })}</span>
 				</div>
 			{/if}
 			{#if draftLoreRefs.length > 0}
@@ -270,9 +270,9 @@
 				disabled={isReadOnly}
 			>{$_('planner.delete_task')}</button>
 		{/if}
-		<button type="button" class="w-btn w-btn--quiet" on:click={closeModal}>Cancel</button>
+		<button type="button" class="w-btn w-btn--quiet" on:click={closeModal}>{$_('common.cancel')}</button>
 		<button type="submit" form="planner-task-form" class="w-btn w-btn--primary" disabled={isReadOnly || titleMissing}>
-			{editingTodo ? 'Save' : $_('planner.add_task')}
+			{editingTodo ? $_('common.save') : $_('planner.add_task')}
 		</button>
 	</footer>
 </BaseModal>

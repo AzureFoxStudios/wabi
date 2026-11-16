@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { Sprint, ItemSignature } from '$lib/business/types';
 	import SignatureRow from './SignatureRow.svelte';
 
@@ -45,42 +46,42 @@
 		}}
 	>
 		<div class="modal-header">
-			<h2>{editingSprint ? 'Edit Sprint' : 'New Sprint'}</h2>
+			<h2>{editingSprint ? $_('sprint_modal.edit_sprint') : $_('sprint_modal.new_sprint')}</h2>
 			<button class="close-btn" on:click={onClose}>&times;</button>
 		</div>
 		<form on:submit|preventDefault={onSubmit}>
 			<div class="form-group">
-				<label for="sprintName">Name *</label>
-				<input id="sprintName" type="text" bind:value={sprintName} placeholder="Sprint 1" required />
+				<label for="sprintName">{$_('sprint_modal.name_required')}</label>
+				<input id="sprintName" type="text" bind:value={sprintName} placeholder={$_('sprint_modal.name_placeholder')} required />
 			</div>
 
 			<div class="form-row">
 				<div class="form-group">
-					<label for="sprintStart">Start Date *</label>
+					<label for="sprintStart">{$_('sprint_modal.start_date')}</label>
 					<input id="sprintStart" type="date" bind:value={sprintStartDate} required />
 				</div>
 				<div class="form-group">
-					<label for="sprintEnd">End Date *</label>
+					<label for="sprintEnd">{$_('sprint_modal.end_date')}</label>
 					<input id="sprintEnd" type="date" bind:value={sprintEndDate} required />
 				</div>
 			</div>
 
 			<div class="form-group">
-				<label for="sprintGoals">Goals (one per line)</label>
-				<textarea id="sprintGoals" bind:value={sprintGoals} rows="3" placeholder="Complete user auth&#10;Fix critical bugs&#10;Deploy to staging"></textarea>
+				<label for="sprintGoals">{$_('sprint_modal.goals')}</label>
+				<textarea id="sprintGoals" bind:value={sprintGoals} rows="3" placeholder={$_('sprint_modal.goals_placeholder')}></textarea>
 			</div>
 
 			<div class="form-group">
-				<SignatureRow bind:draftSignatures={sprintDraftSignatures} legacySignedBy={sprintLegacySignedBy} label="Names attached" />
+				<SignatureRow bind:draftSignatures={sprintDraftSignatures} legacySignedBy={sprintLegacySignedBy} label={$_('sprint_modal.names_attached')} />
 			</div>
 
 			<div class="form-actions">
 				{#if editingSprint}
-					<button type="button" class="delete-btn" on:click={() => onDeleteSprint(editingSprint)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>Delete</button>
+					<button type="button" class="delete-btn" on:click={() => onDeleteSprint(editingSprint)} disabled={isReadOnly} title={isReadOnly ? $_('sprint_modal.read_only_mode') : $_('admin.actions.delete')}>{$_('admin.actions.delete')}</button>
 				{/if}
 				<div style="flex: 1;"></div>
-				<button type="button" class="cancel-btn" on:click={onClose}>Cancel</button>
-				<button type="submit" class="submit-btn">{editingSprint ? 'Save Changes' : 'Create Sprint'}</button>
+				<button type="button" class="cancel-btn" on:click={onClose}>{$_('common.cancel')}</button>
+				<button type="submit" class="submit-btn">{editingSprint ? $_('sprint_modal.save_changes') : $_('sprint_modal.create_sprint')}</button>
 			</div>
 		</form>
 	</div>

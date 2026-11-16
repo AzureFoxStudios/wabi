@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 
 	export let isOpen = false;
@@ -33,13 +34,13 @@
 
 		if (file) {
 			if (!['image/jpeg', 'image/gif', 'image/png'].includes(file.type)) {
-				error = 'Please select a JPG, GIF, or PNG file.';
+				error = $_('avatar_editor.bad_type');
 				imageFile = null;
 				previewUrl = null;
 				return;
 			}
 			if (file.size > 5 * 1024 * 1024) {
-				error = 'File is too large. Please select an image under 5MB.';
+				error = $_('avatar_editor.too_large');
 				imageFile = null;
 				previewUrl = null;
 				return;
@@ -60,7 +61,7 @@
 
 	function confirmSelection() {
 		if (!imageFile || !previewUrl) {
-			error = 'Please select an image first.';
+			error = $_('avatar_editor.select_first');
 			return;
 		}
 
@@ -98,13 +99,13 @@
 			}}
 		>
 			<div class="modal-header">
-				<h2>Choose Profile Picture</h2>
+				<h2>{$_('avatar_editor.title')}</h2>
 				<button class="close-btn" on:click={closeModal}>&times;</button>
 			</div>
 			<div class="modal-body">
-				<p class="instructions">Select a JPG, GIF, or PNG image (max 5MB)</p>
+				<p class="instructions">{$_('avatar_editor.instructions')}</p>
 				<button class="choose-file-btn" on:click={() => fileInput?.click()}>
-					{imageFile ? 'Change Image' : 'Choose Image'}
+					{imageFile ? $_('avatar_editor.change_image') : $_('avatar_editor.choose_image')}
 				</button>
 				<input
 					bind:this={fileInput}
@@ -116,7 +117,7 @@
 
 				{#if previewUrl}
 					<div class="preview-container">
-						<img src={previewUrl} alt="Profile preview" class="avatar-preview" />
+						<img src={previewUrl} alt={$_('avatar_editor.preview_alt')} class="avatar-preview" />
 					</div>
 				{/if}
 				{#if error}
@@ -124,8 +125,8 @@
 				{/if}
 			</div>
 			<div class="modal-footer">
-				<button class="cancel-btn" on:click={closeModal}>Cancel</button>
-				<button class="confirm-btn" on:click={confirmSelection} disabled={!imageFile}>Use This Image</button>
+				<button class="cancel-btn" on:click={closeModal}>{$_('common.cancel')}</button>
+				<button class="confirm-btn" on:click={confirmSelection} disabled={!imageFile}>{$_('avatar_editor.use_image')}</button>
 			</div>
 		</div>
 	</div>

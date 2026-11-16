@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { currentChannel, channels } from '$lib/socket';
 	import {
@@ -60,7 +61,7 @@
 	let dragOver = false;
 	let uploadInput: HTMLInputElement;
 	let uploadPath = '';
-	let uploadMessage = 'Upload via API';
+	let uploadMessage = $_('lore_channel.upload_default');
 	let snapshotMessage = '';
 	let selectedFile: LoreFileInfo | null = null;
 	let showHistory = false;
@@ -320,7 +321,7 @@
 				const blob = await downloadLoreFile(token, chId, file.path);
 				previewText = await blob.text();
 			} catch {
-				previewText = 'Failed to load text preview.';
+				previewText = $_('lore_channel.text_preview_failed');
 			}
 			previewTextLoading = false;
 		}
@@ -356,7 +357,7 @@
 			addLoreFile(result.file);
 			await Promise.all([loadLoreRepo(), loadLoreHistory()]);
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Upload failed');
+			alert(err instanceof Error ? err.message : $_('lore_channel.upload_failed'));
 		}
 	}
 
@@ -398,13 +399,13 @@
 				a.click();
 				URL.revokeObjectURL(url);
 			} catch (err2) {
-				alert(err2 instanceof Error ? err2.message : 'Download failed');
+				alert(err2 instanceof Error ? err2.message : $_('lore_channel.download_failed'));
 			}
 		}
 	}
 
 	async function handleDelete(file: LoreFileInfo) {
-		if (!confirm(`Delete "${file.path}"? This cannot be undone.`)) return;
+		if (!confirm($_('lore_channel.confirm_delete', { values: { path: file.path } }))) return;
 		const token = getAuthToken();
 		const chId = $currentChannel ? parseChannelId($currentChannel) : null;
 		if (!token || !chId) return;
@@ -420,7 +421,7 @@
 			}
 			await Promise.all([loadLoreRepo(), loadLoreHistory()]);
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Delete failed');
+			alert(err instanceof Error ? err.message : $_('lore_channel.delete_failed'));
 		}
 	}
 
@@ -438,7 +439,7 @@
 			addLoreFile({ ...file, lockedBy: file.lockedBy ? null : 0 });
 			await loadLoreHistory();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Operation failed');
+			alert(err instanceof Error ? err.message : $_('lore_channel.operation_failed'));
 		}
 	}
 
@@ -466,7 +467,7 @@
 			showSnapshot = false;
 			await loadLoreHistory();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Snapshot failed');
+			alert(err instanceof Error ? err.message : $_('lore_channel.snapshot_failed'));
 		}
 	}
 
@@ -482,12 +483,12 @@
 			showBranchCreate = false;
 			await loadLoreHistory();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Branch creation failed');
+			alert(err instanceof Error ? err.message : $_('lore_channel.branch_failed'));
 		}
 	}
 
 	async function handleMergeBranch(branch: LoreBranch) {
-		if (!confirm(`Merge branch "${branch.name}"?`)) return;
+		if (!confirm($_('lore_channel.confirm_merge', { values: { name: branch.name } }))) return;
 		const token = getAuthToken();
 		const chId = $currentChannel ? parseChannelId($currentChannel) : null;
 		if (!token || !chId) return;
@@ -496,7 +497,7 @@
 			await mergeLoreBranch(token, chId, branch.name);
 			await loadLoreHistory();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Merge failed');
+			alert(err instanceof Error ? err.message : $_('lore_channel.merge_failed'));
 		}
 	}
 </script>
@@ -506,16 +507,16 @@
 		<div class="lore-header-left">
 			<span class="lore-hash">#</span>
 			<span class="lore-title">{activeChannel?.name || 'lore'}</span>
-			<span class="lore-badge">Asset Storage</span>
+			<span class="lore-badge">{$_('lore_channel.asset_storage')}</span>
 			{#if health === 'ok'}
-				<span class="lore-health lore-health-ok">Connected</span>
+				<span class="lore-health lore-health-ok">{$_('lore_channel.connected')}</span>
 			{:else if health === 'error'}
-				<span class="lore-health lore-health-err">Disconnected</span>
+				<span class="lore-health lore-health-err">{$_('lore_channel.disconnected')}</span>
 			{/if}
 		</div>
 		<div class="lore-header-actions">
 			{#if branches.length > 0}
-				<span class="lore-branch-label">Branch:</span>
+				<span class="lore-branch-label">{$_('lore_channel.branch_label')}</span>
 				<select class="lore-branch-select" on:change={() => loadLoreHistory()}>
 					{#each branches as branch}
 						<option value={branch.name}>{branch.name}</option>
@@ -524,7 +525,7 @@
 			{/if}
 			<button
 				class="lore-view-toggle"
-				title={viewMode === 'grid' ? 'List view' : 'Grid view'}
+				title={viewMode === 'grid' ? $_('lore_channel.list_view') : $_('lore_channel.grid_view')}
 				on:click={() => viewMode = viewMode === 'grid' ? 'list' : 'grid'}
 			>
 				{#if viewMode === 'grid'}
@@ -543,29 +544,29 @@
 			<button
 				class="lore-btn lore-btn-sm"
 				type="button"
-				title="Open notes"
-				aria-label="Open notes"
+				title={$_('lore_channel.open_notes')}
+				aria-label={$_('lore_channel.open_notes')}
 				on:click={() => layoutStore.openNotes()}
 			>
-				Notes
+				{$_('lore_channel.notes')}
 			</button>
 			<button
 				class="lore-btn lore-btn-sm"
 				type="button"
-				title="Connect external tools"
-				aria-label="Connect external tools"
+				title={$_('lore_channel.connect_tools')}
+				aria-label={$_('lore_channel.connect_tools')}
 				on:click={() => (showConnect = !showConnect)}
 			>
-				Connect
+				{$_('lore_channel.connect')}
 			</button>
 			{#if canEditLore}
 			<button class="lore-btn lore-btn-sm" on:click={() => showSnapshot = !showSnapshot}>
-				Snapshot
+				{$_('lore_channel.snapshot')}
 			</button>
 			{/if}
 			{#if canEditLore}
 			<button class="lore-btn lore-btn-sm" on:click={() => showBranchCreate = !showBranchCreate}>
-				New Branch
+				{$_('lore_channel.new_branch')}
 			</button>
 			{/if}
 		</div>
@@ -573,17 +574,17 @@
 
 	{#if canEditLore && showSnapshot}
 		<div class="lore-panel">
-			<h4>Create Snapshot</h4>
+			<h4>{$_('lore_channel.create_snapshot')}</h4>
 			<div class="lore-panel-row">
 				<input
 					type="text"
 					class="lore-input"
-					placeholder="Commit message..."
+					placeholder={$_('lore_channel.commit_ph')}
 					bind:value={snapshotMessage}
 					on:keydown={(e) => e.key === 'Enter' && handleCreateSnapshot()}
 				/>
 				<button class="lore-btn" on:click={handleCreateSnapshot} disabled={!snapshotMessage.trim()}>
-					Commit
+					{$_('lore_channel.commit')}
 				</button>
 			</div>
 		</div>
@@ -591,17 +592,17 @@
 
 	{#if canEditLore && showBranchCreate}
 		<div class="lore-panel">
-			<h4>Create Branch</h4>
+			<h4>{$_('lore_channel.create_branch')}</h4>
 			<div class="lore-panel-row">
 				<input
 					type="text"
 					class="lore-input"
-					placeholder="Branch name..."
+					placeholder={$_('lore_channel.branch_name_ph')}
 					bind:value={newBranchName}
 					on:keydown={(e) => e.key === 'Enter' && handleCreateBranch()}
 				/>
 				<button class="lore-btn" on:click={handleCreateBranch} disabled={!newBranchName.trim()}>
-					Create
+					{$_('lore_channel.create')}
 				</button>
 			</div>
 		</div>
@@ -625,7 +626,7 @@
 				}}
 				role="button"
 				tabindex="0"
-				aria-label="Upload files to lore"
+				aria-label={$_('lore_channel.upload_aria')}
 			>
 				<div class="lore-upload-icon">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
@@ -634,19 +635,19 @@
 						<line x1="12" y1="3" x2="12" y2="15"/>
 					</svg>
 				</div>
-				<p>Drop files here or click to upload</p>
+				<p>{$_('lore_channel.drop_hint')}</p>
 				<div class="lore-upload-options">
 					<input
 						type="text"
 						class="lore-input lore-upload-path"
-						placeholder="Path (optional, e.g. assets/images/)"
+						placeholder={$_('lore_channel.path_ph')}
 						bind:value={uploadPath}
 						on:click|stopPropagation
 					/>
 					<input
 						type="text"
 						class="lore-input lore-upload-msg"
-						placeholder="Commit message"
+						placeholder={$_('lore_channel.commit_msg_ph')}
 						bind:value={uploadMessage}
 						on:click|stopPropagation
 					/>
@@ -676,11 +677,11 @@
 				{#if isLoading}
 					<div class="lore-loading">
 						<div class="loading-spinner"></div>
-						<span>Loading...</span>
+						<span>{$_('lore_channel.loading')}</span>
 					</div>
 				{:else if error}
 					<div class="lore-empty">
-						<h3>No Lore repository</h3>
+						<h3>{$_('lore_channel.no_repo')}</h3>
 						<p>{error}</p>
 					</div>
 				{:else if files.length === 0}
@@ -693,8 +694,8 @@
 								<line x1="9" y1="15" x2="15" y2="15"/>
 							</svg>
 						</div>
-						<h3>No files yet</h3>
-						<p>Upload files to start building your asset library.</p>
+						<h3>{$_('lore_channel.no_files')}</h3>
+						<p>{$_('lore_channel.no_files_hint')}</p>
 					</div>
 				{:else if viewMode === 'grid'}
 					<div class="lore-grid-view">
@@ -737,18 +738,18 @@
 				{:else}
 					<div class="lore-file-list">
 						<div class="lore-file-list-header">
-							<span class="lore-col-name">Name</span>
-							<span class="lore-col-size">Size</span>
-							<span class="lore-col-modified">Modified</span>
-							<span class="lore-col-lock">Lock</span>
-							<span class="lore-col-actions">Actions</span>
+							<span class="lore-col-name">{$_('lore_channel.col_name')}</span>
+							<span class="lore-col-size">{$_('lore_channel.col_size')}</span>
+							<span class="lore-col-modified">{$_('lore_channel.col_modified')}</span>
+							<span class="lore-col-lock">{$_('lore_channel.col_lock')}</span>
+							<span class="lore-col-actions">{$_('lore_channel.col_actions')}</span>
 						</div>
 						{#each dirsInFolder as dir}
 							<div
 								class="lore-file-row"
 								role="button"
 								tabindex="0"
-								aria-label="Open folder {dir.replace(currentFolder, '').replace('/', '')}"
+								aria-label={$_('lore_channel.open_folder', { values: { name: dir.replace(currentFolder, '').replace('/', '') } })}
 								on:click={() => handleNavigateToFolder(dir)}
 								on:keydown={(e) => {
 									if (e.key === 'Enter' || e.key === ' ') {
@@ -773,7 +774,7 @@
 								class:lore-file-selected={selectedFile?.path === file.path}
 								role="button"
 								tabindex="0"
-								aria-label="Preview {file.path.split('/').pop() || file.path}"
+								aria-label={$_('lore_channel.preview_aria', { values: { name: file.path.split('/').pop() || file.path } })}
 								on:click={() => handlePreviewFile(file)}
 								on:keydown={(e) => {
 									if (e.key === 'Enter' || e.key === ' ') {
@@ -790,7 +791,7 @@
 								<span class="lore-col-modified">{formatTime(file.modifiedAt)}</span>
 								<span class="lore-col-lock">
 									{#if file.lockedBy}
-										<span class="lore-lock-badge">Locked</span>
+										<span class="lore-lock-badge">{$_('lore_channel.locked')}</span>
 									{:else}
 										<span class="lore-unlock-badge">-</span>
 									{/if}
@@ -798,7 +799,7 @@
 								<span class="lore-col-actions">
 									<button
 										class="lore-action-btn"
-										title="Download"
+										title={$_('lore_channel.download')}
 										on:click|stopPropagation={() => handleDownload(file)}
 									>
 										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -810,7 +811,7 @@
 									{#if canAssetWriteLore}
 									<button
 										class="lore-action-btn"
-										title={file.lockedBy ? 'Unlock' : 'Lock'}
+										title={file.lockedBy ? $_('lore_channel.unlock') : $_('lore_channel.lock')}
 										on:click|stopPropagation={() => handleLock(file)}
 									>
 										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -828,7 +829,7 @@
 									{#if canAssetWriteLore}
 									<button
 										class="lore-action-btn lore-action-danger"
-										title="Delete"
+										title={$_('lore_channel.delete')}
 										on:click|stopPropagation={() => handleDelete(file)}
 									>
 										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -849,7 +850,7 @@
 			<aside class="lore-sidebar">
 				<div class="lore-sidebar-header">
 					<h4 title={selectedFile.path}>{selectedFile.path.split('/').pop() || selectedFile.path}</h4>
-					<button class="lore-action-btn" aria-label="Close preview" on:click={() => { showPreview = false; selectedFile = null; clearLoreFileHistory(); }}>
+					<button class="lore-action-btn" aria-label={$_('lore_channel.close_preview')} on:click={() => { showPreview = false; selectedFile = null; clearLoreFileHistory(); }}>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
 							<line x1="18" y1="6" x2="6" y2="18"/>
 							<line x1="6" y1="6" x2="18" y2="18"/>
@@ -860,13 +861,13 @@
 					<!-- Preview area -->
 					{#if isImageType(selectedFile.path)}
 						{#if previewUrlLoading || !previewUrl}
-							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+							<div class="lore-loading"><div class="loading-spinner"></div><span>{$_('lore_channel.loading_preview')}</span></div>
 						{:else}
 							<div
 								class="lore-preview-image-container"
 								role="button"
 								tabindex="0"
-								aria-label="Enlarge image preview"
+								aria-label={$_('lore_channel.enlarge_aria')}
 								on:click={openImageLightbox}
 								on:keydown={(e) => {
 									if (e.key === 'Enter' || e.key === ' ') {
@@ -876,23 +877,23 @@
 								}}
 							>
 								<img class="lore-preview-image" src={previewUrl} alt={selectedFile.path} />
-								<div class="lore-preview-enlarge">Click to enlarge</div>
+								<div class="lore-preview-enlarge">{$_('lore_channel.click_enlarge')}</div>
 							</div>
 						{/if}
 					{:else if isVideoType(selectedFile.path)}
 						{#if previewUrlLoading || !previewUrl}
-							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+							<div class="lore-loading"><div class="loading-spinner"></div><span>{$_('lore_channel.loading_preview')}</span></div>
 						{:else}
 							<div class="lore-preview-video-container">
 								<video class="lore-preview-video" controls preload="auto" src={previewUrl}>
 									<track kind="captions" />
 								</video>
-								<button class="lore-btn lore-btn-sm" on:click={openVideoLightbox}>Full screen</button>
+								<button class="lore-btn lore-btn-sm" on:click={openVideoLightbox}>{$_('lore_channel.full_screen')}</button>
 							</div>
 						{/if}
 					{:else if isAudioType(selectedFile.path)}
 						{#if previewUrlLoading || !previewUrl}
-							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+							<div class="lore-loading"><div class="loading-spinner"></div><span>{$_('lore_channel.loading_preview')}</span></div>
 						{:else}
 							<div class="lore-preview-audio">
 								<div class="lore-preview-audio-icon">🎵</div>
@@ -904,50 +905,50 @@
 					{:else if isTextType(selectedFile.path)}
 						<div class="lore-preview-text">
 							{#if previewTextLoading}
-								<div class="lore-loading"><div class="loading-spinner"></div><span>Loading text...</span></div>
+								<div class="lore-loading"><div class="loading-spinner"></div><span>{$_('lore_channel.loading_text')}</span></div>
 							{:else}
 								<pre class="lore-preview-text-content">{previewText}</pre>
 							{/if}
 						</div>
 					{:else if getFileType(selectedFile.path) === 'pdf'}
 						{#if previewUrlLoading || !previewUrl}
-							<div class="lore-loading"><div class="loading-spinner"></div><span>Loading preview...</span></div>
+							<div class="lore-loading"><div class="loading-spinner"></div><span>{$_('lore_channel.loading_preview')}</span></div>
 						{:else}
 							<div class="lore-preview-pdf">
-								<iframe class="lore-preview-pdf-frame" src={previewUrl} title="PDF preview"></iframe>
+								<iframe class="lore-preview-pdf-frame" src={previewUrl} title={$_('lore_channel.pdf_preview')}></iframe>
 							</div>
 						{/if}
 					{:else}
 						<div class="lore-preview-metadata">
 							<div class="lore-preview-metadata-icon">{getFileIcon(selectedFile.path)}</div>
 							<div class="lore-preview-metadata-fields">
-								<div class="lore-meta-row"><span class="lore-meta-label">Name</span><span class="lore-meta-value">{selectedFile.path.split('/').pop()}</span></div>
-								<div class="lore-meta-row"><span class="lore-meta-label">Path</span><span class="lore-meta-value">{selectedFile.path}</span></div>
-								<div class="lore-meta-row"><span class="lore-meta-label">Size</span><span class="lore-meta-value">{formatSize(selectedFile.size)}</span></div>
-								<div class="lore-meta-row"><span class="lore-meta-label">Modified</span><span class="lore-meta-value">{formatTime(selectedFile.modifiedAt)}</span></div>
-								<div class="lore-meta-row"><span class="lore-meta-label">Locked</span><span class="lore-meta-value">{selectedFile.lockedBy ? 'Yes' : 'No'}</span></div>
+								<div class="lore-meta-row"><span class="lore-meta-label">{$_('lore_channel.meta_name')}</span><span class="lore-meta-value">{selectedFile.path.split('/').pop()}</span></div>
+								<div class="lore-meta-row"><span class="lore-meta-label">{$_('lore_channel.meta_path')}</span><span class="lore-meta-value">{selectedFile.path}</span></div>
+								<div class="lore-meta-row"><span class="lore-meta-label">{$_('lore_channel.meta_size')}</span><span class="lore-meta-value">{formatSize(selectedFile.size)}</span></div>
+								<div class="lore-meta-row"><span class="lore-meta-label">{$_('lore_channel.meta_modified')}</span><span class="lore-meta-value">{formatTime(selectedFile.modifiedAt)}</span></div>
+								<div class="lore-meta-row"><span class="lore-meta-label">{$_('lore_channel.meta_locked')}</span><span class="lore-meta-value">{selectedFile.lockedBy ? $_('lore_channel.yes') : $_('lore_channel.no')}</span></div>
 							</div>
 						</div>
 					{/if}
 
 					<!-- Actions -->
 					<div class="lore-preview-actions">
-						<button class="lore-btn lore-btn-sm" on:click={() => handleDownload(selectedFile!)}>Download</button>
+						<button class="lore-btn lore-btn-sm" on:click={() => handleDownload(selectedFile!)}>{$_('lore_channel.download')}</button>
 						{#if canAssetWriteLore}
 						<button class="lore-btn lore-btn-sm" on:click={() => handleLock(selectedFile!)}>
-							{selectedFile.lockedBy ? 'Unlock' : 'Lock'}
+							{selectedFile.lockedBy ? $_('lore_channel.unlock') : $_('lore_channel.lock')}
 						</button>
 						{/if}
 						{#if canAssetWriteLore}
-						<button class="lore-btn lore-btn-sm lore-btn-danger" on:click={() => handleDelete(selectedFile!)}>Delete</button>
+						<button class="lore-btn lore-btn-sm lore-btn-danger" on:click={() => handleDelete(selectedFile!)}>{$_('lore_channel.delete')}</button>
 						{/if}
 					</div>
 
 					<!-- Revision history -->
 					<div class="lore-preview-section">
-						<h5>Revision History</h5>
+						<h5>{$_('lore_channel.revision_history')}</h5>
 						{#if fileHistory.length === 0}
-							<p class="lore-sidebar-empty">No revision history.</p>
+							<p class="lore-sidebar-empty">{$_('lore_channel.no_revisions')}</p>
 						{:else}
 							<div class="lore-history-list">
 								{#each fileHistory as rev, idx (rev.hash)}
@@ -959,7 +960,7 @@
 											<span class="lore-history-time">{formatTime(rev.timestamp)}</span>
 											{#if fileHistory.length >= 2}
 												<div class="lore-history-actions">
-													<button class="lore-btn lore-btn-xs" on:click|stopPropagation={() => showFileDiff(rev)}>Diff {idx + 1}</button>
+													<button class="lore-btn lore-btn-xs" on:click|stopPropagation={() => showFileDiff(rev)}>{$_('lore_channel.diff_n', { values: { n: idx + 1 } })}</button>
 												</div>
 											{/if}
 										</div>
@@ -969,9 +970,9 @@
 
 							{#if fileHistory.length >= 2 && !showDiff}
 								<div class="lore-diff-form">
-									<h5>Compare Revisions</h5>
+									<h5>{$_('lore_channel.compare_revisions')}</h5>
 									<select class="lore-input" bind:value={diffTo}>
-										<option value="">Select revision...</option>
+										<option value="">{$_('lore_channel.select_revision')}</option>
 										{#each fileHistory as rev}
 											<option value={rev.hash}>{rev.hash.slice(0, 8)}</option>
 										{/each}
@@ -981,7 +982,7 @@
 
 							{#if showDiff && fileDiff}
 								<div class="lore-diff-panel">
-									<h5>Diff</h5>
+									<h5>{$_('lore_channel.diff')}</h5>
 									<pre class="lore-diff-content">{fileDiff}</pre>
 								</div>
 							{/if}
@@ -994,17 +995,17 @@
 
 	<footer class="lore-footer">
 		<div class="lore-footer-left">
-			<span class="lore-footer-stat">{files.length} file{files.length !== 1 ? 's' : ''}</span>
+			<span class="lore-footer-stat">{$_(files.length !== 1 ? 'lore_channel.files_many' : 'lore_channel.files_one', { values: { count: files.length } })}</span>
 			{#if revisions.length > 0}
-				<span class="lore-footer-stat">{revisions.length} revision{revisions.length !== 1 ? 's' : ''}</span>
+				<span class="lore-footer-stat">{$_(revisions.length !== 1 ? 'lore_channel.revisions_many' : 'lore_channel.revisions_one', { values: { count: revisions.length } })}</span>
 			{/if}
 			{#if branches.length > 0}
-				<span class="lore-footer-stat">{branches.length} branch{branches.length !== 1 ? 'es' : ''}</span>
+				<span class="lore-footer-stat">{$_(branches.length !== 1 ? 'lore_channel.branches_many' : 'lore_channel.branches_one', { values: { count: branches.length } })}</span>
 			{/if}
 		</div>
 		<div class="lore-footer-right">
 			{#each branches as branch}
-				<button class="lore-btn lore-btn-xs" on:click={() => handleMergeBranch(branch)}>Merge {branch.name}</button>
+				<button class="lore-btn lore-btn-xs" on:click={() => handleMergeBranch(branch)}>{$_('lore_channel.merge', { values: { name: branch.name } })}</button>
 			{/each}
 		</div>
 	</footer>
@@ -1021,8 +1022,8 @@
 
 <!-- Lightbox overlays -->
 {#if lightboxVisible && lightboxImages.length > 0}
-	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" aria-label="Close image lightbox" on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') && closeLightbox()}>
-		<button class="lore-lightbox-close" aria-label="Close" on:click={closeLightbox}>
+	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" aria-label={$_('lore_channel.lightbox_close_image')} on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') && closeLightbox()}>
+		<button class="lore-lightbox-close" aria-label={$_('common.close')} on:click={closeLightbox}>
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
 				<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
 			</svg>
@@ -1032,8 +1033,8 @@
 {/if}
 
 {#if lightboxVideoUrl}
-	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" aria-label="Close video lightbox" on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') && closeLightbox()}>
-		<button class="lore-lightbox-close" aria-label="Close" on:click={closeLightbox}>
+	<div class="lore-lightbox-backdrop" on:click={closeLightbox} role="button" tabindex="0" aria-label={$_('lore_channel.lightbox_close_video')} on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') && closeLightbox()}>
+		<button class="lore-lightbox-close" aria-label={$_('common.close')} on:click={closeLightbox}>
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
 				<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
 			</svg>

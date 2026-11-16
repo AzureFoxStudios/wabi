@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { currentChannel, channels, type Channel } from '$lib/socket';
 	import { parseLoreChannelId, type LoreRepo, type LoreFileInfo } from '$lib/api/lore';
 	import {
@@ -169,7 +170,7 @@
 				}
 				return { host };
 			}
-			return { host: 'remote source' };
+			return { host: $_('files_ws.remote_source') };
 		}
 		return null;
 	}
@@ -295,33 +296,33 @@
 				<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
 			</svg>
 			<div>
-				<h2>Files</h2>
-				<p>Browse and share files across this server's spaces</p>
+				<h2>{$_('files_ws.title')}</h2>
+				<p>{$_('files_ws.subtitle')}</p>
 			</div>
 		</div>
 		<div class="files-header-right">
 			{#if isMirror && mirror}
-				<span class="mirror-badge" title="Read-only view of an upstream source — no uploads">
+				<span class="mirror-badge" title={$_('files_ws.mirror_read_only')}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
 						<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
 						<path d="M13.73 21a2 2 0 0 1-3.46 0"/>
 					</svg>
-					Mirror of {mirror.host}
+					{$_('files_ws.mirror_of', { values: { host: mirror.host } })}
 				</span>
 			{:else if selectedChannelId !== null}
-				<label class="upload-btn" title="Upload files to this space">
+				<label class="upload-btn" title={$_('files_ws.upload_title')}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
 						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 						<polyline points="17 8 12 3 7 8"/>
 						<line x1="12" y1="3" x2="12" y2="15"/>
 					</svg>
-					{#if uploading}Uploading…{:else}Upload{/if}
+					{#if uploading}{$_('files_ws.uploading')}{:else}{$_('files_ws.upload')}{/if}
 					<input type="file" multiple style="display:none" onchange={onFileInput} />
 				</label>
 			{/if}
-			<select class="channel-picker" value={selectedChannelId === null ? '' : String(selectedChannelId)} onchange={onPickChannel} aria-label="Choose a space">
+			<select class="channel-picker" value={selectedChannelId === null ? '' : String(selectedChannelId)} onchange={onPickChannel} aria-label={$_('files_ws.choose_space')}>
 				{#if selectedChannelId === null}
-					<option value="" disabled>Choose a space</option>
+					<option value="" disabled>{$_('files_ws.choose_space')}</option>
 				{/if}
 				{#each spaceOptions as opt}
 					<option value={String(opt.id)} selected={opt.id === selectedChannelId}>{opt.name}</option>
@@ -333,31 +334,31 @@
 	{#if spacesWarning}
 		<div class="files-warning" role="status">
 			<span>{spacesWarning}</span>
-			<button type="button" class="files-retry" onclick={reloadSpaces}>Retry</button>
+			<button type="button" class="files-retry" onclick={reloadSpaces}>{$_('files_ws.retry')}</button>
 		</div>
 	{/if}
 
 	{#if !spacesLoaded}
 		<div class="files-loading">
 			<span class="spinner"></span>
-			<span>Loading spaces…</span>
+			<span>{$_('files_ws.loading_spaces')}</span>
 		</div>
 	{:else if spacesError}
 		<div class="files-empty">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" width="64" height="64">
 				<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
 			</svg>
-			<h3>Could not load spaces</h3>
+			<h3>{$_('files_ws.spaces_failed')}</h3>
 			<p>{spacesError}</p>
-			<button type="button" class="files-retry" onclick={reloadSpaces}>Retry</button>
+			<button type="button" class="files-retry" onclick={reloadSpaces}>{$_('files_ws.retry')}</button>
 		</div>
 	{:else if selectedChannelId === null}
 		<div class="files-empty">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" width="64" height="64">
 				<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
 			</svg>
-			<h3>No connected spaces yet</h3>
-			<p>Open the Code view on a lore channel and connect a space — its files will show up here.</p>
+			<h3>{$_('files_ws.no_spaces')}</h3>
+			<p>{$_('files_ws.no_spaces_hint')}</p>
 		</div>
 	{:else}
 		<div class="files-body">
@@ -365,14 +366,14 @@
 				class="files-pane"
 				class:drop-target={!isMirror}
 				role="region"
-				aria-label="File tree — drop files here to upload"
+				aria-label={$_('files_ws.tree_aria')}
 				ondragover={onDragOver}
 				ondragleave={onDragLeave}
 				ondrop={onDrop}
 			>
 				<div class="file-toolbar">
-					<span class="tree-label" title={uploadFolder ? `Uploads land in ${uploadFolder}/` : 'Uploads land at the space root'}>
-						{uploadFolder ? `…/${uploadFolder.split('/').pop()}/` : 'root'}
+					<span class="tree-label" title={uploadFolder ? $_('files_ws.uploads_in', { values: { folder: uploadFolder } }) : $_('files_ws.uploads_root')}>
+						{uploadFolder ? `…/${uploadFolder.split('/').pop()}/` : $_('files_ws.root')}
 					</span>
 					{#if searchAllSpaces}
 						<input
@@ -380,34 +381,34 @@
 							type="search"
 							bind:value={globalSearchQuery}
 							onkeydown={(event) => event.key === 'Enter' && searchAcrossSpaces()}
-							placeholder="Search across every space…"
-							aria-label="Search all spaces"
+							placeholder={$_('files_ws.search_ph')}
+							aria-label={$_('files_ws.search_aria')}
 						/>
 					{/if}
-					<label class="all-spaces-toggle"><input type="checkbox" bind:checked={searchAllSpaces} onchange={() => { if (!searchAllSpaces) void session.searchSpaces('', []); }} /> Search all spaces</label>
+					<label class="all-spaces-toggle"><input type="checkbox" bind:checked={searchAllSpaces} onchange={() => { if (!searchAllSpaces) void session.searchSpaces('', []); }} /> {$_('files_ws.search_aria')}</label>
 				</div>
 
 				{#if searchAllSpaces}
 					<div class="global-search-list">
 						{#if globalSearchLoading}
-							<div class="files-inline-loading">Searching all spaces…</div>
+							<div class="files-inline-loading">{$_('files_ws.searching_all')}</div>
 						{:else if globalSearchError}
 							<div class="files-error" role="alert">
 								<span>{globalSearchError}</span>
-								<button type="button" class="files-retry" onclick={retrySearch}>Retry</button>
+								<button type="button" class="files-retry" onclick={retrySearch}>{$_('files_ws.retry')}</button>
 							</div>
 						{:else if globalSearchWarning}
 							<div class="files-warning" role="status">
 								<span>{globalSearchWarning}</span>
-								<button type="button" class="files-retry" onclick={retrySearch}>Retry</button>
+								<button type="button" class="files-retry" onclick={retrySearch}>{$_('files_ws.retry')}</button>
 							</div>
 						{/if}
 						{#if !globalSearchLoading && !globalSearchError && globalSearchResults.length === 0}
 							<div class="files-empty-folder">
 								{#if globalSearchTouched && globalSearchQuery.trim()}
-									No matches for “{globalSearchQuery.trim()}”.
+									{$_('files_ws.no_matches', { values: { query: globalSearchQuery.trim() } })}
 								{:else}
-									Type a query and press Enter.
+									{$_('files_ws.type_query')}
 								{/if}
 							</div>
 						{:else}
@@ -424,12 +425,12 @@
 						{#if loading}
 							<div class="files-inline-loading">
 								<span class="spinner"></span>
-								<span>Loading files…</span>
+								<span>{$_('files_ws.loading_files')}</span>
 							</div>
 						{:else if loadError}
 							<div class="files-error" role="alert">
 								<span>{loadError}</span>
-								<button type="button" class="files-retry" onclick={reloadFiles}>Retry</button>
+								<button type="button" class="files-retry" onclick={reloadFiles}>{$_('files_ws.retry')}</button>
 							</div>
 						{:else}
 							<LoreFileTree
@@ -446,12 +447,12 @@
 
 				{#if uploadJobs.length > 0}
 					<div class="upload-summary" role="status">
-						<span>{uploadSummary.done} done · {uploadSummary.failed} need attention · {uploadSummary.pending} pending</span>
+						<span>{$_('files_ws.upload_summary', { values: { done: uploadSummary.done, failed: uploadSummary.failed, pending: uploadSummary.pending } })}</span>
 						{#if uploadSummary.done > 0}
-							<button type="button" class="files-retry" onclick={() => session.dismissCompleted()}>Dismiss done</button>
+							<button type="button" class="files-retry" onclick={() => session.dismissCompleted()}>{$_('files_ws.dismiss_done')}</button>
 						{/if}
 					</div>
-					<ul class="upload-jobs" aria-label="Upload progress">
+					<ul class="upload-jobs" aria-label={$_('files_ws.upload_progress')}>
 						{#each uploadJobs as job (job.id)}
 							<li class="upload-job {job.status}" title={job.dest}>
 								<span class="upload-job-name">{job.name}</span>
@@ -462,10 +463,10 @@
 									<span class="upload-job-error">{job.error}</span>
 								{/if}
 								{#if job.status === 'error' || job.status === 'conflict' || job.status === 'cancelled'}
-									<button type="button" class="files-retry" onclick={() => retryUpload(job.id)}>Retry</button>
+									<button type="button" class="files-retry" onclick={() => retryUpload(job.id)}>{$_('files_ws.retry')}</button>
 								{/if}
 								{#if job.status !== 'pending' && job.status !== 'uploading'}
-									<button type="button" class="files-retry" onclick={() => dismissUpload(job.id)}>Dismiss</button>
+									<button type="button" class="files-retry" onclick={() => dismissUpload(job.id)}>{$_('files_ws.dismiss')}</button>
 								{/if}
 							</li>
 						{/each}
@@ -479,7 +480,7 @@
 							<polyline points="17 8 12 3 7 8"/>
 							<line x1="12" y1="3" x2="12" y2="15"/>
 						</svg>
-						<span>Drop to upload{uploadFolder ? ` to ${uploadFolder}/` : ''}</span>
+						<span>{uploadFolder ? $_('files_ws.drop_to_folder', { values: { folder: uploadFolder } }) : $_('files_ws.drop_to_root')}</span>
 					</div>
 				{/if}
 			</div>
@@ -489,29 +490,29 @@
 					{#if previewLoading}
 						<div class="preview-header">
 							<span class="preview-name" title={previewPath}>{previewName}</span>
-							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+							<button class="preview-close" onclick={clearPreview} aria-label={$_('lore_channel.close_preview')}>×</button>
 						</div>
 						<div class="preview-content">
 							<div class="files-inline-loading">
 								<span class="spinner"></span>
-								<span>Loading preview…</span>
+								<span>{$_('files_ws.loading_preview')}</span>
 							</div>
 						</div>
 					{:else if previewError && previewKind === 'other' && !previewUrl && !previewText}
 						<div class="preview-header">
 							<span class="preview-name" title={previewPath}>{previewName}</span>
-							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+							<button class="preview-close" onclick={clearPreview} aria-label={$_('lore_channel.close_preview')}>×</button>
 						</div>
 						<div class="preview-content">
 							<div class="files-error" role="alert">
 								<span>{previewError}</span>
-								<button type="button" class="files-retry" onclick={() => previewPath && openPreview(previewPath)}>Retry</button>
+								<button type="button" class="files-retry" onclick={() => previewPath && openPreview(previewPath)}>{$_('files_ws.retry')}</button>
 							</div>
 						</div>
 					{:else if previewKind === 'image' && previewUrl}
 						<div class="preview-header">
 							<span class="preview-name" title={previewPath}>{previewName}</span>
-							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+							<button class="preview-close" onclick={clearPreview} aria-label={$_('lore_channel.close_preview')}>×</button>
 						</div>
 						<div class="preview-content">
 							<img class="preview-image" src={previewUrl} alt={previewName} />
@@ -530,7 +531,7 @@
 					{:else}
 						<div class="preview-header">
 							<span class="preview-name" title={previewPath}>{previewName}</span>
-							<button class="preview-close" onclick={clearPreview} aria-label="Close preview">×</button>
+							<button class="preview-close" onclick={clearPreview} aria-label={$_('lore_channel.close_preview')}>×</button>
 						</div>
 						<div class="preview-content">
 							<div class="preview-other">
@@ -538,8 +539,8 @@
 									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
 									<polyline points="14 2 14 8 20 8"/>
 								</svg>
-								<span>No inline preview for this file.</span>
-								<button class="preview-download" onclick={() => previewPath && downloadFile(previewPath)}>Download</button>
+								<span>{$_('files_ws.no_inline_preview')}</span>
+								<button class="preview-download" onclick={() => previewPath && downloadFile(previewPath)}>{$_('lore_channel.download')}</button>
 							</div>
 						</div>
 					{/if}
@@ -549,7 +550,7 @@
 							<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
 							<polyline points="14 2 14 8 20 8"/>
 						</svg>
-						<span>Select a file to preview</span>
+						<span>{$_('files_ws.select_preview')}</span>
 					</div>
 				{/if}
 			</aside>

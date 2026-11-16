@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { FloatingPanelState, Rect, SnapZone } from '$lib/windowing/types';
 	import { getSnapRect, getSnapZone } from '$lib/windowing/snapMath';
 	import { floatingPanelStore, getViewportRect } from '$lib/windowing/floatingPanelStore';
@@ -106,7 +107,7 @@
 	<header
 		class="floating-panel-header"
 		role="toolbar"
-		aria-label={`${panel.title} window controls`}
+		aria-label={$_('floating_panel.controls', { values: { title: panel.title } })}
 		tabindex="0"
 		on:pointerdown={startDrag}
 	>
@@ -116,17 +117,17 @@
 		</div>
 		<div class="floating-panel-actions">
 			{#if panel.mode !== 'floating'}
-				<button type="button" class="floating-panel-action" on:click={() => floatingPanelStore.restoreFloatingPanel(panel.id)} title="Restore floating panel">□</button>
+				<button type="button" class="floating-panel-action" on:click={() => floatingPanelStore.restoreFloatingPanel(panel.id)} title={$_('floating_panel.restore')}>□</button>
 			{/if}
-			<button type="button" class="floating-panel-action" on:click={() => floatingPanelStore.closeFloatingPanel(panel.id)} title="Close panel">×</button>
+			<button type="button" class="floating-panel-action" on:click={() => floatingPanelStore.closeFloatingPanel(panel.id)} title={$_('floating_panel.close')}>×</button>
 		</div>
 	</header>
 	<section class="floating-panel-body">
 		<slot />
 	</section>
 	{#if panel.mode === 'floating'}
-		<button type="button" aria-label="Resize panel horizontally" class="floating-panel-resize floating-panel-resize-right" on:pointerdown={(event) => startResize(event, 'right')}></button>
-		<button type="button" aria-label="Resize panel vertically" class="floating-panel-resize floating-panel-resize-bottom" on:pointerdown={(event) => startResize(event, 'bottom')}></button>
-		<button type="button" aria-label="Resize panel" class="floating-panel-resize floating-panel-resize-corner" on:pointerdown={(event) => startResize(event, 'corner')}></button>
+		<button type="button" aria-label={$_('floating_panel.resize_h')} class="floating-panel-resize floating-panel-resize-right" on:pointerdown={(event) => startResize(event, 'right')}></button>
+		<button type="button" aria-label={$_('floating_panel.resize_v')} class="floating-panel-resize floating-panel-resize-bottom" on:pointerdown={(event) => startResize(event, 'bottom')}></button>
+		<button type="button" aria-label={$_('floating_panel.resize')} class="floating-panel-resize floating-panel-resize-corner" on:pointerdown={(event) => startResize(event, 'corner')}></button>
 	{/if}
 </div>

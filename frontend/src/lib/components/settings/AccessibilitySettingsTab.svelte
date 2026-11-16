@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import {
 		getStoredAccessibilitySettings,
 		updateAccessibilitySettings,
@@ -29,10 +30,10 @@
 	let roleColorMode: RoleColorMode = stored.roleColorMode;
 
 	const presetOptions: Array<{ value: AnimationPassPreset; label: string }> = [
-		{ value: 'slip', label: 'Slip' },
-		{ value: 'fade', label: 'Fade' },
-		{ value: 'scale', label: 'Scale' },
-		{ value: 'flip', label: 'Flip' }
+		{ value: 'slip', label: $_('a11y.preset_slip') },
+		{ value: 'fade', label: $_('a11y.preset_fade') },
+		{ value: 'scale', label: $_('a11y.preset_scale') },
+		{ value: 'flip', label: $_('a11y.preset_flip') }
 	];
 
 	$: textSizes = textSizeOptions(interfaceScale, ACCESSIBILITY_TEXT_SIZES);
@@ -120,12 +121,12 @@
 
 <!-- Reading and color -->
 <section class="settings-block" aria-labelledby="a11y-seeing-title">
-	<h3 class="settings-block__title" id="a11y-seeing-title">Seeing</h3>
+	<h3 class="settings-block__title" id="a11y-seeing-title">{$_('a11y.seeing')}</h3>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="a11y-text-size">Text size</p>
-				<p class="w-srow__hint">Scales every word and control in Wabi. The same setting as on Appearance, with a larger step.</p>
+				<p class="w-srow__label" id="a11y-text-size">{$_('a11y.text_size')}</p>
+				<p class="w-srow__hint">{$_('a11y.text_size_desc')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented labelledby="a11y-text-size" options={textSizes} value={textSize} onchange={updateTextSize} />
@@ -133,8 +134,8 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="a11y-color-assist">Color assist</p>
-				<p class="w-srow__hint">Adjusts saturation and contrast across the whole app on this device.</p>
+				<p class="w-srow__label" id="a11y-color-assist">{$_('a11y.color_assist')}</p>
+				<p class="w-srow__hint">{$_('a11y.color_assist_desc')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Switch labelledby="a11y-color-assist" checked={colorAssistEnabled} onchange={setColorAssist} />
@@ -143,7 +144,7 @@
 		{#if colorAssistEnabled}
 			<div class="w-srow settings-srow--sub">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="a11y-saturation">Saturation</p>
+					<p class="w-srow__label" id="a11y-saturation">{$_('a11y.saturation')}</p>
 					<p class="w-srow__hint">{percent(saturation)}</p>
 				</div>
 				<div class="w-srow__control">
@@ -163,7 +164,7 @@
 			</div>
 			<div class="w-srow settings-srow--sub">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="a11y-contrast">Contrast</p>
+					<p class="w-srow__label" id="a11y-contrast">{$_('a11y.contrast')}</p>
 					<p class="w-srow__hint">{percent(contrast)}</p>
 				</div>
 				<div class="w-srow__control">
@@ -184,13 +185,13 @@
 		{/if}
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="a11y-name-colors">Name colors</p>
-				<p class="w-srow__hint">How role colors show on people's names.</p>
+				<p class="w-srow__label" id="a11y-name-colors">{$_('a11y.name_colors')}</p>
+				<p class="w-srow__hint">{$_('a11y.name_colors_desc')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="a11y-name-colors"
-					options={[{ value: 'full', label: 'Colored name' }, { value: 'dot', label: 'Dot only' }, { value: 'off', label: 'Off' }]}
+					options={[{ value: 'full', label: $_('a11y.name_colored') }, { value: 'dot', label: $_('a11y.name_dot') }, { value: 'off', label: $_('a11y.off') }]}
 					value={roleColorMode}
 					onchange={(value) => updateRoleColorMode(value as RoleColorMode)}
 				/>
@@ -201,13 +202,13 @@
 
 <!-- Motion -->
 <section class="settings-block" aria-labelledby="a11y-motion-title">
-	<h3 class="settings-block__title" id="a11y-motion-title">Motion</h3>
+	<h3 class="settings-block__title" id="a11y-motion-title">{$_('a11y.motion')}</h3>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="a11y-reduce-motion">Reduce motion</p>
+				<p class="w-srow__label" id="a11y-reduce-motion">{$_('a11y.reduce_motion')}</p>
 				<p class="w-srow__hint">
-					Panels and menus appear without sliding, and animated scenes hold still.{$profileOsReducedMotion ? ' Your system setting asks for less motion, so this stays on until you change it there.' : ''}
+					{$_('a11y.reduce_motion_desc')}{$profileOsReducedMotion ? $_('a11y.os_reduce') : ''}
 				</p>
 			</div>
 			<div class="w-srow__control">
@@ -221,9 +222,9 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="a11y-motion-polish">Motion polish</p>
+				<p class="w-srow__label" id="a11y-motion-polish">{$_('a11y.motion_polish')}</p>
 				<p class="w-srow__hint">
-					{#if motionReduced}Off while motion is reduced.{:else}Short movements when channels, messages and pop-outs appear.{/if}
+					{#if motionReduced}{$_('a11y.polish_off')}{:else}{$_('a11y.polish_on')}{/if}
 				</p>
 			</div>
 			<div class="w-srow__control">
@@ -233,22 +234,22 @@
 		{#if motionPolishAvailable}
 			<div class="w-srow settings-srow--sub">
 				<div class="w-srow__text">
-					<p class="w-srow__label">Style</p>
-					<p class="w-srow__hint">How things enter.</p>
+					<p class="w-srow__label">{$_('a11y.style')}</p>
+					<p class="w-srow__hint">{$_('a11y.style_desc')}</p>
 				</div>
 				<div class="w-srow__control">
-					<Select ariaLabel="Motion style" align="end" options={presetOptions} value={animationPassPreset} onchange={updateAnimationPreset} />
+					<Select ariaLabel={$_('a11y.motion_style')} align="end" options={presetOptions} value={animationPassPreset} onchange={updateAnimationPreset} />
 				</div>
 			</div>
 			<div class="w-srow settings-srow--sub">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="a11y-motion-detail">Detail</p>
-					<p class="w-srow__hint">Full moves a little further.</p>
+					<p class="w-srow__label" id="a11y-motion-detail">{$_('a11y.detail')}</p>
+					<p class="w-srow__hint">{$_('a11y.detail_desc')}</p>
 				</div>
 				<div class="w-srow__control">
 					<Segmented
 						labelledby="a11y-motion-detail"
-						options={[{ value: 'balanced', label: 'Balanced' }, { value: 'full', label: 'Full' }]}
+						options={[{ value: 'balanced', label: $_('a11y.balanced') }, { value: 'full', label: $_('a11y.full') }]}
 						value={animationPassLevel}
 						onchange={(value) => updateAnimationLevel(value as AnimationPassLevel)}
 					/>
@@ -256,8 +257,8 @@
 			</div>
 			<div class="w-srow settings-srow--sub">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="a11y-motion-speed">Duration</p>
-					<p class="w-srow__hint">{percent(animationPassDurationMultiplier)} of the usual time</p>
+					<p class="w-srow__label" id="a11y-motion-speed">{$_('a11y.duration')}</p>
+					<p class="w-srow__hint">{$_('a11y.of_usual', { values: { value: percent(animationPassDurationMultiplier) } })}</p>
 				</div>
 				<div class="w-srow__control">
 					<input
@@ -269,7 +270,7 @@
 						value={animationPassDurationMultiplier}
 						style={fill(animationPassDurationMultiplier, 0.7, 1.6)}
 						aria-labelledby="a11y-motion-speed"
-						aria-valuetext="{percent(animationPassDurationMultiplier)} of the usual time"
+						aria-valuetext={$_('a11y.of_usual', { values: { value: percent(animationPassDurationMultiplier) } })}
 						on:input={(event) => updateAnimationDurationMultiplier(parseFloat(event.currentTarget.value))}
 					/>
 				</div>
@@ -282,11 +283,11 @@
 <section class="settings-block settings-block--foot" aria-labelledby="a11y-reset-title">
 	<div class="w-srow">
 		<div class="w-srow__text">
-			<p class="w-srow__label" id="a11y-reset-title">Reset accessibility</p>
-			<p class="w-srow__hint">Text size, color assist, name colors and motion go back to their defaults.</p>
+			<p class="w-srow__label" id="a11y-reset-title">{$_('a11y.reset_title')}</p>
+			<p class="w-srow__hint">{$_('a11y.reset_desc')}</p>
 		</div>
 		<div class="w-srow__control">
-			<button type="button" class="w-btn" on:click={resetAccessibilityVisuals}>Reset</button>
+			<button type="button" class="w-btn" on:click={resetAccessibilityVisuals}>{$_('a11y.reset')}</button>
 		</div>
 	</div>
 </section>

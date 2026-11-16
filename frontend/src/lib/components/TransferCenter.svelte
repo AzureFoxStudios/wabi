@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import {
 		activeTransfers,
@@ -87,13 +88,13 @@
 	/** Trusted senders by name; an id with no known person stays readable instead of a raw id. */
 	function trustedName(id: string): string {
 		const person = [...$serverMembers, ...$users].find((user) => String(user.dbUserId ?? '') === id || user.id === id || user.username === id);
-		return person?.username || 'Someone not on this server';
+		return person?.username || $_('transfer_center.someone');
 	}
 </script>
 
 <div class="transfer-center">
 	<div class="tc-header">
-		<span class="tc-title">Transfers</span>
+		<span class="tc-title">{$_('transfer_center.title')}</span>
 		{#if badgeCount > 0}
 			<span class="tc-badge">{badgeCount > 99 ? '99+' : badgeCount}</span>
 		{/if}
@@ -107,7 +108,7 @@
 			class:active={activeTab === 'incoming'}
 			on:click={() => (activeTab = 'incoming')}
 		>
-			Incoming
+			{$_('transfer_center.incoming')}
 			{#if incomingCount > 0}<span class="tab-badge">{incomingCount}</span>{/if}
 		</button>
 		<button
@@ -117,7 +118,7 @@
 			class:active={activeTab === 'active'}
 			on:click={() => (activeTab = 'active')}
 		>
-			Active
+			{$_('transfer_center.active')}
 			{#if activeCount > 0}<span class="tab-badge">{activeCount}</span>{/if}
 		</button>
 		<button
@@ -127,7 +128,7 @@
 			class:active={activeTab === 'outgoing'}
 			on:click={() => (activeTab = 'outgoing')}
 		>
-			Outgoing
+			{$_('transfer_center.outgoing')}
 		</button>
 		<button
 			type="button"
@@ -136,7 +137,7 @@
 			class:active={activeTab === 'history'}
 			on:click={() => (activeTab = 'history')}
 		>
-			History
+			{$_('transfer_center.history')}
 		</button>
 		<button
 			type="button"
@@ -144,7 +145,7 @@
 			aria-selected={activeTab === 'settings'}
 			class:active={activeTab === 'settings'}
 			on:click={() => (activeTab = 'settings')}
-			title="Transfer settings"
+			title={$_('transfer_center.settings_title')}
 		>
 			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 				<circle cx="12" cy="12" r="3"></circle>
@@ -156,7 +157,7 @@
 	<div class="tc-content">
 		{#if activeTab === 'incoming'}
 			{#if incoming.length === 0}
-				<div class="tc-empty">No incoming file offers.</div>
+				<div class="tc-empty">{$_('transfer_center.no_offers')}</div>
 			{:else}
 				{#each incoming as offer (offer.transferId)}
 					<div class="tc-offer-card">
@@ -169,12 +170,12 @@
 							</span>
 							<div class="offer-details">
 								<strong class="offer-filename">{offer.fileName}</strong>
-								<span class="offer-meta">{formatBytes(offer.fileSize)} &middot; from {offer.senderUsername}</span>
+								<span class="offer-meta">{formatBytes(offer.fileSize)} &middot; {$_('transfer_center.from', { values: { name: offer.senderUsername } })}</span>
 							</div>
 						</div>
 						<div class="offer-actions">
-							<button type="button" class="btn-accept" on:click={() => handleAccept(offer)} title="Accept and download">Download</button>
-							<button type="button" class="btn-reject" on:click={() => handleReject(offer)} title="Decline offer">Reject</button>
+							<button type="button" class="btn-accept" on:click={() => handleAccept(offer)} title={$_('transfer_center.accept_title')}>{$_('transfer_center.download')}</button>
+							<button type="button" class="btn-reject" on:click={() => handleReject(offer)} title={$_('transfer_center.decline_title')}>{$_('transfer_center.reject')}</button>
 						</div>
 					</div>
 				{/each}
@@ -182,7 +183,7 @@
 
 		{:else if activeTab === 'active'}
 			{#if activeQueue.length === 0}
-				<div class="tc-empty">No active incoming transfers.</div>
+				<div class="tc-empty">{$_('transfer_center.no_active')}</div>
 			{:else}
 				{#each activeQueue as transfer (transfer.id)}
 					<TransferCard {transfer} on:cancel={() => handleCancel(transfer.id)} on:pause={() => handlePause(transfer.id)} on:resume={() => handleResume(transfer.id)} on:restart={() => handleRestart(transfer.id)} />
@@ -191,7 +192,7 @@
 
 		{:else if activeTab === 'outgoing'}
 			{#if outgoing.length === 0}
-				<div class="tc-empty">No outgoing transfers.</div>
+				<div class="tc-empty">{$_('transfer_center.no_outgoing')}</div>
 			{:else}
 				{#each outgoing as transfer (transfer.id)}
 					<TransferCard {transfer} on:cancel={() => handleCancel(transfer.id)} on:pause={() => handlePause(transfer.id)} on:resume={() => handleResume(transfer.id)} on:restart={() => handleRestart(transfer.id)} />
@@ -200,7 +201,7 @@
 
 		{:else if activeTab === 'history'}
 			{#if history.length === 0}
-				<div class="tc-empty">No transfer history.</div>
+				<div class="tc-empty">{$_('transfer_center.no_history')}</div>
 			{:else}
 				{#each history as entry (entry.transfer.id + entry.completedAt)}
 					<TransferCard transfer={entry.transfer} on:restart={() => handleRestart(entry.transfer.id)} />
@@ -209,34 +210,34 @@
 
 		{:else if activeTab === 'settings'}
 			<div class="tc-settings">
-				<h3 class="settings-heading">Transfer Settings</h3>
-				<p class="settings-note">Saved on this device · not shared</p>
+				<h3 class="settings-heading">{$_('transfer_center.settings_heading')}</h3>
+				<p class="settings-note">{$_('transfer_center.settings_note')}</p>
 
 				<label class="setting-row">
-					<span>Ask before accepting files</span>
+					<span>{$_('transfer_center.ask_before')}</span>
 					<input type="checkbox" checked={settings.askEveryTime} on:change={(e) => handleSettingsChange('askEveryTime', e.currentTarget.checked)} />
 				</label>
 
 				<label class="setting-row">
-					<span>Auto-accept from trusted users</span>
+					<span>{$_('transfer_center.auto_trusted')}</span>
 					<input type="checkbox" checked={settings.autoAcceptTrusted} on:change={(e) => handleSettingsChange('autoAcceptTrusted', e.currentTarget.checked)} />
 				</label>
 
 				<label class="setting-row">
-					<span>Max simultaneous downloads</span>
+					<span>{$_('transfer_center.max_downloads')}</span>
 					<input type="number" min="1" max="10" value={settings.maxSimultaneousDownloads} on:change={(e) => handleSettingsChange('maxSimultaneousDownloads', Math.max(1, Math.min(10, parseInt(e.currentTarget.value) || 1)))} />
 				</label>
 
 				<label class="setting-row">
-					<span>Max simultaneous uploads</span>
+					<span>{$_('transfer_center.max_uploads')}</span>
 					<input type="number" min="1" max="10" value={settings.maxSimultaneousUploads} on:change={(e) => handleSettingsChange('maxSimultaneousUploads', Math.max(1, Math.min(10, parseInt(e.currentTarget.value) || 1)))} />
 				</label>
 
 				<details class="settings-details">
-					<summary>Trusted people (accepted without asking)</summary>
+					<summary>{$_('transfer_center.trusted_title')}</summary>
 					<div class="trusted-list">
 						{#if settings.autoAcceptUsers.length === 0}
-							<span class="trusted-empty">No one yet. Files from people you add here are accepted without asking.</span>
+							<span class="trusted-empty">{$_('transfer_center.trusted_empty')}</span>
 						{:else}
 							{#each settings.autoAcceptUsers as userId}
 								<span class="trusted-user" title={userId}>{trustedName(userId)}</span>

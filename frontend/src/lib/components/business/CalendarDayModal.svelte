@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { selectedDate } from '$lib/business/store';
 	import type { CalendarEvent, Todo } from '$lib/business/types';
 	import PlannerAvatar from './PlannerAvatar.svelte';
@@ -59,7 +60,7 @@
 		<div class="day-detail-content">
 			{#if selectedDayEvents.length > 0}
 				<div class="detail-section">
-					<h4>Events</h4>
+					<h4>{$_('day_modal.events')}</h4>
 					<ul class="event-list">
 						{#each selectedDayEvents as event}
 							<li>
@@ -69,16 +70,16 @@
 										<span class="event-title">{event.title}</span>
 										<div class="event-meta">
 											{#if event.allDay}
-												<span class="event-time">All day</span>
+												<span class="event-time">{$_('day_modal.all_day')}</span>
 											{:else}
 												<span class="event-time">{formatTime(event.startDate)}</span>
 											{/if}
 											{#if (event.signatures?.length ?? 0) > 0}
-												<span class="signature" title="Signed off by {event.signatures!.map((s) => s.name).join(', ')}">
+												<span class="signature" title={$_('day_modal.signed_off', { values: { names: event.signatures!.map((s) => s.name).join(', ') } })}>
 													✍ {event.signatures!.map((s) => s.name).join(', ')}
 												</span>
 											{:else if event.signedBy}
-												<span class="signature" title="Signed by {event.signedBy}">
+												<span class="signature" title={$_('day_modal.signed_by', { values: { name: event.signedBy } })}>
 													✍ {event.signedBy}
 												</span>
 											{/if}
@@ -93,7 +94,7 @@
 
 			{#if modalDayTasks.length > 0}
 				<div class="detail-section">
-					<h4>Tasks Due</h4>
+					<h4>{$_('day_modal.tasks_due')}</h4>
 					<ul class="event-list">
 						{#each modalDayTasks as task}
 							<li>
@@ -104,7 +105,7 @@
 										<div class="event-meta">
 											<span class="event-time priority-{task.priority}">{task.priority}</span>
 											{#if task.assignedTo && taskAssigneeId(task)}
-												<span class="task-assignee" title={`Assigned to ${getPlannerUserName($plannerUserById, taskAssigneeId(task))}`}>
+												<span class="task-assignee" title={$_('day_modal.assigned_to', { values: { name: getPlannerUserName($plannerUserById, taskAssigneeId(task)) } })}>
 													<PlannerAvatar
 														name={getPlannerUserName($plannerUserById, taskAssigneeId(task))}
 														color={getPlannerUserColor($plannerUserById, taskAssigneeId(task))}
@@ -116,7 +117,7 @@
 											{/if}
 										</div>
 									</div>
-									<span class="task-check" title="Mark complete">&#10003;</span>
+									<span class="task-check" title={$_('day_modal.mark_complete')}>&#10003;</span>
 								</button>
 							</li>
 						{/each}
@@ -125,11 +126,11 @@
 			{/if}
 
 			{#if selectedDayEvents.length === 0 && modalDayTasks.length === 0}
-				<p class="empty-message">No events or tasks scheduled</p>
+				<p class="empty-message">{$_('day_modal.no_items')}</p>
 			{/if}
 
-			<button class="add-event-btn" on:click={() => { closeModal(); openAddModal(new Date($selectedDate)); }} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add event for this day'}>
-				+ Add Event
+			<button class="add-event-btn" on:click={() => { closeModal(); openAddModal(new Date($selectedDate)); }} disabled={isReadOnly} title={isReadOnly ? $_('sprint_modal.read_only_mode') : $_('day_modal.add_event_day')}>
+				+ {$_('day_modal.add_event')}
 			</button>
 		</div>
 	</div>

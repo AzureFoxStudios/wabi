@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import BaseModal from '../components/BaseModal.svelte';
 	import { brandName } from '$lib/branding';
 	import PaymentIntentCard from './PaymentIntentCard.svelte';
@@ -147,16 +148,16 @@
 		);
 	});
 	const sheetTitle = $derived(
-		isThaiQrIntent ? 'PromptPay QR' : 'New Payment Request'
+		isThaiQrIntent ? 'PromptPay QR' : $_('payment_sheet.new_request')
 	);
 	const sheetIntro = $derived.by(() => {
 		if (isThaiPromptPayDraft) {
 			return isServerDonationDraft
-				? `Enter the amount. ${brandName} will build a PromptPay donation QR for this server.`
-				: `Enter the amount. ${brandName} will build a PromptPay QR from your saved PromptPay number.`;
+				? $_('payment_sheet.intro_donation', { values: { brand: brandName } })
+				: $_('payment_sheet.intro_saved', { values: { brand: brandName } });
 		}
-		if (isThaiQrIntent) return 'Share or save the QR, then wait for confirmation.';
-		return `Create a non-custodial payment request. ${brandName} does not store cards or bank credentials and does not move the money itself.`;
+		if (isThaiQrIntent) return $_('payment_sheet.qr_intro');
+		return $_('payment_sheet.intro_default', { values: { brand: brandName } });
 	});
 	const targetHeaderLabel = $derived.by(() => {
 		const target = String(defaultTargetLabel || '').trim();
@@ -165,45 +166,45 @@
 		return '';
 	});
 	const createButtonLabel = $derived.by(() => {
-		if (creatingIntent) return isThaiPromptPayDraft ? 'Creating QR...' : 'Creating...';
-		return isThaiPromptPayDraft ? 'Create QR' : 'Create payment request';
+		if (creatingIntent) return isThaiPromptPayDraft ? $_('payment_sheet.creating_qr') : $_('payment_sheet.creating');
+		return isThaiPromptPayDraft ? $_('payment_sheet.create_qr') : $_('payment_sheet.create_request');
 	});
 	const draftMethodBehaviorNote = $derived.by(() => {
 		if (!selectedProvider || !selectedMethod) return null;
 		if (selectedProvider.pluginId === 'promptpay' && selectedMethod.id === 'promptpay_qr') {
 			if (isServerDonationDraft) {
-				return `PromptPay QR creates a donation request using the server donation PromptPay number. ${brandName} does not mark it paid just because the app returned.`;
+				return $_('payment_sheet.qr_donation_note', { values: { brand: brandName } });
 			}
-			return `PromptPay QR creates a payment request using your saved PromptPay number or a one-off PromptPay number. ${brandName} does not mark it paid just because the app returned.`;
+			return $_('payment_sheet.qr_request_note', { values: { brand: brandName } });
 		}
 		return null;
 	});
 	const qrExternalConfirmationHint = $derived.by(() => {
 		const pluginId = activeIntent?.pluginId || '';
 		if (pluginId === 'payments-crypto') {
-			return `Scanning this QR opens the payer's crypto wallet. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
+			return $_('payment_sheet.scan_crypto', { values: { brand: brandName } });
 		}
 		if (pluginId === 'payments-eu') {
-			return `Scanning this QR opens the payer's EU banking app for a SEPA Instant transfer. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
+			return $_('payment_sheet.scan_eu', { values: { brand: brandName } });
 		}
-		return `Scanning this QR opens the payer's banking app. ${brandName} keeps the request pending until it gets real confirmation or the request expires.`;
+		return $_('payment_sheet.scan_bank', { values: { brand: brandName } });
 	});
 </script>
 
 <BaseModal {isOpen} onClose={onClose} width="680px" {overlayZIndex} title={sheetTitle} subtitle={sheetIntro} headerTag={targetHeaderLabel}>
 	<div class="sheet-body">
 		{#if loadingProviders}
-			<p class="hint">Loading payment providers...</p>
+			<p class="hint">{$_('payment_sheet.loading')}</p>
 		{/if}
 		{#if providersError}
 			<p class="error">{providersError}</p>
 		{/if}
 		{#if accessStatus && !accessStatus.canCreate}
-			<p class="error">{accessStatus.reason || 'Your account cannot create payments on this server.'}</p>
+			<p class="error">{accessStatus.reason || $_('payment_sheet.cannot_create')}</p>
 		{/if}
 		{#if !loadingProviders && providersLoaded && providers.length === 0}
 			<p class="hint">
-				No payment rails are enabled on this server yet.
+				{$_('payment_sheet.no_rails')}
 			</p>
 		{/if}
 
@@ -239,37 +240,37 @@
 			{isThaiPromptPayDraft}
 			bind:showCustomCustomerRef
 			bind:customerRef
-			directReferenceTitle={isThaiPromptPayDraft ? 'PromptPay number' : 'Payment reference'}
-			directReferencePlaceholder={isThaiPromptPayDraft ? 'Thai mobile number or PromptPay ID' : 'Payment reference'}
+			directReferenceTitle={isThaiPromptPayDraft ? $_('payment_sheet.reference_title') : $_('payment_sheet.reference')}
+			directReferencePlaceholder={isThaiPromptPayDraft ? $_('payment_sheet.reference_ph') : $_('payment_sheet.reference')}
 			{onManageConnections}
 		/>
 
 		{#if isThaiPromptPayDraft && !isServerDonationDraft}
 			<p class="hint privacy-note">
-				Privacy: the payer's banking app will show your PromptPay-registered name when they scan. {brandName} itself never sees the payment.
+				{$_('payment_sheet.privacy_note', { values: { brand: brandName } })}
 			</p>
 		{/if}
 
 		<label class="checkbox-row">
 			<input type="checkbox" bind:checked={showOptionalNote} />
-			<span>{isThaiPromptPayDraft ? 'Add a private note to this request' : 'Add a note'}</span>
+			<span>{isThaiPromptPayDraft ? $_('payment_sheet.note_private') : $_('payment_sheet.note')}</span>
 		</label>
 
 		{#if showOptionalNote}
 			<label class="wide-field">
-				<span>Note</span>
-				<input type="text" bind:value={description} maxlength="200" placeholder="Optional" />
+				<span>{$_('payment_sheet.note_label')}</span>
+				<input type="text" bind:value={description} maxlength="200" placeholder={$_('payment_sheet.optional')} />
 			</label>
 		{/if}
 
 		{#if missingRequiredThaiPromptPayReference}
 			<p class="hint emphasis">
-				Thai PromptPay requests need your own PromptPay number before {brandName} can build the QR. Save it in Saved Payment References or enter it as a one-off number.
+				{$_('payment_sheet.thai_ref_needed', { values: { brand: brandName } })}
 			</p>
 		{/if}
 
 		<div class="actions">
-			<button class="action" onclick={() => onLoadProviders?.()} disabled={loadingProviders}>Refresh providers</button>
+			<button class="action" onclick={() => onLoadProviders?.()} disabled={loadingProviders}>{$_('payment_sheet.refresh_providers')}</button>
 			<button
 				class="action primary"
 				onclick={() => onCreateIntent?.()}

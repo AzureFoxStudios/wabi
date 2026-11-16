@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
 	import { channels } from '$lib/socket';
@@ -15,13 +16,13 @@
 
 	async function request(path: string, init: RequestInit = {}, server = $activeServerUrl) {
 		const token = getAuthToken(server);
-		if (!token) throw new Error('Sign in again to manage community roles.');
+		if (!token) throw new Error($_('community_roles.sign_in_again'));
 		const response = await fetch(`${server}/api/server-center${path}`, {
 			...init, credentials: 'include',
 			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
 		});
 		const body = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(body.error || `Community roles request failed (${response.status}).`);
+		if (!response.ok) throw new Error(body.error || $_('community_roles.request_failed', { values: { status: response.status } }));
 		return body;
 	}
 
@@ -34,7 +35,7 @@
 			channelRoles = data.channelRoles ?? {};
 			revision = data.revision ?? 0;
 		} catch (cause) {
-			if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : 'Could not load community roles.';
+			if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : $_('community_roles.load_failed');
 		} finally { if (server === $activeServerUrl) loading = false; }
 	}
 
@@ -65,9 +66,9 @@
 			}) }, server);
 			if (server !== $activeServerUrl) return;
 			revision = data.revision;
-			saved = 'Community roles saved. Members can choose these roles in Welcome.';
+			saved = $_('community_roles.saved');
 		} catch (cause) {
-			if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : 'Could not save community roles.';
+			if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : $_('community_roles.save_failed');
 		} finally { if (server === $activeServerUrl) saving = false; }
 	}
 
@@ -75,35 +76,35 @@
 </script>
 
 <details class="community-roles" open>
-	<summary><strong>Newcomer roles and rooms</strong><span>Members choose these roles themselves in Welcome.</span></summary>
-	<p>Describe each community role, then choose which rooms it opens. Staff roles remain separate and can only be assigned by staff. Linked room names and descriptions appear in Welcome to signed-in members before they choose a role.</p>
+	<summary><strong>{$_('community_roles.summary_title')}</strong><span>{$_('community_roles.summary_hint')}</span></summary>
+	<p>{$_('community_roles.description')}</p>
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 	{#if saved}<p role="status">{saved}</p>{/if}
-	{#if loading}<p>Loading newcomer roles…</p>{:else}
+	{#if loading}<p>{$_('community_roles.loading')}</p>{:else}
 		<div class="role-list">
 			{#each roles as role (role.id)}
 				<div class="role-row">
-					<label>Role name<input maxlength="40" value={role.name} oninput={event => updateRole(role.id, 'name', event.currentTarget.value)} placeholder="e.g. Makers" /></label>
-					<label>What this role is for<input maxlength="240" value={role.description} oninput={event => updateRole(role.id, 'description', event.currentTarget.value)} placeholder="e.g. Build and share projects" /></label>
-					<button type="button" onclick={() => removeRole(role.id)} aria-label={`Remove ${role.name || 'new role'}`}>Remove</button>
+					<label>{$_('community_roles.role_name')}<input maxlength="40" value={role.name} oninput={event => updateRole(role.id, 'name', event.currentTarget.value)} placeholder={$_('community_roles.role_name_ph')} /></label>
+					<label>{$_('community_roles.role_for')}<input maxlength="240" value={role.description} oninput={event => updateRole(role.id, 'description', event.currentTarget.value)} placeholder={$_('community_roles.role_for_ph')} /></label>
+					<button type="button" onclick={() => removeRole(role.id)} aria-label={$_('community_roles.remove', { values: { name: role.name || $_('community_roles.new_role') } })}>{$_('community_roles.remove_btn')}</button>
 				</div>
 			{/each}
-			<button type="button" onclick={addRole} disabled={roles.length >= 16}>Add community role</button>
+			<button type="button" onclick={addRole} disabled={roles.length >= 16}>{$_('community_roles.add_role')}</button>
 		</div>
 		{#if roles.length}
-			<h3>Rooms opened by a role</h3>
+			<h3>{$_('community_roles.rooms_heading')}</h3>
 			<div class="room-list">
 				{#each rooms as room (room.id)}
 					<label><span>#{room.name}{#if room.description}<small>{room.description}</small>{/if}</span>
-						<select aria-label={`Community role for ${room.name}`} value={channelRoles[room.id] ?? ''} onchange={event => { channelRoles = { ...channelRoles, [room.id]: event.currentTarget.value }; saved = ''; }}>
-							<option value="">No newcomer role required</option>
-							{#each roles as role (role.id)}<option value={role.id}>{role.name || 'Unnamed role'}</option>{/each}
+						<select aria-label={$_('community_roles.room_role_label', { values: { name: room.name } })} value={channelRoles[room.id] ?? ''} onchange={event => { channelRoles = { ...channelRoles, [room.id]: event.currentTarget.value }; saved = ''; }}>
+							<option value="">{$_('community_roles.no_role_required')}</option>
+							{#each roles as role (role.id)}<option value={role.id}>{role.name || $_('community_roles.unnamed')}</option>{/each}
 						</select>
 					</label>
 				{/each}
 			</div>
 		{/if}
-		<div class="actions"><button class="save" type="button" onclick={save} disabled={saving || roles.some(role => !role.name.trim())}>{saving ? 'Saving…' : 'Save newcomer roles'}</button><button type="button" onclick={() => refresh()} disabled={saving}>Reload</button></div>
+		<div class="actions"><button class="save" type="button" onclick={save} disabled={saving || roles.some(role => !role.name.trim())}>{saving ? $_('community_roles.saving') : $_('community_roles.save_roles')}</button><button type="button" onclick={() => refresh()} disabled={saving}>{$_('community_roles.reload')}</button></div>
 	{/if}
 </details>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
  import { onMount } from 'svelte';
  import { getAuthToken, onAuthSessionCleared } from '$lib/authSession';
  import { getServerUrl } from '$lib/serverUrl';
@@ -20,16 +21,16 @@
  let compatibleBackups=$derived(selectedWorker?workers.filter(w=>w.workerId!==selectedWorker.workerId && w.harness===selectedWorker.harness && w.provider===selectedWorker.provider && w.model===selectedWorker.model):[]);
  const ready=(w:Worker)=>w.lastSeenMicros>Date.now()*1000+clockOffset-contactWindow;
  const expired=(r:Run)=>r.leaseUntilMicros<=Date.now()*1000+clockOffset;
- const workerName=(id?:string)=>workers.find(w=>w.workerId===id)?.name??'Unregistered worker';
+ const workerName=(id?:string)=>workers.find(w=>w.workerId===id)?.name??$_('project_assistant.unregistered_worker');
  function resetSelection(){workerId='';backups=[];automatic=false;operationId=null;consent=false;}
  const active = (r:Run) => ['queued','running','paused'].includes(r.status);
  const base = () => `${getServerUrl()}/api/projects/${encodeURIComponent(channelId)}`;
  const headers = () => ({ 'Content-Type':'application/json', Authorization:`Bearer ${getAuthToken()}` });
- function name(id:number) { return members.find(m => m.id === id)?.name ?? `Member #${id}`; }
+ function name(id:number) { return members.find(m => m.id === id)?.name ?? $_('project_assistant.member', { values: { id } }); }
  async function call(path:string, body?:unknown) {
   const response = await fetchChannel(channelId, `${base()}${path}`, { method:body===undefined?'GET':'POST', headers:headers(), ...(body===undefined?{}:{body:JSON.stringify(body)}) });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(response.status===409?'This run changed. Refresh and review before trying again.':data?.error ?? `Could not reach the Project assistant (${response.status}).`);
+  if (!response.ok) throw new Error(response.status===409?$_('project_assistant.run_changed'):data?.error ?? $_('project_assistant.unreachable', { values: { status: response.status } }));
   return data;
  }
  async function load() {
@@ -39,25 +40,25 @@
    if (current!==epoch) return;
    runs=data.runs??[]; members=roster.members??[]; workers=computers.workers??[];clockOffset=computers.serverNowMicros-Date.now()*1000;contactWindow=computers.contactWindowMicros??180_000_000;
    if (!bot && bots.length) bot=String(bots[0].id);
-  } catch (cause) { if (current===epoch) { runs=[]; members=[]; workers=[]; error=cause instanceof Error?cause.message:'Could not load assistant.'; } }
+  } catch (cause) { if (current===epoch) { runs=[]; members=[]; workers=[]; error=cause instanceof Error?cause.message:$_('project_assistant.could_not_load'); } }
   finally { if (current===epoch) loading=false; }
  }
  async function send() {
   if (busy || !consent || !prompt.trim() || !bot || automatic && (!workerId || !backups.length)) return;
   busy=true; error=''; operationId ??= crypto.randomUUID();
   try { await call('/runs',{operationId,botUserId:Number(bot),mode,prompt:prompt.trim(),providerConsent:consent,...(workerId?{workerId}:{}),...(automatic && workerId && backups.length?{recoveryPolicy:{automatic:true,backupWorkerIds:backups,maxRecoveries:1}}:{})}); prompt=''; operationId=null; consent=false; await load(); }
-  catch (cause) { error=cause instanceof Error?cause.message:'Could not send the request.'; }
+  catch (cause) { error=cause instanceof Error?cause.message:$_('project_assistant.could_not_send'); }
   finally { busy=false; }
  }
  async function control(run:Run, action:string) {
   busy=true; error='';
   try { await call(`/runs/${encodeURIComponent(run.runId)}/control`,{expectedRevision:run.revision,action,...(action==='resume' && resumeTargets[run.runId]?{workerId:resumeTargets[run.runId]}:{})}); await load(); }
-  catch (cause) { error=cause instanceof Error?cause.message:'Could not control the run.'; await load(); }
+  catch (cause) { error=cause instanceof Error?cause.message:$_('project_assistant.could_not_control'); await load(); }
   finally { busy=false; }
  }
  onMount(() => {
   void load(); const poll=setInterval(() => { if (!busy && document.visibilityState==='visible') void load(); },2500);
-  const stop=onAuthSessionCleared(() => { epoch++; runs=[]; members=[]; workers=[]; resumeTargets={};prompt=''; bot=''; resetSelection(); error='Sign in to view the assistant.'; });
+  const stop=onAuthSessionCleared(() => { epoch++; runs=[]; members=[]; workers=[]; resumeTargets={};prompt=''; bot=''; resetSelection(); error=$_('project_assistant.sign_in_view'); });
   return () => { clearInterval(poll); stop(); epoch++; };
  });
 
@@ -67,49 +68,49 @@
   if(value==null)return '';
   if(typeof value==='string')return value.length>140?`${value.slice(0,140)}…`:value;
   if(typeof value==='number'||typeof value==='boolean')return String(value);
-  if(Array.isArray(value))return value.length?`${value.length} ${value.length===1?'item':'items'}`:'nothing';
+  if(Array.isArray(value))return value.length?$_(value.length===1?'project_assistant.item_one':'project_assistant.item_other', { values: { count: value.length } }):$_('project_assistant.nothing');
   if(typeof value==='object'){
    const record=value as Record<string,unknown>;
    const named=['title','name','column','status','page','summary','message'].map(key=>typeof record[key]==='string'?record[key] as string:null).find(Boolean);
    if(named)return describe(named);
    const keys=Object.keys(record);
-   return keys.length?keys.slice(0,4).map(key=>key.replace(/[_-]+/g,' ')).join(', '):'nothing';
+   return keys.length?keys.slice(0,4).map(key=>key.replace(/[_-]+/g,' ')).join(', '):$_('project_assistant.nothing');
   }
   return '';
  };
- const stepSentence=(args:unknown,result:unknown)=>{const what=describe(args),outcome=describe(result);return [what&&`On ${what}.`,outcome&&`Result: ${outcome}.`].filter(Boolean).join(' ')||'No details were recorded for this step.';};
- const pendingSentence=(pending:unknown)=>{const record=(pending&&typeof pending==='object'?pending:{}) as Record<string,unknown>;const tool=typeof record.tool==='string'?stepTitle(record.tool):'An action';const what=describe(record.arguments);return `${tool}${what?` on ${what}`:''} may or may not have finished.`;};
+ const stepSentence=(args:unknown,result:unknown)=>{const what=describe(args),outcome=describe(result);return [what&&$_('project_assistant.on_what', { values: { what } }),outcome&&$_('project_assistant.result', { values: { outcome } })].filter(Boolean).join(' ')||$_('project_assistant.no_details');};
+ const pendingSentence=(pending:unknown)=>{const record=(pending&&typeof pending==='object'?pending:{}) as Record<string,unknown>;const tool=typeof record.tool==='string'?stepTitle(record.tool):$_('project_assistant.an_action');const what=describe(record.arguments);return what ? $_('project_assistant.pending_with', { values: { tool, what } }) : $_('project_assistant.pending_plain', { values: { tool } });};
 </script>
-<section class="assistant" aria-label="Project assistant">
- <header><div><p class="eyebrow">A CONVERSATION WITH THE WORK</p><h2>Your Project assistant</h2><p>Ask a question, or give a worker a small piece of the Project.</p></div><button type="button" onclick={() => void load()} disabled={busy}>Refresh</button></header>
- <div class="scope"><strong>This Project only</strong><span>Work mode reads and edits cards and wiki pages, up to 12 tool steps. Human estimates are excluded. No terminal access.</span></div>
+<section class="assistant" aria-label={$_('project_assistant.aria')}>
+ <header><div><p class="eyebrow">{$_('project_assistant.heading_eyebrow')}</p><h2>{$_('project_assistant.heading')}</h2><p>{$_('project_assistant.heading_intro')}</p></div><button type="button" onclick={() => void load()} disabled={busy}>{$_('network_health.refresh')}</button></header>
+ <div class="scope"><strong>{$_('project_assistant.scope_title')}</strong><span>{$_('project_assistant.scope_desc')}</span></div>
  <ProjectAIConnection {channelId} onConnected={() => void load()} />
  {#if error}<p class="error" role="alert">{error}</p>{/if}
- {#if loading}<p role="status">Loading assistant…</p>{:else}
- <div class="conversation" aria-label="Assistant conversations">
-  {#if !runs.length}<div class="empty"><span aria-hidden="true">✧</span><h3>A small beginning</h3><p>Ask a question, or try “Make a card and document the plan in the wiki.”</p></div>{/if}
+ {#if loading}<p role="status">{$_('project_assistant.loading_assistant')}</p>{:else}
+ <div class="conversation" aria-label={$_('project_assistant.conversations_aria')}>
+  {#if !runs.length}<div class="empty"><span aria-hidden="true">✧</span><h3>{$_('project_assistant.empty_title')}</h3><p>{$_('project_assistant.empty_hint')}</p></div>{/if}
   {#each runs as run (run.runId)}<article class="run">
-   <div class="run-heading"><strong>{name(run.botUserId)}</strong><span>{run.mode==='work'?'Project work':'Conversation'} · {run.status.replace('_',' ')}</span></div>
-   <div class="human-message"><span>{name(run.createdByUserId)} asked</span><p>{run.prompt}</p></div>
+   <div class="run-heading"><strong>{name(run.botUserId)}</strong><span>{run.mode==='work'?$_('project_assistant.project_work'):$_('project_assistant.conversation')} · {run.status.replace('_',' ')}</span></div>
+   <div class="human-message"><span>{name(run.createdByUserId)} {$_('project_assistant.asked')}</span><p>{run.prompt}</p></div>
    {#if run.reply}<div class="reply"><span>{name(run.botUserId)}</span><p>{run.reply}</p></div>{/if}
-   <div class="checkpoint" role="status">{run.checkpoint}{#if run.workerId}<span> · {workerName(run.workerId)}</span>{/if}{#if run.status==='queued'}<span> · Waiting for {run.targetWorkerId?workerName(run.targetWorkerId):'the assigned worker'}.</span>{/if}{#if run.status==='running' && expired(run)}<span> · Worker lease expired. Review before resuming.</span>{/if}</div>
-   {#if run.recoveryPolicy?.automatic}<p class="model">Automatic recovery enabled · {run.recoveryCount??0} of {run.recoveryPolicy.maxRecoveries} used · same provider and model</p>{/if}
-   {#if run.provider}<p class="model">{run.provider} / {run.model} · attempt {run.attempt}</p>{/if}
-   {#if run.steps.length || run.pending}<details><summary>{run.steps.length} recorded steps{run.pending?' · uncertain pending action':''}</summary>{#each run.steps as step (step.operationId)}<div class="step"><strong>{stepTitle(step.tool)}</strong><p>{stepSentence(step.arguments, step.result)}</p></div>{/each}{#if run.pending}<div class="error"><strong>Review before continuing</strong><p>Check whether the pending action completed, then take over or cancel this run.</p><p>{pendingSentence(run.pending)}</p></div>{/if}</details>{/if}
-   {#if run.status==='completed'}<button class="continue" type="button" onclick={() => { bot=String(run.botUserId); mode='chat'; consent=false; operationId=null; prompt=`Previous question:\n${run.prompt}\nAssistant reply:\n${run.reply}\n\nFollow-up:\n`; }}>Continue this conversation</button>{/if}
-   {#if active(run)}<div class="run-controls">{#if run.status!=='paused'}<button type="button" disabled={busy} onclick={() => void control(run,'pause')}>Pause</button>{/if}{#if !run.pending && (run.status==='paused' || run.status==='running' && expired(run))}<label>Resume on<select aria-label={`Resume computer for ${run.prompt}`} bind:value={resumeTargets[run.runId]}><option value="">Previously selected worker</option>{#each workers.filter(w=>!run.provider || w.provider===run.provider && w.model===run.model) as computer (computer.workerId)}<option value={computer.workerId} disabled={!ready(computer)}>{computer.name}{ready(computer)?'':' · contact lost'}</option>{/each}</select></label><button type="button" disabled={busy} onclick={() => void control(run,'resume')}>Resume saved work</button>{/if}<button type="button" disabled={busy} onclick={() => void control(run,'takeover')}>Take over myself</button><button type="button" disabled={busy} onclick={() => void control(run,'cancel')}>Cancel run</button></div>{/if}
+   <div class="checkpoint" role="status">{run.checkpoint}{#if run.workerId}<span> · {workerName(run.workerId)}</span>{/if}{#if run.status==='queued'}<span> · {$_('project_assistant.waiting_for', { values: { worker: run.targetWorkerId ? workerName(run.targetWorkerId) : $_('project_assistant.assigned_worker') } })}</span>{/if}{#if run.status==='running' && expired(run)}<span> · {$_('project_assistant.lease_expired')}</span>{/if}</div>
+   {#if run.recoveryPolicy?.automatic}<p class="model">{$_('project_assistant.auto_recovery', { values: { count: run.recoveryCount??0, max: run.recoveryPolicy.maxRecoveries } })}</p>{/if}
+   {#if run.provider}<p class="model">{run.provider} / {run.model} · {$_('project_assistant.attempt', { values: { n: run.attempt } })}</p>{/if}
+   {#if run.steps.length || run.pending}<details><summary>{$_('project_assistant.recorded_steps', { values: { count: run.steps.length } })}{run.pending?$_('project_assistant.uncertain_pending'):''}</summary>{#each run.steps as step (step.operationId)}<div class="step"><strong>{stepTitle(step.tool)}</strong><p>{stepSentence(step.arguments, step.result)}</p></div>{/each}{#if run.pending}<div class="error"><strong>{$_('project_assistant.review_before')}</strong><p>{$_('project_assistant.check_pending')}</p><p>{pendingSentence(run.pending)}</p></div>{/if}</details>{/if}
+   {#if run.status==='completed'}<button class="continue" type="button" onclick={() => { bot=String(run.botUserId); mode='chat'; consent=false; operationId=null; prompt=`Previous question:\n${run.prompt}\nAssistant reply:\n${run.reply}\n\nFollow-up:\n`; }}>{$_('project_assistant.continue_conv')}</button>{/if}
+   {#if active(run)}<div class="run-controls">{#if run.status!=='paused'}<button type="button" disabled={busy} onclick={() => void control(run,'pause')}>{$_('project_assistant.pause')}</button>{/if}{#if !run.pending && (run.status==='paused' || run.status==='running' && expired(run))}<label>{$_('project_assistant.resume_on')}<select aria-label={$_('project_assistant.resume_for', { values: { prompt: run.prompt } })} bind:value={resumeTargets[run.runId]}><option value="">{$_('project_assistant.prev_selected')}</option>{#each workers.filter(w=>!run.provider || w.provider===run.provider && w.model===run.model) as computer (computer.workerId)}<option value={computer.workerId} disabled={!ready(computer)}>{computer.name}{ready(computer)?'':$_('project_assistant.contact_lost')}</option>{/each}</select></label><button type="button" disabled={busy} onclick={() => void control(run,'resume')}>{$_('project_assistant.resume_saved')}</button>{/if}<button type="button" disabled={busy} onclick={() => void control(run,'takeover')}>{$_('project_assistant.takeover')}</button><button type="button" disabled={busy} onclick={() => void control(run,'cancel')}>{$_('project_assistant.cancel_run')}</button></div>{/if}
   </article>{/each}
  </div>
  <form onsubmit={(e) => {e.preventDefault();void send();}}>
-  <h3>Send to a running worker</h3>
-  <p class="worker-note">This queues a request for a separate worker. It does not send a message to the Codex chat connected above or start a subagent. A bot name alone does not prove a worker is online.</p>
-  {#if !bots.length}<p>No bot has Project access yet. The server owner can grant an installed worker access through the bot setup API.</p>{/if}
-  <div class="composer-options"><label>Worker service<select bind:value={bot} onchange={resetSelection} disabled={!bots.length}>{#each bots as member (member.id)}<option value={String(member.id)}>{member.name}</option>{/each}</select></label><label>What it can do<select bind:value={mode} onchange={() => {operationId=null;consent=false;}}><option value="chat">Reply only</option><option value="work">Work on cards and wiki</option></select></label></div>
-  <label class="prompt-label">Computer<select aria-label="Worker computer" bind:value={workerId} onchange={()=>{backups=[];automatic=false;consent=false;operationId=null;}}><option value="">Service default (no automatic recovery)</option>{#each workers.filter(w=>w.botUserId===Number(bot)) as computer (computer.workerId)}<option value={computer.workerId} disabled={!ready(computer)}>{computer.name}{ready(computer)?'':' · contact lost'}</option>{/each}</select></label>
-  {#if selectedWorker}<fieldset class="recovery"><legend>If this computer stops responding</legend><p>Ask me to resume is the default. Recovery continues saved Project steps; it cannot restore unsaved local files.</p><label class="consent"><input type="checkbox" bind:checked={automatic} onchange={()=>{operationId=null;consent=false;}} /><span>Allow one automatic recovery on a chosen backup, using the same provider and model. This may repeat an interrupted model request and incur extra charges.</span></label>{#if automatic}{#each compatibleBackups as computer (computer.workerId)}<label class="consent"><input type="checkbox" bind:group={backups} value={computer.workerId} disabled={!ready(computer)} onchange={()=>{operationId=null;consent=false;}} /><span>{computer.name} · {ready(computer)?'contact reported recently':'contact lost'}</span></label>{/each}{#if !compatibleBackups.length}<p>No compatible backup is enrolled. Start a backup with the same harness, provider and model.</p>{/if}{/if}</fieldset>{/if}
-  <label class="prompt-label">Your request<textarea bind:value={prompt} maxlength="16000" rows="3" placeholder="Give it a clear, bounded request…" oninput={() => {operationId=null;}} required></textarea></label>
-  <label class="consent"><input type="checkbox" bind:checked={consent} /><span>Send this request{mode==='work'?' and the Project content it chooses to read':''} to the assigned worker’s model provider. Requests and replies are shared and stored in this Project.</span></label>
-  <div class="composer-footer"><span>Reply only uses this prompt. Work mode reads Project content through the listed tools.</span><button class="send" type="submit" disabled={busy || !bot || !prompt.trim() || !consent || automatic && !backups.length}>{busy?'Sending…':mode==='work'?'Start Project work':'Send request'}</button></div>
+  <h3>{$_('project_assistant.send_to_worker')}</h3>
+  <p class="worker-note">{$_('project_assistant.worker_note')}</p>
+  {#if !bots.length}<p>{$_('project_assistant.no_bot')}</p>{/if}
+  <div class="composer-options"><label>{$_('project_assistant.worker_service')}<select bind:value={bot} onchange={resetSelection} disabled={!bots.length}>{#each bots as member (member.id)}<option value={String(member.id)}>{member.name}</option>{/each}</select></label><label>{$_('project_assistant.what_it_can')}<select bind:value={mode} onchange={() => {operationId=null;consent=false;}}><option value="chat">{$_('project_assistant.reply_only')}</option><option value="work">{$_('project_assistant.work_cards')}</option></select></label></div>
+  <label class="prompt-label">{$_('project_assistant.computer')}<select aria-label={$_('project_assistant.worker_computer_aria')} bind:value={workerId} onchange={()=>{backups=[];automatic=false;consent=false;operationId=null;}}><option value="">{$_('project_assistant.service_default')}</option>{#each workers.filter(w=>w.botUserId===Number(bot)) as computer (computer.workerId)}<option value={computer.workerId} disabled={!ready(computer)}>{computer.name}{ready(computer)?'':$_('project_assistant.contact_lost')}</option>{/each}</select></label>
+  {#if selectedWorker}<fieldset class="recovery"><legend>{$_('project_assistant.recovery_legend')}</legend><p>{$_('project_assistant.recovery_desc')}</p><label class="consent"><input type="checkbox" bind:checked={automatic} onchange={()=>{operationId=null;consent=false;}} /><span>{$_('project_assistant.auto_recovery_consent')}</span></label>{#if automatic}{#each compatibleBackups as computer (computer.workerId)}<label class="consent"><input type="checkbox" bind:group={backups} value={computer.workerId} disabled={!ready(computer)} onchange={()=>{operationId=null;consent=false;}} /><span>{computer.name} · {ready(computer)?$_('project_assistant.contact_reported'):$_('project_assistant.contact_lost_plain')}</span></label>{/each}{#if !compatibleBackups.length}<p>{$_('project_assistant.no_compatible')}</p>{/if}{/if}</fieldset>{/if}
+  <label class="prompt-label">{$_('project_assistant.your_request')}<textarea bind:value={prompt} maxlength="16000" rows="3" placeholder={$_('project_assistant.prompt_ph')} oninput={() => {operationId=null;}} required></textarea></label>
+  <label class="consent"><input type="checkbox" bind:checked={consent} /><span>{mode==='work' ? $_('project_assistant.consent_work') : $_('project_assistant.consent_reply')}</span></label>
+  <div class="composer-footer"><span>{$_('project_assistant.composer_footer')}</span><button class="send" type="submit" disabled={busy || !bot || !prompt.trim() || !consent || automatic && !backups.length}>{busy?$_('project_assistant.sending'):mode==='work'?$_('project_assistant.start_work'):$_('project_assistant.send_request')}</button></div>
  </form>
  {/if}
 </section>

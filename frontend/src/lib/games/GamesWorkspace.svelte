@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { onMount, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { channels, currentUser } from '$lib/socket';
@@ -33,10 +34,10 @@
   const filtered = $derived(library.filter(g=>g.title.toLocaleLowerCase().includes(search.toLocaleLowerCase())).slice(0,100));
   const titleSuggestions = $derived(newTitle.trim().length >= 2 ? library.filter(game=>game.title.toLocaleLowerCase().includes(newTitle.trim().toLocaleLowerCase())).slice(0,12) : []);
   const sharedCount = $derived(draft.filter(g=>g.visibility==='server').length);
-  function fail(e: unknown) { if(alive && client.active()) error=e instanceof Error?e.message:'Could not complete this action.'; }
+  function fail(e: unknown) { if(alive && client.active()) error=e instanceof Error?e.message:$_('games_ws.could_not_complete'); }
   function apply(next: GameBoard) {saved=next;draft=structuredClone($state.snapshot(next.entries));showLink=next.showSteamLink;}
   async function reload() {
-    if(busy || (dirty && !window.confirm('Discard your unsaved game edits and reload?'))) return;
+    if(busy || (dirty && !window.confirm($_('games_ws.confirm_discard_reload')))) return;
     loading=true;error='';notice='';library=[];
     try {
       if(own) apply(board(await client.request('/games/me')));
@@ -55,15 +56,15 @@
     document.addEventListener('visibilitychange',hide);
     return ()=>{alive=false;client.dispose();flow=null;receipt='';library=[];clearTimeout(timer);document.removeEventListener('visibilitychange',hide);};
   });
-  function close() {if(!dirty || window.confirm('Discard unsaved game changes?')) onclose();}
+  function close() {if(!dirty || window.confirm($_('games_ws.confirm_discard'))) onclose();}
   async function act(work:()=>Promise<void>) {
     if(busy || !client.active()) return;busy=true;error='';notice='';
     try {await work();} catch(e) {fail(e);} finally {if(alive) busy=false;}
   }
   function add(game: LibraryGame) {
-    if(draft.some(e=>e.key===game.key)) {notice='That game is already on your board.';return;}
-    if(draft.length>=64) {error='Choose at most 64 games.';return;}
-    try {draft=[...draft,privateSelection(game)];notice='Added to your private draft. Save when ready.';} catch(e) {fail(e);}
+    if(draft.some(e=>e.key===game.key)) {notice=$_('games_ws.already_on_board');return;}
+    if(draft.length>=64) {error=$_('games_ws.max_games');return;}
+    try {draft=[...draft,privateSelection(game)];notice=$_('games_ws.added_private');} catch(e) {fail(e);}
   }
   function addManual() {
     try {
@@ -75,28 +76,28 @@
     if(!saved) return;
     await act(async()=>{const entries=selections($state.snapshot(draft));
       apply(board(await client.request('/games/me','PUT',{revision:saved!.revision,entries,showSteamLink:showLink})));
-      notice='Game board saved.';matches=null;});
+      notice=$_('games_ws.board_saved');matches=null;});
   }
   async function startLink() {
-    if(!saved || dirty) {error='Save or discard game edits before connecting Steam.';return;}
+    if(!saved || dirty) {error=$_('games_ws.save_or_discard');return;}
     await act(async()=>{const next=await client.request<LinkFlow>('/steam/link/start','POST',{revision:saved!.revision});
       safeAuthorizeUrl(next.authorizeUrl);flow=next;receipt='';});
   }
   async function finishLink() {
     if(!flow) return;
     await act(async()=>{apply(board(await client.request('/steam/link/complete','POST',{ticket:flow!.ticket,proof:flow!.proof,receipt:receipt.trim()})));
-      flow=null;receipt='';notice='Steam connected. Nothing is public until you choose to share it.';});
+      flow=null;receipt='';notice=$_('games_ws.steam_connected_notice');});
   }
   async function disconnect() {
-    if(!saved || dirty || !window.confirm('Disconnect Steam? Your deliberately saved games stay on the board.')) return;
-    await act(async()=>{apply(board(await client.request('/steam/unlink','POST',{revision:saved!.revision})));flow=null;library=[];notice='Steam disconnected.';});
+    if(!saved || dirty || !window.confirm($_('games_ws.confirm_disconnect'))) return;
+    await act(async()=>{apply(board(await client.request('/steam/unlink','POST',{revision:saved!.revision})));flow=null;library=[];notice=$_('games_ws.steam_disconnected');});
   }
   async function loadLibrary() {
     await act(async()=>{const result=await client.request<{availability:string;games:LibraryGame[];reason?:string}>('/steam/library','POST');
-      if(result.availability!=='available') {library=[];notice=result.reason||'Steam game details are unavailable. Manual entry works without them.';return;}
-      if(!Array.isArray(result.games) || result.games.length>20000) throw new Error('Invalid Steam library response');
+      if(result.availability!=='available') {library=[];notice=result.reason||$_('games_ws.library_unavailable');return;}
+      if(!Array.isArray(result.games) || result.games.length>20000) throw new Error($_('games_ws.invalid_library'));
       library=result.games.filter(g=>typeof g?.title==='string' && !!steamAppId(g.key));
-      notice=library.length?`${library.length} games available to select. This list is not published.`:'Steam returned an empty library.';});
+      notice=library.length?$_('games_ws.library_available', { values: { count: library.length } }):$_('games_ws.library_empty');});
   }
   async function loadMembers() {
     const version=++memberVersion;matches=null;members=[];chosen=[request.owner];
@@ -109,104 +110,104 @@
     await act(async()=>{const result=await client.request<{games:LibraryGame[]}>('/games/match','POST',{channelId:channel,participantIds:chosen});
       matches=result.games;clearTimeout(timer);timer=setTimeout(()=>{matches=null;notice='Comparison expired. Compare again for current shared choices.';},30000);});
   }
-  async function copy(text: string) {try {await navigator.clipboard.writeText(text);notice='Copied.';} catch {error='Clipboard access failed. Select and copy the text instead.';}}
+  async function copy(text: string) {try {await navigator.clipboard.writeText(text);notice=$_('games_ws.copied');} catch {error=$_('games_ws.clipboard_failed');}}
   function launch(key: string) {
     const url=steamLaunchUrl(key);if(!url) return;
-    if(window.confirm('Ask Steam to launch this game? This does not join another player.')) {window.location.href=url;notice='Launch requested. A local Steam client is required; Wabi cannot confirm it launched.';}
+    if(window.confirm($_('games_ws.confirm_launch'))) {window.location.href=url;notice=$_('games_ws.launch_requested');}
   }
   function setTags(game: GameSelection, raw: string) {game.tags=[...new Set(raw.split(',').map(s=>s.trim()).filter(Boolean))];}
 </script>
 
-<BaseModal isOpen={true} onClose={close} width="1000px" overlayZIndex="var(--z-settings-nested, 10000)" title={own?'Games & Steam':`${request.label} · Games`} subtitle="Shared interests, not an activity timeline">
+<BaseModal isOpen={true} onClose={close} width="1000px" overlayZIndex="var(--z-settings-nested, 10000)" title={own?$_('games_ws.title_own'):$_('games_ws.title_other', { values: { label: request.label } })} subtitle={$_('games_ws.subtitle')}>
   <section class="games-workspace">
     {#if own}
-      <nav aria-label="Game sections">
-        <button class:active={tab==='board'} onclick={()=>{tab='board';error='';}}>My game board</button>
-        <button class:active={tab==='steam'} onclick={()=>{tab='steam';error='';}}>Steam connection</button>
-        <button class:active={tab==='match'} onclick={()=>{tab='match';error='';}}>What can we play?</button>
+      <nav aria-label={$_('games_ws.nav_label')}>
+        <button class:active={tab==='board'} onclick={()=>{tab='board';error='';}}>{$_('games_ws.tab_board')}</button>
+        <button class:active={tab==='steam'} onclick={()=>{tab='steam';error='';}}>{$_('games_ws.tab_steam')}</button>
+        <button class:active={tab==='match'} onclick={()=>{tab='match';error='';}}>{$_('games_ws.tab_match')}</button>
       </nav>
     {/if}
     {#if error}<p role="alert" class="message error">{error}</p>{/if}
     {#if notice}<p role="status" class="message">{notice}</p>{/if}
-    {#if loading}<p role="status">Loading game board…</p>
-    {:else if own && !saved}<p>Your game board could not be loaded.</p><button onclick={reload}>Retry</button>
+    {#if loading}<p role="status">{$_('games_ws.loading_board')}</p>
+    {:else if own && !saved}<p>{$_('games_ws.board_load_failed')}</p><button onclick={reload}>{$_('games_ws.retry')}</button>
     {:else if tab==='board' || !own}
-      <div class="section-heading"><div><h3>{own?'Your games':'Game board'}</h3><p>{own?`${sharedCount} shared with this server · all other choices are private`:'Only this member’s shared selections are shown.'}</p></div>
-        {#if own}<button onclick={reload} disabled={busy}>Reload</button>{/if}
-        {#if publicLink}<a href={publicLink} target="_blank" rel="noopener noreferrer">Steam profile ↗</a>{/if}
+      <div class="section-heading"><div><h3>{own?$_('games_ws.your_games'):$_('games_ws.game_board')}</h3><p>{own?$_('games_ws.shared_count', { values: { count: sharedCount } }):$_('games_ws.member_shared_only')}</p></div>
+        {#if own}<button onclick={reload} disabled={busy}>{$_('games_ws.reload')}</button>{/if}
+        {#if publicLink}<a href={publicLink} target="_blank" rel="noopener noreferrer">{$_('games_ws.steam_profile')} ↗</a>{/if}
       </div>
       <fieldset class="editor-fields" disabled={busy}>
       {#if own}
         <form class="manual-entry" onsubmit={(e)=>{e.preventDefault();addManual();}}>
-          <label>Game title<input required maxlength="120" bind:value={newTitle} placeholder="Add any game" list="available-game-titles" /></label>
-          <label>Game identifier <span>(optional)</span><input bind:value={newId} placeholder="Paste a Steam store link or a friend’s Wabi game code" /></label>
-          <button class="primary" type="submit" disabled={busy || draft.length>=64}>Add game</button>
+          <label>{$_('games_ws.game_title')}<input required maxlength="120" bind:value={newTitle} placeholder={$_('games_ws.add_any_game')} list="available-game-titles" /></label>
+          <label>{$_('games_ws.game_identifier')} <span>{$_('games_ws.optional')}</span><input bind:value={newId} placeholder={$_('games_ws.paste_link')} /></label>
+          <button class="primary" type="submit" disabled={busy || draft.length>=64}>{$_('games_ws.add_game')}</button>
         </form>
         <datalist id="available-game-titles">{#each titleSuggestions as game (game.key)}<option value={game.title}></option>{/each}</datalist>
-        <p class="muted">A title is enough. For a Steam game, paste its store address; Wabi finds the AppID for you. For other games, friends can use “Copy game code” on their Wabi game card.</p>
+        <p class="muted">{$_('games_ws.manual_hint')}</p>
       {/if}
       <div class="game-grid">
         {#each draft as game (game.key)}
           <article class="game-card">
-            <header><span class="game-monogram" aria-hidden="true">{game.title.slice(0,2).toUpperCase()}</span><div><h4>{game.title}</h4><small>{game.key.startsWith('steam:')?'Steam game':'Custom game'} · {game.platform||'Platform not specified'}</small></div></header>
+            <header><span class="game-monogram" aria-hidden="true">{game.title.slice(0,2).toUpperCase()}</span><div><h4>{game.title}</h4><small>{game.key.startsWith('steam:')?$_('games_ws.steam_game'):$_('games_ws.custom_game')} · {game.platform||$_('games_ws.platform_unspecified')}</small></div></header>
             {#if own}
               <div class="choices">
-                <label><input type="checkbox" bind:checked={game.rotation} /> In rotation</label>
-                <label><input type="checkbox" bind:checked={game.favorite} /> Favorite</label>
+                <label><input type="checkbox" bind:checked={game.rotation} /> {$_('games_ws.in_rotation')}</label>
+                <label><input type="checkbox" bind:checked={game.favorite} /> {$_('games_ws.favorite')}</label>
               </div>
-              <label>Platform / edition<input maxlength="40" bind:value={game.platform} placeholder="PC, console, edition…" /></label>
-              <label>My play preferences<input value={game.tags.join(', ')} onchange={(e)=>setTags(game,e.currentTarget.value)} placeholder="Casual, learning, happy to teach" /></label>
-              <label>Note<textarea rows="2" maxlength="300" bind:value={game.note} placeholder="A conversation starter, or a private reminder"></textarea></label>
-              <div class="sharing-row"><label>Who can see this?<select bind:value={game.visibility}><option value="private">Only me</option><option value="server">Members of this server</option></select></label></div>
-              <label class="invite-choice"><input type="checkbox" bind:checked={game.invitations} /> Open to invitations</label>
-              {#if game.invitations && game.visibility==='private'}<small>Private games never participate in group matching.</small>{/if}
-              <button class="remove" onclick={()=>{draft=draft.filter(e=>e.key!==game.key);}}>Remove from board</button>
+              <label>{$_('games_ws.platform_edition')}<input maxlength="40" bind:value={game.platform} placeholder={$_('games_ws.platform_ph')} /></label>
+              <label>{$_('games_ws.play_prefs')}<input value={game.tags.join(', ')} onchange={(e)=>setTags(game,e.currentTarget.value)} placeholder={$_('games_ws.play_prefs_ph')} /></label>
+              <label>{$_('games_ws.note')}<textarea rows="2" maxlength="300" bind:value={game.note} placeholder={$_('games_ws.note_ph')}></textarea></label>
+              <div class="sharing-row"><label>{$_('games_ws.who_can_see')}<select bind:value={game.visibility}><option value="private">{$_('games_ws.only_me')}</option><option value="server">{$_('games_ws.server_members')}</option></select></label></div>
+              <label class="invite-choice"><input type="checkbox" bind:checked={game.invitations} /> {$_('games_ws.open_invitations')}</label>
+              {#if game.invitations && game.visibility==='private'}<small>{$_('games_ws.private_no_match')}</small>{/if}
+              <button class="remove" onclick={()=>{draft=draft.filter(e=>e.key!==game.key);}}>{$_('games_ws.remove_from_board')}</button>
             {:else}
-              <div class="chips">{#if game.rotation}<span>In rotation</span>{/if}{#if game.favorite}<span>Favorite</span>{/if}{#if game.invitations}<span>Open to invitations</span>{/if}{#each game.tags as tag}<span>{tag}</span>{/each}</div>
+              <div class="chips">{#if game.rotation}<span>{$_('games_ws.in_rotation')}</span>{/if}{#if game.favorite}<span>{$_('games_ws.favorite')}</span>{/if}{#if game.invitations}<span>{$_('games_ws.open_invitations')}</span>{/if}{#each game.tags as tag}<span>{tag}</span>{/each}</div>
               {#if game.note}<p class="game-note">{game.note}</p>{/if}
             {/if}
-            <footer>{#if steamStoreUrl(game.key)}<a href={steamStoreUrl(game.key)!} target="_blank" rel="noopener noreferrer">View on Steam ↗</a><button onclick={()=>launch(game.key)}>Launch game</button>{/if}<button onclick={()=>copy(game.key)}>Copy game code</button></footer>
+            <footer>{#if steamStoreUrl(game.key)}<a href={steamStoreUrl(game.key)!} target="_blank" rel="noopener noreferrer">{$_('games_ws.view_on_steam')} ↗</a><button onclick={()=>launch(game.key)}>{$_('games_ws.launch_game')}</button>{/if}<button onclick={()=>copy(game.key)}>{$_('games_ws.copy_game_code')}</button></footer>
           </article>
         {/each}
       </div>
       </fieldset>
-      {#if draft.length===0}<div class="empty"><h4>{own?'Start with a game you love':'No shared games yet'}</h4><p>{own?'Add a title above, or select games from your Steam library. A Steam connection is optional.':'There is no activity history or hidden-game count to browse.'}</p></div>{/if}
+      {#if draft.length===0}<div class="empty"><h4>{own?$_('games_ws.start_with_game'):$_('games_ws.no_shared_games')}</h4><p>{own?$_('games_ws.empty_own_hint'):$_('games_ws.empty_other_hint')}</p></div>{/if}
     {:else if tab==='steam'}
-      <div class="connection"><h3>Bring your games, not your history</h3><p>Linking proves control of a Steam account. It does not expose private Steam data or automatically publish anything in Wabi.</p>
+      <div class="connection"><h3>{$_('games_ws.connection_title')}</h3><p>{$_('games_ws.connection_desc')}</p>
         {#if saved?.steamId}
-          <div class="linked"><strong>Steam connected</strong><code>{saved.steamId}</code><button onclick={disconnect} disabled={busy || dirty}>Disconnect</button></div>
-          <label class="invite-choice"><input type="checkbox" disabled={busy} bind:checked={showLink} /> Show my verified Steam profile link to members of this server</label>
-          <button class="primary" disabled={busy || !capabilities?.library} onclick={loadLibrary}>Load my Steam library</button>
-          {#if !capabilities?.library}<p class="muted">Library import needs the addon enabled and a server-side Steam API key. Your game board still works.</p>{/if}
+          <div class="linked"><strong>{$_('games_ws.steam_connected')}</strong><code>{saved.steamId}</code><button onclick={disconnect} disabled={busy || dirty}>{$_('games_ws.disconnect')}</button></div>
+          <label class="invite-choice"><input type="checkbox" disabled={busy} bind:checked={showLink} /> {$_('games_ws.show_profile')}</label>
+          <button class="primary" disabled={busy || !capabilities?.library} onclick={loadLibrary}>{$_('games_ws.load_library')}</button>
+          {#if !capabilities?.library}<p class="muted">{$_('games_ws.library_needs_addon')}</p>{/if}
         {:else}
-          <button class="primary" onclick={startLink} disabled={busy || !capabilities?.linking || dirty}><img src="/steam-sign-in.png" alt="Sign in through Steam" width="180" height="35" /></button>
-          {#if !capabilities?.linking}<p class="muted">Steam is not ready on this server. You can still add games by title.</p>
-          {#if $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin'}<button onclick={() => { if (dirty && !window.confirm('Discard unsaved game changes and open server settings?')) return; onclose(); window.dispatchEvent(new CustomEvent('wabi:open-settings',{detail:{tab:'addons'}})); }}>Set up Steam</button><p class="muted">Enable Steam in Addons settings. The host administrator must also configure this server’s public address for Steam sign-in.</p>{/if}{/if}
+          <button class="primary" onclick={startLink} disabled={busy || !capabilities?.linking || dirty}><img src="/steam-sign-in.png" alt={$_('games_ws.steam_sign_in_alt')} width="180" height="35" /></button>
+          {#if !capabilities?.linking}<p class="muted">{$_('games_ws.steam_not_ready')}</p>
+          {#if $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin'}<button onclick={() => { if (dirty && !window.confirm($_('games_ws.discard_before_settings'))) return; onclose(); window.dispatchEvent(new CustomEvent('wabi:open-settings',{detail:{tab:'addons'}})); }}>{$_('games_ws.set_up_steam')}</button><p class="muted">{$_('games_ws.enable_steam_hint')}</p>{/if}{/if}
         {/if}
         {#if flow}
-          <div class="handoff"><h4>Finish in your browser</h4><p>Sign in with Steam, then copy the returned connection code here. Wabi never asks for your Steam password.</p>
-            <a class="button" href={safeAuthorizeUrl(flow.authorizeUrl)} target="_blank" rel="noopener noreferrer">Continue on Steam ↗</a>
-            <label>Connection code<input autocomplete="off" spellcheck="false" bind:value={receipt} placeholder="Paste the code returned after Steam sign-in" /></label>
-            <button class="primary" disabled={busy || !receipt.trim()} onclick={finishLink}>Finish connecting</button>
+          <div class="handoff"><h4>{$_('games_ws.finish_browser')}</h4><p>{$_('games_ws.finish_browser_desc')}</p>
+            <a class="button" href={safeAuthorizeUrl(flow.authorizeUrl)} target="_blank" rel="noopener noreferrer">{$_('games_ws.continue_steam')} ↗</a>
+            <label>{$_('games_ws.connection_code')}<input autocomplete="off" spellcheck="false" bind:value={receipt} placeholder={$_('games_ws.connection_code_ph')} /></label>
+            <button class="primary" disabled={busy || !receipt.trim()} onclick={finishLink}>{$_('games_ws.finish_connecting')}</button>
           </div>
         {/if}
-        <p class="muted">Live activity, friends, playtime and achievements are not imported by this release. Disconnecting removes the active link, not historical server backups.</p>
+        <p class="muted">{$_('games_ws.steam_limits')}</p>
       </div>
       {#if library.length}
-        <label class="library-search">Search your available games<input type="search" bind:value={search} placeholder="Search titles…" /></label>
-        <div class="library-grid">{#each filtered as game (game.key)}<button class="library-item" disabled={busy || draft.some(e=>e.key===game.key) || draft.length>=64} onclick={()=>add(game)}><strong>{game.title}</strong><small>{draft.some(e=>e.key===game.key)?'On your board':'+ Add privately'}</small></button>{/each}</div>
-        <p class="muted">Showing at most 100 matching titles. Selected games begin private; save your board to keep them.</p>
+        <label class="library-search">{$_('games_ws.search_label')}<input type="search" bind:value={search} placeholder={$_('games_ws.search_ph')} /></label>
+        <div class="library-grid">{#each filtered as game (game.key)}<button class="library-item" disabled={busy || draft.some(e=>e.key===game.key) || draft.length>=64} onclick={()=>add(game)}><strong>{game.title}</strong><small>{draft.some(e=>e.key===game.key)?$_('games_ws.on_board'):$_('games_ws.add_privately')}</small></button>{/each}</div>
+        <p class="muted">{$_('games_ws.library_limit')}</p>
       {/if}
     {:else}
-      <div class="connection"><h3>Find common ground</h3><p>Compare saved, server-visible games marked open to invitations. This does not inspect anyone’s full library or guarantee platform compatibility.</p>
-        <label>Conversation<select bind:value={channel} onchange={loadMembers} disabled={busy}><option value="">Choose a conversation</option>{#each $channels as ch (ch.id)}<option value={ch.id}>{ch.name || 'Conversation'}</option>{/each}</select></label>
-        <fieldset disabled={busy}><legend>Choose 2–12 current members</legend><div class="member-grid">{#each members as member (member.id)}<label><input type="checkbox" value={member.id} bind:group={chosen} onchange={()=>{matches=null;}} disabled={member.id===request.owner || (chosen.length>=12 && !chosen.includes(member.id))} />{member.name}{member.id===request.owner?' (you)':''}</label>{/each}</div></fieldset>
-        <button class="primary" onclick={compare} disabled={busy || !channel || chosen.length<2}>Compare shared choices</button>
+      <div class="connection"><h3>{$_('games_ws.find_common_title')}</h3><p>{$_('games_ws.find_common_desc')}</p>
+        <label>{$_('games_ws.conversation_label')}<select bind:value={channel} onchange={loadMembers} disabled={busy}><option value="">{$_('games_ws.choose_conversation')}</option>{#each $channels as ch (ch.id)}<option value={ch.id}>{ch.name || $_('games_ws.conversation_label')}</option>{/each}</select></label>
+        <fieldset disabled={busy}><legend>{$_('games_ws.members_legend')}</legend><div class="member-grid">{#each members as member (member.id)}<label><input type="checkbox" value={member.id} bind:group={chosen} onchange={()=>{matches=null;}} disabled={member.id===request.owner || (chosen.length>=12 && !chosen.includes(member.id))} />{member.name}{member.id===request.owner?$_('games_ws.you'):''}</label>{/each}</div></fieldset>
+        <button class="primary" onclick={compare} disabled={busy || !channel || chosen.length<2}>{$_('games_ws.compare')}</button>
       </div>
-      {#if matches}<div class="match-results" aria-live="polite"><h4>{matches.length?`${matches.length} games in common`:'No common invitation choices'}</h4><p class="muted">Results expire after 30 seconds. Unshared games do not influence this result.</p>
-        {#each matches as game (game.key)}<div class="match-row"><strong>{game.title}</strong><button onclick={()=>copy(`Anyone up for ${game.title}? ${steamStoreUrl(game.key)||game.key}`)}>Copy suggestion</button></div>{/each}</div>{/if}
+      {#if matches}<div class="match-results" aria-live="polite"><h4>{matches.length?$_('games_ws.games_in_common', { values: { count: matches.length } }):$_('games_ws.no_common')}</h4><p class="muted">{$_('games_ws.results_expire')}</p>
+        {#each matches as game (game.key)}<div class="match-row"><strong>{game.title}</strong><button onclick={()=>copy($_('games_ws.suggestion', { values: { title: game.title, link: steamStoreUrl(game.key)||game.key } }))}>{$_('games_ws.copy_suggestion')}</button></div>{/each}</div>{/if}
     {/if}
-    {#if own && saved && dirty}<div class="save-bar"><span>{dirty?'You have unsaved changes.':'All game choices are saved.'}</span><button onclick={()=>{apply(saved!);error='';notice='Changes discarded.';}} disabled={!dirty || busy}>Discard</button><button class="primary" onclick={save} disabled={!dirty || busy}>{busy?'Working…':'Save changes'}</button></div>{/if}
+    {#if own && saved && dirty}<div class="save-bar"><span>{dirty?$_('games_ws.unsaved'):$_('games_ws.all_saved')}</span><button onclick={()=>{apply(saved!);error='';notice=$_('games_ws.changes_discarded');}} disabled={!dirty || busy}>{$_('games_ws.discard')}</button><button class="primary" onclick={save} disabled={!dirty || busy}>{busy?$_('games_ws.working'):$_('games_ws.save_changes')}</button></div>{/if}
   </section>
 </BaseModal>
 <style>

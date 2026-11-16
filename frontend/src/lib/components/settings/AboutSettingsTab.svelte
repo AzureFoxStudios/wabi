@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Settings › About (§8.9, §9.4): what this app is and which server it talks to, as facts.
 	 * Connection troubleshooting lives in Audio & video › Troubleshooting. The heap sampler is a
@@ -85,13 +86,13 @@
 		});
 		const brand = selectBrandConfig(isNeutralBrandingEnabled());
 		activeBrand = brand;
-		aboutTitle = brand.name || brand.shortName || brandName || 'Community';
+		aboutTitle = brand.name || brand.shortName || brandName || $_('about_settings.community');
 		// Prefer branded copy when hosts set it; fall back to a short neutral line.
 		aboutBlurb =
 			(brand.description && brand.description.trim()) ||
 			(brand.tagline && brand.tagline.trim()) ||
 			(brand.subheadline && brand.subheadline.trim()) ||
-			'Self-hosted communication and collaboration.';
+			$_('about_settings.default_blurb');
 		aboutFooter = (brand.footerText && brand.footerText.trim()) || '';
 
 		memoryTelemetrySupported =
@@ -110,12 +111,12 @@
 	$: customLogo = activeBrand !== brandConfig ? activeBrand.logoSmallUrl || activeBrand.logoUrl || '' : '';
 	$: serverName = $currentSavedServer?.effectiveName || aboutTitle;
 	// The default brand's description is Wabi's own, already said above; a host's own words are not.
-	$: serverBlurb = activeBrand !== brandConfig && aboutBlurb ? aboutBlurb : 'The server this app is signed in to, run by its own operators.';
+	$: serverBlurb = activeBrand !== brandConfig && aboutBlurb ? aboutBlurb : $_('about_settings.server_blurb');
 	$: serverVersion = serverBuild
 		? `${serverBuild.version}${serverBuild.sourceRevision ? ` · ${serverBuild.sourceRevision.slice(0, 12)}` : ''}`
 		: serverBuildChecked
-			? 'Not reported by this server'
-			: 'Checking…';
+			? $_('about_settings.not_reported')
+			: $_('about_settings.checking');
 </script>
 
 <section class="settings-block about" aria-labelledby="about-app-title">
@@ -127,49 +128,49 @@
 		{/if}
 		<div class="about__lede">
 			<h3 class="settings-block__title about__name" id="about-app-title">Wabi</h3>
-			<p class="settings-block__hint">Open-source, self-hosted communication and collaboration for small communities.</p>
+			<p class="settings-block__hint">{$_('about_settings.blurb')}</p>
 		</div>
 	</div>
 	<dl class="about__facts">
-		<dt>Version</dt>
+		<dt>{$_('about_settings.version')}</dt>
 		<dd>{clientBuild.version}</dd>
-		<dt>Source</dt>
+		<dt>{$_('about_settings.source')}</dt>
 		{#if clientBuild.sourceRevision}
 			<dd>{clientBuild.sourceRevision.slice(0, 12)}</dd>
 		{:else}
-			<dd class="about__missing">Not recorded in this build</dd>
+			<dd class="about__missing">{$_('about_settings.source_missing')}</dd>
 		{/if}
 	</dl>
 	{#if aboutFooter}<p class="about__footer">{aboutFooter}</p>{/if}
 </section>
 
 <section class="settings-block about" aria-labelledby="about-server-title">
-	<h3 class="settings-block__title" id="about-server-title">Connected server</h3>
+	<h3 class="settings-block__title" id="about-server-title">{$_('about_settings.connected_server')}</h3>
 	<p class="settings-block__hint">{serverBlurb}</p>
 	<dl class="about__facts">
-		<dt>Name</dt>
+		<dt>{$_('about_settings.name')}</dt>
 		<dd class="about__plain">{serverName}</dd>
-		<dt>Address</dt>
+		<dt>{$_('about_settings.address')}</dt>
 		<dd>{$activeServerUrl}</dd>
-		<dt>Server version</dt>
+		<dt>{$_('about_settings.server_version')}</dt>
 		<dd class:about__missing={!serverBuild}>{serverVersion}</dd>
 	</dl>
 </section>
 
 {#if showDevInstruments}
 	<section class="settings-block about" aria-labelledby="about-dev-title">
-		<p class="w-kicker" id="about-dev-title">Developer build</p>
+		<p class="w-kicker" id="about-dev-title">{$_('about_settings.dev_build')}</p>
 		<div class="w-srows">
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="about-heap-label">Sample memory use</p>
+					<p class="w-srow__label" id="about-heap-label">{$_('about_settings.memory_title')}</p>
 					<p class="w-srow__hint">
 						{#if !memoryTelemetrySupported}
-							This runtime doesn't report memory use.
+							{$_('about_settings.memory_unsupported')}
 						{:else if memoryTelemetryEnabled}
-							{memoryUsedMb.toFixed(1)} MB used of {memoryTotalMb.toFixed(1)} MB · limit {memoryLimitMb.toFixed(0)} MB ({memoryUsedPct.toFixed(1)}%)
+							{$_('about_settings.memory_usage', { values: { used: memoryUsedMb.toFixed(1), total: memoryTotalMb.toFixed(1), limit: memoryLimitMb.toFixed(0), pct: memoryUsedPct.toFixed(1) } })}
 						{:else}
-							Reads the JavaScript heap every 2 seconds. Dev builds only.
+							{$_('about_settings.memory_hint')}
 						{/if}
 					</p>
 				</div>

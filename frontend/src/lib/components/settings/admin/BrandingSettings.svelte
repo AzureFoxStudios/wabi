@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { brandConfig, applyBranding } from '$lib/branding';
@@ -56,9 +57,9 @@
 			body: fd
 		});
 		const payload = await res.json().catch(() => ({}));
-		if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
+		if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : $_('branding.upload_failed', { values: { status: res.status } }));
 		const url = typeof payload?.file_url === 'string' ? payload.file_url : '';
-		if (!url) throw new Error('No URL returned');
+		if (!url) throw new Error($_('branding.no_url'));
 		return url;
 	}
 
@@ -93,12 +94,12 @@
 			};
 			localStorage.setItem(BRAND_STORE_KEY, JSON.stringify(next));
 			applyBranding();
-			status = 'Branding saved locally. Server persistence requires backend patch.';
+			status = $_('branding.saved_local');
 			if (logoInput) logoInput.value = '';
 			if (bannerInput) bannerInput.value = '';
 			if (faviconInput) faviconInput.value = '';
 		} catch (e) {
-			status = e instanceof Error ? e.message : 'Save failed.';
+			status = e instanceof Error ? e.message : $_('branding.save_failed');
 		} finally {
 			saving = false;
 		}
@@ -117,81 +118,81 @@
 
 {#if canManageBranding}
 	<div class="settings-section">
-		<h3>Brand Identity</h3>
+		<h3>{$_('branding.identity')}</h3>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Brand Name</span>
-				<span class="setting-description">Shown in titles, sidebar, boot.</span>
+				<span class="setting-label">{$_('branding.name')}</span>
+				<span class="setting-description">{$_('branding.name_desc')}</span>
 			</div>
 			<input type="text" class="emoji-name-input" bind:value={name} maxlength="32" />
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Tagline</span>
+				<span class="setting-label">{$_('branding.tagline')}</span>
 			</div>
 			<input type="text" class="emoji-name-input" bind:value={tagline} maxlength="64" />
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Headline</span>
-				<span class="setting-description">Login/landing headline.</span>
+				<span class="setting-label">{$_('branding.headline')}</span>
+				<span class="setting-description">{$_('branding.headline_desc')}</span>
 			</div>
 			<input type="text" class="emoji-name-input" bind:value={headline} maxlength="120" />
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Subheadline</span>
+				<span class="setting-label">{$_('branding.subheadline')}</span>
 			</div>
 			<input type="text" class="emoji-name-input" bind:value={subheadline} maxlength="200" />
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Footer Text</span>
+				<span class="setting-label">{$_('branding.footer')}</span>
 			</div>
 			<input type="text" class="emoji-name-input" bind:value={footerText} maxlength="200" />
 		</div>
 	</div>
 
 	<div class="settings-section">
-		<h3>Brand Assets</h3>
+		<h3>{$_('branding.assets')}</h3>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Logo</span>
+				<span class="setting-label">{$_('branding.logo')}</span>
 			</div>
 			<input type="file" accept="image/*" bind:this={logoInput} />
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Favicon</span>
+				<span class="setting-label">{$_('branding.favicon')}</span>
 			</div>
 			<input type="file" accept="image/*" bind:this={faviconInput} />
 		</div>
 	</div>
 
 	<div class="settings-section">
-		<h3>Palette</h3>
+		<h3>{$_('branding.palette')}</h3>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Accent</span>
+				<span class="setting-label">{$_('branding.accent')}</span>
 			</div>
 			<input type="color" bind:value={paletteAccent} />
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Muted</span>
+				<span class="setting-label">{$_('branding.muted')}</span>
 			</div>
 			<input type="color" bind:value={paletteMuted} />
 		</div>
 		<div class="setting-item-full">
 			<div class="setting-info">
-				<span class="setting-label">Surface</span>
+				<span class="setting-label">{$_('branding.surface')}</span>
 			</div>
 			<input type="color" bind:value={paletteSurface} />
 		</div>
 	</div>
 
 	<div class="settings-section">
-		<h3>Custom CSS</h3>
+		<h3>{$_('branding.custom_css')}</h3>
 		<div class="setting-item-full">
 			<textarea class="emoji-name-input" rows="6" bind:value={customCss} placeholder="/* Custom CSS */"></textarea>
 		</div>
@@ -199,7 +200,7 @@
 
 	<div class="settings-section">
 		<button class="pfp-upload-btn" on:click={saveBranding} disabled={saving}>
-			{saving ? 'Saving...' : 'Save Branding'}
+			{saving ? $_('branding.saving') : $_('branding.save')}
 		</button>
 		{#if status}<div class="runtime-note">{status}</div>{/if}
 	</div>

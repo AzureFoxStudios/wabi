@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import {
 		clampNormalized,
@@ -64,19 +65,19 @@
 	{#if surfaceMode === 'custom' && mapImageUrl}
 		<div class="surface-toolbar">
 			<div class="surface-status">
-				<span>Zoom {Math.round(mapZoom * 100)}%</span>
-				<span>Rotation {viewRotation.toFixed(0)} deg</span>
+				<span>{$_('map_details.zoom', { values: { value: Math.round(mapZoom * 100) } })}</span>
+				<span>{$_('map_details.rotation', { values: { value: viewRotation.toFixed(0) } })}</span>
 				{#if placingPoiIndex >= 0}
-					<span class="placing-status">Placing {placeDraft?.pois[placingPoiIndex]?.name || 'POI'}...</span>
+					<span class="placing-status">{$_('map_details.placing', { values: { name: placeDraft?.pois[placingPoiIndex]?.name || 'POI' } })}</span>
 				{/if}
 			</div>
 			<div class="surface-buttons">
-				<button class="ghost-button" type="button" on:click={() => dispatch('rotateView', -15)}>Rotate Left</button>
-				<button class="ghost-button" type="button" on:click={() => dispatch('rotateView', 15)}>Rotate Right</button>
-				<button class="ghost-button" type="button" on:click={() => dispatch('resetNorth')} disabled={viewRotation === 0}>North</button>
-				<button class="ghost-button" type="button" on:click={() => dispatch('resetCustomMapView')}>Reset View</button>
+				<button class="ghost-button" type="button" on:click={() => dispatch('rotateView', -15)}>{$_('map_details.rotate_left')}</button>
+				<button class="ghost-button" type="button" on:click={() => dispatch('rotateView', 15)}>{$_('map_details.rotate_right')}</button>
+				<button class="ghost-button" type="button" on:click={() => dispatch('resetNorth')} disabled={viewRotation === 0}>{$_('map_details.north')}</button>
+				<button class="ghost-button" type="button" on:click={() => dispatch('resetCustomMapView')}>{$_('map_details.reset_view')}</button>
 				{#if placingPoiIndex >= 0}
-					<button class="ghost-button danger" type="button" on:click={() => dispatch('cancelPoiPlacement')}>Cancel Placement</button>
+					<button class="ghost-button danger" type="button" on:click={() => dispatch('cancelPoiPlacement')}>{$_('map_details.cancel_placement')}</button>
 				{/if}
 			</div>
 		</div>
@@ -87,7 +88,7 @@
 			bind:this={customMapViewport}
 			role="application"
 			tabindex="0"
-			aria-label={`Interactive map for ${stagePlace?.name || 'this place'}. Use arrow keys to pan, plus or minus to zoom, bracket keys to rotate, and N to reset north.`}
+			aria-label={$_('map_details.interactive_label', { values: { name: stagePlace?.name || $_('map_details.this_place') } })}
 			on:wheel|preventDefault={(e) => dispatch('viewportWheel', e)}
 			on:mousedown={(e) => dispatch('viewportMouseDown', e)}
 			on:click={(e) => dispatch('viewportClick', e)}
@@ -95,7 +96,7 @@
 		>
 			<div class="custom-map-content" style={`width:${MAP_BASE_WIDTH}px;height:${mapBaseHeight}px;transform: translate(${mapPanX}px, ${mapPanY}px) scale(${mapZoom});`}>
 				<div class="rotated-map-layer" style={`transform: rotate(${viewRotation}deg);`}>
-					<img class="custom-map-image" src={mapImageUrl} alt={`Map reference for ${stagePlace?.name}`} on:load={(e) => dispatch('customMapImageLoad', e)} />
+					<img class="custom-map-image" src={mapImageUrl} alt={$_('map_details.map_ref_alt', { values: { name: stagePlace?.name } })} on:load={(e) => dispatch('customMapImageLoad', e)} />
 					{#each stagePois as poi (poi.id)}
 						<button
 							type="button"
@@ -123,10 +124,10 @@
 				</div>
 			</div>
 			{#if stagePois.length === 0}
-				<div class="viewport-overlay">No POIs placed on this custom map yet.</div>
+				<div class="viewport-overlay">{$_('map_details.no_pois')}</div>
 			{/if}
 			{#if placingPoiIndex >= 0}
-				<div class="viewport-overlay place-hint">Click anywhere on the map to place this POI.</div>
+				<div class="viewport-overlay place-hint">{$_('map_details.click_to_place')}</div>
 			{/if}
 		</div>
 	{:else if surfaceMode === 'osm' && embedUrl}
@@ -135,23 +136,23 @@
 		<div class="visual-fallback">
 			{#if canManagePlaces}
 				<div class="visual-fallback-card">
-					<h4>No map surface yet</h4>
-					<p>Upload custom map art for floorplans or add coordinates for OpenStreetMap.</p>
+					<h4>{$_('map_details.no_surface')}</h4>
+					<p>{$_('map_details.upload_hint')}</p>
 					<div class="surface-buttons visual-fallback-actions">
 						<button class="ghost-button" type="button" on:click={() => dispatch('startQuickMapUpload')} disabled={uploadBusy}>
-							{uploadBusy ? 'Uploading...' : 'Upload Custom Map'}
+							{uploadBusy ? $_('map_details.uploading') : $_('map_details.upload_custom')}
 						</button>
 						<button class="ghost-button" type="button" on:click={() => dispatch('startQuickOsmSetup')}>
-							Add OSM Coordinates
+							{$_('map_details.add_osm')}
 						</button>
 					</div>
-					<small>"OSM here please" is just latitude and longitude in the place editor.</small>
+					<small>{$_('map_details.osm_note')}</small>
 				</div>
 			{:else}
 				<div class="visual-fallback-card">
-					<h4>No map surface yet</h4>
-					<p>No visual map is configured for this place yet.</p>
-					<small>Ask an owner or admin to upload map art or add coordinates.</small>
+					<h4>{$_('map_details.no_surface')}</h4>
+					<p>{$_('map_details.no_visual_map')}</p>
+					<small>{$_('map_details.ask_owner')}</small>
 				</div>
 			{/if}
 		</div>
@@ -161,46 +162,46 @@
 {#if !isCompactLayout}
 	<div class="detail-panel">
 		<div class="detail-card">
-			<h4>Place Details</h4>
+			<h4>{$_('map_details.place_details')}</h4>
 			<div class="detail-stat-grid">
 				<div class="detail-stat">
-					<span>Slug</span>
+					<span>{$_('map_details.slug')}</span>
 					<strong>@{stagePlace?.slug}</strong>
 				</div>
 				<div class="detail-stat">
-					<span>Layers</span>
+					<span>{$_('map_details.layers')}</span>
 					<strong>{stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0)}</strong>
 				</div>
 				<div class="detail-stat">
-					<span>POI View</span>
+					<span>{$_('map_details.poi_view')}</span>
 					<strong>{formatPoiDisplayPreference(poiDisplayPreference)}</strong>
 				</div>
 				<div class="detail-stat">
-					<span>POI Theme</span>
+					<span>{$_('map_details.poi_theme')}</span>
 					<strong>{formatPoiThemePreset(stagePlace?.poiThemePreset)}</strong>
 				</div>
 				<div class="detail-stat">
-					<span>Rotation</span>
+					<span>{$_('map_details.rotation_label')}</span>
 					<strong>{stagePlace?.mapRotation.toFixed(0)} deg</strong>
 				</div>
 				<div class="detail-stat">
-					<span>POIs</span>
-					<strong>{stagePois.length}{stageMapLayers.length > 1 ? ` visible / ${allStagePois.length} total` : ''}</strong>
+					<span>{$_('map_details.pois')}</span>
+					<strong>{stagePois.length}{stageMapLayers.length > 1 ? $_('map_details.visible_total', { values: { total: allStagePois.length } }) : ''}</strong>
 				</div>
 				<div class="detail-stat detail-stat--wide">
-					<span>Aliases</span>
-					<strong>{stagePlace?.aliases.length ? stagePlace.aliases.join(', ') : 'None'}</strong>
+					<span>{$_('map_details.aliases')}</span>
+					<strong>{stagePlace?.aliases.length ? stagePlace.aliases.join(', ') : $_('map_details.none')}</strong>
 				</div>
 				<div class="detail-stat detail-stat--wide">
-					<span>Tags</span>
-					<strong>{stagePlace?.tags.length ? stagePlace.tags.join(', ') : 'None'}</strong>
+					<span>{$_('map_details.tags')}</span>
+					<strong>{stagePlace?.tags.length ? stagePlace.tags.join(', ') : $_('map_details.none')}</strong>
 				</div>
 			</div>
 		</div>
 
 		{#if stagePois.length > 0}
 			<div class="detail-card">
-				<h4>Points of Interest</h4>
+				<h4>{$_('map_details.points_of_interest')}</h4>
 				<div class="poi-list">
 					{#each stagePois as poi (poi.id)}
 						<button type="button" class="poi-item" class:active={selectedPoi?.id === poi.id} on:click={() => dispatch('selectPoi', poi.id)}>
@@ -214,23 +215,23 @@
 
 		{#if selectedPoi}
 			<div class="detail-card selected-poi-card">
-				<h4>Selected POI</h4>
+				<h4>{$_('map_details.selected_poi')}</h4>
 				<div class="poi-summary">
 					<div class="poi-badge" data-poi-theme={getEffectivePoiThemePreset(selectedPoi)} style={`--poi-color:${selectedPoi.iconColor || '#78b4ff'}`}>
 						{resolvePoiMarkerGlyph(selectedPoi)}
 					</div>
 					<div>
 						<strong>{selectedPoi.name}</strong>
-						<p>{selectedPoi.description || 'No description saved.'}</p>
+						<p>{selectedPoi.description || $_('map_details.no_description')}</p>
 					</div>
 				</div>
 				<ul>
-					<li><strong>Server Style</strong><span>{selectedPoi.renderMode}</span></li>
-					<li><strong>Shown As</strong><span>{getEffectivePoiRenderMode(selectedPoi)}</span></li>
-					<li><strong>Server Theme</strong><span>{describeServerPoiTheme(selectedPoi)}</span></li>
-					<li><strong>Shown Theme</strong><span>{formatPoiThemePreset(getEffectivePoiThemePreset(selectedPoi))}</span></li>
-					<li><strong>Icon Preset</strong><span>{formatPoiIconPreset(selectedPoi.iconPreset || 'pin')}</span></li>
-					<li><strong>Anchor</strong><span>{selectedPoi.x.toFixed(3)}, {selectedPoi.y.toFixed(3)}</span></li>
+					<li><strong>{$_('map_details.server_style')}</strong><span>{selectedPoi.renderMode}</span></li>
+					<li><strong>{$_('map_details.shown_as')}</strong><span>{getEffectivePoiRenderMode(selectedPoi)}</span></li>
+					<li><strong>{$_('map_details.server_theme')}</strong><span>{describeServerPoiTheme(selectedPoi)}</span></li>
+					<li><strong>{$_('map_details.shown_theme')}</strong><span>{formatPoiThemePreset(getEffectivePoiThemePreset(selectedPoi))}</span></li>
+					<li><strong>{$_('map_details.icon_preset')}</strong><span>{formatPoiIconPreset(selectedPoi.iconPreset || 'pin')}</span></li>
+					<li><strong>{$_('map_details.anchor')}</strong><span>{selectedPoi.x.toFixed(3)}, {selectedPoi.y.toFixed(3)}</span></li>
 				</ul>
 			</div>
 		{/if}

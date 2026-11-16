@@ -546,7 +546,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const result = await createDM(getDmDirectoryKey(user));
 		const channelId = result.channelId || (result.ok ? result.channel?.id : null);
 		if (!channelId) {
-			activityActionError = result.ok === false ? result.error : 'Could not open the conversation.';
+			activityActionError = result.ok === false ? result.error : $_('main_layout.could_not_open');
 			return;
 		}
 		selectWorkspaceView('messages');
@@ -894,8 +894,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		void fetch(`${server}/api/server-center/reception/complete`, {
 			method: 'POST', headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
 		}).then(response => {
-			if (!response.ok) showToast('Could not save welcome progress. The guide may reappear next time.', 'error');
-		}).catch(() => showToast('Could not save welcome progress. The guide may reappear next time.', 'error'));
+			if (!response.ok) showToast($_('main_layout.welcome_save_failed'), 'error');
+		}).catch(() => showToast($_('main_layout.welcome_save_failed'), 'error'));
 	}
 
 	function returnFromServerHub(): void {
@@ -932,10 +932,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				const newRequests = state.incoming.filter((request) => !knownIncomingRequestIds?.has(request.id));
 				if (newRequests.length === 1) {
 					const person = newRequests[0];
-					const handle = toast(`Friend request from ${person.handle ? `@${person.handle}` : person.username}. Open Friends to respond.`, { tone: 'info', timeout: 8000 });
+					const handle = toast($_('main_layout.friend_request', { values: { name: person.handle ? `@${person.handle}` : person.username } }), { tone: 'info', timeout: 8000 });
 					friendRequestToasts.push({ handle, ids: new Set([person.id]) });
 				} else if (newRequests.length > 1) {
-					const handle = toast(`${newRequests.length} new friend requests. Open Friends to respond.`, { tone: 'info', timeout: 8000 });
+					const handle = toast($_('main_layout.friend_requests', { values: { count: newRequests.length } }), { tone: 'info', timeout: 8000 });
 					friendRequestToasts.push({ handle, ids: new Set(newRequests.map((request) => request.id)) });
 				}
 			}
@@ -944,35 +944,35 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 		mobileTabQueue.registerAddonTab({
 			id: MODEL_VIEWPORT_ADDON_ID,
-			label: '3D Viewport',
-			shortLabel: '3D View'
+			label: $_('main_layout.tab_3d'),
+			shortLabel: $_('main_layout.tab_3d_short')
 		});
 		mobileTabQueue.registerAddonTab({
 			id: READER_ADDON_ID,
-			label: 'Reader',
-			shortLabel: 'Read'
+			label: $_('main_layout.tab_reader'),
+			shortLabel: $_('main_layout.tab_reader_short')
 		});
 		mobileTabQueue.registerAddonTab({
 			id: MAP_ADDON_ID,
-			label: 'Maps',
-			shortLabel: 'Map'
+			label: $_('main_layout.tab_maps'),
+			shortLabel: $_('main_layout.tab_maps_short')
 		});
 		mobileTabQueue.registerAddonTab({
 			id: MEDIA_ALBUMS_ADDON_ID,
-			label: 'Media Albums',
-			shortLabel: 'Albums'
+			label: $_('main_layout.tab_albums'),
+			shortLabel: $_('main_layout.tab_albums_short')
 		});
 		mobileTabQueue.registerAddonTab({
 			id: PLANNER_ADDON_ID,
-			label: 'Planner',
-			shortLabel: 'Planner'
+			label: $_('main_layout.tab_planner'),
+			shortLabel: $_('main_layout.tab_planner_short')
 		});
 		mobileTabQueue.registerAddonTab({
 			id: NOTES_ADDON_ID,
-			label: 'Notes',
-			shortLabel: 'Notes'
+			label: $_('main_layout.tab_notes'),
+			shortLabel: $_('main_layout.tab_notes_short')
 		});
-		mobileTabQueue.registerAddonTab({ id: NOTIFICATIONS_ADDON_ID, label: 'Activity', shortLabel: 'Activity' });
+		mobileTabQueue.registerAddonTab({ id: NOTIFICATIONS_ADDON_ID, label: $_('main_layout.tab_activity'), shortLabel: $_('main_layout.tab_activity') });
 
 		// Plugin workspace panels were previously registered from RightPanel's
 		// mount; the stub strip never mounts a panel body, so registration
@@ -1117,10 +1117,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	function formatPresenceStatus(status: User['status'] | 'offline'): string {
-		if (status === 'active') return 'Online';
-		if (status === 'away') return 'Away';
-		if (status === 'busy') return 'Do Not Disturb';
-		return 'Offline';
+		if (status === 'active') return $_('main_layout.status_online');
+		if (status === 'away') return $_('main_layout.status_away');
+		if (status === 'busy') return $_('main_layout.status_busy');
+		return $_('main_layout.status_offline');
 	}
 
 	function notifyFriendStatusChange(
@@ -1133,7 +1133,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		try {
 			playNotificationSound();
 			const notification = new Notification(`${username} is now ${formatPresenceStatus(nextStatus)}`, {
-				body: `Status changed from ${formatPresenceStatus(previousStatus)}.`
+				body: $_('main_layout.status_changed', { values: { status: formatPresenceStatus(previousStatus) } })
 			});
 			setTimeout(() => notification.close(), 6000);
 		} catch {
@@ -1664,19 +1664,19 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{/if}
 				{:else if $activeWorkspaceView === 'lore'}
 					{#await import('./ProjectWorkspace.svelte')}
-						<div class="lazy-panel-placeholder" role="status">Loading Project…</div>
+						<div class="lazy-panel-placeholder" role="status">{$_('main_layout.loading_project')}</div>
 					{:then module}
 						<svelte:component this={module.default} />
 					{:catch}
-						<p role="alert">Couldn't load Project. Try reloading Wabi.</p>
+						<p role="alert">{$_('main_layout.project_failed')}</p>
 					{/await}
 				{:else if $activeWorkspaceView === 'files'}
 					{#await import('./FilesWorkspace.svelte')}
-						<div class="lazy-panel-placeholder" role="status">Loading Files…</div>
+						<div class="lazy-panel-placeholder" role="status">{$_('main_layout.loading_files')}</div>
 					{:then module}
 						<svelte:component this={module.default} />
 					{:catch}
-						<p role="alert">Couldn't load Files. Try reloading Wabi.</p>
+						<p role="alert">{$_('main_layout.files_failed')}</p>
 					{/await}
 				{:else if $activeWorkspaceView === 'voice'}
 					{#if VoiceViewCmp}
@@ -1700,7 +1700,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 							{:else}
 								<div class="center-dm-empty">
 									<Icon name="dm" size={28} />
-									<span>Select a conversation</span>
+									<span>{$_('main_layout.select_conversation')}</span>
 								</div>
 							{/if}
 						</div>

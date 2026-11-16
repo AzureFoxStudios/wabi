@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, kickGroupMember, addGroupMember, leaveGroup } from '$lib/socket';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
@@ -35,7 +36,7 @@
 	let memberRecords = $derived((channel.members || []).map((stableId): User => {
 		return directory.find(user => getDmDirectoryKey(user) === stableId) ||
 			(channel.memberUsers || []).find(user => getDmDirectoryKey(user) === stableId) ||
-			{ id: stableId, username: stableId.startsWith('user-') ? `User ${stableId.slice(5)}` : stableId,
+			{ id: stableId, username: stableId.startsWith('user-') ? $_('group_settings.user_id', { values: { id: stableId.slice(5) } }) : stableId,
 			  color: 'var(--text-muted)', status: 'offline' };
 	}));
 	let addableUsers = $derived(buildDmDirectoryUsers({
@@ -52,7 +53,7 @@
 			await work();
 			if (channel?.id === id) after?.();
 		} catch (error) {
-			if (channel?.id === id) operationError = error instanceof Error ? error.message : 'Could not confirm the group change';
+			if (channel?.id === id) operationError = error instanceof Error ? error.message : $_('group_settings.confirm_failed');
 		} finally { busy = false; }
 	}
 	function handleKick(member: User) {
@@ -75,25 +76,25 @@
 
 <div class="group-settings" aria-busy={busy}>
 	{#if operationError}<p class="operation-error" role="alert">{operationError}</p>{/if}
-	{#if busy}<p role="status">Waiting for server confirmation…</p>{/if}
+	{#if busy}<p role="status">{$_('group_settings.waiting')}</p>{/if}
 	<div class="settings-section avatar-section">
 		<div class="avatar-display">
 			<GroupAvatar {channel} size={64} />
 		</div>
 		<h3 class="group-name">{channel.name}</h3>
-		<span class="member-count">{channel.members?.length || 0} members</span>
+		<span class="member-count">{$_('group_settings.member_count', { values: { count: channel.members?.length || 0 } })}</span>
 		{#if isOwner}
-			<p class="avatar-note">Custom group avatars are not available yet.</p>
+			<p class="avatar-note">{$_('group_settings.avatar_note')}</p>
 		{/if}
 	</div>
 
 	<div class="settings-section">
 		<div class="section-header">
-			<h4>Members</h4>
+			<h4>{$_('group_settings.members')}</h4>
 			{#if isOwner}
 				<button class="add-member-btn" disabled={busy} onclick={() => { showAddMember = !showAddMember; }}>
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-					Add
+					{$_('group_settings.add')}
 				</button>
 			{/if}
 		</div>
@@ -103,7 +104,7 @@
 				<input
 					type="text"
 					class="add-search"
-					placeholder="Search users..." aria-label="Search group invitees" disabled={busy}
+					placeholder={$_('group_settings.search_users')} aria-label={$_('group_settings.search_invitees')} disabled={busy}
 					bind:value={addSearchQuery}
 				/>
 				<div class="add-user-list">
@@ -119,7 +120,7 @@
 							<span>{user.username}</span>
 						</button>
 					{:else}
-						<div class="no-users">No users to add</div>
+						<div class="no-users">{$_('group_settings.no_users')}</div>
 					{/each}
 				</div>
 			</div>
@@ -143,14 +144,14 @@
 					<div class="member-info">
 						<span class="member-name">{member.username}</span>
 						{#if channel.ownerId === getDmDirectoryKey(member)}
-							<span class="role-badge owner">Owner</span>
+							<span class="role-badge owner">{$_('group_settings.owner')}</span>
 						{/if}
 						{#if isMemberCurrentUser(member)}
-							<span class="you-badge">You</span>
+							<span class="you-badge">{$_('group_settings.you')}</span>
 						{/if}
 					</div>
 					{#if isOwner && !isMemberCurrentUser(member)}
-						<button class="kick-btn" disabled={busy} aria-label={`Remove ${member.username} from group`} onclick={() => handleKick(member)} title="Remove from group">
+						<button class="kick-btn" disabled={busy} aria-label={$_('group_settings.remove_aria', { values: { name: member.username } })} onclick={() => handleKick(member)} title={$_('group_settings.remove_title')}>
 							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 						</button>
 					{/if}
@@ -161,7 +162,7 @@
 
 	<div class="settings-section leave-section">
 		<button class="leave-btn" disabled={busy} onclick={handleLeave}>
-			Leave Group
+			{$_('group_settings.leave')}
 		</button>
 	</div>
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { createEventDispatcher } from 'svelte';
   import { acceptLocalMockGuestCode, isLocalMockApiMode } from '$lib/localMockApi';
   import { getServerUrl } from '../serverUrl';
@@ -13,7 +14,7 @@
 
   async function verifyCode() {
     if (!code.trim()) {
-      error = 'Please enter a code';
+      error = $_('guest_prompt.enter_code');
       return;
     }
 
@@ -26,7 +27,7 @@
         dispatch('verified', { code: code.trim() });
         show = false;
       } else {
-        error = 'Please enter a code';
+        error = $_('guest_prompt.enter_code');
       }
       loading = false;
       return;
@@ -47,10 +48,10 @@
         dispatch('verified', { code: code.trim() });
         show = false;
       } else {
-        error = result.message || 'Invalid code';
+        error = result.message || $_('guest_prompt.invalid');
       }
     } catch (err) {
-      error = 'Failed to verify code';
+      error = $_('guest_prompt.verify_failed');
       console.error('Code verification error:', err);
     } finally {
       loading = false;
@@ -72,17 +73,17 @@
 {#if show}
   <div class="modal-overlay">
     <div class="modal-content">
-      <div class="modal-kicker">LOCAL · BUSINESS HUB</div>
-      <h2>Guest Access Required</h2>
-      <p class="intro">Enter your special access code to create and edit business data.</p>
+      <div class="modal-kicker">{$_('guest_prompt.kicker')}</div>
+      <h2>{$_('guest_prompt.title')}</h2>
+      <p class="intro">{$_('guest_prompt.intro')}</p>
 
       <label class="access-field">
-        <span>ACCESS CODE</span>
+        <span>{$_('guest_prompt.access_code')}</span>
         <input
           type="text"
           bind:value={code}
           on:keydown={handleKeydown}
-          placeholder="Enter access code"
+          placeholder={$_('guest_prompt.placeholder')}
           disabled={loading}
           autocomplete="off"
         />
@@ -94,14 +95,14 @@
 
       <div class="button-group">
         <button on:click={verifyCode} disabled={loading} class="primary">
-          {loading ? 'Verifying...' : 'Verify Code'}
+          {loading ? $_('guest_prompt.verifying') : $_('guest_prompt.verify')}
         </button>
         <button on:click={skipAsReadOnly} disabled={loading} class="secondary">
-          Continue as Read-Only
+          {$_('guest_prompt.read_only')}
         </button>
       </div>
 
-      <p class="hint">Don't have a code? You can still view data in read-only mode.</p>
+      <p class="hint">{$_('guest_prompt.no_code_hint')}</p>
     </div>
   </div>
 {/if}

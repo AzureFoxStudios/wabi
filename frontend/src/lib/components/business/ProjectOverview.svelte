@@ -4,6 +4,7 @@
 	then the sub-projects as the same lift cards the inventory uses.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { projects, todos } from '$lib/business/store';
 	import { projectTasks } from '$lib/business/projectHierarchy';
 	import { plannerUserById } from '$lib/business/plannerUsers';
@@ -25,27 +26,27 @@
 	function assignee(id: string | undefined): string {
 		if (!id) return '';
 		const user = $plannerUserById.get(Number.parseInt(id, 10));
-		return user?.username ?? 'Assigned';
+		return user?.username ?? $_('project_overview.assigned');
 	}
 </script>
 
-<section class="pj-overview" aria-label="Project overview">
+<section class="pj-overview" aria-label={$_('project_overview.aria_label')}>
 	<div class="pj-summary">
 		<p class="pj-summary__words">
-			{tasks.length ? `${completed} of ${tasks.length} tasks done` : 'No tasks yet'}
+			{tasks.length ? $_('project_overview.done_count', { values: { done: completed, total: tasks.length } }) : $_('project_overview.no_tasks')}
 		</p>
 		{#if tasks.length}
-			<span class="pj-bar pj-bar--wide" role="progressbar" aria-label="Tasks done" aria-valuemin={0} aria-valuemax={tasks.length} aria-valuenow={completed}>
+			<span class="pj-bar pj-bar--wide" role="progressbar" aria-label={$_('project_overview.tasks_done_aria')} aria-valuemin={0} aria-valuemax={tasks.length} aria-valuenow={completed}>
 				<span class="pj-bar__fill" style:width={`${Math.round(ratio * 100)}%`}></span>
 			</span>
 		{/if}
-		<p class="pj-summary__note">Counts this project and its sub-projects; archived and parked tasks are left out.</p>
+		<p class="pj-summary__note">{$_('project_overview.counts_note')}</p>
 	</div>
 
 	{#if tasks.length}
 		<div class="pj-lists">
 			<section class="pj-list" aria-labelledby={`${uid}-due`}>
-				<h3 class="pj-list__title" id={`${uid}-due`}>Next deadlines</h3>
+				<h3 class="pj-list__title" id={`${uid}-due`}>{$_('project_overview.next_deadlines')}</h3>
 				{#each upcoming.slice(0, 5) as task (task.id)}
 					{@const due = dueLabel(task)}
 					<div class="pj-list__row">
@@ -53,11 +54,11 @@
 						{#if due}<span class="pj-list__fact" class:is-overdue={due.tone === 'overdue'} title={due.title}>{due.text}</span>{/if}
 					</div>
 				{:else}
-					<p class="pj-list__none">No deadlines yet. Add a due date to a task when the timing matters.</p>
+					<p class="pj-list__none">{$_('project_overview.no_deadlines')}</p>
 				{/each}
 			</section>
 			<section class="pj-list" aria-labelledby={`${uid}-wip`}>
-				<h3 class="pj-list__title" id={`${uid}-wip`}>In progress</h3>
+				<h3 class="pj-list__title" id={`${uid}-wip`}>{$_('project_overview.in_progress')}</h3>
 				{#each working.slice(0, 5) as task (task.id)}
 					{@const who = assignee(task.assignedTo)}
 					<div class="pj-list__row">
@@ -65,14 +66,14 @@
 						{#if who}<span class="pj-list__fact">{who}</span>{/if}
 					</div>
 				{:else}
-					<p class="pj-list__none">Nothing in progress. Move a task to In progress on the Board when you start it.</p>
+					<p class="pj-list__none">{$_('project_overview.nothing_in_progress')}</p>
 				{/each}
 			</section>
 		</div>
 	{/if}
 
 	<section class="pj-children" aria-labelledby={`${uid}-subs`}>
-		<h3 class="pj-list__title" id={`${uid}-subs`}>Sub-projects{#if children.length}{' '}<span class="pj-list__count">{children.length}</span>{/if}</h3>
+		<h3 class="pj-list__title" id={`${uid}-subs`}>{$_('project_overview.sub_projects')}{#if children.length}{' '}<span class="pj-list__count">{children.length}</span>{/if}</h3>
 		{#if children.length}
 			<ul class="pj-grid pj-grid--sub">
 				{#each children as child (child.id)}
@@ -89,7 +90,7 @@
 									<span class="w-tag pj-card__status"><span class="w-dot w-dot--{status.tone}" aria-hidden="true"></span>{status.word}</span>
 								{/if}
 							</div>
-							<p class="pj-card__desc">{child.description || 'No description yet.'}</p>
+							<p class="pj-card__desc">{child.description || $_('project_overview.no_description')}</p>
 							<div class="pj-card__meta">
 								<span class="pj-progress">
 									<span class="pj-bar" aria-hidden="true"><span class="pj-bar__fill" style:width={`${Math.round(summary.ratio * 100)}%`}></span></span>
@@ -101,7 +102,7 @@
 				{/each}
 			</ul>
 		{:else}
-			<p class="pj-list__none">Split a larger goal into smaller projects: a convention, a poster series, one finished piece.</p>
+			<p class="pj-list__none">{$_('project_overview.split_hint')}</p>
 		{/if}
 	</section>
 </section>

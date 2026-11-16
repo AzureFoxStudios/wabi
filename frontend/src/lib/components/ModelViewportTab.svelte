@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { sketchfabSource, modelLinkError } from '$lib/modelSource';
 	import { onMount } from 'svelte';
 	import ModelViewerLauncher from './ModelViewerLauncher.svelte';
@@ -64,7 +65,7 @@
 			// Not an absolute URL — fall through to the plain-path parse below.
 		}
 		const last = raw.split('?')[0].split('#')[0].split('/').filter(Boolean).pop();
-		return last || 'Remote model';
+		return last || $_('model_tab.remote_model');
 	}
 
 	function loadFromUrl(raw: string, fallbackName?: string): void {
@@ -93,13 +94,13 @@
 				{#if $modelViewportHistory.length > 0}
 					<select
 						class="model-select toolbar-select"
-						aria-label="Recent models"
+						aria-label={$_('model_tab.recent_models')}
 						on:change={handlePickRecent}
 					>
-						<option value="">Recent models</option>
+						<option value="">{$_('model_tab.recent_models')}</option>
 						{#each $modelViewportHistory as model}
 							<option value={model.id}>
-								{model.fileName}{model.source === 'local-temp' ? ' (temp)' : ''}
+								{model.fileName}{model.source === 'local-temp' ? $_('model_tab.temp_suffix') : ''}
 							</option>
 						{/each}
 					</select>
@@ -107,27 +108,27 @@
 				<button
 					class="toolbar-pill"
 					type="button"
-					title="Unload the current model"
+					title={$_('model_tab.unload_title')}
 					on:click={() => clearModelViewport()}
 				>
-					<span aria-hidden="true">🗑</span> Clear model
+					<span aria-hidden="true">🗑</span> {$_('model_tab.clear_model')}
 				</button>
 				<button
 					class="toolbar-pill toolbar-close-btn"
 					type="button"
-					aria-label="Hide model controls"
-					title="Hide the viewer controls (use Show UI in the viewer to bring them back)"
+					aria-label={$_('model_tab.hide_aria')}
+					title={$_('model_tab.hide_title')}
 					on:click={() => (viewerUiHidden = true)}
 				>
-					<span aria-hidden="true">👁</span> Hide controls
+					<span aria-hidden="true">👁</span> {$_('model_tab.hide_controls')}
 				</button>
 				<button
 					class="toolbar-pill pill-exit"
 					type="button"
-					title="Close the viewer and go back"
+					title={$_('model_tab.close_viewer_title')}
 					on:click={handleExitViewer}
 				>
-					<span aria-hidden="true">✕</span> Close viewer
+					<span aria-hidden="true">✕</span> {$_('model_tab.close_viewer')}
 				</button>
 			</div>
 		</div>
@@ -135,20 +136,20 @@
 
 	{#if $modelViewportSelection}
 		<div class="viewport-canvas-wrap">
-			{#if hostedModel}<div class="hosted-model"><p>Hosted on Sketchfab · <a href={hostedModel.pageUrl} target="_blank" rel="noopener noreferrer">Open original</a></p><iframe src={hostedModel.embedUrl} title="Sketchfab model viewer" allow="fullscreen; xr-spatial-tracking" allowfullscreen referrerpolicy="no-referrer"></iframe></div>{:else}<ModelViewerLauncher bind:hideUi={viewerUiHidden} src={$modelViewportSelection.src} fileName={$modelViewportSelection.fileName} height={viewerHeight} fullBleed={true} lazyLoad={false} />{/if}
+			{#if hostedModel}<div class="hosted-model"><p>{$_('model_tab.hosted')} · <a href={hostedModel.pageUrl} target="_blank" rel="noopener noreferrer">{$_('model_tab.open_original')}</a></p><iframe src={hostedModel.embedUrl} title={$_('model_tab.sketchfab_viewer')} allow="fullscreen; xr-spatial-tracking" allowfullscreen referrerpolicy="no-referrer"></iframe></div>{:else}<ModelViewerLauncher bind:hideUi={viewerUiHidden} src={$modelViewportSelection.src} fileName={$modelViewportSelection.fileName} height={viewerHeight} fullBleed={true} lazyLoad={false} />{/if}
 		</div>
 	{:else}
 		<div class="viewport-empty">
 			<div class="empty-card">
 				<div class="empty-icon" aria-hidden="true">📦</div>
-				<p class="empty-title">No model selected yet</p>
-				<p class="empty-hint">Open a downloaded model file to inspect it. Local files are not uploaded.</p>
+				<p class="empty-title">{$_('model_tab.no_model')}</p>
+				<p class="empty-hint">{$_('model_tab.empty_hint')}</p>
 				<div class="empty-action-list">
 					<button class="empty-action primary" type="button" on:click={openTempPicker}>
 						<span class="action-icon" aria-hidden="true">📂</span>
 						<span class="action-text">
-							<strong>Open model from your computer</strong>
-							<small>GLB, GLTF, OBJ or STL — stays on this device</small>
+							<strong>{$_('model_tab.open_computer')}</strong>
+							<small>{$_('model_tab.open_computer_desc')}</small>
 						</span>
 					</button>
 					<button
@@ -159,20 +160,20 @@
 					>
 						<span class="action-icon" aria-hidden="true">🔗</span>
 						<span class="action-text">
-							<strong>Model link / example</strong>
-							<small>Direct model files or a Sketchfab model page</small>
+							<strong>{$_('model_tab.link_example')}</strong>
+							<small>{$_('model_tab.link_example_desc')}</small>
 						</span>
 						<span class="action-chevron" aria-hidden="true">{showUrlRow ? '▾' : '▸'}</span>
 					</button>
 					{#if linkError}<p role="alert" class="empty-hint">{linkError}</p>{/if}
 					{#if showUrlRow}
-						<p class="empty-hint">Paste a link to the model file itself. Sketchfab model pages open in its hosted viewer; other website preview links cannot be loaded as files. For a downloaded model, use “Open model from your computer”.</p>
+						<p class="empty-hint">{$_('model_tab.link_help')}</p>
 						<div class="url-row">
 							<input
 								class="url-input"
 								type="url"
 								placeholder="https://example.com/model.glb"
-								aria-label="Model file or Sketchfab URL"
+								aria-label={$_('model_tab.file_or_url')}
 								bind:value={modelUrl}
 								on:keydown={(event) => event.key === 'Enter' && loadFromUrl(modelUrl)}
 							/>
@@ -182,20 +183,20 @@
 								disabled={!modelUrl.trim()}
 								on:click={() => loadFromUrl(modelUrl)}
 							>
-								Open model link
+								{$_('model_tab.open_link')}
 							</button>
 							<button
 								class="toolbar-pill"
 								type="button"
 								on:click={() => loadFromUrl(SAMPLE_MODEL_URL, SAMPLE_MODEL_NAME)}
 							>
-								Try sample
+								{$_('model_tab.try_sample')}
 							</button>
 						</div>
 					{/if}
 					{#if $modelViewportHistory.length > 0}
 						<div class="recent-block">
-							<p class="recent-title">Recent models</p>
+							<p class="recent-title">{$_('model_tab.recent_models')}</p>
 							<ul class="recent-list">
 								{#each $modelViewportHistory as model}
 									<li>
@@ -208,7 +209,7 @@
 											<span aria-hidden="true">{model.source === 'local-temp' ? '🗂' : '🔗'}</span>
 											<span class="recent-name">{model.fileName}</span>
 											{#if model.source === 'local-temp'}
-												<span class="recent-badge">temp</span>
+												<span class="recent-badge">{$_('model_tab.temp')}</span>
 											{/if}
 										</button>
 									</li>

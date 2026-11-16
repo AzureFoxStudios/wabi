@@ -252,7 +252,7 @@
 		const onPolicyUpdated = () => {
 			// Policy changes are not silent: refresh the visible contract now and say so.
 			requestPrivacySummary(true);
-			showToast('Server privacy policy changed. The room privacy labels have been refreshed.', 'info');
+			showToast($_('chat_header.policy_changed'), 'info');
 		};
 		live?.on('channel-updated', onChannelUpdated);
 		live?.on('privacy-policy-updated', onPolicyUpdated);
@@ -288,11 +288,11 @@
 	type Chip = { id: string; label: string; title: string };
 	const chips = $derived.by<Chip[]>(() => {
 		const list: Chip[] = [];
-		if (channel?.forceSpoiler) list.push({ id: 'spoilers', label: 'Spoilers', title: 'Every message in this channel is hidden until clicked.' });
-		if (loreBinding) list.push({ id: 'lore', label: `Lore · ${loreBinding.path}`, title: `Lore binding: uploads promote to ${loreBinding.path} on branch ${loreBinding.branch} (mode: ${loreBinding.mode})` });
-		if ($displayEnhancementSettingsStore.spoilerAllMessagesEnabled) list.push({ id: 'spoil-all', label: 'Spoiler all · your view', title: 'You have Spoiler All Messages enabled: every message is hidden until clicked (your view only).' });
-		if ($activeServerSpoilAll) list.push({ id: 'server-spoiled', label: 'Spoiled on this server · your view', title: 'You have Spoiler All enabled for this server: every message here is hidden until clicked (your view only).' });
-		if ($activeServerUnspoilAll) list.push({ id: 'server-unspoiled', label: 'Unspoiled on this server · your view', title: 'You have Unspoil All enabled for this server: every message here is revealed, even spoilers (your view only).' });
+		if (channel?.forceSpoiler) list.push({ id: 'spoilers', label: $_('chat_header.spoilers'), title: $_('chat_header.spoilers_title') });
+		if (loreBinding) list.push({ id: 'lore', label: $_('chat_header.lore_label', { values: { path: loreBinding.path } }), title: $_('chat_header.lore_title', { values: { path: loreBinding.path, branch: loreBinding.branch, mode: loreBinding.mode } }) });
+		if ($displayEnhancementSettingsStore.spoilerAllMessagesEnabled) list.push({ id: 'spoil-all', label: $_('chat_header.spoil_all'), title: $_('chat_header.spoil_all_title') });
+		if ($activeServerSpoilAll) list.push({ id: 'server-spoiled', label: $_('chat_header.server_spoiled'), title: $_('chat_header.server_spoiled_title') });
+		if ($activeServerUnspoilAll) list.push({ id: 'server-unspoiled', label: $_('chat_header.server_unspoiled'), title: $_('chat_header.server_unspoiled_title') });
 		return list;
 	});
 	// Retention is a truth chip of its own (never folded into "+N", never a privacy claim, no
@@ -313,8 +313,8 @@
 	const rulesTag = $derived(
 		conversation && privacySummary?.privateConversation
 			? privacySummary.automatedContentRules
-				? { label: 'Local rules on', title: 'This server has explicitly opted private conversations into local automated content rules.' }
-				: { label: 'Reports only', title: 'Automated content rules do not inspect this private conversation. Participants can explicitly report messages to server staff.' }
+				? { label: $_('chat_header.local_rules'), title: $_('chat_header.local_rules_title') }
+				: { label: $_('chat_header.reports_only'), title: $_('chat_header.reports_only_title') }
 			: null
 	);
 
@@ -322,7 +322,7 @@
 	const callActive = $derived(($isInCall && $callMode === 'direct') || Boolean($outgoingCall));
 	const callPending = $derived(Boolean($outgoingCall) && !$isInCall && $callMode === 'direct');
 
-	const callWord = $derived(callActive ? (callPending ? 'Calling…' : 'Call active') : undefined);
+	const callWord = $derived(callActive ? (callPending ? $_('chat_header.calling') : $_('chat_header.call_active')) : undefined);
 
 	async function startDmCall(video: boolean): Promise<void> {
 		const live = get(socket);
@@ -552,22 +552,22 @@
 		if (!conversation) {
 			items.push({ id: 'about', label: $_('stage.about_channel'), icon: 'info', onSelect: () => void tick().then(() => openPop('about', shown(topicButton) ?? moreTrigger())) });
 			if (searchable) items.push({ id: 'pinned', label: pinnedLabel, icon: 'pin', hint: pinned.length ? String(pinned.length) : undefined, onSelect: () => void tick().then(() => openPop('pinned', shown(pinnedButton) ?? moreTrigger())) });
-			items.push({ id: 'bookmark', label: isBookmarked ? 'Remove bookmark' : 'Bookmark channel', icon: 'star', onSelect: () => void (isBookmarked ? unpinChannel(channelId) : pinChannel(channelId)) });
+			items.push({ id: 'bookmark', label: isBookmarked ? $_('chat_header.remove_bookmark') : $_('chat_header.bookmark'), icon: 'star', onSelect: () => void (isBookmarked ? unpinChannel(channelId) : pinChannel(channelId)) });
 		}
 		items.push({
 			id: 'mute',
-			label: muted ? (conversation ? 'Unmute conversation' : 'Unmute channel') : conversation ? 'Mute conversation' : 'Mute channel',
+			label: muted ? (conversation ? $_('chat_header.unmute_conv') : $_('chat_header.unmute_channel')) : conversation ? $_('chat_header.mute_conv') : $_('chat_header.mute_channel'),
 			icon: 'bell',
-			hint: 'this device',
+			hint: $_('chat_header.this_device'),
 			onSelect: () => toggleServerMutedChannelId(channelId)
 		});
 		if ($communityRulesAvailable) {
 			items.push({ id: 'rules-sep', type: 'separator' });
-			items.push({ id: 'rules', label: 'Community rules', icon: 'book', onSelect: () => communityRulesOpen.set(true) });
+			items.push({ id: 'rules', label: $_('chat_header.community_rules'), icon: 'book', onSelect: () => communityRulesOpen.set(true) });
 		}
 		return items;
 	});
-	const kindWord = $derived(KIND_WORDS[kind] ?? 'Channel');
+	const kindWord = $derived(KIND_WORDS[kind] ?? $_('chat_header.channel_word'));
 	// About states how long messages are kept too, so the phone bar (no chip room) can reach it.
 	const keptFact = $derived(!conversation && !RETENTION_ELSEWHERE.has(kind) ? retentionFact(privacySummary) : null);
 </script>
@@ -619,7 +619,7 @@
 										</button>
 									{/if}
 									{#if $displayEnhancementSettingsStore.googleSearchReplaceEnabled}
-										<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={info.onSearchWeb}>Search on the web</button>
+										<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={info.onSearchWeb}>{$_('chat_header.search_web')}</button>
 									{/if}
 								</div>
 							{/if}
@@ -779,12 +779,12 @@
 			<p class="w-pop__title" id={`${popId}-title`}>
 				{#if glyph}<Icon name={glyph} size={16} />{:else}<span class="stage-pop__hash" aria-hidden="true">#</span>{/if}{name}
 			</p>
-			<p class="w-pop__body stage-pop__topic">{topic || 'No topic yet.'}</p>
+			<p class="w-pop__body stage-pop__topic">{topic || $_('chat_header.no_topic')}</p>
 			<dl class="w-pop__facts">
-				<dt>Kind</dt>
+				<dt>{$_('chat_header.kind')}</dt>
 				<dd>{kindWord}</dd>
 				{#if keptFact}
-					<dt>Messages kept</dt>
+					<dt>{$_('chat_header.messages_kept')}</dt>
 					<dd>{keptFact}</dd>
 				{/if}
 			</dl>
@@ -798,14 +798,14 @@
 								<span class="stage-pop__meta"><span class="stage-pop__who">{message.user}</span><span class="w-count">{timeOf(message.timestamp)}</span></span>
 								<span class="stage-pop__text">{excerpt(message.text)}</span>
 							</button>
-							<button type="button" class="w-ibtn w-ibtn--sm" aria-label={`Unpin message from ${message.user}`} onclick={() => void togglePinMessage(channelId, message.id)}>
+							<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('chat_header.unpin_aria', { values: { user: message.user } })} onclick={() => void togglePinMessage(channelId, message.id)}>
 								<Icon name="x" />
 							</button>
 						</li>
 					{/each}
 				</ul>
 			{:else}
-				<p class="w-pop__body">Nothing is pinned in #{name} yet. Pin a message from its actions to keep it here.</p>
+				<p class="w-pop__body">{$_('chat_header.nothing_pinned', { values: { name } })}</p>
 			{/if}
 		{/if}
 	</div>

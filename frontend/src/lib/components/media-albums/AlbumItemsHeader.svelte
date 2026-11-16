@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { MediaAlbum } from '$lib/api';
 
 	export let album: MediaAlbum | null = null;
@@ -15,11 +16,11 @@
 
 <div class="items-header">
 	<div class="items-header-title">
-		<strong>{album?.name || 'Album'}</strong>
+		<strong>{album?.name || $_('album_header.default_name')}</strong>
 		<span>
-			{album ? (loadedItemCount ?? album.itemCount ?? 0) + ' loaded' : ''}
+			{album ? $_('album_header.loaded', { values: { count: loadedItemCount ?? album.itemCount ?? 0 } }) : ''}
 			{#if album?.isFeatured}
-				&middot; featured
+				&middot; {$_('album_header.featured')}
 			{/if}
 		</span>
 	</div>
@@ -28,8 +29,8 @@
 			type="button"
 			class="album-plus-btn"
 			on:click={onAddMedia}
-			title="Add file to album"
-			aria-label="Add file to album"
+			title={$_('album_header.add_file')}
+			aria-label={$_('album_header.add_file')}
 		>
 			+
 		</button>
@@ -39,18 +40,18 @@
 				class:active={album?.isFeatured}
 				on:click={() => album && onFeature(album)}
 				disabled={isSavingFeatured}
-				title={album?.isFeatured ? 'Unpin featured album' : 'Pin as featured album'}
+				title={album?.isFeatured ? $_('album_header.unpin_featured') : $_('album_header.pin_featured')}
 			>
-				{album?.isFeatured ? 'Unfeature album' : 'Feature album'}
+				{album?.isFeatured ? $_('album_header.unfeature') : $_('album_header.feature')}
 			</button>
 		{/if}
 		<button
 			class="danger-btn"
 			on:click={onDelete}
 			disabled={isDeleting || !canDelete}
-			title="Delete this album"
+			title={$_('album_header.delete')}
 		>
-			{isDeleting ? 'Deleting...' : 'Delete album'}
+			{isDeleting ? $_('album_header.deleting') : $_('album_header.delete_album')}
 		</button>
 	</div>
 </div>

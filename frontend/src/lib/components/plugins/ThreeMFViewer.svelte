@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy } from 'svelte';
 	import ModelViewer3D from './ModelViewer3D.svelte';
 
@@ -70,12 +71,12 @@
 				trs: false
 			});
 			if (requestGeneration !== generation) return;
-			if (!(result instanceof ArrayBuffer)) throw new Error('3MF conversion did not produce a binary glTF preview.');
+			if (!(result instanceof ArrayBuffer)) throw new Error($_('three_mf.no_glb'));
 
 			previewSrc = URL.createObjectURL(new Blob([result], { type: 'model/gltf-binary' }));
 		} catch (reason) {
 			if (requestGeneration === generation) {
-				error = reason instanceof Error ? reason.message : 'Could not import this 3MF model.';
+				error = reason instanceof Error ? reason.message : $_('three_mf.could_not_import');
 			}
 		} finally {
 			releaseObject(root);
@@ -119,21 +120,21 @@
 <div class="three-mf-adapter" class:full-bleed={fullBleed} style={`--viewer-height:${Math.max(220, height)}px`}>
 	{#if !started}
 		<button class="activate" type="button" onclick={start}>
-			<strong>Activate 3MF preview</strong>
-			<span>{fileName} · imported locally, then opened in Wabi's normal 3D workspace</span>
+			<strong>{$_('three_mf.activate')}</strong>
+			<span>{fileName} · {$_('three_mf.imported')}</span>
 		</button>
 	{:else if previewSrc}
 		<ModelViewer3D src={previewSrc} fileName={previewFileName} {height} {fullBleed} lazyLoad={false} bind:hideUi onRetry={retry} />
-		{#if !hideUi}<span class="source-badge" title={fileName}>3MF source · {fileName}</span>{/if}
+		{#if !hideUi}<span class="source-badge" title={fileName}>{$_('three_mf.source', { values: { name: fileName } })}</span>{/if}
 	{:else}
 		<div class="status" class:error={!!error} role={error ? 'alert' : 'status'}>
 			{#if error}
-				<strong>3MF preview unavailable</strong>
+				<strong>{$_('three_mf.unavailable')}</strong>
 				<span>{error}</span>
-				<button type="button" onclick={retry}>Retry import</button>
+				<button type="button" onclick={retry}>{$_('three_mf.retry_import')}</button>
 			{:else}
-				<strong>Preparing 3MF preview…</strong>
-				<span>{converting ? 'Reading manufacturing geometry and building the GLB view.' : 'Starting importer…'}</span>
+				<strong>{$_('three_mf.preparing')}</strong>
+				<span>{converting ? $_('three_mf.reading') : $_('three_mf.starting')}</span>
 			{/if}
 		</div>
 	{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * The project at a glance: where the work is (the pipeline), what to pick up next, what needs a person,
 	 * and what moved lately. Everything is derived from the shared cards (status, priority, due date, updated time);
@@ -15,12 +16,12 @@
 	} = $props();
 
 	const STAGES = [
-		{ id: 'ideas', label: 'Ideas' },
-		{ id: 'todo', label: 'To do' },
-		{ id: 'in_progress', label: 'In progress' },
-		{ id: 'done', label: 'Done' }
+		{ id: 'ideas', label: $_('project_map.ideas') },
+		{ id: 'todo', label: $_('project_map.to_do') },
+		{ id: 'in_progress', label: $_('project_map.in_progress') },
+		{ id: 'done', label: $_('project_map.done') }
 	] as const;
-	const LABEL: Record<string, string> = { ideas: 'Ideas', todo: 'To do', in_progress: 'In progress', done: 'Done', scrapped: 'Scrapped' };
+	const LABEL: Record<string, string> = { ideas: $_('project_map.ideas'), todo: $_('project_map.to_do'), in_progress: $_('project_map.in_progress'), done: $_('project_map.done'), scrapped: $_('project_map.scrapped') };
 	const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
 	const live = $derived(tasks.filter((task) => !task.isArchived && task.status !== 'scrapped'));
@@ -60,13 +61,13 @@
 			rows.forEach((row, index) => {
 				const prev = rows[index - 1];
 				const push = (text: string) => out.push({ taskId: row.taskId, title: row.title, text, at: row.updatedAtMicros });
-				if (!prev) { push(`added to ${LABEL[row.status] ?? row.status}`); return; }
+				if (!prev) { push($_('project_map.added_to', { values: { status: LABEL[row.status] ?? row.status } })); return; }
 				if (prev.status !== row.status) push(`${LABEL[prev.status] ?? prev.status} → ${LABEL[row.status] ?? row.status}`);
-				if (!prev.blockedReason && row.blockedReason) push('blocked');
-				if (prev.blockedReason && !row.blockedReason) push('unblocked');
-				if (!prev.decision && row.decision) push('needs a decision');
-				if (prev.decision && !row.decision) push('decision settled');
-				if (prev.assigneeUserId !== row.assigneeUserId && row.assigneeUserId != null) push(`picked up by ${nameOf(row.assigneeUserId)}`);
+				if (!prev.blockedReason && row.blockedReason) push($_('project_map.blocked'));
+				if (prev.blockedReason && !row.blockedReason) push($_('project_map.unblocked'));
+				if (!prev.decision && row.decision) push($_('project_map.needs_decision'));
+				if (prev.decision && !row.decision) push($_('project_map.decision_settled'));
+				if (prev.assigneeUserId !== row.assigneeUserId && row.assigneeUserId != null) push($_('project_map.picked_up', { values: { name: nameOf(row.assigneeUserId) } }));
 			});
 		}
 		return out.sort((a, b) => b.at - a.at).slice(0, 5);
@@ -84,11 +85,11 @@
 </script>
 
 {#if total > 0}
-<section class="project-map" aria-label="Project map">
+<section class="project-map" aria-label={$_('project_map.aria_label')}>
 	<ol class="pipeline" style:--reached={reached}>
 		{#each STAGES as stage (stage.id)}
 			<li class="stage" class:here={here === stage.id} class:complete={stage.id === 'done' ? counts.done === total : false} aria-current={here === stage.id ? 'step' : undefined}>
-				{#if here === stage.id}<span class="you-are-here">You are here</span>{/if}
+				{#if here === stage.id}<span class="you-are-here">{$_('project_map.you_are_here')}</span>{/if}
 				<span class="node" aria-hidden="true"></span>
 				<span class="stage-label">{stage.label}</span>
 				<span class="stage-count">{counts[stage.id]}</span>
@@ -97,32 +98,32 @@
 	</ol>
 	<div class="map-cards">
 		<div class="map-card">
-			<p class="kicker">Next step</p>
+			<p class="kicker">{$_('project_map.next_step')}</p>
 			{#if next}
 				<button type="button" class="map-link" onclick={() => onOpen(next.taskId)}>{next.title}</button>
-				<p class="meta">{LABEL[next.status]}{#if next.assigneeUserId != null} · {nameOf(next.assigneeUserId)}{/if}{#if next.dueDateMillis != null} · due {due(next.dueDateMillis)}{/if}</p>
-			{:else}<p class="meta">Nothing queued. Add a card to start.</p>{/if}
+				<p class="meta">{LABEL[next.status]}{#if next.assigneeUserId != null} · {nameOf(next.assigneeUserId)}{/if}{#if next.dueDateMillis != null} · {$_('project_map.due', { values: { date: due(next.dueDateMillis) } })}{/if}</p>
+			{:else}<p class="meta">{$_('project_map.nothing_queued')}</p>{/if}
 		</div>
 		{#if calls.length}
 			<div class="map-card call">
-				<p class="kicker">Needs your call</p>
+				<p class="kicker">{$_('project_map.needs_call')}</p>
 				{#each calls as task (task.taskId)}
 					<button type="button" class="map-decision" onclick={() => onOpen(task.taskId)}>
 						<strong>{task.decision!.question}</strong>
-						<span class="meta">{task.title}{#if task.decision!.deadlineMillis != null} · answer by {due(task.decision!.deadlineMillis)}{/if}</span>
-						{#if task.decision!.fallback}<span class="meta">No reply → {task.decision!.fallback}</span>{/if}
+						<span class="meta">{task.title}{#if task.decision!.deadlineMillis != null} · {$_('project_map.answer_by', { values: { date: due(task.decision!.deadlineMillis) } })}{/if}</span>
+						{#if task.decision!.fallback}<span class="meta">{$_('project_map.no_reply', { values: { fallback: task.decision!.fallback } })}</span>{/if}
 					</button>
 				{/each}
 			</div>
 		{/if}
 		<div class="map-card" class:alert={attention.length > 0}>
-			<p class="kicker">Needs attention</p>
+			<p class="kicker">{$_('project_map.needs_attention')}</p>
 			{#each attention as task (task.taskId)}
-				<button type="button" class="map-row" onclick={() => onOpen(task.taskId)}><span>{task.title}{#if task.blockedReason} <em>· {task.blockedReason}</em>{/if}</span><span class="mono">{task.blockedReason ? 'blocked' : task.dueDateMillis != null && task.dueDateMillis < now ? `overdue · ${due(task.dueDateMillis)}` : 'urgent'}</span></button>
-			{:else}<p class="meta">Nothing blocked, overdue or urgent.</p>{/each}
+				<button type="button" class="map-row" onclick={() => onOpen(task.taskId)}><span>{task.title}{#if task.blockedReason} <em>· {task.blockedReason}</em>{/if}</span><span class="mono">{task.blockedReason ? $_('project_map.blocked') : task.dueDateMillis != null && task.dueDateMillis < now ? $_('project_map.overdue', { values: { date: due(task.dueDateMillis) } }) : $_('project_map.urgent')}</span></button>
+			{:else}<p class="meta">{$_('project_map.nothing_attention')}</p>{/each}
 		</div>
 		<div class="map-card">
-			<p class="kicker">Changed recently</p>
+			<p class="kicker">{$_('project_map.changed_recently')}</p>
 			{#if changes.length}
 				{#each changes as change, index (change.taskId + change.at + index)}
 					<button type="button" class="map-row" onclick={() => onOpen(change.taskId)}><span>{change.title} <em>{change.text}</em></span><span class="mono">{when(change.at)}</span></button>

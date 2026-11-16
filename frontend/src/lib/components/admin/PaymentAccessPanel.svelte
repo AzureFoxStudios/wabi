@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { PaymentAccessPolicy, PaymentUserBlock } from '$lib/api';
 	import { adminPaymentPoliciesMatch, adminPaymentRolesNeedReview, canonicalAdminPaymentRole, canSaveAdminPaymentPolicy, effectiveAdminPaymentRoles, retainedAdminPaymentRoles, reviewAdminPaymentRole, setAdminPaymentGuestAccess, setAdminPaymentRole } from '$lib/adminPaymentPolicy';
 
@@ -39,10 +40,10 @@
 	const roleReviewRequired = $derived(adminPaymentRolesNeedReview(paymentPolicy));
 	const guestEnabled = $derived(paymentPolicy.allowGuest && paymentPolicy.allowedRoleNames.includes('guest'));
 	const liveSummary = $derived(!publishedPaymentPolicy ? '' : !publishedPaymentPolicy.enabled
-		? 'New payment requests are currently turned off.'
+		? $_('payment_access.liveoff')
 		: effectiveAdminPaymentRoles(publishedPaymentPolicy).length === 0
-			? 'Nobody can currently create payment requests.'
-			: 'Payment requests are enabled for the saved role selection.');
+			? $_('payment_access.livenobody')
+			: $_('payment_access.liveon'));
 
 	function change(next: PaymentAccessPolicy) { if (editable) onPolicyChange(next); }
 	function submit(event: SubmitEvent) { event.preventDefault(); if (canSave) onSave(); }
@@ -50,41 +51,41 @@
 
 <section class="payment-access" aria-labelledby="payment-access-title" aria-busy={busy}>
 	<header class="payment-access-heading">
-		<h3 id="payment-access-title">Payment requests</h3>
-		<p>Choose who can create a payment request on this server. Existing requests are not deleted when access changes.</p>
+		<h3 id="payment-access-title">{$_('payment_access.title')}</h3>
+		<p>{$_('payment_access.intro')}</p>
 	</header>
 
 	{#if !ready}
 		{#if paymentPolicyError}
 			<div class="payment-access-notice payment-access-error" role="alert">
 				<p>{paymentPolicyError}</p>
-				<p>No settings have been loaded. Nothing can be changed until the server responds.</p>
+				<p>{$_('payment_access.no_settings')}</p>
 			</div>
-			<button class="ui-btn ui-btn-secondary" type="button" onclick={onRefresh} disabled={busy}>{paymentPolicyLoading ? 'Loading…' : 'Retry loading policy'}</button>
+			<button class="ui-btn ui-btn-secondary" type="button" onclick={onRefresh} disabled={busy}>{paymentPolicyLoading ? $_('common.loading') : $_('payment_access.retry_policy')}</button>
 		{:else}
-			<p class="payment-access-notice" role="status">Loading payment policy…</p>
+			<p class="payment-access-notice" role="status">{$_('payment_access.loading_policy')}</p>
 		{/if}
 	{:else}
 		<p class="payment-access-live">{liveSummary}</p>
 		{#if paymentPolicyError}<p class="payment-access-notice payment-access-error" role="alert">{paymentPolicyError}</p>{/if}
 		{#if rolesError}
 			<div class="payment-access-notice payment-access-error" role="alert">
-				<p>Permission roles could not be loaded. Your saved policy has not changed.</p>
-				<button class="ui-btn ui-btn-secondary" type="button" onclick={onRoleRetry} disabled={busy}>Retry loading roles</button>
+				<p>{$_('payment_access.roles_error')}</p>
+				<button class="ui-btn ui-btn-secondary" type="button" onclick={onRoleRetry} disabled={busy}>{$_('payment_access.retry_roles')}</button>
 			</div>
-		{:else if !rolesReady}<p class="payment-access-notice" role="status">Loading permission roles…</p>{/if}
+		{:else if !rolesReady}<p class="payment-access-notice" role="status">{$_('payment_access.loading_roles')}</p>{/if}
 		<form class="payment-access-form" onsubmit={submit}>
 			<fieldset disabled={!editable}>
-				<legend class="payment-access-legend">Server access</legend>
+				<legend class="payment-access-legend">{$_('payment_access.server_access')}</legend>
 					<label class="payment-access-choice payment-access-master">
 						<input type="checkbox" class="ui-check" checked={paymentPolicy.enabled} onchange={(event) => change({ ...paymentPolicy, enabled: event.currentTarget.checked })} />
-					<span><strong>Allow new payment requests</strong><span>Turn this off to pause new requests for everyone. Your role choices are kept.</span></span>
+					<span><strong>{$_('payment_access.allow_new')}</strong><span>{$_('payment_access.allow_new_desc')}</span></span>
 				</label>
 			</fieldset>
 
 			<fieldset disabled={!editable}>
-				<legend class="payment-access-legend">Registered members</legend>
-				<p class="payment-access-help">Select the roles allowed to create requests. Selecting none allows no registered members.</p>
+				<legend class="payment-access-legend">{$_('payment_access.registered')}</legend>
+				<p class="payment-access-help">{$_('payment_access.select_roles')}</p>
 				<div class="payment-access-roles">
 					{#each roleOptions as role (role.roleName)}
 							<label class="payment-access-choice">
@@ -97,24 +98,24 @@
 
 			{#if retainedRoles.length > 0}
 				<div class="payment-access-notice">
-					<p><strong>Other saved role names</strong></p>
-					<p>These exact names are not recognized by this server and currently grant no access. They are kept unless you explicitly replace or remove them.</p>
+					<p><strong>{$_('payment_access.other_names')}</strong></p>
+					<p>{$_('payment_access.other_names_desc')}</p>
 					{#if roleReviewRequired}
-						<p>Saving would change names with uppercase letters or outer spaces. Review those names below before saving any changes.</p>
+						<p>{$_('payment_access.review_names')}</p>
 					{/if}
 					{#each retainedRoles as storedName (storedName)}
 						{@const suggestedRole = canonicalAdminPaymentRole(storedName)}
 						{@const normalizedName = storedName.trim().toLowerCase()}
 						<div class="payment-access-retained-role">
-							<p>Saved name: <code>{JSON.stringify(storedName)}</code></p>
+							<p>{$_('payment_access.saved_name')} <code>{JSON.stringify(storedName)}</code></p>
 							<div class="payment-access-actions">
 								{#if suggestedRole}
-									<button class="ui-btn ui-btn-secondary" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'use-built-in'))}>Use {getRoleLabel(suggestedRole)} role</button>
+									<button class="ui-btn ui-btn-secondary" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'use-built-in'))}>{$_('payment_access.use_role', { values: { role: getRoleLabel(suggestedRole) } })}</button>
 								{/if}
 								{#if storedName !== normalizedName && suggestedRole !== normalizedName}
-									<button class="ui-btn ui-btn-secondary" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'normalize'))}>Keep as {normalizedName}</button>
+									<button class="ui-btn ui-btn-secondary" type="button" disabled={!editable} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'normalize'))}>{$_('payment_access.keep_as', { values: { name: normalizedName } })}</button>
 								{/if}
-								<button class="ui-btn ui-btn-danger-ghost" type="button" disabled={!editable} aria-label={`Remove saved role name ${storedName}`} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'remove'))}>Remove saved name</button>
+								<button class="ui-btn ui-btn-danger-ghost" type="button" disabled={!editable} aria-label={$_('payment_access.remove_name_aria', { values: { name: storedName } })} onclick={() => change(reviewAdminPaymentRole(paymentPolicy, storedName, 'remove'))}>{$_('payment_access.remove_name')}</button>
 							</div>
 						</div>
 					{/each}
@@ -122,32 +123,32 @@
 			{/if}
 
 			<fieldset disabled={!editable}>
-				<legend class="payment-access-legend">Guests</legend>
+				<legend class="payment-access-legend">{$_('payment_access.guests')}</legend>
 					<label class="payment-access-choice">
 						<input type="checkbox" class="ui-check" checked={guestEnabled} onchange={(event) => change(setAdminPaymentGuestAccess(paymentPolicy, event.currentTarget.checked))} />
-					<span><strong>Allow guest requests</strong><span>Guests can create requests only while server access is on. Individual restrictions still apply.</span></span>
+					<span><strong>{$_('payment_access.allow_guest')}</strong><span>{$_('payment_access.allow_guest_desc')}</span></span>
 				</label>
 			</fieldset>
 
 			{#if paymentPolicy.enabled && effectiveRoles.length === 0}
-				<p class="payment-access-notice">No recognized roles are selected. After saving, nobody will be able to create a payment request.</p>
+				<p class="payment-access-notice">{$_('payment_access.none_recognized')}</p>
 			{:else if !paymentPolicy.enabled && dirty}
-				<p class="payment-access-notice">After saving, new requests will be turned off for everyone.</p>
+				<p class="payment-access-notice">{$_('payment_access.turned_off_notice')}</p>
 			{/if}
 
 			<footer class="payment-access-footer">
-				<p class="payment-access-save-state" role="status">{paymentPolicySaving ? 'Saving policy…' : roleReviewRequired ? 'Review saved role names before making changes' : dirty ? 'Unsaved changes' : paymentPolicySaveStatus || 'Showing saved settings'}</p>
+				<p class="payment-access-save-state" role="status">{paymentPolicySaving ? $_('payment_access.saving') : roleReviewRequired ? $_('payment_access.review_before_change') : dirty ? $_('payment_access.unsaved') : paymentPolicySaveStatus || $_('payment_access.showing_saved')}</p>
 				<div class="payment-access-actions">
-					<button class="ui-btn ui-btn-secondary" type="button" onclick={onRefresh} disabled={busy || dirty}>Refresh</button>
-					<button class="ui-btn ui-btn-ghost" type="button" onclick={onDiscard} disabled={busy || !dirty}>Discard</button>
-					<button class="ui-btn ui-btn-primary" type="submit" disabled={!canSave}>{paymentPolicySaving ? 'Saving…' : 'Save changes'}</button>
+					<button class="ui-btn ui-btn-secondary" type="button" onclick={onRefresh} disabled={busy || dirty}>{$_('network_health.refresh')}</button>
+					<button class="ui-btn ui-btn-ghost" type="button" onclick={onDiscard} disabled={busy || !dirty}>{$_('payment_access.discard')}</button>
+					<button class="ui-btn ui-btn-primary" type="submit" disabled={!canSave}>{paymentPolicySaving ? $_('community_roles.saving') : $_('payment_access.save_changes')}</button>
 				</div>
 			</footer>
 		</form>
 
 		<div class="payment-access-restrictions">
-			<p><span class="payment-access-count">{paymentUserBlocks.length}</span> {paymentUserBlocks.length === 1 ? 'person has an' : 'people have an'} individual payment restriction.</p>
-			<button class="ui-btn ui-btn-secondary" type="button" onclick={onOpenPeople}>Manage in People</button>
+			<p><span class="payment-access-count">{paymentUserBlocks.length}</span> {$_(paymentUserBlocks.length === 1 ? 'payment_access.restriction_one' : 'payment_access.restriction_many')}</p>
+			<button class="ui-btn ui-btn-secondary" type="button" onclick={onOpenPeople}>{$_('payment_access.manage_people')}</button>
 		</div>
 	{/if}
 </section>

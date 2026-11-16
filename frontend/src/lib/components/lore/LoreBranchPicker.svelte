@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	interface Props {
 		branches: { name: string; lastCommit: string; lastCommitAt: number; isTag?: boolean }[];
 		currentBranch: string;
@@ -19,10 +20,10 @@
 
 	function timeAgo(ts: number): string {
 		const diff = Date.now() / 1000 - ts;
-		if (diff < 60) return `${Math.floor(diff)}s ago`;
-		if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-		if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-		return `${Math.floor(diff / 86400)}d ago`;
+		if (diff < 60) return $_('lore_branch.ago_s', { values: { n: Math.floor(diff) } });
+		if (diff < 3600) return $_('lore_branch.ago_m', { values: { n: Math.floor(diff / 60) } });
+		if (diff < 86400) return $_('lore_branch.ago_h', { values: { n: Math.floor(diff / 3600) } });
+		return $_('lore_branch.ago_d', { values: { n: Math.floor(diff / 86400) } });
 	}
 
 	function handleCreate() {
@@ -38,7 +39,7 @@
 	<button
 		class="branch-trigger"
 		onclick={() => { showMenu = !showMenu; showCreate = false; }}
-		aria-label="Switch branch"
+		aria-label={$_('lore_branch.switch_label')}
 		aria-expanded={showMenu}
 	>
 		<svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -60,24 +61,24 @@
 					<input
 						type="text"
 						bind:value={newName}
-						placeholder="Branch name"
-						aria-label="New branch name"
+						placeholder={$_('lore_branch.name_ph')}
+						aria-label={$_('lore_branch.name_label')}
 						onkeydown={(e) => e.key === 'Enter' && handleCreate()}
 					/>
-					<select bind:value={sourceBranch} aria-label="Source branch">
+					<select bind:value={sourceBranch} aria-label={$_('lore_branch.source_label')}>
 						{#each branches as b}
 							<option value={b.name}>{b.name}</option>
 						{/each}
 					</select>
-					<button class="btn-create" onclick={handleCreate}>Create</button>
-					<button class="btn-cancel" onclick={() => showCreate = false}>Cancel</button>
+					<button class="btn-create" onclick={handleCreate}>{$_('lore_branch.create')}</button>
+					<button class="btn-cancel" onclick={() => showCreate = false}>{$_('common.cancel')}</button>
 				</div>
 			{:else}
 				<button class="btn-new" onclick={() => { showCreate = true; }}>
-					+ New branch
+					+ {$_('lore_branch.new')}
 				</button>
 				{#if switchDisabled}
-				<p class="switch-note">Viewing <strong>{currentBranch}</strong> — switching arrives with branch-scoped listings.</p>
+				<p class="switch-note">{$_('lore_branch.viewing')} <strong>{currentBranch}</strong> — {$_('lore_branch.switch_note')}</p>
 			{:else}
 				{#each branches as branch}
 					<button
