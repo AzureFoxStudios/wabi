@@ -126,6 +126,11 @@
 			}
 		});
 	}
+	/** The full, searchable list of every shortcut lives on Settings > Keyboard. */
+	function openKeyboardSettings() {
+		helpOpen = false;
+		window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'keyboard' } }));
+	}
 	function onOfficeKey(event: KeyboardEvent) {
 		if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return;
 		const action = officeKeyAction(event, keyTarget(event.target));
@@ -484,6 +489,7 @@
 				</dl>
 			</section>
 		{/each}
+		<p class="workspace-keys__more"><button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={openKeyboardSettings}>Every Wabi shortcut, in Settings…</button></p>
 	</div>
 </BaseModal>
 

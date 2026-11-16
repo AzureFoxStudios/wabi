@@ -134,6 +134,7 @@ export const ICONS = {
 	bold: '<path d="M6 12h9a4 4 0 0 1 0 8H6V4h8a4 4 0 0 1 0 8"/>',
 	italic: '<path d="M19 4h-9M14 20H5M15 4 9 20"/>',
 	underline: '<path d="M6 4v6a6 6 0 0 0 12 0V4M4 20h16"/>',
+	keyboard: '<rect width="20" height="14" x="2" y="5" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M7 15h10"/>',
 	strike: '<path d="M16 4H9a3 3 0 0 0-2.8 4M14 12a4 4 0 0 1 0 8H6M4 12h16"/>',
 	link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
 	code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',

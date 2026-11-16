@@ -19,12 +19,24 @@
   "settings": {
     "title": "Settings",
     "language": "Language",
+    "keyboard": {
+      "title": "Keyboard shortcuts",
+      "intro": "The keys Wabi responds to today, by area. This page is a reference: it does not change any key.",
+      "intro_mac": "The keys Wabi responds to today, by area. On a Mac, most shortcuts use the Command key where other systems use Ctrl. This page is a reference: it does not change any key.",
+      "search_label": "Search shortcuts",
+      "search_placeholder": "Search by key or action, for example “fill” or Ctrl+K",
+      "count_all": "{count} shortcuts",
+      "count_matching": "{count} matching",
+      "empty": "No shortcut matches “{query}”.",
+      "unlisted": "Only keys that are bound today and have been checked are listed. Calls, the whiteboard, maps and the gallery viewer have their own key handling that is not listed yet."
+    },
     "tabs": {
       "games": "Games",
       "profile": "Profile",
       "audio": "Audio & video",
       "notifications": "Notifications",
       "accessibility": "Accessibility",
+      "keyboard": "Keyboard",
       "appearance": "Appearance",
       "server": "Server",
       "addons": "Add-ons",

@@ -77,6 +77,8 @@ describe('keeping a copy', () => {
 		expect(shell).toContain("if (action === 'help') { helpOpen = !helpOpen; return; }");
 		expect(shell).toContain("{ id: 'shortcuts', label: 'Keyboard shortcuts'");
 		expect(shell).toContain('const shortcutGroups = $derived(shortcutsFor(tool, isMac));');
+		// ...and links to the full searchable list on Settings > Keyboard.
+		expect(shell).toContain("new CustomEvent('wabi:open-settings', { detail: { tab: 'keyboard' } })");
 	});
 });
 

@@ -584,3 +584,7 @@ textarea.workspace-reviews__field--tall {
 	margin: 0;
 	color: var(--w-mute);
 }
+
+.workspace-keys__more {
+	margin: 4px 0 0;
+}

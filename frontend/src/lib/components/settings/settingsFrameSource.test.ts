@@ -116,6 +116,8 @@ describe('Search settings', () => {
 		notifications: ['./NotificationsSettingsTab.svelte'],
 		appearance: ['./AppearanceSettingsTab.svelte', './ChatBackdropSettings.svelte', '../../effects/PointerEffectsTab.svelte'],
 		accessibility: ['./AccessibilitySettingsTab.svelte'],
+		// The page's own words come from the English catalog (settings.keyboard.*), not literals in the component.
+		keyboard: ['./KeyboardSettingsTab.svelte', '../../i18n/locales/en.json'],
 		audio: ['./AudioSettingsTab.svelte'],
 		games: ['../../games/GamesSettingsEntry.svelte'],
 		addons: ['./AddonSettingsTab.svelte'],
