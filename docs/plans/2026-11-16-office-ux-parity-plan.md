@@ -1,6 +1,6 @@
 # Office UX parity plan: Sheets, Documents, Present
 
-Status: plan only. Nothing in this document has been implemented except where it says "done".
+Status: partly built. The tables in sections 2 to 5 are the **audit as it stood at the start** and are kept as the record of what was missing. Section 10 says what has since been done, how each piece was verified, and what is left. Read section 10 first for the current state.
 Audit date: 2026-11-16, against `main` plus `fix/server-rail-i18n` (4f5a68b5).
 Goal (Ronin): someone who brings Office into Wabi should feel at home. Clicks and keyboard behave the way Excel, Word and PowerPoint taught them, and "where is my file?" has one clear answer.
 
@@ -247,3 +247,35 @@ Shortcuts were read from Microsoft's support pages by a fetch agent (2026-11-16)
 - Slow first-load thumbnails: not investigated.
 - The timeout enforcement change (`channel_access.rs`) compiled in a release build but `cargo test` was not run and no test was added.
 - Bun 1.3.12 is installed; HANDOFF.md requires 1.4.4 or later.
+
+## 10. Progress and what is left (end of 2026-11-16)
+
+All seven decisions in section 1 were approved. The work below is committed on `fix/server-rail-i18n`. "Browser" means a real Chromium driven by Playwright against the actual components, not only unit tests.
+
+### Done
+
+| Area | What now works | Verified |
+|---|---|---|
+| All tools | Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z undo and redo (were menu labels only in Sheets and Present); Ctrl+S saves where the file lives and says so instead of opening the browser's Save dialog; the save status says "this device only" / "on this server" in words; a one-click Download of the tool's first export in the header; the library line says the file is kept in this browser | unit and structure tests; not run in a browser (the shell is not mounted in a harness) |
+| Documents | Click the page title to rename; Ctrl+K link (Ctrl+Shift+K kept), Ctrl+Alt+1/2/3 headings, Ctrl+Alt+0 and Ctrl+Shift+N Normal, Ctrl+Shift+L and Ctrl+Shift+8 bullets, Ctrl+Shift+7 numbers; Ctrl+F Find and Ctrl+H Find and replace (in-house panel, no new dependency), typing lands on the first match, Replace all is one undo step | browser: 18 checks |
+| Sheets editing | Cells edit in place (Enter mode when typing, Edit mode on F2 or double click); Enter/Tab commit and move, Shift reverses; in the grid Enter and Tab move rather than edit; Esc cancels; point mode (click, drag or arrow keys write a reference or range while a formula expects one; typing ends it); `=` autocomplete with a signature hint and Tab to accept; F4 cycles `$`; formulas shown as typed, without added brackets | browser: 27 checks |
+| Sheets selection | Click and drag to select; click a column letter or row number; corner selects all; Ctrl+Space and Shift+Space; Ctrl+Arrows jump; Home, Ctrl+Home, Ctrl+End, PageUp/PageDown; Shift extends; name box accepts `B7` or `B2:D9`; drag a column edge to resize, double-click to fit; right-click, Menu key or Shift+F10 opens a cell menu | browser: 15 + 4 checks |
+| Sheets clipboard | Ctrl+C / X / V carry formulas inside Wabi and adjust relative references (other apps still get quoted values); one cell over a selection fills it; cut moves; dashed marquee; Ctrl+D / Ctrl+R fill; Ctrl+Shift+$ % ! # ~ number formats; Ctrl+B / Ctrl+I | browser: 17 checks |
+| Sheets formulas | 82 functions (was 15): lookups (VLOOKUP, HLOOKUP, XLOOKUP, INDEX, MATCH), IFERROR/IFS/SWITCH, SUMIFS/COUNTIFS/AVERAGEIF(S), text, dates on Excel serials, ROW/COLUMN. Errors stay explicit | unit tests (63 for the functions) and the 200,000-cell benchmark unchanged |
+| Sheets layout | Fixed: the table had no width, so the browser squeezed every column to fit the window; stored widths barely showed and the sheet could not scroll sideways. Default column width is now 100px | browser |
+| Present | Enter, F2 or double click edits a text object on the slide itself, in the slide's own type; Esc returns to the object; Ctrl+C / X / V copy, cut and paste objects; Ctrl+D duplicates; Duplicate in Arrange | browser: 14 checks |
+
+### Left, in the order I would do it
+
+1. **Sheets**: the fill handle (drag the corner to repeat or extend a series); Find and Replace across the sheet (Ctrl+F / Ctrl+H); underline (needs a style field and an icon); Ctrl+; for today's date and Alt+= AutoSum; Alt+Enter for a new line in a cell (needs a multi-line editor); moving the active cell inside a multi-cell selection with Enter and Tab; auto-scroll while drag-selecting; type-to-start for IME input (Thai), which cannot start an edit by typing today; a cell editor wider than its cell; error explanations on hover.
+2. **Present**: multi-select, Ctrl+A and group; snapping and alignment guides; Shift+Arrow resize; rich text inside a text object; Ctrl+M new slide, Ctrl+Shift+D duplicate slide and Ctrl+Up/Down to move slides (the menu shows Alt+Up/Down, whose binding is not verified); presenter view with notes; transitions.
+3. **Documents**: underline, font and size (decision D3: stays Markdown); rich paste from Word; print stylesheet; a table editing UI; Tab and Shift+Tab to indent, and Enter continuing a list (neither is bound).
+4. **Files**: `.docx` import and export and editable `.pptx` import (decision D4); desktop open and save (decision D6); asking for persistent browser storage.
+5. **Cross-cutting**: a Keyboard shortcuts help sheet and one shortcut registry feeding the menu hints; the menus still print some hints (for example "Alt ↑") that are not verified against a real binding; i18n for the new Sheets strings (they are English, like the rest of that component).
+
+### Things worth knowing
+
+- **Ctrl+K**: Documents now binds it to Link. The app's jump palette also used it, and inside a Markdown page the editor takes the key first. Read-only pages still pass it to the palette. If that trade is not wanted, the alias Ctrl+Shift+K can stay and Ctrl+K can be given back.
+- **Cut** moves the cells but does not rewrite formulas elsewhere that pointed at them (Excel does).
+- **`formatValue`** shows date serials below 61 one day off (the Excel 1900 leap-year quirk); noted by the functions work, not fixed.
+- **Browser coverage**: the Sheets grid, the slide designer and the Documents editor were each mounted on their own in a throwaway page. The surrounding shell (header, Ctrl+Z/S, Download) was not, so those are verified by tests only.
