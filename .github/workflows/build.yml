@@ -452,6 +452,8 @@ jobs:
           gh release upload dev dist/!(latest.json) --clobber
           gh release upload dev dist/latest.json --clobber
           gh release view dev --json assets --jq '.assets[].name' | while read -r name; do
+            # The Android workflow publishes its APK here on its own schedule.
+            [[ "$name" == *.apk ]] && continue
             [[ -e "dist/$name" ]] || gh release delete-asset dev "$name" --yes
           done
 
