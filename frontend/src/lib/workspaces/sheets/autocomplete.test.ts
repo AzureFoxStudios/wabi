@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { accept, callAt, suggest, typedName } from './autocomplete';
+import { accept, callAt, signatureParts, suggest, typedName } from './autocomplete';
 import { FUNCTION_CATALOG } from './functionCatalog';
 import { FORMULA_FUNCTIONS } from './formula';
 
@@ -52,6 +52,21 @@ test('the argument hint names the call and which argument the caret is in', () =
 	expect(callAt('=IF(A1>1,"a,b",', 15)).toEqual({ name: 'IF', argIndex: 2 });
 	expect(callAt('=IF(A1,SUM(B1,', 14)).toEqual({ name: 'SUM', argIndex: 1 });
 	expect(callAt('=IF(A1,SUM(B1,B2),', 18)).toEqual({ name: 'IF', argIndex: 2 });
+});
+
+test('the signature is split around the argument being typed', () => {
+	expect(signatureParts('IF(logical_test, value_if_true, [value_if_false])', 1)).toEqual({
+		before: 'IF(logical_test, ', current: 'value_if_true', after: ', [value_if_false])'
+	});
+	expect(signatureParts('ABS(number)', 0)).toEqual({ before: 'ABS(', current: 'number', after: ')' });
+	expect(signatureParts('ABS(number)', 3)).toEqual({ before: 'ABS(number)', current: '', after: '' });
+});
+
+test('a variadic signature keeps highlighting its last real argument', () => {
+	const sig = 'SUM(number1, [number2], …)';
+	expect(signatureParts(sig, 0).current).toBe('number1');
+	expect(signatureParts(sig, 1).current).toBe('[number2]');
+	expect(signatureParts(sig, 7).current).toBe('[number2]');
 });
 
 test('no hint outside a call, in a bare bracket, or in plain text', () => {

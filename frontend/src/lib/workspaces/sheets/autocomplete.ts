@@ -47,6 +47,26 @@ export function accept(text: string, caret: number, name: string): Accepted {
 	return { text: head + rest, caret: head.length + (open ? 0 : 1) };
 }
 
+export interface SignatureParts { before: string; current: string; after: string }
+
+/**
+ * A signature split around the argument the caret is in, so the hint can set it in bold:
+ * "IF(" · "value_if_true" · ", [value_if_false])". Past the last argument of a variadic
+ * function (one ending in "…") the last argument stays current; otherwise nothing is.
+ */
+export function signatureParts(signature: string, argIndex: number): SignatureParts {
+	const open = signature.indexOf('(');
+	const close = signature.lastIndexOf(')');
+	if (open < 0 || close < open) return { before: signature, current: '', after: '' };
+	const args = signature.slice(open + 1, close).split(', ');
+	const variadic = args.length > 0 && args[args.length - 1] === '…';
+	const index = variadic && argIndex >= args.length - 1 ? Math.max(0, args.length - 2) : argIndex;
+	if (index < 0 || index >= args.length) return { before: signature, current: '', after: '' };
+	const head = signature.slice(0, open + 1) + args.slice(0, index).map((arg) => arg + ', ').join('');
+	const tail = args.slice(index + 1).map((arg) => ', ' + arg).join('') + signature.slice(close);
+	return { before: head, current: args[index], after: tail };
+}
+
 export interface CallContext { name: string; argIndex: number }
 
 /** The function call the caret is inside, and which argument it is in. */
