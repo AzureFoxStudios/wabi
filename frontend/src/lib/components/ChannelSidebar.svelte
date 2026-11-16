@@ -87,7 +87,7 @@
 	import { openDetachedPanel } from '$lib/detachedPanels';
 	import { floatingPanelStore } from '$lib/windowing/floatingPanelStore';
 	import {
-		FOLLOW_ALERT_LEVEL_LABELS,
+		FOLLOW_ALERT_LEVEL_KEYS,
 		currentServerFollowedChannels,
 		cycleChannelFollowAlertLevel,
 		toggleChannelFollow
@@ -1091,7 +1091,7 @@
 			items.push(
 				{ id: 'follow-kicker', type: 'kicker', label: $_('chan_sidebar.kick_follow') },
 				{ id: 'toggle-follow', label: $_('chan_sidebar.follow_noun', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'bell', role: 'menuitemcheckbox', checked: followed, onSelect: () => toggleChannelFollowState(ch.id) },
-				{ id: 'follow-alerts', label: followed ? $_('chan_sidebar.change_alerts') : $_('chan_sidebar.follow_noun_alerts', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'flag', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
+				{ id: 'follow-alerts', label: followed ? $_('chan_sidebar.change_alerts') : $_('chan_sidebar.follow_noun_alerts', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'flag', hint: $_(FOLLOW_ALERT_LEVEL_KEYS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off']), onSelect: () => cycleFollowAlert(ch.id) },
 				{ id: 'follow-feed', label: $_('chan_sidebar.open_follow_feed'), icon: 'list', hint: followCount > 0 ? $_('chan_sidebar.n_followed', { values: { count: followCount } }) : $_('chan_sidebar.none_followed'), disabled: followCount === 0, onSelect: openFollowingView }
 			);
 		}

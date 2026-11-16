@@ -8441,5 +8441,11 @@
     "gate_member": "Miembros registrados",
     "gate_moderator": "Moderadores y administradores",
     "group_timed": "Con tiempo"
+  },
+  "follow_level": {
+    "off": "Silencioso",
+    "mentions": "Menciones",
+    "all": "Todas las publicaciones",
+    "priority": "Prioritario"
   }
 }
