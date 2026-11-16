@@ -159,3 +159,32 @@ jobs:
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
           retention-days: 14
+
+  # Keep one current APK at a fixed address on the rolling `dev` pre-release,
+  # next to the desktop development builds.
+  publish-dev-apk:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [android-aarch64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: wabi-android-aarch64-debug
+          path: apk
+      - name: Publish the development APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          APK="$(find apk -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" Wabi-android-arm64-debug.apk
+          if ! gh release view dev >/dev/null 2>&1; then
+            gh release create dev --prerelease --target "$GITHUB_SHA" --title 'Wabi development builds' \
+              --notes 'Rolling build of main for testers. Replaced on every push; not a release.'
+          fi
+          gh release upload dev Wabi-android-arm64-debug.apk --clobber
+
