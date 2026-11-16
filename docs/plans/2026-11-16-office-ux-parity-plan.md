@@ -279,3 +279,30 @@ All seven decisions in section 1 were approved. The work below is committed on `
 - **Cut** moves the cells but does not rewrite formulas elsewhere that pointed at them (Excel does).
 - **`formatValue`** shows date serials below 61 one day off (the Excel 1900 leap-year quirk); noted by the functions work, not fixed.
 - **Browser coverage**: the Sheets grid, the slide designer and the Documents editor were each mounted on their own in a throwaway page. The surrounding shell (header, Ctrl+Z/S, Download) was not, so those are verified by tests only.
+
+## 11. Update: the rest of the list (same day, later)
+
+Everything below is committed on `fix/server-rail-i18n`. It supersedes the "Left" list in section 10 wherever the two differ.
+
+### Done since section 10
+
+| Area | What now works | Verified |
+|---|---|---|
+| Sheets | Fill handle (series, text counting up, formulas that move their references); Find and Replace (Ctrl+F / Ctrl+H, one undo step for Replace all); Alt+Enter new line in a cell with an editor that floats and grows; underline (Ctrl+U and a button); Ctrl+; today's date; Alt+= AutoSum; plain-language hints on error cells; dragging past an edge scrolls and keeps selecting; Enter and Tab move within a selected range | browser: 25 + 9 checks (all six Sheets scenarios, 97 checks, rerun at the end) |
+| Documents | Tab and Shift+Tab indent lists, Enter continues a list and ends it on an empty item, rich paste from Word, Google Docs and web pages becomes Markdown, Ctrl+P prints title and text only; **open and save Word (.docx)** | lists, indent, paste and docx round trip in a browser; print checked only against a mimic of the page |
+| Present | Multi-select (Ctrl+A, Shift or Ctrl+click, rubber band, Tab), group move, nudge, copy, paste, delete and align as one undo step; snapping guides while dragging; Ctrl+M, Ctrl+Shift+D, Ctrl+Up/Down slide keys; N, P, number+Enter, W in the show; **open PowerPoint (.pptx) as editable slides** | browser: about 30 checks on the designer, the real workspace for slide and show keys, and the import end to end |
+| All tools | Keyboard shortcuts sheet (Ctrl+/); asks the browser to keep private files when you save | tests only (the shell is not mounted in a harness) |
+| Chat | Up arrow edits your last message after a channel switch (messages carry `user-<dbId>` there, the composer compared only the socket id); the :emoji and /command lists close when you click away; message timers survive channel switches (retention timeline cached per channel and policy); the composer field reshapes when its text changes without typing or its width changes | found by reading the code; unit and structure tests; **not reproduced in the running app** |
+
+### Decided or found, not built
+
+- **Desktop open and save (D6):** already there. Exports go through a native Save dialog (`workspace_export_file`) and importing uses the file picker. Editing a file in place on disk would be a different storage model, so it was left alone.
+- **Slow first-load thumbnails:** the cause is that uploads are stored and served verbatim. The server has no image crate and no thumbnail route, and files without a stored digest are served `no-store`, so they are never cached. A real fix is server-side thumbnail generation: a dependency and a design decision. Only `decoding="async"` was added on the gallery cards.
+
+### Still open
+
+- **Files:** Word and PowerPoint output has **not** been opened in Microsoft Office or LibreOffice (neither is available here). The `.docx` export was checked with an independent XML parser (well-formed, every relationship, style and numbering id resolves); `.pptx` import was tested on a file from a real PPTX writer and on hand-built ones, never on one made by PowerPoint itself. Embedded pictures in `.docx`, `.pptx` charts, masters, notes and animations are not imported (each is named in a notice). Editable `.pptx` export is still the existing subset.
+- **Sheets:** IME type-to-start for Chinese, Japanese and Korean input (the app's languages, English, Spanish and Thai, type straight into cells); cut does not rewrite formulas elsewhere that pointed at the moved cells; paste special; conditional formats and data validation; merging cells; i18n for the new Sheets strings.
+- **Present:** corner-grip resize does not snap; no distribute-evenly; rich text inside a text object; presenter view with notes; transitions.
+- **Documents:** underline, font and size (they stay Markdown by decision D3); a table-editing UI.
+- **Checks never run in a real browser:** the shell (header, Ctrl+Z, Ctrl+S, Download, the shortcuts sheet), Ctrl+P in the real workspace, and everything in Chat.
