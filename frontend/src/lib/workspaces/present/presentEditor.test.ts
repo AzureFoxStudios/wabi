@@ -216,3 +216,13 @@ describe('editing a slide like PowerPoint', () => {
 		expect(designer).toContain('const { id: _id, z: _z, ...rest } = source as SceneObject;');
 	});
 });
+
+describe('opening PowerPoint files', () => {
+	const files = read('./files.ts');
+	test('.pptx is read on this device into editable slides; only .odp uses the converter service', () => {
+		expect(files).toContain("await import('./pptxImport')");
+		expect(files).toContain('pptxToSlides(await file.arrayBuffer()');
+		expect(workspace).toContain("if (/\\.odp$/i.test(file.name)) {");
+		expect(workspace).not.toContain("/\\.(pptx|odp)$/i.test(file.name)");
+	});
+});

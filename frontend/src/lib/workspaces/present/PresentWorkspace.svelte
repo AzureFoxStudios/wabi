@@ -270,7 +270,8 @@
 	}
 	async function loadFile(file: File) {
 		if (!scope) return;
-		if (/\.(pptx|odp)$/i.test(file.name)) {
+		// .pptx is read natively (editable slides); only .odp still goes through the optional converter service.
+		if (/\.odp$/i.test(file.name)) {
 			if (file.size > 12 * 1024 * 1024) throw new Error('Presentation import is limited to 12 MB.');
 			pendingOffice = file;
 			return;

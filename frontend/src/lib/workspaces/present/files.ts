@@ -4,7 +4,13 @@ export interface SlideImport{aspect:number;slides:Omit<AudienceSlide,'id'>[];war
 export async function rasterImage(file:File,signal:AbortSignal):Promise<string>{if(file.size>12*1024*1024||!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Choose a PNG, JPEG, or WebP image under 12 MB.');signal.throwIfAborted();const image=await createImageBitmap(file);try{signal.throwIfAborted();if(image.width*image.height>32_000_000)throw new Error('Image dimensions exceed the supported limit.');const scale=Math.min(1,1400/Math.max(image.width,image.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));const context=canvas.getContext('2d');if(!context)throw new Error('Image rendering unavailable');context.drawImage(image,0,0,canvas.width,canvas.height);const data=canvas.toDataURL('image/png');if(data.length<=2*1024*1024)return data;const smaller=canvas.toDataURL('image/jpeg',.8);if(smaller.length>2*1024*1024)throw new Error('Image remains too large after resizing.');return smaller;}finally{image.close();}}
 export async function importSlides(file:File,signal:AbortSignal,onprogress:(text:string)=>void):Promise<SlideImport>{
     if(file.size>12*1024*1024)throw new Error('Presentation import is limited to 12 MB.');
-    if(/\.(pptx?|odp)$/i.test(file.name))throw new Error('PowerPoint/ODP conversion is not installed in this build. Export a PDF from the source application, then open that PDF here. The original file has not been uploaded.');
+    if(/\.pptx$/i.test(file.name)){
+        // A PowerPoint file is read here, on this device, into slides that stay editable; nothing is uploaded.
+        const {pptxToSlides}=await import('./pptxImport');
+        const result=await pptxToSlides(await file.arrayBuffer(),{signal,progress:onprogress,raster:async(bytes,mime,name)=>{try{return await rasterImage(new File([bytes as BlobPart],name,{type:mime}),signal);}catch{return null;}}});
+        return result as unknown as SlideImport;
+    }
+    if(/\.(ppt|odp)$/i.test(file.name))throw new Error('Older PowerPoint (.ppt) and OpenDocument (.odp) files cannot be opened here. Save the presentation as .pptx or export a PDF from the source application, then open that. The original file has not been uploaded.');
     if(file.type.startsWith('image/'))return{aspect:16/9,slides:[{title:file.name,body:'',layout:'image',image:await rasterImage(file,signal)}],warnings:['The image is resized and copied into a private native deck.']};
     if(!/\.pdf$/i.test(file.name))throw new Error('Supported imports are PDF, PNG, JPEG, WebP, and native Wabi decks.');
     const pdfjs=await import('pdfjs-dist');const workerUrl=(await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;pdfjs.GlobalWorkerOptions.workerSrc=workerUrl;

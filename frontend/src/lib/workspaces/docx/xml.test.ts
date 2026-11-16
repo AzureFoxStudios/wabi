@@ -38,3 +38,9 @@ test('size and depth limits stop abusive files', () => {
 	expect(() => parseXml('<a>' + '<b>'.repeat(300) + '</b>'.repeat(300) + '</a>')).toThrow('nested too deeply');
 	expect(() => parseXml('<a>' + 'x'.repeat(25 * 1024 * 1024) + '</a>')).toThrow('too large');
 });
+
+test('a missing node has no children, so optional parts can be read without checks', () => {
+	expect(elements(undefined)).toEqual([]);
+	expect(elements(undefined, 'a')).toEqual([]);
+	expect(firstElement(undefined, 'a')).toBeUndefined();
+});

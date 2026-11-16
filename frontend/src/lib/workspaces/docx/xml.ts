@@ -122,7 +122,8 @@ function readTag(source: string, open: number): { element: XmlElement; selfClosi
 }
 
 /** The element children only, optionally those with one name. */
-export function elements(node: XmlElement, name?: string): XmlElement[] {
+export function elements(node: XmlElement | undefined, name?: string): XmlElement[] {
+	if (!node) return [];
 	return node.children.filter((child): child is XmlElement => typeof child !== 'string' && (name === undefined || child.name === name));
 }
 
