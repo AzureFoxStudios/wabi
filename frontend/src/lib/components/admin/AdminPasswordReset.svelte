@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import BaseModal from '../BaseModal.svelte';
 	import { adminResetUserPassword } from '$lib/api';
@@ -44,22 +45,22 @@
 	}
 </script>
 
-<BaseModal isOpen={true} onClose={close} showCloseButton={false} title={`Reset password for ${user.username}`} width="480px">
+<BaseModal isOpen={true} onClose={close} showCloseButton={false} title={$_('apr.title', { values: { name: user.username } })} width="480px">
 	<form class="password-reset-form" onsubmit={submit}>
 		{#if resetState.complete}
-			<p role="status" class="password-reset-success">Password reset for {user.username}. Their existing sessions will need to sign in again.</p>
-			<p>Share the new password privately. They can change it in their profile settings.</p>
-			<div class="password-reset-actions"><button type="button" class="reset-primary" onclick={close}>Done</button></div>
+			<p role="status" class="password-reset-success">{$_('apr.success', { values: { name: user.username } })}</p>
+			<p>{$_('apr.share')}</p>
+			<div class="password-reset-actions"><button type="button" class="reset-primary" onclick={close}>{$_('login.wizard.step_done')}</button></div>
 		{:else}
-			<p>This replaces their current password and signs them out of existing sessions. Share the new password with them privately.</p>
-			<label>New password<input type="password" name="admin-new-password" autocomplete="new-password" bind:value={password} disabled={resetState.pending} required minlength="8" /></label>
-			<label>Confirm password<input type="password" name="admin-confirm-password" autocomplete="new-password" bind:value={confirmation} disabled={resetState.pending} required minlength="8" /></label>
-			<p class="password-reset-hint">At least 8 characters. The new password stays valid until they change it.</p>
+			<p>{$_('apr.replaces')}</p>
+			<label>{$_('profile_settings.new_password')}<input type="password" name="admin-new-password" autocomplete="new-password" bind:value={password} disabled={resetState.pending} required minlength="8" /></label>
+			<label>{$_('login.auth.confirm_password_placeholder')}<input type="password" name="admin-confirm-password" autocomplete="new-password" bind:value={confirmation} disabled={resetState.pending} required minlength="8" /></label>
+			<p class="password-reset-hint">{$_('apr.hint')}</p>
 			{#if resetState.error}<p role="alert" class="password-reset-error">{resetState.error}</p>{/if}
-			{#if resetState.pending}<p role="status">Resetting password…</p>{/if}
+			{#if resetState.pending}<p role="status">{$_('apr.resetting_status')}</p>{/if}
 			<div class="password-reset-actions">
-				<button type="button" onclick={close} disabled={resetState.pending}>Cancel</button>
-				<button type="submit" class="reset-primary" disabled={resetState.pending}>{resetState.pending ? 'Resetting…' : 'Reset password'}</button>
+				<button type="button" onclick={close} disabled={resetState.pending}>{$_('common.cancel')}</button>
+				<button type="submit" class="reset-primary" disabled={resetState.pending}>{resetState.pending ? $_('apr.resetting') : $_('apr.reset')}</button>
 			</div>
 		{/if}
 	</form>

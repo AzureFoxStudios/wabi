@@ -8,6 +8,7 @@
 	once there are enough projects to look through. "New project" is the masthead's New.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { projects, todos } from '$lib/business/store';
 	import type { Project } from '$lib/business/types';
 	import { dateWords } from '$lib/business/plannerBoard';
@@ -27,28 +28,28 @@
 <section class="pj-inventory" aria-labelledby={`${uid}-title`}>
 	<header class="pj-inventory__head">
 		<div class="pj-inventory__intro">
-			<h2 class="pj-inventory__title" id={`${uid}-title`}>Projects</h2>
-			<p class="pj-inventory__lede">Plan a convention, a collection or a larger goal, and keep the smaller pieces together.</p>
+			<h2 class="pj-inventory__title" id={`${uid}-title`}>{$_('project_detail.projects_crumb')}</h2>
+			<p class="pj-inventory__lede">{$_('pj.lede')}</p>
 		</div>
 		{#if searchable}
 			<label class="pj-search">
-				<span class="visually-hidden">Find a project</span>
+				<span class="visually-hidden">{$_('pj.find')}</span>
 				<Icon name="search" size={16} />
-				<input class="w-field w-field--chrome" type="search" bind:value={search} placeholder="Find a project" />
+				<input class="w-field w-field--chrome" type="search" bind:value={search} placeholder={$_('pj.find')} />
 			</label>
 		{/if}
 	</header>
 
 	{#if results.length === 0}
 		{#if search.trim()}
-			<EmptyState icon="search" as="h3" title="No matching projects" text="Try another name or a word from the description." class="pj-empty" />
+			<EmptyState icon="search" as="h3" title={$_('pj.no_match')} text={$_('pj.no_match_text')} class="pj-empty" />
 		{:else}
 			<EmptyState
 				icon="layers"
 				as="h3"
-				title="No projects yet"
-				text="Start with a convention, a collection or a goal. Add sub-projects as the plan grows."
-				action={isReadOnly ? undefined : 'Create your first project'}
+				title={$_('pj.none')}
+				text={$_('pj.none_text')}
+				action={isReadOnly ? undefined : $_('pj.create_first')}
 				onaction={onCreate}
 				class="pj-empty"
 			/>
@@ -69,21 +70,21 @@
 								<span class="w-tag pj-card__status"><span class="w-dot w-dot--{status.tone}" aria-hidden="true"></span>{status.word}</span>
 							{/if}
 						</div>
-						<p class="pj-card__desc">{project.description || 'No description yet.'}</p>
+						<p class="pj-card__desc">{project.description || $_('pj.no_desc')}</p>
 						<div class="pj-card__meta">
 							<span class="pj-progress">
 								<span class="pj-bar" aria-hidden="true"><span class="pj-bar__fill" style:width={`${Math.round(summary.ratio * 100)}%`}></span></span>
 								<span>{progressWords(summary)}</span>
 							</span>
 							{#if summary.nextDue?.dueDate}
-								<span class:is-overdue={isPastDue(summary.nextDue.dueDate, now)} title={`Next due: ${summary.nextDue.title}`}>
-									Next due {dateWords(summary.nextDue.dueDate, now)}
+								<span class:is-overdue={isPastDue(summary.nextDue.dueDate, now)} title={$_('pj.next_due_title', { values: { title: summary.nextDue.title } })}>
+									{$_('pj.next_due', { values: { date: dateWords(summary.nextDue.dueDate, now) } })}
 								</span>
 							{:else if project.targetEndDate}
-								<span>Target {dateWords(project.targetEndDate, now)}</span>
+								<span>{$_('project_detail.target_date', { values: { date: dateWords(project.targetEndDate, now) } })}</span>
 							{/if}
 							{#if summary.subprojects}
-								<span>{summary.subprojects} {summary.subprojects === 1 ? 'sub-project' : 'sub-projects'}</span>
+								<span>{$_(summary.subprojects === 1 ? 'pj.sub_one' : 'pj.sub_other', { values: { count: summary.subprojects } })}</span>
 							{/if}
 						</div>
 					</article>

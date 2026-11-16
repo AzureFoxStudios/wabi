@@ -94,8 +94,8 @@
 	let themeSaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let themeButtons: Record<string, HTMLButtonElement | null> = {};
 
-	const THEME_SAVE_FAILED = 'Your theme could not be saved to your account. It still applies on this device.';
-	const THEME_SAVE_FAILED_AGAIN = 'Saving to your account failed again. Your theme still applies on this device.';
+	const THEME_SAVE_FAILED = $t('appset.theme_save_failed');
+	const THEME_SAVE_FAILED_AGAIN = $t('appset.theme_save_failed_again');
 
 	$: customThemeActive = $themeStore.themeId === 'custom';
 	$: selectedThemeId = customThemeActive ? null : getThemeById($themeStore.themeId)?.id ?? null;
@@ -114,7 +114,7 @@
 	$: textSize = textSizeValue(interfaceScale, textSizes);
 	$: selectedPreset = videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) ?? null;
 	$: profileDecorations = $profileAppearance.showCosmetics;
-	$: languageLabel = translatedOr($t, 'settings.language', 'Language');
+	$: languageLabel = translatedOr($t, 'settings.language', $t('settings.language'));
 	$: layoutScopeHint = appearanceLayoutScopeHint(signedIn, nativeApp);
 
 	onMount(() => {
@@ -289,23 +289,23 @@
 
 	function saveWorkspaceAsPrompt() {
 		const suggested = `${$layoutStore.activeWorkspace}-copy`;
-		const name = window.prompt('Save layout as', suggested);
+		const name = window.prompt($t('appset.prompt_save_layout'), suggested);
 		if (!name) return;
 		layoutStore.saveWorkspace(name);
 	}
 
 	function renameWorkspacePrompt() {
 		const current = $layoutStore.activeWorkspace;
-		const nextName = window.prompt('Rename layout', current);
+		const nextName = window.prompt($t('appset.prompt_rename_layout'), current);
 		if (!nextName) return;
 		layoutStore.renameWorkspace(current, nextName);
 	}
 
 	async function resetActiveWorkspace() {
 		const confirmed = await confirmAction({
-			title: 'Reset this layout?',
-			body: `“${$layoutStore.activeWorkspace}” goes back to its default panels and sizes.`,
-			confirm: 'Reset layout',
+			title: $t('appset.reset_title'),
+			body: $t('appset.reset_body', { values: { name: $layoutStore.activeWorkspace } }),
+			confirm: $t('appset.reset_confirm'),
 			danger: true
 		});
 		if (confirmed) layoutStore.resetWorkspace($layoutStore.activeWorkspace);
@@ -315,20 +315,20 @@
 		const json = layoutStore.exportLayoutJson();
 		if (navigator.clipboard?.writeText) {
 			await navigator.clipboard.writeText(json);
-			void confirmAction({ title: 'Layout copied', body: 'The layout JSON is on your clipboard.', confirm: 'Done', cancel: null });
+			void confirmAction({ title: $t('appset.layout_copied'), body: $t('appset.layout_copied_body'), confirm: $t('login.wizard.step_done'), cancel: null });
 			return;
 		}
-		window.prompt('Copy layout JSON:', json);
+		window.prompt($t('appset.prompt_copy_json'), json);
 	}
 
 	function importWorkspaceJsonPrompt() {
-		const pasted = window.prompt('Paste layout JSON');
+		const pasted = window.prompt($t('appset.prompt_paste_json'));
 		if (!pasted) return;
 		if (!layoutStore.importLayoutJson(pasted)) {
 			void confirmAction({
-				title: 'That layout could not be read',
-				body: 'Paste the JSON exactly as it was exported. Your current layout is unchanged.',
-				confirm: 'Got it',
+				title: $t('appset.import_fail_title'),
+				body: $t('appset.import_fail_body'),
+				confirm: $t('appset.got_it'),
 				cancel: null
 			});
 		}
@@ -365,10 +365,10 @@
 
 	// ---------------------------------------------------------------- profile decorations
 	const decorationRows: Array<{ key: Exclude<keyof ProfileAppearance, 'showCosmetics'>; label: string; hint: string }> = [
-		{ key: 'names', label: 'Styled names', hint: 'Fonts and colors people chose for their names.' },
-		{ key: 'plates', label: 'Nameplates', hint: 'The band behind a name in member lists.' },
-		{ key: 'decorations', label: 'Banners and avatar decorations', hint: 'Profile banners and frames around avatars.' },
-		{ key: 'animate', label: 'Artwork and name animation', hint: 'Moving profile art and shimmering names.' }
+		{ key: 'names', label: 'appset.dec_names', hint: 'appset.dec_names_hint' },
+		{ key: 'plates', label: 'appset.dec_plates', hint: 'appset.dec_plates_hint' },
+		{ key: 'decorations', label: 'appset.dec_banners', hint: 'appset.dec_banners_hint' },
+		{ key: 'animate', label: 'appset.dec_anim', hint: 'appset.dec_anim_hint' }
 	];
 
 	// ---------------------------------------------------------------- performance
@@ -376,21 +376,21 @@
 	function deviceTierPhrase(tier: string | undefined): string {
 		switch (tier) {
 			case 'weak':
-				return 'a low-power device';
+				return 'appset.tier_weak';
 			case 'mid':
-				return 'a mid-range device';
+				return 'appset.tier_mid';
 			case 'capable':
-				return 'a full-power device';
+				return 'appset.tier_capable';
 			default:
-				return 'this device';
+				return 'appset.tier_this';
 		}
 	}
 </script>
 
 <!-- Theme -->
 <section class="settings-block" aria-labelledby="appearance-theme-title">
-	<h3 class="settings-block__title" id="appearance-theme-title">Theme</h3>
-	<p class="settings-block__hint">Every theme keeps the same layout; only color, corners and type change.</p>
+	<h3 class="settings-block__title" id="appearance-theme-title">{$t('settings.appearance.theme')}</h3>
+	<p class="settings-block__hint">{$t('appset.theme_hint')}</p>
 
 	<div class="theme-picker" role="radiogroup" aria-labelledby="appearance-theme-title">
 		{#each visibleThemeGroups as group (group.id)}
@@ -436,10 +436,10 @@
 			aria-expanded={showAllThemes}
 			on:click={() => (showAllThemes = !showAllThemes)}
 		>
-			{showAllThemes ? 'Show fewer themes' : `Show all ${themeCount} themes`}
+			{showAllThemes ? $t('appset.show_fewer') : $t('settings.appearance.show_all_themes', { values: { count: themeCount } })}
 			<Icon name={showAllThemes ? 'chevUp' : 'chevDown'} size={16} />
 		</button>
-		{#if customThemeActive}<span class="theme-picker__custom">Using your custom theme</span>{/if}
+		{#if customThemeActive}<span class="theme-picker__custom">{$t('appset.custom_theme_active')}</span>{/if}
 	</div>
 	{#if themeSaveError}
 		<div class="settings-block__error settings-error-row">
@@ -451,7 +451,7 @@
 				class="w-btn w-btn--sm"
 				aria-busy={themeRetrying}
 				bind:this={themeRetryButton}
-				on:click={retryThemeSave}>Try again</button
+				on:click={retryThemeSave}>{$t('messages.zip_preview.retry')}</button
 			>
 		</div>
 	{/if}
@@ -465,7 +465,7 @@
 		on:click={() => (showThemeTuning = !showThemeTuning)}
 	>
 		<Icon name="chevRight" size={16} />
-		Customize theme
+		{$t('appset.customize_theme')}
 	</button>
 	{#if showThemeTuning}
 		<div class="w-disclosure__body settings-disclosure__body" id="appearance-theme-tuning">
@@ -478,12 +478,12 @@
 
 <!-- Reading -->
 <section class="settings-block" aria-labelledby="appearance-reading-title">
-	<h3 class="settings-block__title" id="appearance-reading-title">Reading</h3>
+	<h3 class="settings-block__title" id="appearance-reading-title">{$t('settings.appearance.reading')}</h3>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-text-size">Text size</p>
-				<p class="w-srow__hint">Scales every word in Wabi, chat included.</p>
+				<p class="w-srow__label" id="appearance-text-size">{$t('settings.appearance.text_size')}</p>
+				<p class="w-srow__hint">{$t('appset.text_size_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented labelledby="appearance-text-size" options={textSizes} value={textSize} onchange={updateTextSize} />
@@ -491,13 +491,13 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-density">Message density</p>
-				<p class="w-srow__hint">Cozy shows avatars and room to breathe; compact fits more on screen.</p>
+				<p class="w-srow__label" id="appearance-density">{$t('settings.appearance.density')}</p>
+				<p class="w-srow__hint">{$t('appset.density_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-density"
-					options={[{ value: 'cozy', label: 'Cozy' }, { value: 'compact', label: 'Compact' }]}
+					options={[{ value: 'cozy', label: $t('settings.appearance.cozy') }, { value: 'compact', label: $t('settings.appearance.compact') }]}
 					value={messageDensity}
 					onchange={(value) => updateMessageDensity(value as MessageDensity)}
 				/>
@@ -505,9 +505,9 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-reduce-motion">Reduce motion</p>
+				<p class="w-srow__label" id="appearance-reduce-motion">{$t('settings.appearance.reduce_motion')}</p>
 				<p class="w-srow__hint">
-					Panels and menus appear without sliding.{$profileOsReducedMotion ? ' Your system setting asks for less motion, so this stays on until you change it there.' : ''}
+					{$t('appset.reduce_motion_hint')}{$profileOsReducedMotion ? ' ' + $t('appset.os_motion') : ''}
 				</p>
 			</div>
 			<div class="w-srow__control">
@@ -521,8 +521,8 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-own-right">Your messages on the right</p>
-				<p class="w-srow__hint">Lines your own messages up along the right edge of the conversation.</p>
+				<p class="w-srow__label" id="appearance-own-right">{$t('settings.appearance.own_right')}</p>
+				<p class="w-srow__hint">{$t('appset.own_right_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Switch labelledby="appearance-own-right" checked={ownMessagesOnRight} onchange={setOwnMessagesOnRight} />
@@ -531,7 +531,7 @@
 		<div class="w-srow">
 			<div class="w-srow__text">
 				<p class="w-srow__label" id="appearance-language">{languageLabel}</p>
-				<p class="w-srow__hint">Menus and labels. Messages stay in the language they were written in.</p>
+				<p class="w-srow__hint">{$t('appset.language_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Select ariaLabel={languageLabel} heading={languageLabel} align="end" options={languages} value={$currentLocale || 'en'} onchange={changeLanguage} />
@@ -545,17 +545,17 @@
 
 <!-- Chat -->
 <section class="settings-block" aria-labelledby="appearance-chat-title">
-	<h3 class="settings-block__title" id="appearance-chat-title">Chat</h3>
+	<h3 class="settings-block__title" id="appearance-chat-title">{$t('shell.mobile.chat')}</h3>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-avatars">Avatars in chat</p>
-				<p class="w-srow__hint">Whose profile pictures appear beside messages.</p>
+				<p class="w-srow__label" id="appearance-avatars">{$t('appset.avatars')}</p>
+				<p class="w-srow__hint">{$t('appset.avatars_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-avatars"
-					options={[{ value: 'off', label: 'None' }, { value: 'user', label: 'Others' }, { value: 'all', label: 'Everyone' }]}
+					options={[{ value: 'off', label: $t('wb.pattern_none') }, { value: 'user', label: $t('appset.avatars_others') }, { value: 'all', label: $t('panels.everyone') }]}
 					value={chatAvatarMode}
 					onchange={(value) => updateChatAvatarMode(value as ChatAvatarMode)}
 				/>
@@ -563,8 +563,8 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-send-button">Send button</p>
-				<p class="w-srow__hint">Shows a send button in the composer. Enter still sends.</p>
+				<p class="w-srow__label" id="appearance-send-button">{$t('appset.send_button')}</p>
+				<p class="w-srow__hint">{$t('appset.send_button_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Switch labelledby="appearance-send-button" checked={clickableSendEnabled} onchange={setClickableSend} />
@@ -572,13 +572,13 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-deletion-timer">Deletion timer</p>
-				<p class="w-srow__hint">On messages that expire: when they go, or a live countdown.</p>
+				<p class="w-srow__label" id="appearance-deletion-timer">{$t('appset.deletion_timer')}</p>
+				<p class="w-srow__hint">{$t('appset.deletion_timer_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-deletion-timer"
-					options={[{ value: 'off', label: 'Off' }, { value: 'static', label: 'Expiry time' }, { value: 'live', label: 'Countdown' }]}
+					options={[{ value: 'off', label: $t('audio_settings.off') }, { value: 'static', label: $t('appset.deletion_expiry') }, { value: 'live', label: $t('appset.deletion_countdown') }]}
 					value={deletionCountdownMode}
 					onchange={(value) => updateDeletionCountdownMode(value as DeletionCountdownMode)}
 				/>
@@ -589,18 +589,18 @@
 
 <!-- Layout -->
 <section class="settings-block" aria-labelledby="appearance-layout-title">
-	<h3 class="settings-block__title" id="appearance-layout-title">Layout</h3>
+	<h3 class="settings-block__title" id="appearance-layout-title">{$t('appset.h_layout')}</h3>
 	{#if layoutScopeHint}<p class="settings-block__hint" id="appearance-layout-scope">{layoutScopeHint}</p>{/if}
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-open-to">Open to</p>
-				<p class="w-srow__hint">Where Wabi starts on this device, for this account and server.</p>
+				<p class="w-srow__label" id="appearance-open-to">{$t('appset.open_to')}</p>
+				<p class="w-srow__hint">{$t('appset.open_to_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-open-to"
-					options={[{ value: 'last-channel', label: 'Last channel' }, { value: 'server', label: 'Server home' }, { value: 'messages', label: 'DMs' }]}
+					options={[{ value: 'last-channel', label: $t('appset.open_last') }, { value: 'server', label: $t('places.server_home') }, { value: 'messages', label: $t('shell.mobile.messages') }]}
 					value={openingSurface}
 					onchange={(value) => updateOpeningSurface(value as OpeningSurface)}
 				/>
@@ -608,13 +608,13 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-visible-nav">Visible navigation</p>
-				<p class="w-srow__hint">Whether the server list and the channel list show.</p>
+				<p class="w-srow__label" id="appearance-visible-nav">{$t('appset.visible_nav')}</p>
+				<p class="w-srow__hint">{$t('appset.visible_nav_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-visible-nav"
-					options={[{ value: 'server-browser', label: 'Servers and channels' }, { value: 'dm-focused', label: 'Channels only' }, { value: 'dm-pure', label: 'Neither' }]}
+					options={[{ value: 'server-browser', label: $t('appset.nav_both') }, { value: 'dm-focused', label: $t('appset.nav_channels') }, { value: 'dm-pure', label: $t('appset.nav_none') }]}
 					value={$homeLayout}
 					onchange={(value) => homeLayout.set(value as HomeLayoutMode)}
 				/>
@@ -622,13 +622,13 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-nav-dock">Navigation side</p>
-				<p class="w-srow__hint">Which side the server list docks to.</p>
+				<p class="w-srow__label" id="appearance-nav-dock">{$t('appset.nav_side')}</p>
+				<p class="w-srow__hint">{$t('appset.nav_side_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-nav-dock"
-					options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
+					options={[{ value: 'left', label: $t('panels.left') }, { value: 'right', label: $t('panels.right') }]}
 					value={$layoutStore.navDock}
 					onchange={(value) => layoutStore.setNavDock(value as 'left' | 'right')}
 				/>
@@ -636,13 +636,13 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-rail-density">Server rail</p>
-				<p class="w-srow__hint">How much of the far-left server strip shows.</p>
+				<p class="w-srow__label" id="appearance-rail-density">{$t('appset.rail_density')}</p>
+				<p class="w-srow__hint">{$t('appset.rail_density_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-rail-density"
-					options={[{ value: 'full', label: 'Full' }, { value: 'icons-only', label: 'Icons' }, { value: 'hidden', label: 'Hidden' }]}
+					options={[{ value: 'full', label: $t('appset.rail_full') }, { value: 'icons-only', label: $t('appset.rail_icons') }, { value: 'hidden', label: $t('appset.rail_hidden') }]}
 					value={$railDensity}
 					onchange={(value) => setRailDensity(value as RailDensity)}
 				/>
@@ -650,13 +650,13 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-rail-side">Server rail side</p>
-				<p class="w-srow__hint">Which screen edge the server rail pins to.</p>
+				<p class="w-srow__label" id="appearance-rail-side">{$t('appset.rail_side')}</p>
+				<p class="w-srow__hint">{$t('appset.rail_side_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-rail-side"
-					options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
+					options={[{ value: 'left', label: $t('panels.left') }, { value: 'right', label: $t('panels.right') }]}
 					value={$railSide}
 					onchange={(value) => setRailSide(value as RailSide)}
 				/>
@@ -664,12 +664,12 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-dock-limit">Panels pinned side by side</p>
-				<p class="w-srow__hint">How many side panels stay open together. Lowering it closes the oldest pins.</p>
+				<p class="w-srow__label" id="appearance-dock-limit">{$t('appset.dock_limit')}</p>
+				<p class="w-srow__hint">{$t('appset.dock_limit_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Select
-					ariaLabel="Panels pinned side by side"
+					ariaLabel={$t('appset.dock_limit')}
 					align="end"
 					options={dockLimits}
 					value={String($dockStackLimit)}
@@ -679,13 +679,13 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-peek-key">Peek a side panel</p>
-				<p class="w-srow__hint">Hold this key and point at a stub to look at its panel without pinning it. Click a stub to pin it.</p>
+				<p class="w-srow__label" id="appearance-peek-key">{$t('appset.peek')}</p>
+				<p class="w-srow__hint">{$t('appset.peek_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Segmented
 					labelledby="appearance-peek-key"
-					options={[{ value: 'shift', label: 'Shift' }, { value: 'alt', label: 'Alt' }, { value: 'ctrl', label: 'Ctrl' }, { value: 'none', label: 'Hover only' }]}
+					options={[{ value: 'shift', label: $t('appset.key_shift') }, { value: 'alt', label: $t('appset.key_alt') }, { value: 'ctrl', label: $t('appset.key_ctrl') }, { value: 'none', label: $t('appset.peek_hover') }]}
 					value={$railPeekKey}
 					onchange={(value) => railPeekKey.set(value as RailPeekKey)}
 				/>
@@ -694,12 +694,12 @@
 		{#if nativeApp}
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="appearance-layout-preset">Layout preset</p>
-					<p class="w-srow__hint">Save and switch between window layouts in the desktop app.</p>
+					<p class="w-srow__label" id="appearance-layout-preset">{$t('appset.layout_preset')}</p>
+					<p class="w-srow__hint">{$t('appset.layout_preset_hint')}</p>
 				</div>
 				<div class="w-srow__control">
 					<Select
-						ariaLabel="Layout preset"
+						ariaLabel={$t('appset.layout_preset')}
 						align="end"
 						options={$layoutStore.workspaces.map((name) => ({ value: name, label: name }))}
 						value={$layoutStore.activeWorkspace}
@@ -708,11 +708,11 @@
 				</div>
 			</div>
 			<div class="settings-actions">
-				<button type="button" class="w-btn w-btn--sm" on:click={saveWorkspaceAsPrompt}>Save as…</button>
-				<button type="button" class="w-btn w-btn--sm" on:click={renameWorkspacePrompt}>Rename…</button>
-				<button type="button" class="w-btn w-btn--sm" on:click={exportWorkspaceJson}>Copy layout JSON</button>
-				<button type="button" class="w-btn w-btn--sm" on:click={importWorkspaceJsonPrompt}>Paste layout JSON…</button>
-				<button type="button" class="w-btn w-btn--sm w-btn--danger" on:click={resetActiveWorkspace}>Reset layout…</button>
+				<button type="button" class="w-btn w-btn--sm" on:click={saveWorkspaceAsPrompt}>{$t('appset.save_as')}</button>
+				<button type="button" class="w-btn w-btn--sm" on:click={renameWorkspacePrompt}>{$t('appset.rename')}</button>
+				<button type="button" class="w-btn w-btn--sm" on:click={exportWorkspaceJson}>{$t('appset.copy_json')}</button>
+				<button type="button" class="w-btn w-btn--sm" on:click={importWorkspaceJsonPrompt}>{$t('appset.paste_json')}</button>
+				<button type="button" class="w-btn w-btn--sm w-btn--danger" on:click={resetActiveWorkspace}>{$t('appset.reset_layout')}</button>
 			</div>
 		{/if}
 	</div>
@@ -720,12 +720,12 @@
 
 <!-- Media -->
 <section class="settings-block" aria-labelledby="appearance-media-title">
-	<h3 class="settings-block__title" id="appearance-media-title">Media</h3>
+	<h3 class="settings-block__title" id="appearance-media-title">{$t('places.media')}</h3>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-video-compression">Video compression</p>
-				<p class="w-srow__hint">Shrinks large video uploads before they are sent ({videoCompressionRuntimeLabel}).</p>
+				<p class="w-srow__label" id="appearance-video-compression">{$t('appset.video_comp')}</p>
+				<p class="w-srow__hint">{$t('appset.video_hint', { values: { runtime: videoCompressionRuntimeLabel } })}</p>
 			</div>
 			<div class="w-srow__control">
 				<Switch labelledby="appearance-video-compression" checked={videoCompressionEnabled} onchange={setVideoCompression} />
@@ -733,14 +733,14 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-video-preset">Default quality</p>
+				<p class="w-srow__label" id="appearance-video-preset">{$t('appset.default_quality')}</p>
 				<p class="w-srow__hint">
-					{#if !videoCompressionEnabled}Turn on video compression to choose a quality.{:else}{selectedPreset?.description ?? 'Quality the upload dialog starts with.'}{/if}
+					{#if !videoCompressionEnabled}{$t('appset.video_turn_on')}{:else}{selectedPreset?.description ?? $t('appset.quality_default')}{/if}
 				</p>
 			</div>
 			<div class="w-srow__control">
 				<Select
-					ariaLabel="Default quality"
+					ariaLabel={$t('appset.default_quality')}
 					align="end"
 					disabled={!videoCompressionEnabled}
 					options={videoCompressionPresetOptions.map((option) => ({ value: option.id, label: option.label }))}
@@ -754,13 +754,13 @@
 
 <!-- Profile decorations (how other people's profiles look here) -->
 <section class="settings-block" aria-labelledby="appearance-decorations-title">
-	<h3 class="settings-block__title" id="appearance-decorations-title">Profile decorations</h3>
-	<p class="settings-block__hint">How other people's profiles look on this device. Nobody's saved design changes.</p>
+	<h3 class="settings-block__title" id="appearance-decorations-title">{$t('appset.h_decorations')}</h3>
+	<p class="settings-block__hint">{$t('appset.decorations_hint')}</p>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-decorations">Show profile decorations</p>
-				<p class="w-srow__hint">Off shows every profile plainly. Your choices below are kept for when you turn it back on.</p>
+				<p class="w-srow__label" id="appearance-decorations">{$t('appset.show_decorations')}</p>
+				<p class="w-srow__hint">{$t('appset.show_decorations_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Switch labelledby="appearance-decorations" checked={profileDecorations} onchange={(value) => setProfileAppearance({ showCosmetics: value })} />
@@ -769,9 +769,9 @@
 		{#each decorationRows as row (row.key)}
 			<div class="w-srow settings-srow--sub" class:settings-srow--off={!profileDecorations}>
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="appearance-decoration-{row.key}">{row.label}</p>
+					<p class="w-srow__label" id="appearance-decoration-{row.key}">{$t(row.label)}</p>
 					<p class="w-srow__hint">
-						{#if !profileDecorations}Turn on profile decorations to change this.{:else if row.key === 'animate'}{row.hint} Reduce motion keeps artwork still.{:else}{row.hint}{/if}
+						{#if !profileDecorations}{$t('appset.dec_turn_on')}{:else if row.key === 'animate'}{$t(row.hint)} {$t('appset.dec_reduce_keep')}{:else}{$t(row.hint)}{/if}
 					</p>
 				</div>
 				<div class="w-srow__control">
@@ -792,21 +792,21 @@
 
 <!-- Performance -->
 <section class="settings-block" aria-labelledby="appearance-performance-title">
-	<h3 class="settings-block__title" id="appearance-performance-title">Performance</h3>
+	<h3 class="settings-block__title" id="appearance-performance-title">{$t('appset.h_performance')}</h3>
 	{#if !$animationQuality.userOverride}
 		<p class="settings-block__hint">
-			Tuned for {deviceTierPhrase($animationQuality.tier)}: {$animationQuality.cssOnly ? 'simple animations' : 'full spring animations'},
-			{$animationQuality.disableWindows ? 'panels stay inline' : 'pop-out windows allowed'}. Change either switch to choose yourself.
+			{$t('appset.perf_tuned', { values: { tier: $t(deviceTierPhrase($animationQuality.tier)), anim: $animationQuality.cssOnly ? $t('appset.anim_simple') : $t('appset.anim_full'), windows: $animationQuality.disableWindows ? $t('appset.win_inline') : $t('appset.win_popout') } })}
+			
 		</p>
 	{/if}
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
 				<p class="w-srow__label" id="appearance-css-animations">
-					Simple animations
-					{#if $animationQuality.cssOnly && !$animationQuality.userOverride}<span class="w-tag settings-auto-tag">Auto</span>{/if}
+					{$t('appset.simple_anim')}
+					{#if $animationQuality.cssOnly && !$animationQuality.userOverride}<span class="w-tag settings-auto-tag">{$t('appset.auto')}</span>{/if}
 				</p>
-				<p class="w-srow__hint">Uses plain transitions instead of spring animations. Lighter on older devices.</p>
+				<p class="w-srow__hint">{$t('appset.simple_anim_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Switch
@@ -819,10 +819,10 @@
 		<div class="w-srow">
 			<div class="w-srow__text">
 				<p class="w-srow__label" id="appearance-disable-windows">
-					Keep panels inline
-					{#if $animationQuality.disableWindows && !$animationQuality.userOverride}<span class="w-tag settings-auto-tag">Auto</span>{/if}
+					{$t('appset.keep_inline')}
+					{#if $animationQuality.disableWindows && !$animationQuality.userOverride}<span class="w-tag settings-auto-tag">{$t('appset.auto')}</span>{/if}
 				</p>
-				<p class="w-srow__hint">Opens panels inside Wabi instead of in new windows.</p>
+				<p class="w-srow__hint">{$t('appset.keep_inline_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<Switch

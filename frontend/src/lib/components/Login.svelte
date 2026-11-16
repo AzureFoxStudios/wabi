@@ -151,10 +151,10 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		try {
 			const { invoke } = await import('@tauri-apps/api/core');
 			await invoke('tailcat_disconnect');
-			if (!restoreTailcatConnection()) throw new Error('Previous server address is unavailable. Choose a server address.');
+			if (!restoreTailcatConnection()) throw new Error($_('login.err_prev_server'));
 			window.location.reload();
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Could not leave the private tunnel';
+			error = err instanceof Error ? err.message : $_('login.err_leave_tunnel');
 			loading = false;
 		}
 	}
@@ -171,7 +171,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			setAuthToken(result.accessToken);
 			dispatch('login', { username: result.user.username, token: result.accessToken, authMethod: 'guest' });
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Guest join failed';
+			error = cause instanceof Error ? cause.message : $_('login.err_guest_join');
 		} finally { loading = false; }
 	}
 
@@ -322,13 +322,13 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 					{/if}
 				{:else}
 					<div class="login-introduction">
-						<p class="login-kicker">A community workspace</p>
-						<h1>A home for<br class="login-heading-break" /> your community.</h1>
-						<p class="login-description">Keep the conversation going. Talk, share files, and bring your projects together in one place.</p>
-						<ul class="login-capabilities" aria-label="What you can do here">
-							<li><span aria-hidden="true">01</span> Conversations &amp; calls</li>
-							<li><span aria-hidden="true">02</span> Notes, plans &amp; shared ideas</li>
-							<li><span aria-hidden="true">03</span> Files &amp; creative work</li>
+						<p class="login-kicker">{$_('login.kicker')}</p>
+						<h1>{$_('login.intro_title_1')}<br class="login-heading-break" />{$_('login.intro_title_2')}</h1>
+						<p class="login-description">{$_('login.description')}</p>
+						<ul class="login-capabilities" aria-label={$_('login.capabilities_label')}>
+							<li><span aria-hidden="true">01</span> {$_('login.cap_1')}</li>
+							<li><span aria-hidden="true">02</span> {$_('login.cap_2')}</li>
+							<li><span aria-hidden="true">03</span> {$_('login.cap_3')}</li>
 						</ul>
 					</div>
 				{/if}
@@ -337,7 +337,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			<div class="login-auth-panel">
 				<HostLink />
 				{#if privateTunnelActive}
-					<button type="button" class="login-change-server" on:click={leavePrivateTunnel} disabled={loading}>Leave private tunnel</button>
+					<button type="button" class="login-change-server" on:click={leavePrivateTunnel} disabled={loading}>{$_('login.leave_tunnel')}</button>
 				{/if}
 				{#if showConnectionPrompt}
 					<LoginConnectionPrompt
@@ -355,38 +355,38 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 							<form on:submit|preventDefault={handleRegister}>
 								<label class="field-label">
-									<span class="field-caption">Display name</span>
+									<span class="field-caption">{$_('settings.sections.display_name')}</span>
 									<input class="w-field" type="text" bind:value={username} autocomplete="name" minlength="2" maxlength="32" required use:focusOnMount disabled={loading} />
 								</label>
 								<label class="field-label">
-									<span class="field-caption">Permanent handle</span>
+									<span class="field-caption">{$_('login.field_handle')}</span>
 									<span class="w-field login-handle">
 										<span class="handle-prefix" aria-hidden="true">@</span>
 										<input type="text" bind:value={handle} on:input={() => { handleManuallyEdited = true; }} placeholder={$_('login.auth.handle_placeholder')} autocomplete="username" minlength="2" maxlength="32" required disabled={loading} />
 									</span>
 								</label>
 								<label class="field-label">
-									<span class="field-caption">Password</span>
+									<span class="field-caption">{$_('login.auth.password_placeholder')}</span>
 									<input class="w-field" type="password" bind:value={password} autocomplete="new-password" minlength="8" required disabled={loading} aria-describedby="login-owner-password-hint" />
-									<span class="w-field-hint field-hint" id="login-owner-password-hint">8 or more characters</span>
+									<span class="w-field-hint field-hint" id="login-owner-password-hint">{$_('login.password_hint')}</span>
 								</label>
 								<label class="field-label">
-									<span class="field-caption">Confirm password</span>
+									<span class="field-caption">{$_('login.auth.confirm_password_placeholder')}</span>
 									<input class="w-field" type="password" bind:value={passwordConfirm} autocomplete="new-password" minlength="8" required disabled={loading} />
 								</label>
 								<div class="starter-layout">
-									<label for="starter-layout-preset">Starting channels</label>
+									<label for="starter-layout-preset">{$_('login.starter_channels')}</label>
 									<select id="starter-layout-preset" class="w-field" value={starterTemplate} on:change={event => chooseStarterTemplate(event.currentTarget.value as typeof starterTemplate)} disabled={loading}>
-										<option value="basic">Basic · general chat and voice</option>
-										<option value="project">Project · updates and planning</option>
-										<option value="community">Community · announcements and introductions</option>
-										<option value="blank">Blank · add rooms later</option>
+										<option value="basic">{$_('login.tpl_basic')}</option>
+										<option value="project">{$_('login.tpl_project')}</option>
+										<option value="community">{$_('login.tpl_community')}</option>
+										<option value="blank">{$_('login.tpl_blank')}</option>
 									</select>
-									<p>These are editable rooms, not security settings.</p>
+									<p>{$_('login.starter_note')}</p>
 									{#each starterChannels as channel, index (index)}
-										<div class="starter-room"><select class="w-field" bind:value={channel.kind} aria-label="Room type" disabled={loading}><option value="text">Text</option><option value="voice">Voice</option></select><input class="w-field" bind:value={channel.name} aria-label="Room name" maxlength="40" required disabled={loading} /><button type="button" class="w-ibtn" on:click={() => starterChannels = starterChannels.filter((_, item) => item !== index)} disabled={loading} aria-label="Remove room {channel.name || index + 1}"><Icon name="x" size={16} /></button></div>
+										<div class="starter-room"><select class="w-field" bind:value={channel.kind} aria-label={$_('login.room_type_label')} disabled={loading}><option value="text">{$_('login.kind_text')}</option><option value="voice">{$_('sidebar.voice')}</option></select><input class="w-field" bind:value={channel.name} aria-label={$_('login.room_name_label')} maxlength="40" required disabled={loading} /><button type="button" class="w-ibtn" on:click={() => starterChannels = starterChannels.filter((_, item) => item !== index)} disabled={loading} aria-label={$_('login.remove_room', { values: { name: channel.name || index + 1 } })}><Icon name="x" size={16} /></button></div>
 									{/each}
-									{#if starterChannels.length < 12}<button type="button" class="w-btn w-btn--sm starter-add" on:click={() => starterChannels = [...starterChannels, { name: '', kind: 'text' }]} disabled={loading}>Add room</button>{/if}
+									{#if starterChannels.length < 12}<button type="button" class="w-btn w-btn--sm starter-add" on:click={() => starterChannels = [...starterChannels, { name: '', kind: 'text' }]} disabled={loading}>{$_('login.add_room')}</button>{/if}
 								</div>
 								<button type="submit" class="w-btn w-btn--primary w-btn--lg login-submit" aria-busy={loading} disabled={loading}>
 									{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
@@ -437,8 +437,8 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 					{:else}
 						<header class="login-auth-heading">
-							<h2>{authMode === 'login' ? 'Welcome back.' : 'Find your place here.'}</h2>
-							<p>{authMode === 'login' ? 'Sign in to your community.' : 'Create an account on this server.'}</p>
+							<h2>{authMode === 'login' ? $_('login.welcome_back') : $_('login.find_place')}</h2>
+							<p>{authMode === 'login' ? $_('login.sign_in_community') : $_('login.create_on_server')}</p>
 							<!-- The server and the way to change it, together and above the fold at every width. -->
 							<p class="login-server-address">
 								{#if serverAddress}<Icon name="server" size={14} /><span>{serverAddress}</span>{/if}
@@ -449,11 +449,11 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 						{#if authMode === 'login'}
 							<form class="auth-form" on:submit|preventDefault={handleLogin}>
 								<label class="field-label">
-									<span class="field-caption">Username or handle</span>
+									<span class="field-caption">{$_('login.field_username')}</span>
 									<input class="w-field" type="text" bind:value={username} autocomplete="username" autocapitalize="none" spellcheck="false" required use:focusOnMount disabled={loading} />
 								</label>
 								<label class="field-label password-field">
-									<span class="field-caption">Password</span>
+									<span class="field-caption">{$_('login.auth.password_placeholder')}</span>
 									<span class="w-field login-password">
 										<input type={showPassword ? 'text' : 'password'} bind:value={password} autocomplete="current-password" required disabled={loading} />
 										<button type="button" class="w-ibtn w-ibtn--sm password-toggle" on:click={() => showPassword = !showPassword} aria-label={showPassword ? $_('login.auth.hide_password') : $_('login.auth.show_password')} aria-pressed={showPassword}>
@@ -479,29 +479,29 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 								{#if authPolicy.allowRegister}
 									{$_('login.auth.create_account_prompt')} <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>{$_('login.auth.create_account_link')}</button>
 								{:else}
-									Registration is closed on this server.
+									{$_('login.registration_closed')}
 								{/if}
 							</p>
 						{:else}
 							<form class="auth-form" on:submit|preventDefault={handleRegister}>
 								<label class="field-label">
-									<span class="field-caption">Display name</span>
+									<span class="field-caption">{$_('settings.sections.display_name')}</span>
 									<input class="w-field" type="text" bind:value={username} autocomplete="name" minlength="2" maxlength="32" required use:focusOnMount disabled={loading} />
 								</label>
 								<label class="field-label">
-									<span class="field-caption">Permanent handle</span>
+									<span class="field-caption">{$_('login.field_handle')}</span>
 									<span class="w-field login-handle">
 										<span class="handle-prefix" aria-hidden="true">@</span>
 										<input type="text" bind:value={handle} on:input={() => { handleManuallyEdited = true; }} placeholder={$_('login.auth.handle_placeholder')} autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" maxlength="32" required disabled={loading} />
 									</span>
 								</label>
 								<label class="field-label">
-									<span class="field-caption">Password</span>
+									<span class="field-caption">{$_('login.auth.password_placeholder')}</span>
 									<input class="w-field" type="password" bind:value={password} autocomplete="new-password" minlength="8" required disabled={loading} aria-describedby="login-register-password-hint" />
-									<span class="w-field-hint field-hint" id="login-register-password-hint">8 or more characters</span>
+									<span class="w-field-hint field-hint" id="login-register-password-hint">{$_('login.password_hint')}</span>
 								</label>
 								<label class="field-label">
-									<span class="field-caption">Confirm password</span>
+									<span class="field-caption">{$_('login.auth.confirm_password_placeholder')}</span>
 									<input class="w-field" type="password" bind:value={passwordConfirm} autocomplete="new-password" minlength="8" required disabled={loading} />
 								</label>
 								<button type="submit" class="w-btn w-btn--primary w-btn--lg login-submit" aria-busy={loading} disabled={loading}>
@@ -512,7 +512,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
 							{/if}
 							<p class="auth-alt-prompt">
-								Already have an account? <button type="button" class="auth-link" on:click={() => switchAuthMode('login')}>{$_('login.tabs.login')}</button>
+								{$_('login.have_account')} <button type="button" class="auth-link" on:click={() => switchAuthMode('login')}>{$_('login.tabs.login')}</button>
 							</p>
 						{/if}
 
@@ -525,7 +525,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 							<div class="guest-section">
 								<form on:submit|preventDefault={handleGuestLogin}>
 									<label class="field-label">
-										<span class="field-caption">Guest display name</span>
+										<span class="field-caption">{$_('login.field_guest_name')}</span>
 										<input class="w-field" type="text" bind:value={guestName} autocomplete="nickname" maxlength="20" required disabled={loading} />
 									</label>
 									<button type="submit" class="w-btn w-btn--lg login-submit" aria-busy={loading} disabled={loading}>
@@ -555,16 +555,16 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			</div>
 		</div>
 		<footer class="login-footer">
-			<p>Each server is an independent community.</p>
+			<p>{$_('login.footer_note')}</p>
 			<nav class="login-footer-links" aria-label="Sign-in links">
-				<a href="/privacy">Privacy</a>
-				<a href="/terms">Terms</a>
+				<a href="/privacy">{$_('error_page.privacy')}</a>
+				<a href="/terms">{$_('error_page.terms')}</a>
 				<!-- Separate from any community account: stays on this device, no login. -->
-				<a href="/personal" data-sveltekit-reload title="A calendar, tasks and journal that stay on this device. No account needed.">Offline planner</a>
+				<a href="/personal" data-sveltekit-reload title={$_('login.personal_title')}>{$_('login.offline_planner')}</a>
 				<label class="login-locale-control">
 					<Icon name="globe" size={14} />
 					<span aria-hidden="true">{localeLabel}</span>
-					<select id="locale-picker" aria-label="Language" bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
+					<select id="locale-picker" aria-label={$_('login.language.label')} bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
 						{#each getAvailableLocales() as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
 					</select>
 				</label>

@@ -94,8 +94,8 @@
 
 		if (!result.ok) console.warn('[DM] Could not open conversation:', (result as { ok: false; error: string }).error);
 		createError = result.ok
-			? "The conversation was created, but the server didn't send it back. Look for it under DMs."
-			: `Couldn't start a conversation with ${user.username}. Nothing was created.`;
+			? $_('cdm.created_missing')
+			: $_('cdm.start_failed', { values: { name: user.username } });
 	}
 
 	function closeModal() {
@@ -106,10 +106,10 @@
 	}
 </script>
 
-<BaseModal {isOpen} onClose={closeModal} size="md" padded title="New message" note="New conversations start encryption-pending" initialFocus=".cdm-search input" panelClass="cdm">
+<BaseModal {isOpen} onClose={closeModal} size="md" padded title={$_('panels.new_message')} note={$_('cdm.note')} initialFocus=".cdm-search input" panelClass="cdm">
 	<div class="w-field w-field--chrome cdm-search">
 		<Icon name="search" size={16} />
-		<input type="search" bind:value={searchQuery} placeholder="Search people" aria-label="Search people" autocomplete="off" />
+		<input type="search" bind:value={searchQuery} placeholder={$_('panels.search_people')} aria-label={$_('panels.search_people')} autocomplete="off" />
 	</div>
 
 	{#if createError}
@@ -122,11 +122,11 @@
 	{#if filteredUsers.length === 0}
 		<div class="w-empty cdm-empty">
 			<Icon name="users" size={28} />
-			<p class="w-empty__title">{searchQuery.trim() ? 'No one matches' : 'No one to message yet'}</p>
-			<p class="w-empty__text">{searchQuery.trim() ? 'Try another name or handle.' : 'People appear here as soon as they join this community.'}</p>
+			<p class="w-empty__title">{searchQuery.trim() ? $_('cdm.no_match') : $_('cdm.none_title')}</p>
+			<p class="w-empty__text">{searchQuery.trim() ? $_('cdm.no_match_text') : $_('cdm.none_text')}</p>
 		</div>
 	{:else}
-		<ul class="cdm-list" aria-label="People">
+		<ul class="cdm-list" aria-label={$_('places.people')}>
 			{#each filteredUsers as user (getDmDirectoryKey(user))}
 				{@const userKey = getDmDirectoryKey(user)}
 				{@const presence = presenceOf(user.status)}
@@ -153,7 +153,7 @@
 						</span>
 						<span class="cdm-text">
 							<span class="cdm-name"><ProfileName username={user.username} font={user.usernameFont} color={user.color} /></span>
-							<span class="cdm-sub">{pendingUserKey === userKey ? 'Opening…' : user.handle ? `@${user.handle}` : $_(presenceLabelKey(presence))}</span>
+							<span class="cdm-sub">{pendingUserKey === userKey ? $_('lore_viewer.opening') : user.handle ? `@${user.handle}` : $_(presenceLabelKey(presence))}</span>
 						</span>
 						<span class="cdm-state">{pendingUserKey === userKey ? '' : $_(presenceLabelKey(presence))}</span>
 					</button>

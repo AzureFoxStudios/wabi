@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken, getGuestSessionId, getStoredDbUserId } from '$lib/authSession';
@@ -39,7 +40,7 @@
 		try {
 			const saved = JSON.parse(localStorage.getItem(key) || 'null');
 			if (saved?.version === 1 && saved.sourceDigest === image.digest && Array.isArray(saved.marks)) marks = saved.marks;
-		} catch { saveError = 'Saved marks could not be read. The source image is unchanged.'; }
+		} catch { saveError = $_('rann.err_read'); }
 	});
 	function remember(): void { undoStack = [...undoStack.slice(-49), structuredClone(marks)]; redoStack = []; }
 	function save(): void {
@@ -47,7 +48,7 @@
 		try {
 			localStorage.setItem(storageKey, JSON.stringify({ version: 1, sourceDigest: image.digest, documentKey, pageIndex, width: naturalWidth, height: naturalHeight, marks }));
 			saveError = '';
-		} catch { saveError = 'Marks could not be saved on this device. Export a copy before leaving.'; }
+		} catch { saveError = $_('rann.err_save'); }
 	}
 	function point(event: PointerEvent): Point {
 		const bounds = svg!.getBoundingClientRect();
@@ -57,7 +58,7 @@
 		if (!naturalWidth || !naturalHeight || mode === 'read' || mode === 'erase') return;
 		const p = point(event);
 		if (mode === 'note') {
-			const text = window.prompt('Text note')?.trim();
+			const text = window.prompt($_('rann.note_prompt'))?.trim();
 			if (text) { remember(); marks = [...marks, { id: makeId(), kind: 'note', color, x: p.x, y: p.y, text: text.slice(0, 500) }]; save(); }
 			return;
 		}
@@ -88,19 +89,19 @@
 </script>
 
 <div class="annotation-page">
-	<div class="annotation-tools" role="toolbar" aria-label={`Image ${pageIndex + 1} annotation tools`}>
+	<div class="annotation-tools" role="toolbar" aria-label={$_('rann.tools_label', { values: { n: pageIndex + 1 } })}>
 		{#each ['read', 'pen', 'highlight', 'note', 'erase'] as choice}
-			<button type="button" class:active={mode === choice} aria-pressed={mode === choice} disabled={!image.digest} onclick={() => mode = choice as Mode}>{choice === 'note' ? 'Text note' : choice[0].toUpperCase() + choice.slice(1)}</button>
+			<button type="button" class:active={mode === choice} aria-pressed={mode === choice} disabled={!image.digest} onclick={() => mode = choice as Mode}>{choice === 'read' ? $_('office.editor.read') : choice === 'pen' ? $_('notebook.pen') : choice === 'highlight' ? $_('rann.mode_highlight') : choice === 'note' ? $_('rann.mode_note') : $_('rann.mode_erase')}</button>
 		{/each}
-		{#if mode !== 'read'}<label>Color <input type="color" bind:value={color} /></label><label>Width <input type="range" min="1" max="20" bind:value={width} /></label>{/if}
-		<button type="button" disabled={!undoStack.length} onclick={undo}>Undo</button><button type="button" disabled={!redoStack.length} onclick={redo}>Redo</button><button type="button" disabled={!marks.length} onclick={exportMarks}>Export marks</button>
-		{#if mode === 'erase'}{#each marks as mark, index (mark.id)}<button type="button" onclick={() => erase(mark.id)}>Remove {mark.kind} {index + 1}</button>{/each}{/if}
+		{#if mode !== 'read'}<label>{$_('project_modal.color')} <input type="color" bind:value={color} /></label><label>{$_('rann.width')} <input type="range" min="1" max="20" bind:value={width} /></label>{/if}
+		<button type="button" disabled={!undoStack.length} onclick={undo}>{$_('project_detail.undo')}</button><button type="button" disabled={!redoStack.length} onclick={redo}>{$_('rann.redo')}</button><button type="button" disabled={!marks.length} onclick={exportMarks}>{$_('rann.export')}</button>
+		{#if mode === 'erase'}{#each marks as mark, index (mark.id)}<button type="button" onclick={() => erase(mark.id)}>{$_('rann.remove_mark', { values: { kind: mark.kind === 'pen' ? $_('rann.kind_pen') : mark.kind === 'highlight' ? $_('rann.kind_highlight') : $_('rann.kind_note'), n: index + 1 } })}</button>{/each}{/if}
 	</div>
-	{#if !image.digest}<p class="annotation-note">Import an image file to annotate this page.</p>{/if}
+	{#if !image.digest}<p class="annotation-note">{$_('rann.import_note')}</p>{/if}
 	{#if saveError}<p class="annotation-error" role="alert">{saveError}</p>{/if}
 	<div class="annotation-image-wrap">
-		<button type="button" class="annotation-image-button" aria-label={`Open image ${pageIndex + 1}: ${image.alt || 'Image'}`} onclick={() => { if (mode === 'read') dispatch('open'); }}><img src={image.url} alt={image.alt || `Image ${pageIndex + 1}`} width={image.width} height={image.height} decoding="async" onload={(event) => { naturalWidth = (event.currentTarget as HTMLImageElement).naturalWidth; naturalHeight = (event.currentTarget as HTMLImageElement).naturalHeight; }} /></button>
-		{#if naturalWidth && naturalHeight}<svg bind:this={svg} class:interactive={mode !== 'read'} viewBox={`0 0 ${naturalWidth} ${naturalHeight}`} preserveAspectRatio="none" aria-label="Image annotations" onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerEnd} onpointercancel={pointerEnd}>
+		<button type="button" class="annotation-image-button" aria-label={$_('rann.open_image', { values: { n: pageIndex + 1, alt: image.alt || $_('wb.export_image') } })} onclick={() => { if (mode === 'read') dispatch('open'); }}><img src={image.url} alt={image.alt || $_('rann.image_n', { values: { n: pageIndex + 1 } })} width={image.width} height={image.height} decoding="async" onload={(event) => { naturalWidth = (event.currentTarget as HTMLImageElement).naturalWidth; naturalHeight = (event.currentTarget as HTMLImageElement).naturalHeight; }} /></button>
+		{#if naturalWidth && naturalHeight}<svg bind:this={svg} class:interactive={mode !== 'read'} viewBox={`0 0 ${naturalWidth} ${naturalHeight}`} preserveAspectRatio="none" aria-label={$_('rann.annotations_label')} onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerEnd} onpointercancel={pointerEnd}>
 			{#each [...marks, ...(drawing ? [drawing] : [])] as mark (mark.id)}
 				{#if mark.kind === 'note'}<text x={mark.x} y={mark.y} fill={mark.color} font-size="20" stroke="black" stroke-width="0.4" onclick={() => erase(mark.id)}>{mark.text}</text>{:else}<path d={path(mark)} fill="none" stroke={mark.color} stroke-width={mark.kind === 'highlight' ? mark.width * 5 : mark.width} stroke-opacity={mark.kind === 'highlight' ? 0.35 : 1} stroke-linecap="round" stroke-linejoin="round" onclick={() => erase(mark.id)} />{/if}
 			{/each}

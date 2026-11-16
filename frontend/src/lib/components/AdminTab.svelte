@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { getAuthToken } from '$lib/authSession';
@@ -141,8 +142,8 @@
 			{role}
 		</div>
 		<div class="ops-head-copy">
-			<span class="ops-head-title">Staff Ops</span>
-			<span class="ops-head-sub">ambient controls</span>
+			<span class="ops-head-title">{$_('admin.head_title')}</span>
+			<span class="ops-head-sub">{$_('admin.head_sub')}</span>
 		</div>
 	</header>
 
@@ -153,46 +154,46 @@
 			<rect x="14" y="14" width="7" height="7" rx="1" />
 			<rect x="3" y="14" width="7" height="7" rx="1" />
 		</svg>
-		Open full dashboard
+		{$_('admin.open_dashboard')}
 	</button>
 
 	<div class="ops-cards">
 		<div class="ops-card">
-			<span class="ops-card-label">Server Pulse</span>
+			<span class="ops-card-label">{$_('admin.card_pulse')}</span>
 			{#if serverPulseLoading && !serverPulse}
 				<span class="ops-card-value ops-muted">—</span>
 			{:else if serverPulse}
 				<span class="ops-card-value">
 					<span class="ops-pulse-dot"></span>{serverPulse.onlineUsers}
-					<span class="ops-card-unit">/ {serverPulse.totalUsers} online</span>
+					<span class="ops-card-unit">{$_('admin.pulse_unit', { values: { total: serverPulse.totalUsers } })}</span>
 				</span>
 			{:else}
-				<span class="ops-card-value ops-muted">no data</span>
+				<span class="ops-card-value ops-muted">{$_('admin.no_data')}</span>
 			{/if}
 		</div>
 
 		<div class="ops-card">
-			<span class="ops-card-label">Channel Pulse</span>
+			<span class="ops-card-label">{$_('admin.card_channel')}</span>
 			{#if activeChannel}
 				<span class="ops-card-value ops-channel-name">#{activeChannel.name}</span>
 				<span class="ops-card-unit">{activeChannel.type}</span>
 			{:else}
-				<span class="ops-card-value ops-muted">none active</span>
+				<span class="ops-card-value ops-muted">{$_('admin.none_active')}</span>
 			{/if}
 		</div>
 
 		<div class="ops-card">
-			<span class="ops-card-label">Server Health</span>
+			<span class="ops-card-label">{$_('admin.card_health')}</span>
 			{#if health}
 				<span class="ops-card-value">
 					<span class="ops-pulse-dot" class:ops-pulse-degraded={health.status !== 'ready'}></span>
-					{health.status === 'ready' ? 'Ready' : 'Degraded'}
+					{health.status === 'ready' ? $_('media_albums.ready') : $_('admin.health_degraded')}
 				</span>
 				<span class="ops-card-unit">
-					{health.writerRunning ? 'writer up' : 'writer down'} · {health.projectionHealthy ? 'projections ok' : 'projections degraded'}
+					{health.writerRunning ? $_('admin.writer_up') : $_('admin.writer_down')} · {health.projectionHealthy ? $_('admin.proj_ok') : $_('admin.proj_degraded')}
 				</span>
 			{:else if channelPulseError}
-				<span class="ops-card-value ops-muted">unavailable</span>
+				<span class="ops-card-value ops-muted">{$_('admin.unavailable')}</span>
 			{:else}
 				<span class="ops-card-value ops-muted">—</span>
 			{/if}
@@ -202,53 +203,53 @@
 	{#if canModerate}
 	<section class="ops-section">
 		<div class="ops-section-head">
-			<span class="ops-section-label">Moderation</span>
+			<span class="ops-section-label">{$_('admin.sec_moderation')}</span>
 			{#if modSignals.openReports !== null}
-				<span class="ops-section-count">{modSignals.openReports} open</span>
+				<span class="ops-section-count">{$_('admin.count_open', { values: { n: modSignals.openReports } })}</span>
 			{/if}
 		</div>
 		<div class="ops-cards">
 			<div class="ops-card">
-				<span class="ops-card-label">Open reports</span>
+				<span class="ops-card-label">{$_('admin.card_open_reports')}</span>
 				{#if modSignals.openReports === null}
-					<span class="ops-card-value ops-muted">n/a</span>
+					<span class="ops-card-value ops-muted">{$_('payment_intent.na')}</span>
 				{:else}
 					<span class="ops-card-value">{modSignals.openReports}</span>
 				{/if}
 			</div>
 			<div class="ops-card">
-				<span class="ops-card-label">Banned</span>
+				<span class="ops-card-label">{$_('admin.card_banned')}</span>
 				{#if modSignals.bannedUsers === null}
-					<span class="ops-card-value ops-muted">n/a</span>
+					<span class="ops-card-value ops-muted">{$_('payment_intent.na')}</span>
 				{:else}
 					<span class="ops-card-value">{modSignals.bannedUsers}</span>
 				{/if}
 			</div>
 			<div class="ops-card">
-				<span class="ops-card-label">Muted</span>
+				<span class="ops-card-label">{$_('calls.muted')}</span>
 				{#if modSignals.mutedUsers === null}
-					<span class="ops-card-value ops-muted">n/a</span>
+					<span class="ops-card-value ops-muted">{$_('payment_intent.na')}</span>
 				{:else}
 					<span class="ops-card-value">{modSignals.mutedUsers}</span>
 				{/if}
 			</div>
 			<div class="ops-card">
-				<span class="ops-card-label">Audit log</span>
+				<span class="ops-card-label">{$_('admin.card_audit')}</span>
 				{#if modSignals.auditEntries === null}
-					<span class="ops-card-value ops-muted">n/a</span>
+					<span class="ops-card-value ops-muted">{$_('payment_intent.na')}</span>
 				{:else}
 					<span class="ops-card-value">{modSignals.auditEntries}</span>
 				{/if}
 			</div>
 		</div>
-		<span class="ops-card-unit">Snapshot counts only — no report queue, ban log, or mute history is exposed to this client.</span>
+		<span class="ops-card-unit">{$_('admin.moderation_note')}</span>
 	</section>
 	{/if}
 
 	{#if recentAudit.length > 0}
 		<section class="ops-section">
 			<div class="ops-section-head">
-				<span class="ops-section-label">Recent staff activity</span>
+				<span class="ops-section-label">{$_('admin.sec_recent_staff')}</span>
 				<span class="ops-section-count">{recentAudit.length}</span>
 			</div>
 			<div class="ops-audit-list">
@@ -268,7 +269,7 @@
 
 	<section class="ops-section">
 		<div class="ops-section-head">
-			<span class="ops-section-label">Text Channels</span>
+			<span class="ops-section-label">{$_('admin.sec_text_channels')}</span>
 			<span class="ops-section-count">{textChannels.length}</span>
 		</div>
 		<div class="ops-channel-list">
@@ -282,14 +283,14 @@
 					<span class="ops-channel-name">{channel.name}</span>
 				</button>
 			{:else}
-				<span class="ops-empty">No text channels</span>
+				<span class="ops-empty">{$_('admin.no_text_channels')}</span>
 			{/each}
 		</div>
 	</section>
 
 	<section class="ops-section">
 		<div class="ops-section-head">
-			<span class="ops-section-label">Online</span>
+			<span class="ops-section-label">{$_('user.status.online')}</span>
 			<span class="ops-section-count">{onlineCount}</span>
 		</div>
 		{#if staffOnline.length > 0}
@@ -304,36 +305,36 @@
 				{/each}
 			</div>
 		{:else}
-			<span class="ops-empty">No staff online</span>
+			<span class="ops-empty">{$_('admin.no_staff')}</span>
 		{/if}
 	</section>
 
 	{#if canManage}
 		<section class="ops-section">
 			<div class="ops-section-head">
-				<span class="ops-section-label">Payments</span>
+				<span class="ops-section-label">{$_('profile_settings.payments_heading')}</span>
 			</div>
 			{#if paymentPolicyLoading}
-				<span class="ops-empty">loading…</span>
+				<span class="ops-empty">{$_('admin.loading')}</span>
 			{:else if paymentForbidden}
-				<span class="ops-empty">restricted</span>
+				<span class="ops-empty">{$_('admin.restricted')}</span>
 			{:else if paymentPolicy}
 				<span class="ops-payment-status" class:ops-payment-on={paymentPolicy.enabled}>
 					<span class="ops-payment-dot"></span>
-					{paymentPolicy.enabled ? 'Enabled' : 'Disabled'}
-					{#if paymentPolicy.allowGuest}<span class="ops-payment-tag">guest</span>{/if}
+					{paymentPolicy.enabled ? $_('server_policy.enabled') : $_('admin.pay_disabled')}
+					{#if paymentPolicy.allowGuest}<span class="ops-payment-tag">{$_('admin.pay_guest')}</span>{/if}
 				</span>
-				<span class="ops-card-unit">{paymentPolicy.allowedRoleNames.length} role(s) allowed</span>
+				<span class="ops-card-unit">{$_('admin.roles_allowed', { values: { count: paymentPolicy.allowedRoleNames.length } })}</span>
 			{:else}
-				<span class="ops-empty">no data</span>
+				<span class="ops-empty">{$_('admin.no_data')}</span>
 			{/if}
 		</section>
 	{:else}
 		<section class="ops-section">
 			<div class="ops-section-head">
-				<span class="ops-section-label">Payments</span>
+				<span class="ops-section-label">{$_('profile_settings.payments_heading')}</span>
 			</div>
-			<span class="ops-empty">admin only</span>
+			<span class="ops-empty">{$_('admin.admin_only')}</span>
 		</section>
 	{/if}
 </div>

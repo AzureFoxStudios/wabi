@@ -1,15 +1,16 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
  import { revisionCalendar } from '$lib/lore/activityCalendar';
  let { revisions }: { revisions: readonly { timestamp: number }[] } = $props();
  let days = $derived(revisionCalendar(revisions));
  let maxCount = $derived(Math.max(1, ...days.map(day => day.count)));
 </script>
 <details class="activity-calendar" open>
- <summary>Repository activity <span>{days.reduce((total, day) => total + day.count, 0)} revisions shown</span></summary>
- <div class="activity-days" aria-label="Revision activity over the past year">
-  {#each days as day}<span class="activity-day" style:background={day.count ? `color-mix(in srgb, var(--accent-primary) ${25 + 75 * day.count / maxCount}%, var(--bg-secondary))` : 'var(--bg-secondary)'} title={`${day.date}: ${day.count} revisions`}></span>{/each}
+ <summary>{$_('lcal.summary')} <span>{$_('lcal.shown', { values: { count: days.reduce((total, day) => total + day.count, 0) } })}</span></summary>
+ <div class="activity-days" aria-label={$_('lcal.aria')}>
+  {#each days as day}<span class="activity-day" style:background={day.count ? `color-mix(in srgb, var(--accent-primary) ${25 + 75 * day.count / maxCount}%, var(--bg-secondary))` : 'var(--bg-secondary)'} title={$_('lcal.day_title', { values: { date: day.date, count: day.count } })}></span>{/each}
  </div>
- <small>Based on loaded repository revisions. This is not a count of Git pushes.</small>
+ <small>{$_('lcal.note')}</small>
 </details>
 <style>
  .activity-calendar { padding: 16px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-primary); margin: 12px; }

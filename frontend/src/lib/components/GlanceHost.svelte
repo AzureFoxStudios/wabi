@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
  import { onMount } from 'svelte';
  import { glanceMediaKind } from '$lib/glanceTarget';
  import { glance, closeGlance, openGlance, openWebsiteGlance } from '$lib/glance';
@@ -21,7 +22,7 @@
  const channel = $derived($glance && 'ref' in $glance ? $channels.find(item => item.id === $glance.channelId) : undefined);
  const messages = $derived(channel ? ($channelMessages[channel.id] || []) : []);
  const mediaKind = $derived($glance && 'url' in $glance ? glanceMediaKind($glance.url) : null);
- const title = $derived(channel?.name || ($glance && 'url' in $glance ? $glance.title || new URL($glance.url).hostname : 'Preview'));
+ const title = $derived(channel?.name || ($glance && 'url' in $glance ? $glance.title || new URL($glance.url).hostname : $_('messages.zip_preview.preview.show')));
 
  $effect(() => {
   const target = $glance;
@@ -29,7 +30,7 @@
   let active = true;
   if (!target || 'url' in target) { loading = false; return; }
   const id = target.channelId, ref = target.ref;
-  if (ref.kind !== 'place' && (!id || !channel)) { error = 'This destination is no longer available.'; loading = false; return; }
+  if (ref.kind !== 'place' && (!id || !channel)) { error = $_('glance.err_unavailable'); loading = false; return; }
   const kind = channel?.type;
   void (async () => {
    try {
@@ -52,8 +53,8 @@
      joinChannel(id);
      const module = await import('./MessageList.svelte');
      if (active) { Component = module.default; props = {channelId: id, messageDomScope: 'glance'}; }
-    } else if (active) error = 'This workspace does not support an embedded preview yet. Continue to open it.';
-   } catch { if (active) error = 'Could not load this preview. Continue to try opening the destination.'; }
+    } else if (active) error = $_('glance.err_no_embed');
+   } catch { if (active) error = $_('glance.err_load'); }
    finally { if (active) loading = false; }
   })();
   return () => { active = false; };
@@ -66,7 +67,7 @@
    if ('url' in target) window.open(target.url, '_blank', 'noopener,noreferrer');
    else await navigateToRef(target.ref);
    closeGlance();
-  } catch { error = 'Could not open this destination.'; }
+  } catch { error = $_('glance.err_open'); }
  }
  onMount(() => {
   const stopAuth = onAuthSessionCleared(closeGlance);
@@ -99,23 +100,23 @@
 {#if $glance}
  <!-- svelte-ignore a11y_click_events_have_key_events -->
  <div class="glance-backdrop" use:portal role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeGlance(); }}>
-  <div class="glance-dialog" role="dialog" aria-modal="true" aria-label={`Preview: ${title}`} tabindex="-1" use:modalFocus={closeGlance}>
-   <header><strong>{title}</strong><button onclick={closeGlance} aria-label="Close preview">✕</button></header>
+  <div class="glance-dialog" role="dialog" aria-modal="true" aria-label={$_('glance.dialog_label', { values: { title } })} tabindex="-1" use:modalFocus={closeGlance}>
+   <header><strong>{title}</strong><button onclick={closeGlance} aria-label={$_('glance.close')}>✕</button></header>
    <div class="glance-page">
-    {#if loading}<p role="status">Loading preview…</p>{/if}
+    {#if loading}<p role="status">{$_('glance.loading')}</p>{/if}
     {#if error}<p role="alert">{error}</p>{/if}
     {#if Component}{#key $glance}{#if channel?.type === 'text'}<Component {...props} {messages} />{:else}<Component {...props} />{/if}{/key}
     {:else if $glance && 'url' in $glance}
-     {#if mediaKind === 'image'}<div class="glance-media"><img src={$glance.url} alt={title} onerror={() => error = 'Could not load this image.'} /></div>
-     {:else if mediaKind === 'video'}<div class="glance-media"><video src={$glance.url} controls aria-label={title} onerror={() => error = 'Could not load this video.'}></video></div>
-     {:else if mediaKind === 'audio'}<div class="glance-media"><audio src={$glance.url} controls aria-label={title} onerror={() => error = 'Could not load this audio.'}></audio></div>
-     {:else}<p class="website-note">Some websites block embedded previews. Use Continue to site if the page stays blank.</p>
-      <iframe title={`Preview of ${title}`} src={$glance.url} sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer"></iframe>
+     {#if mediaKind === 'image'}<div class="glance-media"><img src={$glance.url} alt={title} onerror={() => error = $_('glance.err_image')} /></div>
+     {:else if mediaKind === 'video'}<div class="glance-media"><video src={$glance.url} controls aria-label={title} onerror={() => error = $_('glance.err_video')}></video></div>
+     {:else if mediaKind === 'audio'}<div class="glance-media"><audio src={$glance.url} controls aria-label={title} onerror={() => error = $_('glance.err_audio')}></audio></div>
+     {:else}<p class="website-note">{$_('glance.website_note')}</p>
+      <iframe title={$_('glance.iframe_title', { values: { title } })} src={$glance.url} sandbox="allow-scripts allow-forms allow-popups" referrerpolicy="no-referrer"></iframe>
      {/if}
 
     {/if}
    </div>
-   <footer><span>Alt-click a link to preview · Escape to close</span><button onclick={proceed}>{$glance && 'url' in $glance ? 'Continue to site' : 'Continue to destination'} →</button></footer>
+   <footer><span>{$_('glance.footer_hint')}</span><button onclick={proceed}>{$glance && 'url' in $glance ? $_('glance.continue_site') : $_('glance.continue_dest')} →</button></footer>
   </div>
  </div>
 {/if}

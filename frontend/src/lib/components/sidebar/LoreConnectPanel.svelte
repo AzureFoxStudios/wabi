@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { portal } from '$lib/actions/portal';
 	import { onMount } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
@@ -49,7 +50,7 @@
 		const owner = id == null ? null : { channel: id, active: true, listSequence: 0 };
 		requestOwner = owner;
 		if (owner) void refreshTokens(owner);
-		else listError = 'Open a connected channel to manage its tokens.';
+		else listError = $_('lpanel.err_open_channel');
 		return () => {
 			if (owner) owner.active = false;
 			requestOwner = null;
@@ -62,14 +63,14 @@
 		const sequence = ++owner.listSequence;
 		const t = getAuthToken();
 		listError = null;
-		if (!t) { listError = 'Sign in to manage connect tokens.'; return; }
+		if (!t) { listError = $_('lpanel.err_sign_in_list'); return; }
 		listLoading = true;
 		try {
 			const result = await listLoreConnectTokens(t, owner.channel);
 			if (owner.active && sequence === owner.listSequence) tokens = result;
 		} catch (error) {
 			if (owner.active && sequence === owner.listSequence) {
-				listError = error instanceof Error ? error.message : 'Failed to load connect tokens';
+				listError = error instanceof Error ? error.message : $_('lpanel.err_load');
 			}
 		} finally {
 			if (owner.active && sequence === owner.listSequence) listLoading = false;
@@ -81,7 +82,7 @@
 		if (minting || revoking) return;
 		const t = getAuthToken();
 		if (!t || !owner?.active) {
-			mintError = 'Sign in and open a connected channel first.';
+			mintError = $_('lpanel.err_sign_in_open');
 			return;
 		}
 		minting = true;
@@ -95,7 +96,7 @@
 			showToken = true;
 			void refreshTokens(owner);
 		} catch (e) {
-			if (owner.active) mintError = e instanceof Error ? e.message : 'Failed to mint token';
+			if (owner.active) mintError = e instanceof Error ? e.message : $_('lpanel.err_mint');
 		} finally {
 			if (owner.active) minting = false;
 		}
@@ -108,7 +109,7 @@
 		if (revoking || minting) return;
 		const t = getAuthToken();
 		revokeError = null; revokeNotice = '';
-		if (!t || !owner?.active) { revokeError = 'Sign in to revoke this token.'; return; }
+		if (!t || !owner?.active) { revokeError = $_('lpanel.err_sign_in_revoke'); return; }
 		revoking = id;
 		// Invalidate older list requests so a late response cannot resurrect
 		// the revoked row while the authoritative refresh is still pending.
@@ -119,10 +120,10 @@
 			if (!owner.active) return;
 			tokens = tokens.filter(t => tokenId(t) !== id);
 			if (mintedTokenId === id) { token = ''; mintedTokenId = ''; tokenJustMinted = false; showToken = false; }
-			revokeNotice = 'Token revoked. Tools using it can no longer connect.';
+			revokeNotice = $_('lpanel.revoke_done');
 			void refreshTokens(owner);
 		} catch (error) {
-			if (owner.active) revokeError = error instanceof Error ? error.message : 'Failed to revoke token';
+			if (owner.active) revokeError = error instanceof Error ? error.message : $_('lpanel.err_revoke');
 		} finally {
 			if (owner.active) revoking = '';
 		}
@@ -133,9 +134,9 @@
 	let syncCommands = $derived.by(() => {
 		const id = channelId != null ? `ch_${channelId.toString(16)}` : 'ch_…';
 		return [
-			{ label: '1. Save your token', code: `wabi-sync login ${shellArg(serverUrl)}` },
-			{ label: '2. Link a folder', code: `wabi-sync link ${id} ~/code/${shellArg(repoName || 'my-project')}` },
-			{ label: '3. Keep it running', code: `wabi-sync watch` }
+			{ label: $_('lpanel.step_1'), code: `wabi-sync login ${shellArg(serverUrl)}` },
+			{ label: $_('lpanel.step_2'), code: `wabi-sync link ${id} ~/code/${shellArg(repoName || 'my-project')}` },
+			{ label: $_('lpanel.step_3'), code: `wabi-sync watch` }
 		];
 	});
 
@@ -203,15 +204,15 @@
 		class="lore-connect-panel"
 		role="dialog"
 		aria-modal="true"
-		aria-label="Connect external tools"
+		aria-label={$_('lpanel.dialog_label')}
 		tabindex="-1"
 	>
 		<header class="lore-connect-header">
 			<div class="lore-connect-title">
-				<h3>Connect</h3>
-				<p class="lore-connect-subtitle">External tools — Lore repo connection</p>
+				<h3>{$_('lpanel.title')}</h3>
+				<p class="lore-connect-subtitle">{$_('lpanel.subtitle')}</p>
 			</div>
-			<button class="lore-connect-close" aria-label="Close connect panel" onclick={onclose}>
+			<button class="lore-connect-close" aria-label={$_('lpanel.close_aria')} onclick={onclose}>
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
 					<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
 				</svg>
@@ -221,7 +222,7 @@
 		<div class="lore-connect-body">
 			<section class="lore-connect-section">
 				<div class="lore-connect-field">
-					<label for="lore-connect-server" class="lore-connect-label">Server URL</label>
+					<label for="lore-connect-server" class="lore-connect-label">{$_('lpanel.server_url')}</label>
 					<div class="lore-connect-input-row">
 						<input
 							id="lore-connect-server"
@@ -231,57 +232,57 @@
 							bind:value={serverUrl}
 						/>
 						<button class="lore-btn lore-btn-sm" onclick={() => copyText(serverUrl, 'server')}>
-							{copied === 'server' ? 'Copied' : 'Copy'}
+							{copied === 'server' ? $_('lpanel.copied') : $_('lore_viewer.copy')}
 						</button>
 					</div>
 				</div>
 
 				<div class="lore-connect-field">
-					<label for="lore-connect-repo" class="lore-connect-label">Channel ID</label>
+					<label for="lore-connect-repo" class="lore-connect-label">{$_('server_policy.channel_id')}</label>
 					<div class="lore-connect-input-row">
 						<input
 							id="lore-connect-repo"
 							class="lore-input lore-connect-input"
 							type="text"
-							placeholder={repoName ? `Repo: ${repoName}` : 'repo id'}
+							placeholder={repoName ? $_('lpanel.repo_prefix', { values: { name: repoName } }) : $_('lpanel.repo_id_ph')}
 							value={repoIdText}
 							readonly
 						/>
 						<button class="lore-btn lore-btn-sm" onclick={() => copyText(repoIdText, 'repo')}>
-							{copied === 'repo' ? 'Copied' : 'Copy'}
+							{copied === 'repo' ? $_('lpanel.copied') : $_('lore_viewer.copy')}
 						</button>
 					</div>
 				</div>
 
 				<div class="lore-connect-field">
-					<label for="lore-connect-token" class="lore-connect-label">Connect token (server-minted)</label>
+					<label for="lore-connect-token" class="lore-connect-label">{$_('lpanel.token_label')}</label>
 					<div class="lore-connect-input-row">
 						<input
 							id="lore-connect-token"
 							class="lore-input lore-connect-input lore-connect-token"
 							type={showToken ? 'text' : 'password'}
 							value={token}
-							placeholder="Mint a token to connect external tools"
+							placeholder={$_('lpanel.token_ph')}
 							readonly
 						/>
-						<select class="lore-input" bind:value={tokenScopes} aria-label="Token scope" disabled={minting}>
-							<option value="write">read+write</option>
-							<option value="read">read-only</option>
+						<select class="lore-input" bind:value={tokenScopes} aria-label={$_('lpanel.scope_aria')} disabled={minting}>
+							<option value="write">{$_('lpanel.scope_rw')}</option>
+							<option value="read">{$_('lpanel.scope_ro')}</option>
 						</select>
 						<button class="lore-btn lore-btn-sm" onclick={mintToken} disabled={minting || !!revoking || channelId == null}>
-							{minting ? 'Minting…' : 'Mint'}
+							{minting ? $_('lpanel.minting') : $_('lpanel.mint')}
 						</button>
 						<button class="lore-btn lore-btn-sm" onclick={() => copyText(token, 'token')} disabled={!token}>
-							{copied === 'token' ? 'Copied' : 'Copy'}
+							{copied === 'token' ? $_('lpanel.copied') : $_('lore_viewer.copy')}
 						</button>
 						<button class="lore-btn lore-btn-sm lore-connect-reveal" onclick={() => (showToken = !showToken)}>
 							{showToken ? 'Hide' : 'Show'}
 						</button>
 					</div>
 					<p class="lore-connect-hint">
-						Tokens are minted by the server and stored hashed — the plaintext is shown once, right here.
-						{#if tokenJustMinted}<strong>Copy it now; it will not be shown again.</strong>{/if}
-						Scopes apply to the Lore API only and inherit your channel access.
+						{$_('lpanel.hint_tokens')}
+						{#if tokenJustMinted}<strong>{$_('lpanel.hint_copy_now')}</strong>{/if}
+						{$_('lpanel.hint_scopes')}
 					</p>
 					{#if mintError}
 						<p role="alert" class="lore-connect-hint lore-connect-error">{mintError}</p>
@@ -289,13 +290,13 @@
 				</div>
 
 					<div class="lore-connect-field">
-						<span class="lore-connect-label">Connect tokens ({tokens.length})</span>
-						{#if listLoading}<p role="status" class="lore-connect-hint">Loading tokens…</p>{/if}
+						<span class="lore-connect-label">{$_('lpanel.tokens_heading', { values: { count: tokens.length } })}</span>
+						{#if listLoading}<p role="status" class="lore-connect-hint">{$_('lpanel.loading')}</p>{/if}
 						{#if listError}
 							<p role="alert" class="lore-connect-hint lore-connect-error">{listError}</p>
-							<button class="lore-btn lore-btn-sm" disabled={listLoading || !!revoking || minting || channelId == null} onclick={() => refreshTokens()}>Retry loading tokens</button>
+							<button class="lore-btn lore-btn-sm" disabled={listLoading || !!revoking || minting || channelId == null} onclick={() => refreshTokens()}>{$_('lpanel.retry')}</button>
 						{:else if !listLoading && tokens.length === 0}
-							<p class="lore-connect-hint">No connect tokens.</p>
+							<p class="lore-connect-hint">{$_('lpanel.none')}</p>
 						{/if}
 						{#if revokeError}<p role="alert" class="lore-connect-hint lore-connect-error">{revokeError}</p>{/if}
 						{#if revokeNotice}<p role="status" class="lore-connect-hint">{revokeNotice}</p>{/if}
@@ -304,9 +305,9 @@
 								<div class="lore-connect-token-row">
 									<code>{t.tokenHashPrefix}…</code>
 									<span class="lore-connect-token-scope">{t.scopes}</span>
-									<span class="lore-connect-token-scope">user {t.userId}</span>
-									<button class="lore-btn lore-btn-sm lore-btn-danger" disabled={!!revoking || minting} aria-label={`Revoke token ${t.tokenHashPrefix}`} onclick={() => revokeToken(tokenId(t))}>
-										{revoking === tokenId(t) ? 'Revoking…' : 'Revoke'}
+									<span class="lore-connect-token-scope">{$_('lpanel.user_id', { values: { id: t.userId } })}</span>
+									<button class="lore-btn lore-btn-sm lore-btn-danger" disabled={!!revoking || minting} aria-label={$_('lpanel.revoke_aria', { values: { id: t.tokenHashPrefix } })} onclick={() => revokeToken(tokenId(t))}>
+										{revoking === tokenId(t) ? $_('lpanel.revoking') : $_('storage_center.revoke')}
 									</button>
 								</div>
 							{/each}
@@ -316,11 +317,11 @@
 
 			<section class="lore-connect-section">
 				<div class="lore-connect-snippets-head">
-					<h4>Sync your editor (VS Code, Sublime, vim, …)</h4>
+					<h4>{$_('lpanel.sync_title')}</h4>
 				</div>
 				<p class="lore-connect-hint">
-					<code>wabi-sync</code> is a folder-level two-way sync daemon — any editor works, because it
-					syncs a plain folder. Run the three commands below (paste your minted token when asked).
+					<code>wabi-sync</code> {$_('lpanel.sync_desc_1')}
+					{$_('lpanel.sync_desc_2')}
 				</p>
 				{#each syncCommands as cmd (cmd.label)}
 					<div class="lore-connect-cmd">
@@ -328,7 +329,7 @@
 						<div class="lore-connect-input-row">
 							<pre class="lore-connect-code lore-connect-cmd-code"><code>{cmd.code}</code></pre>
 							<button class="lore-btn lore-btn-sm" onclick={() => copyText(cmd.code, cmd.label)}>
-								{copied === cmd.label ? 'Copied' : 'Copy'}
+								{copied === cmd.label ? $_('lpanel.copied') : $_('lore_viewer.copy')}
 							</button>
 						</div>
 					</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Private access (Tailcat), this device's choice under Settings › Privacy & security. Errors are
 	 * said in plain words where the action happened; the raw cause is only logged.
@@ -48,7 +49,7 @@
 			info = await getTailcatConnectInfo(getAuthToken());
 		} catch (e) {
 			console.warn('[Private access] status check failed:', e);
-			error = "Couldn't check private access on this server. Your usual address still works.";
+			error = $_('tail.err_status');
 		}
 	}
 
@@ -59,12 +60,12 @@
 		try {
 			const publicKey = await invoke<string>('tailcat_register_key');
 			await registerTailcatKey(getAuthToken(), publicKey, label || undefined);
-			notice = 'Device registered. You can connect once private access is on.';
+			notice = $_('tail.notice_registered');
 			label = '';
 			await refresh();
 		} catch (e) {
 			console.warn('[Private access] registration failed:', e);
-			error = "This device wasn't registered. Try again, or ask an admin of this server.";
+			error = $_('tail.err_register');
 		} finally {
 			busy = false;
 		}
@@ -103,7 +104,7 @@
 				if (!restoreTailcatConnection()) clearTailcatConnection();
 			}
 			console.warn('[Private access] connect failed:', e);
-			error = "The private tunnel didn't connect. You're still on your usual address.";
+			error = $_('tail.err_connect');
 		} finally {
 			busy = false;
 		}
@@ -121,7 +122,7 @@
 			window.location.reload();
 		} catch (e) {
 			console.warn('[Private access] disconnect failed:', e);
-			error = e instanceof Error && e.message === TUNNEL_CLOSED ? TUNNEL_CLOSED : "The tunnel didn't close. Quit and reopen the app to use your usual address.";
+			error = e instanceof Error && e.message === TUNNEL_CLOSED ? TUNNEL_CLOSED : $_('tail.err_disconnect');
 		} finally {
 			busy = false;
 		}
@@ -133,47 +134,47 @@
 </script>
 
 <section class="settings-block tailcat" aria-labelledby="tailcat-title">
-	<h3 class="settings-block__title" id="tailcat-title">Private access</h3>
-	<p class="settings-block__hint">Reach this server through its private tunnel from the desktop app, without a public address.</p>
+	<h3 class="settings-block__title" id="tailcat-title">{$_('tail.title')}</h3>
+	<p class="settings-block__hint">{$_('tail.hint_intro')}</p>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
 				<p class="w-srow__label">
-					{#if desktop && tunnel?.connected}Connected through the private tunnel{:else if info === null}Checking…{:else if !info.enabled}Not offered by this server{:else if !desktop}Needs the desktop app{:else if !info.registered}This device is not registered{:else}This device is registered{/if}
+					{#if desktop && tunnel?.connected}{$_('tail.state_connected')}{:else if info === null}{$_('privacy.state.checking_short')}{:else if !info.enabled}{$_('tail.state_not_offered')}{:else if !desktop}{$_('tail.state_needs_app')}{:else if !info.registered}{$_('tail.state_not_registered')}{:else}{$_('tail.state_registered')}{/if}
 				</p>
 				<p class="w-srow__hint">
 					{#if desktop && tunnel?.connected}
-						Disconnect to go back to the address you used before.
+						{$_('tail.hint_disconnect')}
 					{:else if info === null}
-						Asking the server whether it offers private access.
+						{$_('tail.hint_asking')}
 					{:else if !info.enabled}
-						Connect the usual way, with the server address.
+						{$_('tail.hint_connect_usual')}
 					{:else if !desktop}
-						In the browser, keep using the usual server address.
+						{$_('tail.hint_browser')}
 					{:else if !info.registered}
-						Registering ties a key on this device to your account. An admin can revoke it at any time.
+						{$_('tail.hint_register')}
 					{:else}
-						Connecting switches the app to the tunnel address and asks you to sign in there.
+						{$_('tail.hint_connecting')}
 					{/if}
 				</p>
 			</div>
 			<div class="w-srow__control">
 				{#if desktop && tunnel?.connected}
-					<button type="button" class="w-btn w-btn--sm" disabled={busy} aria-busy={busy} onclick={disconnect}>Disconnect</button>
+					<button type="button" class="w-btn w-btn--sm" disabled={busy} aria-busy={busy} onclick={disconnect}>{$_('tail.disconnect')}</button>
 				{:else if info?.enabled && desktop && info.registered}
-					<button type="button" class="w-btn w-btn--sm w-btn--primary" disabled={busy} aria-busy={busy} onclick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
+					<button type="button" class="w-btn w-btn--sm w-btn--primary" disabled={busy} aria-busy={busy} onclick={connect}>{busy ? $_('tail.connecting') : $_('tail.connect')}</button>
 				{/if}
 			</div>
 		</div>
 		{#if info?.enabled && desktop && !info.registered && !tunnel?.connected}
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<label class="w-srow__label" for="tailcat-label">Device label</label>
-					<p class="w-srow__hint">So admins can tell your devices apart, such as “kitchen laptop”.</p>
+					<label class="w-srow__label" for="tailcat-label">{$_('tail.device_label')}</label>
+					<p class="w-srow__hint">{$_('tail.label_hint')}</p>
 				</div>
 				<div class="w-srow__control tailcat__register">
 					<input id="tailcat-label" class="w-field" type="text" bind:value={label} maxlength={64} />
-					<button type="button" class="w-btn w-btn--sm w-btn--primary" disabled={busy} aria-busy={busy} onclick={registerDevice}>Register this device</button>
+					<button type="button" class="w-btn w-btn--sm w-btn--primary" disabled={busy} aria-busy={busy} onclick={registerDevice}>{$_('tail.register')}</button>
 				</div>
 			</div>
 		{/if}

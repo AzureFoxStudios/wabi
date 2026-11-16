@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { VideoCompressionEstimate, VideoCompressionPresetId } from '$lib/video/videoCompressor';
 	import type { VideoCompressionPresetOption } from '$lib/video/videoCompressionSettings';
 
@@ -22,13 +23,13 @@
 
 <div class="compression-modal-backdrop overlay" role="presentation">
 	<div class="compression-modal card" role="dialog" aria-modal="true" aria-labelledby="video-compress-title">
-		<h3 id="video-compress-title">Compress Video Before Upload</h3>
+		<h3 id="video-compress-title">{$_('vcd.title')}</h3>
 		<p class="compression-copy">
-			"{file.name}" is {formatFileMb(file.size)} MB. Compress now or keep the original file.
+			{$_('vcd.copy', { values: { name: file.name, size: formatFileMb(file.size) } })}
 		</p>
-		<p class="compression-runtime-note">Runtime profile: {runtimeLabel}</p>
+		<p class="compression-runtime-note">{$_('vcd.runtime', { values: { label: runtimeLabel } })}</p>
 		<div class="compression-preset-row">
-			<label for="compression-preset-select">Preset</label>
+			<label for="compression-preset-select">{$_('vcd.preset')}</label>
 			<select id="compression-preset-select" bind:value={preset} disabled={busy}>
 				{#each presetOptions as presetOption (presetOption.id)}
 					<option value={presetOption.id}>{presetOption.label}</option>
@@ -41,7 +42,7 @@
 		{#if estimate}
 			<div class="compression-estimate">
 				<span>
-					Estimated output: {formatFileMb(estimate.estimatedBytes)} MB
+					{$_('vcd.est_out', { values: { size: formatFileMb(estimate.estimatedBytes) } })}
 					({estimate.targetWidth}x{estimate.targetHeight})
 				</span>
 				<span class:estimate-saving={estimate.estimatedReductionRatio > 0}>
@@ -55,7 +56,7 @@
 		{#if busy}
 			<div class="compression-progress">
 				<div class="compression-progress-info">
-					<span>Compressing...</span>
+					<span>{$_('vcd.compressing')}</span>
 					<span>{progress}%</span>
 				</div>
 				<div class="progress-bar">
@@ -67,15 +68,15 @@
 		{/if}
 		<div class="compression-actions">
 			{#if busy}
-				<button type="button" class="compression-btn secondary" on:click={onCancelCompression}>Cancel Compression</button>
+				<button type="button" class="compression-btn secondary" on:click={onCancelCompression}>{$_('vcd.cancel')}</button>
 			{:else if error}
-				<button type="button" class="compression-btn" on:click={() => void onCompress()}>Retry</button>
-				<button type="button" class="compression-btn secondary" on:click={onKeepOriginal}>Keep Original</button>
-				<button type="button" class="compression-btn danger" on:click={onRemoveFile}>Remove File</button>
+				<button type="button" class="compression-btn" on:click={() => void onCompress()}>{$_('common.retry')}</button>
+				<button type="button" class="compression-btn secondary" on:click={onKeepOriginal}>{$_('vcd.keep')}</button>
+				<button type="button" class="compression-btn danger" on:click={onRemoveFile}>{$_('vcd.remove')}</button>
 			{:else}
-				<button type="button" class="compression-btn" on:click={() => void onCompress()}>Compress</button>
-				<button type="button" class="compression-btn secondary" on:click={onKeepOriginal}>Keep Original</button>
-				<button type="button" class="compression-btn danger" on:click={onRemoveFile}>Remove File</button>
+				<button type="button" class="compression-btn" on:click={() => void onCompress()}>{$_('vcd.compress')}</button>
+				<button type="button" class="compression-btn secondary" on:click={onKeepOriginal}>{$_('vcd.keep')}</button>
+				<button type="button" class="compression-btn danger" on:click={onRemoveFile}>{$_('vcd.remove')}</button>
 			{/if}
 		</div>
 	</div>

@@ -21,26 +21,26 @@
 
 	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text', 'math', 'eraser']);
 
-	const BUILT_IN_FONTS: Array<{ label: string; css: string }> = [
-		{ label: 'Sans', css: 'sans-serif' },
-		{ label: 'Serif', css: 'serif' },
-		{ label: 'Mono', css: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
-		{ label: 'Cursive', css: 'cursive' },
-		{ label: 'Fantasy', css: 'fantasy' },
-		{ label: 'System UI', css: 'system-ui, sans-serif' }
+	const BUILT_IN_FONTS: Array<{ labelKey: string; css: string }> = [
+		{ labelKey: 'wb.font_sans', css: 'sans-serif' },
+		{ labelKey: 'wb.font_serif', css: 'serif' },
+		{ labelKey: 'wb.font_mono', css: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+		{ labelKey: 'wb.font_cursive', css: 'cursive' },
+		{ labelKey: 'wb.font_fantasy', css: 'fantasy' },
+		{ labelKey: 'wb.font_system_ui', css: 'system-ui, sans-serif' }
 	];
 
-	const tools: Array<{ id: ToolType | 'math'; label: string; shortcut: string; icon: string }> = [
-		{ id: 'select', label: 'Select', shortcut: 'V', icon: 'cursor' },
-		{ id: 'pen', label: 'Pen', shortcut: 'P', icon: 'pen' },
-		{ id: 'eraser', label: 'Eraser', shortcut: 'E', icon: 'eraser' },
-		{ id: 'line', label: 'Line', shortcut: 'L', icon: 'line' },
-		{ id: 'rect', label: 'Rect', shortcut: 'R', icon: 'rect' },
-		{ id: 'ellipse', label: 'Ellipse', shortcut: 'O', icon: 'ellipse' },
-		{ id: 'arrow', label: 'Arrow', shortcut: 'A', icon: 'arrow' },
-		{ id: 'text', label: 'Text', shortcut: 'T', icon: 'text' },
-		{ id: 'math', label: 'Math', shortcut: '', icon: 'math' },
-		{ id: 'pan', label: 'Pan', shortcut: 'Space', icon: 'pan' }
+	const tools: Array<{ id: ToolType | 'math'; labelKey: string; shortcut: string; icon: string }> = [
+		{ id: 'select', labelKey: 'wb.tool_select', shortcut: 'V', icon: 'cursor' },
+		{ id: 'pen', labelKey: 'wb.tool_pen', shortcut: 'P', icon: 'pen' },
+		{ id: 'eraser', labelKey: 'wb.tool_eraser', shortcut: 'E', icon: 'eraser' },
+		{ id: 'line', labelKey: 'wb.tool_line', shortcut: 'L', icon: 'line' },
+		{ id: 'rect', labelKey: 'wb.tool_rect', shortcut: 'R', icon: 'rect' },
+		{ id: 'ellipse', labelKey: 'wb.tool_ellipse', shortcut: 'O', icon: 'ellipse' },
+		{ id: 'arrow', labelKey: 'wb.tool_arrow', shortcut: 'A', icon: 'arrow' },
+		{ id: 'text', labelKey: 'wb.tool_text', shortcut: 'T', icon: 'text' },
+		{ id: 'math', labelKey: 'wb.tool_math', shortcut: '', icon: 'math' },
+		{ id: 'pan', labelKey: 'wb.tool_pan', shortcut: 'Space', icon: 'pan' }
 	];
 
 	const strokeWidths = [1, 2, 4, 8];
@@ -110,7 +110,7 @@
 			boardStore.setStyle({ fontId: font.fontId, fontFamily: `"${font.family}"` });
 			applyFontToSelection({ fontId: font.fontId, fontFamily: `"${font.family}"` });
 		} catch (error) {
-			fontError = error instanceof Error ? error.message : 'Font upload failed';
+			fontError = error instanceof Error ? error.message : $_('wb.font_upload_failed');
 			if (fontErrorTimer) clearTimeout(fontErrorTimer);
 			fontErrorTimer = setTimeout(() => { fontError = ''; fontErrorTimer = null; }, 6000);
 		} finally {
@@ -120,16 +120,16 @@
 
 	$: policyBadge = (() => {
 		const p = $policy;
-		if (p?.access === 'desktop_only') return { label: 'Desktop-only', icon: 'lock' };
-		if (p?.writeAccess === 'desktop') return { label: 'Desktop-edit', icon: 'desktop' };
+		if (p?.access === 'desktop_only') return { labelKey: 'wb.policy_desktop_only', icon: 'lock' };
+		if (p?.writeAccess === 'desktop') return { labelKey: 'wb.policy_desktop_edit', icon: 'desktop' };
 		return null;
 	})();
 
 	$: activeLayer = $layers.find((l) => l.id === $activeLayerId) || null;
 	$: layerModeBadge = activeLayer
 		? activeLayer.mode === 'raster'
-			? { label: 'Paint', mode: 'raster' as const }
-			: { label: 'Vector', mode: 'vector' as const }
+			? { labelKey: 'wb.layer_paint', mode: 'raster' as const }
+			: { labelKey: 'wb.layer_vector', mode: 'vector' as const }
 		: null;
 
 	function isToolDisabled(id: string): boolean {
@@ -307,14 +307,14 @@
 	on:mouseenter={() => (toolbarHover = true)}
 	on:mouseleave={() => (toolbarHover = false)}
 >
-	<button type="button" class="wb-rail-toggle" on:click={() => (toolbarPinned = !toolbarPinned)} aria-pressed={toolbarPinned} title={toolbarPinned ? 'Collapse tools' : 'Keep tools open'}>
+	<button type="button" class="wb-rail-toggle" on:click={() => (toolbarPinned = !toolbarPinned)} aria-pressed={toolbarPinned} title={toolbarPinned ? $_('wb.collapse_tools') : $_('wb.keep_tools_open')}>
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12M4 10h12M4 14h12"/></svg>
 	</button>
 	<div class="wb-toolbar">
 	{#if activeLayer && layerModeBadge}
-		<div class="wb-layer-mode-chip" class:raster={layerModeBadge.mode === 'raster'} title="Active layer: {activeLayer.name} ({layerModeBadge.label})">
+		<div class="wb-layer-mode-chip" class:raster={layerModeBadge.mode === 'raster'} title="{$_('wb.active_layer')}: {activeLayer.name} ({$_(layerModeBadge.labelKey)})">
 			<span class="wb-layer-mode-name">{activeLayer.name}</span>
-			<span class="wb-layer-mode-badge">{layerModeBadge.label}</span>
+			<span class="wb-layer-mode-badge">{$_(layerModeBadge.labelKey)}</span>
 		</div>
 	{/if}
 	<div class="wb-toolbar-section tools">
@@ -326,7 +326,7 @@
 				class:readonly-disabled={isToolDisabled(tool.id)}
 				on:click={() => setTool(tool.id)}
 				disabled={isToolDisabled(tool.id)}
-				aria-label={tool.label} title="{tool.label}{tool.shortcut ? ` (${tool.shortcut})` : ''}{readOnly && drawingTools.has(tool.id) ? ' — disabled in view-only mode' : ''}"
+				aria-label={$_(tool.labelKey)} title="{$_(tool.labelKey)}{tool.shortcut ? ` (${tool.shortcut})` : ''}{readOnly && drawingTools.has(tool.id) ? ' — ' + $_('wb.view_only_disabled') : ''}"
 			>
 				<span class="wb-tool-icon">
 					{#if tool.icon === 'cursor'}
@@ -441,11 +441,11 @@
 	<div class="wb-toolbar-section colors">
 		<label class="wb-color-quick" title={$_('wb.stroke_color')}>
 			<span>{$_('wb.ink')}</span>
-			<input type="color" value={$currentStyle.strokeColor} on:input={(e) => pickStrokeColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Stroke color" />
+			<input type="color" value={$currentStyle.strokeColor} on:input={(e) => pickStrokeColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label={$_('wb.stroke_color')} />
 		</label>
 		<label class="wb-color-quick" title={$_('wb.fill_color')}>
 			<span>{$_('wb.fill')}</span>
-			<input type="color" value={$currentStyle.fillColor === 'transparent' ? '#ffffff' : $currentStyle.fillColor} on:input={(e) => pickFillColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Fill color" />
+			<input type="color" value={$currentStyle.fillColor === 'transparent' ? '#ffffff' : $currentStyle.fillColor} on:input={(e) => pickFillColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label={$_('wb.fill_color')} />
 		</label>
 		<div class="wb-swatch-row" role="group" aria-label={$_('wb.ink_swatches')}>
 			{#each colorSwatches as color}
@@ -574,7 +574,7 @@
 			<label class="wb-brush-control">
 				<span class="wb-brush-label">{$_('wb.radius')}</span>
 				<span class="wb-brush-row">
-					<input type="range" min="0" max="120" step="1" value={$currentStyle.borderRadius ?? 0} on:input={(e) => boardStore.setStyle({ borderRadius: Number((e.currentTarget as HTMLInputElement).value) })} class="wb-brush-slider" disabled={readOnly} aria-label="Corner radius" />
+					<input type="range" min="0" max="120" step="1" value={$currentStyle.borderRadius ?? 0} on:input={(e) => boardStore.setStyle({ borderRadius: Number((e.currentTarget as HTMLInputElement).value) })} class="wb-brush-slider" disabled={readOnly} aria-label={$_('wb.corner_radius')} />
 					<span class="wb-brush-value">{$currentStyle.borderRadius ?? 0}px</span>
 				</span>
 			</label>
@@ -586,7 +586,7 @@
 			<label class="wb-brush-control">
 				<span class="wb-brush-label">{$_('wb.text_size')}</span>
 				<span class="wb-brush-row">
-					<input type="range" min="8" max="120" step="1" value={fontSizeInput} on:input={(e) => setFontSize(Number((e.currentTarget as HTMLInputElement).value))} class="wb-brush-slider" disabled={readOnly} aria-label="Text size" />
+					<input type="range" min="8" max="120" step="1" value={fontSizeInput} on:input={(e) => setFontSize(Number((e.currentTarget as HTMLInputElement).value))} class="wb-brush-slider" disabled={readOnly} aria-label={$_('settings.appearance.text_size')} />
 					<span class="wb-brush-value">{fontSizeInput}px</span>
 				</span>
 			</label>
@@ -606,7 +606,7 @@
 						aria-label={$_('wb.font_family')}
 					>
 						{#each BUILT_IN_FONTS as font (font.css)}
-							<option value={`builtin:${font.css}`}>{font.label}</option>
+							<option value={`builtin:${font.css}`}>{$_(font.labelKey)}</option>
 						{/each}
 						{#if boardFonts.length > 0}
 							<optgroup label={$_('wb.board_fonts')}>
@@ -635,9 +635,9 @@
 	{/if}
 
 	{#if policyBadge}
-		<div class="wb-policy-badge" title={policyBadge.label === 'Desktop-only'
-			? 'Only the Wabi desktop app can open this board'
-			: 'Only the Wabi desktop app can edit this board'}>
+		<div class="wb-policy-badge" title={policyBadge.labelKey === 'wb.policy_desktop_only'
+			? $_('wb.policy_open_title')
+			: $_('wb.policy_edit_title')}>
 			<span class="wb-policy-badge-icon">
 				{#if policyBadge.icon === 'lock'}
 					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 016 0v3"/></svg>
@@ -645,7 +645,7 @@
 					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 17h4M10 13v4"/></svg>
 				{/if}
 			</span>
-			<span>{policyBadge.label}</span>
+			<span>{$_(policyBadge.labelKey)}</span>
 		</div>
 	{/if}
 	</div>
@@ -661,7 +661,7 @@
 			</div>
 			<input
 				class="wb-math-input"
-				placeholder={'e.g. e^{i\\pi} + 1 = 0'}
+				placeholder={`${$_('wb.math_example')} e^{i\\pi} + 1 = 0`}
 				bind:this={mathInputEl}
 				bind:value={latexDraft}
 				on:keydown={handleMathKeydown}

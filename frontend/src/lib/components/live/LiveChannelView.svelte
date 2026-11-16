@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import type { Channel, Message, User } from '$lib/socket';
@@ -65,8 +66,8 @@
     const elapsed = now - bornAt;
     const remaining = Math.max(0, liveTtlMs - elapsed);
     const minutes = Math.ceil(remaining / 60000);
-    if (minutes < 1) return '<1m';
-    return `${minutes}m`;
+    if (minutes < 1) return $_('live.under_min');
+    return $_('live.minutes', { values: { count: minutes } });
   }
 
   function handleSnapshot(payload: { channelId: string; messages: Message[] }) {
@@ -110,7 +111,7 @@
     participants.set(uid, { status: isYou ? 'you' : 'afk' });
     participants = new Map(participants);
     if (afkAnnounce && payload.username) {
-      appendSystemLine(`${payload.username} is AFK`);
+      appendSystemLine($_('live.afk_line', { values: { name: payload.username } }));
     }
   }
 
@@ -121,7 +122,7 @@
     participants.set(uid, { status: isYou ? 'you' : 'active' });
     participants = new Map(participants);
     if (afkAnnounce && payload.username) {
-      appendSystemLine(`${payload.username} is back`);
+      appendSystemLine($_('live.back_line', { values: { name: payload.username } }));
     }
   }
 
@@ -210,15 +211,15 @@
   <div class="live-channel-view">
     <div class="live-header">
       <div class="live-header-content">
-        <h2 class="live-title">Welcome to #{channel.name}</h2>
-        <p class="live-subtitle">be here now</p>
+        <h2 class="live-title">{$_('live.welcome', { values: { name: channel.name } })}</h2>
+        <p class="live-subtitle">{$_('live.subtitle')}</p>
       </div>
       <div class="live-header-actions">
         <button
           class="participants-toggle"
           class:active={showParticipants}
           on:click={() => (showParticipants = !showParticipants)}
-          title="Participants"
+          title={$_('live.participants')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-icon">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -241,7 +242,7 @@
             class="live-msg live-msg-age-{ageClass}"
             class:live-msg-system={isSystem}
             data-message-id={msg.id}
-            title={isSystem ? '' : `Fades in ${remaining}`}
+            title={isSystem ? '' : $_('live.fades_in', { values: { time: remaining } })}
           >
             {#if !isSystem}
               <div class="live-msg-avatar">
@@ -255,11 +256,11 @@
               </div>
               <div class="live-msg-content">
                 <div class="live-msg-meta">
-                  <span class="live-msg-user" style="color: {msg.color}">{msg.user || 'Unknown'}</span>
+                  <span class="live-msg-user" style="color: {msg.color}">{msg.user || $_('gallery.unknown_creator')}</span>
                 </div>
                 <div class="live-msg-text">{msg.text}</div>
               </div>
-              <div class="live-msg-remaining" title="Time remaining">{remaining}</div>
+              <div class="live-msg-remaining" title={$_('live.time_remaining')}>{remaining}</div>
             {:else}
               <div class="live-system-line">{msg.text}</div>
             {/if}
@@ -269,7 +270,7 @@
 
       {#if showParticipants}
         <div class="participants-panel">
-          <h3 class="participants-title">Participants</h3>
+          <h3 class="participants-title">{$_('live.participants')}</h3>
           <div class="participants-list">
             {#each participantEntries as [uid, p]}
               <div class="participant-row" class:afk={p.status === 'afk'} class:is-you={p.status === 'you'}>
@@ -286,11 +287,11 @@
                 {#if p.status === 'afk'}
                   <span class="afk-chip">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chip-icon"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"></path></svg>
-                    AFK
+                    {$_('live.afk_chip')}
                   </span>
                 {/if}
                 {#if p.status === 'you'}
-                  <span class="you-chip">You</span>
+                  <span class="you-chip">{$_('admin.you')}</span>
                 {/if}
               </div>
             {/each}
@@ -304,7 +305,7 @@
         <input
           type="text"
           class="composer-input"
-          placeholder="Send a message..."
+          placeholder={$_('live.send_placeholder')}
           bind:value={textInput}
           on:keydown={handleKeydown}
         />
@@ -312,7 +313,7 @@
           class="composer-send-btn"
           on:click={handleSend}
           disabled={!textInput.trim()}
-          aria-label="Send"
+          aria-label={$_('camera.send')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="send-icon">
             <line x1="22" y1="2" x2="11" y2="13"></line>

@@ -151,21 +151,21 @@
 	$: showProjects = spansSeveralProjects($todos.filter((todo) => laneIds.includes(todo.status)));
 
 	$: projectOptions = [
-		{ value: '', label: 'All' },
+		{ value: '', label: $_('emoji_picker.filters.all') },
 		...$projects.map((project) => ({ value: project.id, label: project.name }))
 	] satisfies SelectOption[];
-	const priorityOptions: SelectOption[] = [
-		{ value: '', label: 'Any' },
-		{ value: 'urgent', label: 'Urgent' },
-		{ value: 'high', label: 'High' },
-		{ value: 'medium', label: 'Medium' },
-		{ value: 'low', label: 'Low' }
+	$: priorityOptions = [
+		{ value: '', label: $_('kan.opt_any') },
+		{ value: 'urgent', label: $_('kan.pri_urgent') },
+		{ value: 'high', label: $_('kan.pri_high') },
+		{ value: 'medium', label: $_('kan.pri_medium') },
+		{ value: 'low', label: $_('kan.pri_low') }
 	];
 	$: assigneeOptions = [
-		{ value: '', label: 'Anyone' },
-		{ value: 'none', label: 'Unassigned' },
+		{ value: '', label: $_('kan.opt_anyone') },
+		{ value: 'none', label: $_('kan.opt_unassigned') },
 		...[...new Set($todos.map((todo) => todo.assignedTo).filter((id): id is string => Boolean(id)))]
-			.map((id) => ({ value: id, label: userById.get(Number(id))?.username ?? `Member ${id}` }))
+			.map((id) => ({ value: id, label: userById.get(Number(id))?.username ?? $_('shared_notes.member', { values: { id } }) }))
 			.sort((a, b) => a.label.localeCompare(b.label))
 	] satisfies SelectOption[];
 
@@ -215,30 +215,30 @@
 		laneEntries: MenuEntry[],
 		applied: number
 	): MenuEntry[] {
-		const items: MenuEntry[] = [{ id: 'f-project', type: 'kicker', label: 'Project' }];
+		const items: MenuEntry[] = [{ id: 'f-project', type: 'kicker', label: $_('places.project') }];
 		for (const option of projectChoices) {
 			items.push({ id: `f-project-${option.value || 'all'}`, label: option.label, role: 'menuitemradio', checked: project === option.value, keepCase: option.value !== '', onSelect: () => setFilter('project', option.value) });
 		}
-		items.push({ id: 'f-priority', type: 'kicker', label: 'Priority' });
+		items.push({ id: 'f-priority', type: 'kicker', label: $_('kan.kick_priority') });
 		for (const option of priorityOptions) {
 			items.push({ id: `f-priority-${option.value || 'any'}`, label: option.label, role: 'menuitemradio', checked: priority === option.value, onSelect: () => setFilter('priority', option.value) });
 		}
-		items.push({ id: 'f-assignee', type: 'kicker', label: 'Assignee' });
+		items.push({ id: 'f-assignee', type: 'kicker', label: $_('kan.kick_assignee') });
 		for (const option of assigneeChoices) {
 			items.push({ id: `f-assignee-${option.value || 'anyone'}`, label: option.label, role: 'menuitemradio', checked: assignee === option.value, keepCase: option.value !== '' && option.value !== 'none', onSelect: () => setFilter('assignee', option.value) });
 		}
 		items.push(
-			{ id: 'f-show', type: 'kicker', label: 'Tasks' },
-			{ id: 'f-show-all', label: 'Every task', role: 'menuitemradio', checked: active === 'all', hint: String(counts.tasks), onSelect: () => setSummary('all') }
+			{ id: 'f-show', type: 'kicker', label: $_('project_detail.figure_tasks') },
+			{ id: 'f-show-all', label: $_('kan.f_every_task'), role: 'menuitemradio', checked: active === 'all', hint: String(counts.tasks), onSelect: () => setSummary('all') }
 		);
-		if (counts.dueThisWeek > 0) items.push({ id: 'f-show-week', label: 'Due this week', role: 'menuitemradio', checked: active === 'week', hint: String(counts.dueThisWeek), onSelect: () => setSummary('week') });
-		if (counts.overdue > 0) items.push({ id: 'f-show-overdue', label: 'Overdue', role: 'menuitemradio', checked: active === 'overdue', hint: String(counts.overdue), onSelect: () => setSummary('overdue') });
-		if (events > 0 && onOpenCalendar) items.push({ id: 'f-events', label: 'Open the Calendar', icon: 'calendar', hint: plural(events, 'event', 'events'), onSelect: () => onOpenCalendar?.() });
+		if (counts.dueThisWeek > 0) items.push({ id: 'f-show-week', label: $_('kan.f_due_week'), role: 'menuitemradio', checked: active === 'week', hint: String(counts.dueThisWeek), onSelect: () => setSummary('week') });
+		if (counts.overdue > 0) items.push({ id: 'f-show-overdue', label: $_('kan.f_overdue'), role: 'menuitemradio', checked: active === 'overdue', hint: String(counts.overdue), onSelect: () => setSummary('overdue') });
+		if (events > 0 && onOpenCalendar) items.push({ id: 'f-events', label: $_('kan.f_open_calendar'), icon: 'calendar', hint: plural(events, 'event', 'events'), onSelect: () => onOpenCalendar?.() });
 		items.push({ id: 'f-sep-lanes', type: 'separator', label: '' }, ...laneEntries);
-		if (applied > 0) items.push({ id: 'f-sep-clear', type: 'separator', label: '' }, { id: 'f-clear', label: 'Clear filters', icon: 'x', onSelect: clearFilters });
+		if (applied > 0) items.push({ id: 'f-sep-clear', type: 'separator', label: '' }, { id: 'f-clear', label: $_('forum.clear_filters'), icon: 'x', onSelect: clearFilters });
 		return items;
 	}
-	$: filterLabel = appliedCount > 0 ? `Filter tasks, ${appliedCount} applied` : 'Filter tasks';
+	$: filterLabel = appliedCount > 0 ? $_('kan.filter_applied', { values: { count: appliedCount } }) : $_('kan.filter_tasks');
 
 	// ── lane switcher (phone): which lane is in view, and moving to one ──
 	// The board's width stands in for the stage width the snap rule queries; it starts from the
@@ -273,7 +273,7 @@
 
 	// ── Columns menu: lane switches + Edit columns… ──
 	$: columnItems = [
-		{ id: 'lanes', type: 'kicker', label: 'Show lanes' },
+		{ id: 'lanes', type: 'kicker', label: $_('kan.kick_lanes') },
 		...$kanbanColumns.map((column) => ({
 			id: `lane-${column.id}`,
 			label: laneLabel(column),
@@ -566,9 +566,9 @@
 
 	async function handleDelete(todo: Todo) {
 		const confirmed = await confirmAction({
-			title: 'Delete this task?',
-			body: `“${todo.title}” will be removed from your Planner.`,
-			confirm: 'Delete task',
+			title: $_('kan.del_task_title'),
+			body: $_('kan.del_task_body', { values: { title: todo.title } }),
+			confirm: $_('planner.delete_task'),
 			danger: true
 		});
 		if (!confirmed) return;
@@ -597,9 +597,9 @@
 	async function deleteColumn(columnId: TodoStatus) {
 		const column = $kanbanColumns.find((col) => col.id === columnId);
 		const confirmed = await confirmAction({
-			title: `Delete the ${column ? laneLabel(column) : columnId} column?`,
-			body: 'Its tasks are kept but hidden until you add a column with the same name.',
-			confirm: 'Delete column',
+			title: $_('kan.del_col_title', { values: { name: column ? laneLabel(column) : columnId } }),
+			body: $_('kan.del_col_body'),
+			confirm: $_('kan.del_col_btn'),
 			danger: true
 		});
 		if (confirmed) kanbanColumns.update((cols) => cols.filter((col) => col.id !== columnId));
@@ -627,13 +627,13 @@
 	function formatEstimateHours(minutes: number | undefined): string {
 		if (!minutes || minutes <= 0) return '';
 		const hours = minutes / 60;
-		return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
+		return $_('kan.est_hours', { values: { hours: Number.isInteger(hours) ? hours : hours.toFixed(1) } });
 	}
 </script>
 
 <div class="kanban-container" class:embedded>
 	{#if !embedded}
-		<h1 class="kanban-page-title">Board</h1>
+		<h1 class="kanban-page-title">{$_('project_detail.tab_board')}</h1>
 	{/if}
 	<div class="planner-tools" class:planner-tools--compact={compact}>
 		<slot name="lead" />
@@ -641,22 +641,22 @@
 			<!-- Phone (§8.12): the selects, the summary filters and the lanes in one "Filter" menu. -->
 			<Menu
 				items={filterItems}
-				label="Filter tasks"
+				label={$_('kan.filter_tasks')}
 				triggerLabel={filterLabel}
 				class={appliedCount > 0 ? 'w-btn planner-filter-btn is-applied' : 'w-btn planner-filter-btn'}
-				heading="Filter tasks"
+				heading={$_('kan.filter_tasks')}
 			>
-				<Icon name="filter" size={16} /><span>Filter</span>{#if appliedCount > 0}<span class="planner-filter-btn__count" aria-hidden="true">{appliedCount}</span>{/if}
+				<Icon name="filter" size={16} /><span>{$_('panels.filter')}</span>{#if appliedCount > 0}<span class="planner-filter-btn__count" aria-hidden="true">{appliedCount}</span>{/if}
 			</Menu>
 			<span class="planner-tools__spacer" aria-hidden="true"></span>
 		{:else}
 			<div class="planner-tools__filters">
-				<Select label="Project" options={projectOptions} bind:value={projectValue} applied={projectValue !== ''} heading="Project" />
-				<Select label="Priority" options={priorityOptions} bind:value={priorityValue} applied={priorityValue !== ''} heading="Priority" />
-				<Select label="Assignee" options={assigneeOptions} bind:value={assigneeValue} applied={assigneeValue !== ''} heading="Assignee" />
+				<Select label={$_('places.project')} options={projectOptions} bind:value={projectValue} applied={projectValue !== ''} heading={$_('places.project')} />
+				<Select label={$_('kan.kick_priority')} options={priorityOptions} bind:value={priorityValue} applied={priorityValue !== ''} heading={$_('kan.kick_priority')} />
+				<Select label={$_('kan.kick_assignee')} options={assigneeOptions} bind:value={assigneeValue} applied={assigneeValue !== ''} heading={$_('kan.kick_assignee')} />
 			</div>
 			{#if shownSummary.length}
-				<div class="planner-summary" role="group" aria-label="Board summary">
+				<div class="planner-summary" role="group" aria-label={$_('kan.board_summary')}>
 					{#each shownSummary as item, index (item)}
 						{#if index > 0}<span class="planner-summary__sep" aria-hidden="true">·</span>{/if}
 						{#if item === 'all'}
@@ -664,32 +664,32 @@
 								type="button"
 								class="planner-summary__item planner-summary__item--rest"
 								aria-pressed={activeSummary === 'all'}
-								title="Show every task"
+								title={$_('kan.sum_show_all')}
 								on:click={() => (summaryFilter = 'all')}
-							><b>{summary.tasks}</b> {summary.tasks === 1 ? 'task' : 'tasks'}</button>
+							><b>{summary.tasks}</b> {$_(summary.tasks === 1 ? 'kan.task_one' : 'kan.task_other')}</button>
 						{:else if item === 'week'}
 							<button
 								type="button"
 								class="planner-summary__item"
 								aria-pressed={activeSummary === 'week'}
-								title="Show only tasks due in the next 7 days"
+								title={$_('kan.sum_week_title')}
 								on:click={() => toggleSummary('week')}
-							><b>{summary.dueThisWeek}</b> due this week</button>
+							><b>{summary.dueThisWeek}</b> {$_('kan.f_due_week')}</button>
 						{:else if item === 'overdue'}
 							<button
 								type="button"
 								class="planner-summary__item planner-summary__item--danger"
 								aria-pressed={activeSummary === 'overdue'}
-								title="Show only overdue tasks"
+								title={$_('kan.sum_overdue_title')}
 								on:click={() => toggleSummary('overdue')}
-							><b>{summary.overdue}</b> overdue</button>
+							><b>{summary.overdue}</b> {$_('kan.overdue_lc')}</button>
 						{:else}
 							<button
 								type="button"
 								class="planner-summary__item"
-								title="Open the Calendar: {plural(eventCount, 'event', 'events')} in the next 7 days"
+								title={$_('kan.sum_events_title', { values: { events: plural(eventCount, 'event', 'events') } })}
 								on:click={() => onOpenCalendar?.()}
-							><b>{eventCount}</b> {eventCount === 1 ? 'event' : 'events'}</button>
+							><b>{eventCount}</b> {$_(eventCount === 1 ? 'kan.event_one' : 'kan.event_other')}</button>
 						{/if}
 					{/each}
 				</div>
@@ -717,14 +717,14 @@
 			<EmptyState
 				icon="filter"
 				as="h3"
-				title="No tasks match these filters"
+				title={$_('kan.empty_title')}
 				text={laneTaskCount === 1
-					? 'Your one task is hidden by the filters. Clear them to see it again.'
-					: `All ${laneTaskCount} tasks are hidden by the filters. Clear them to see every task again.`}
+					? $_('kan.empty_one')
+					: $_('kan.empty_many', { values: { count: laneTaskCount } })}
 			>
 				<!-- A default button: row A's New is this view's one primary (§2 rule 4). -->
 				{#snippet actions()}
-					<button type="button" class="w-btn planner-clear-filters" on:click={clearFilters}><Icon name="x" size={16} />Clear filters</button>
+					<button type="button" class="w-btn planner-clear-filters" on:click={clearFilters}><Icon name="x" size={16} />{$_('forum.clear_filters')}</button>
 				{/snippet}
 			</EmptyState>
 		</div>
@@ -733,7 +733,7 @@
 		<!-- Phone: one lane per screen; this seg says which one is in view and moves to another. It
 		     shows only while the lanes snap one per screen (a stage under 600px, as in
 		     kanban-board-part1.css); on a wider phone-shell stage 2-3 lanes are in view at once. -->
-		<div class="w-seg planner-lane-switch" role="group" aria-label="Lanes">
+		<div class="w-seg planner-lane-switch" role="group" aria-label={$_('kan.lanes_label')}>
 			{#each $visibleKanbanColumns as column, index (column.id)}
 				<button type="button" aria-pressed={currentLane === index} on:click={() => showLane(index)}>{laneLabel(column)}</button>
 			{/each}
@@ -743,7 +743,7 @@
 	<div
 		class="kanban-board-wrapper"
 		role="region"
-		aria-label="Task board"
+		aria-label={$_('kan.task_board_label')}
 		bind:this={kanbanBoard}
 		bind:clientWidth={boardWidth}
 		class:panning={isPanning}

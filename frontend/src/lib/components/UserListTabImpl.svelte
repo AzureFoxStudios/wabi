@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import './UserListTabImpl.css';
 	import { get, type Readable } from 'svelte/store';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
@@ -96,29 +97,29 @@
 	const listId = `people-${++peopleListCounter}`;
 	// Row B without the BetterFriendList add-on: the panel's one-line description, so the masthead
 	// rule still runs under it at y = 96 (the frame leaves row B to this panel).
-	const PEOPLE_DESCRIPTION = getWorkspacePanelManifest('users')?.description ?? 'Who is here, grouped by where they are';
+	const PEOPLE_DESCRIPTION = getWorkspacePanelManifest('users')?.description ?? $_('ulist.people_desc_default');
 	const ROLE_TITLES: Record<string, string> = {
-		Owner: 'Community owner',
-		Admin: 'Community admin',
-		Mod: 'Community moderator',
-		Bot: 'Bot account'
+		Owner: 'ulist.role_title_owner',
+		Admin: 'ulist.role_title_admin',
+		Mod: 'ulist.role_title_mod',
+		Bot: 'ulist.role_title_bot'
 	};
 	// Chrome labels in sentence case (spec §9.6); role names keep the caller's casing.
 	const MENU_LABELS: Record<string, string> = {
-		'View My Profile': 'View my profile',
-		'View Profile': 'View profile',
-		'Remove Friend': 'Remove friend',
-		'Accept Friend Request': 'Accept friend request',
-		'Cancel Friend Request': 'Cancel friend request',
-		'Add Friend': 'Add friend',
-		'Request Payment': 'Request payment',
-		'Voice Call': 'Voice call',
-		'Video Call': 'Video call',
-		'Stop Status Alerts': 'Stop status alerts',
-		'Track Status Alerts': 'Track status alerts',
-		'Set Local Nickname': 'Set local nickname',
-		'Clear Local Nickname': 'Clear local nickname',
-		'Reset to Member': 'Reset to member'
+		'View My Profile': 'ulist.menu_view_my_profile',
+		'View Profile': 'ulist.menu_view_profile',
+		'Remove Friend': 'ulist.menu_remove_friend',
+		'Accept Friend Request': 'ulist.menu_accept_request',
+		'Cancel Friend Request': 'ulist.menu_cancel_request',
+		'Add Friend': 'ulist.menu_add_friend',
+		'Request Payment': 'ulist.menu_request_payment',
+		'Voice Call': 'ulist.menu_voice_call',
+		'Video Call': 'ulist.menu_video_call',
+		'Stop Status Alerts': 'ulist.menu_stop_alerts',
+		'Track Status Alerts': 'ulist.menu_track_alerts',
+		'Set Local Nickname': 'ulist.menu_set_nickname',
+		'Clear Local Nickname': 'ulist.menu_clear_nickname',
+		'Reset to Member': 'ulist.menu_reset_member'
 	};
 	const MENU_ICONS: Record<string, IconName> = {
 		'track-status': 'bell',
@@ -206,7 +207,7 @@
 	function promptSetContextLocalNickname(): void {
 		if (!contextMenuUser) return;
 		const currentNickname = getLocalNicknameForUser(contextMenuUser);
-		const draft = window.prompt(`Set local nickname (max ${MAX_LOCAL_NICKNAME_LENGTH} characters)`, currentNickname || contextMenuUser.username);
+		const draft = window.prompt($_('ulist.prompt_nickname', { values: { max: MAX_LOCAL_NICKNAME_LENGTH } }), currentNickname || contextMenuUser.username);
 		if (draft === null) return;
 		setLocalNicknameForUser(contextMenuUser, draft);
 		closeContextMenu();
@@ -289,7 +290,7 @@
 						sublineId: `${headingId}-${domSafe(key)}-sub`,
 						description: personDescription(subline),
 						roleWord,
-						roleTitle: roleWord ? ROLE_TITLES[roleWord] ?? roleWord : null,
+						roleTitle: roleWord ? (ROLE_TITLES[roleWord] ? $_(ROLE_TITLES[roleWord]) : roleWord) : null,
 						ariaLabel: personAriaLabel(name, entry, subline, roleWord)
 					};
 				})
@@ -302,7 +303,7 @@
 	}
 
 	function countWords(count: number): string {
-		return `${count} ${count === 1 ? 'person' : 'people'}`;
+		return $_(count === 1 ? 'ulist.count_one' : 'ulist.count_other', { values: { count } });
 	}
 
 	function rowFor(key: string): HTMLElement | null {
@@ -326,18 +327,18 @@
 	}
 
 	$: filterMenuItems = [
-		{ id: 'k-show', type: 'kicker', label: 'Show' },
+		{ id: 'k-show', type: 'kicker', label: $_('panels.show') },
 		...(['all', 'here', 'away', 'offline'] as const).map((value) => ({
 			id: `show:${value}`,
 			label: PEOPLE_SHOW_LABELS[value],
 			role: 'menuitemradio' as const,
 			checked: peopleShow === value
 		})),
-		{ id: 'k-group', type: 'kicker', label: 'Group' },
-		{ id: 'group:place', label: 'By place', role: 'menuitemradio', checked: peopleGrouping === 'place' },
-		{ id: 'group:role', label: 'By role', role: 'menuitemradio', checked: peopleGrouping === 'role' },
-		{ id: 'k-sort', type: 'kicker', label: 'Sort' },
-		{ id: 'sort:name', label: 'By name', role: 'menuitemradio', checked: true }
+		{ id: 'k-group', type: 'kicker', label: $_('panels.group') },
+		{ id: 'group:place', label: $_('panels.by_place'), role: 'menuitemradio', checked: peopleGrouping === 'place' },
+		{ id: 'group:role', label: $_('panels.by_role'), role: 'menuitemradio', checked: peopleGrouping === 'role' },
+		{ id: 'k-sort', type: 'kicker', label: $_('forum.sort') },
+		{ id: 'sort:name', label: $_('panels.by_name'), role: 'menuitemradio', checked: true }
 	] satisfies MenuEntry[];
 
 	function handleFilterSelect(id: string): void {
@@ -423,21 +424,21 @@
 		friendActionBusy = true;
 		try {
 			if (relation.kind === 'friend') {
-				if (!window.confirm(`Remove ${target.username} from your friends?`)) return;
+				if (!window.confirm($_('ulist.confirm_remove_friend', { values: { name: target.username } }))) return;
 				await removeFriendship(target.dbUserId!);
-				showToast(`Removed ${target.username} from friends.`, 'info');
+				showToast($_('ulist.toast_removed', { values: { name: target.username } }), 'info');
 			} else if (relation.kind === 'incoming') {
 				await acceptFriendship(relation.request.id);
-				showToast(`You and ${target.username} are friends.`, 'info');
+				showToast($_('ulist.toast_now_friends', { values: { name: target.username } }), 'info');
 			} else if (relation.kind === 'outgoing') {
 				await dismissFriendship(relation.request.id);
-				showToast(`Request to ${target.username} cancelled.`, 'info');
+				showToast($_('ulist.toast_cancelled', { values: { name: target.username } }), 'info');
 			} else {
 				await requestFriendship(target.dbUserId!);
-				showToast(`Friend request sent to ${target.username}.`, 'info');
+				showToast($_('ulist.toast_request_sent', { values: { name: target.username } }), 'info');
 			}
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Could not update friendship.', 'error');
+			showToast(error instanceof Error ? error.message : $_('ulist.err_friendship'), 'error');
 		} finally {
 			friendActionBusy = false;
 		}
@@ -498,9 +499,9 @@
 		closeContextMenu();
 		try {
 			await requestLiveRoleChange($socket, target.dbUserId, roleName);
-			showToast(`Role updated for ${target.username}.`, 'info');
+			showToast($_('ulist.toast_role', { values: { name: target.username } }), 'info');
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Could not change this member’s role.', 'error');
+			showToast(error instanceof Error ? error.message : $_('ulist.err_role'), 'error');
 		}
 	}
 
@@ -521,14 +522,14 @@
 	async function handleBanContextUser() {
 		const target = contextMenuUser;
 		if (!target?.dbUserId) return;
-		if (!window.confirm(`Ban @${target.username} from this server? They will be logged out and blocked from signing in.`)) return;
+		if (!window.confirm($_('ulist.confirm_ban', { values: { name: target.username } }))) return;
 		closeContextMenu();
 		try {
 			const { banUser } = await import('$lib/presenceStore');
 			await banUser(target.dbUserId);
-			showToast(`Banned @${target.username}.`, 'info');
+			showToast($_('ulist.toast_banned', { values: { name: target.username } }), 'info');
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Could not ban this member.', 'error');
+			showToast(error instanceof Error ? error.message : $_('ulist.err_ban'), 'error');
 		}
 	}
 
@@ -539,9 +540,9 @@
 		try {
 			const { unbanUser } = await import('$lib/presenceStore');
 			await unbanUser(target.dbUserId);
-			showToast(`Unbanned @${target.username}.`, 'info');
+			showToast($_('ulist.toast_unbanned', { values: { name: target.username } }), 'info');
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Could not unban this member.', 'error');
+			showToast(error instanceof Error ? error.message : $_('ulist.err_unban'), 'error');
 		}
 	}
 
@@ -580,7 +581,7 @@
 		const moderation = isRoleRow || item.id === 'reset-member' || item.id === 'ban-user' || item.id === 'unban-user';
 		const entry: MenuEntry = {
 			...item,
-			label: item.label ? MENU_LABELS[item.label] ?? item.label : item.label,
+			label: item.label && MENU_LABELS[item.label] ? $_(MENU_LABELS[item.label]) : item.label,
 			icon: isRoleRow ? 'shield' : MENU_ICONS[item.id] ?? item.icon,
 			seal: moderation || undefined,
 			keepCase: isRoleRow || undefined
@@ -609,19 +610,19 @@
 				<input
 					type="search"
 					bind:value={friendSearchQuery}
-					placeholder="Search people"
-					aria-label="Search people"
+					placeholder={$_('panels.search_people')}
+					aria-label={$_('panels.search_people')}
 					autocomplete="off"
 					spellcheck="false"
 				/>
 			</label>
 			<Menu
 				items={filterMenuItems}
-				label="Show and group people"
-				triggerLabel={filterApplied ? `Filter people, showing ${PEOPLE_SHOW_LABELS[peopleShow].toLowerCase()}` : 'Filter people'}
+				label={$_('ulist.show_group')}
+				triggerLabel={filterApplied ? $_('ulist.trigger_showing', { values: { mode: PEOPLE_SHOW_LABELS[peopleShow].toLowerCase() } }) : $_('ulist.trigger_filter')}
 				class={filterApplied ? 'w-ibtn w-ibtn--edge w-ibtn--dot people-filter' : 'w-ibtn w-ibtn--edge people-filter'}
 				align="end"
-				heading="People"
+				heading={$_('places.people')}
 				onselect={handleFilterSelect}
 			>
 				<Icon name="sliders" />
@@ -630,8 +631,8 @@
 		{#if filterApplied}
 			<div class="people-chips">
 				<span class="w-tag people-chip">
-					{PEOPLE_SHOW_LABELS[peopleShow]} only
-					<button type="button" class="people-chip-clear" aria-label="Show everyone" on:click={() => (peopleShow = 'all')}>
+					{$_('ulist.chip_only', { values: { label: PEOPLE_SHOW_LABELS[peopleShow] } })}
+					<button type="button" class="people-chip-clear" aria-label={$_('ulist.show_everyone')} on:click={() => (peopleShow = 'all')}>
 						<Icon name="x" size={12} />
 					</button>
 				</span>
@@ -712,13 +713,13 @@
 										{/if}
 									</span>
 									{#if row.roleWord}
-										<span class="w-role prow-role" title={row.roleTitle}>{row.roleWord}</span>
+										<span class="w-role prow-role" title={row.roleTitle}>{row.roleWord === 'Bot' ? $_('ulist.role_bot') : row.roleWord}</span>
 									{/if}
 								</button>
 								<button
 									type="button"
 									class="w-ibtn w-ibtn--sm prow-more"
-									aria-label={`Actions for ${row.name}`}
+									aria-label={$_('ulist.actions_for', { values: { name: row.name } })}
 									aria-haspopup="menu"
 									on:click={(event) => handleMoreClick(event, row.user)}
 									on:contextmenu={(event) => handleRightClick(event, row.user)}
@@ -738,9 +739,9 @@
 					class="people-empty"
 					as="p"
 					icon="users"
-					title="No one matches"
-					text={friendSearchQuery.trim() ? 'Try another name or handle.' : `No one is ${PEOPLE_SHOW_LABELS[peopleShow].toLowerCase()} right now.`}
-					action={friendSearchQuery.trim() ? 'Clear search' : 'Show everyone'}
+					title={$_('ulist.empty_no_match')}
+					text={friendSearchQuery.trim() ? $_('ulist.empty_try_other') : $_('ulist.empty_none_filter', { values: { label: PEOPLE_SHOW_LABELS[peopleShow].toLowerCase() } })}
+					action={friendSearchQuery.trim() ? $_('wiki.clear_search') : $_('ulist.show_everyone')}
 					onaction={() => (friendSearchQuery.trim() ? clearSearch() : (peopleShow = 'all'))}
 				/>
 			{:else}
@@ -748,8 +749,8 @@
 					class="people-empty"
 					as="p"
 					icon="users"
-					title="No one here yet"
-					text="People appear here as soon as they join this community."
+					title={$_('ulist.empty_no_people')}
+					text={$_('ulist.empty_join')}
 				/>
 			{/if}
 		{/if}
@@ -760,7 +761,7 @@
 		x={contextMenuPosition.x}
 		y={contextMenuPosition.y}
 		items={userMenuItems}
-		ariaLabel="Member actions"
+		ariaLabel={$_('ulist.member_actions')}
 		headerLabel={contextMenuUser ? getDisplayName(contextMenuUser) : null}
 		on:close={closeContextMenu}
 	/>

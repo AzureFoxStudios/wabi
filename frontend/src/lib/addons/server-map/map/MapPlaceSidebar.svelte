@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import { brandName } from '$lib/branding';
 	import { placeRegistryLoading } from '$lib/placeRegistry';
@@ -34,23 +35,23 @@
 <div class="map-sidebar">
 	<div class="map-sidebar-header">
 		<div>
-			<h2>Places</h2>
+			<h2>{$_('mps.places')}</h2>
 		</div>
-		<button class="ghost-button" type="button" aria-label="Refresh places" title="Refresh places" on:click={() => dispatch('refresh')} disabled={loading || $placeRegistryLoading}>
-			{loading || $placeRegistryLoading ? 'Refreshing...' : '↻'}
+		<button class="ghost-button" type="button" aria-label={$_('mps.refresh')} title={$_('mps.refresh')} on:click={() => dispatch('refresh')} disabled={loading || $placeRegistryLoading}>
+			{loading || $placeRegistryLoading ? $_('donation_config.refreshing') : '↻'}
 		</button>
 	</div>
 
 	<label class="search-field">
-		<span>Search places</span>
-		<input type="text" value={searchQuery} on:input={(event) => dispatch('searchChange', (event.currentTarget as HTMLInputElement).value)} placeholder="building, tag, alias..." />
+		<span>{$_('mps.search_label')}</span>
+		<input type="text" value={searchQuery} on:input={(event) => dispatch('searchChange', (event.currentTarget as HTMLInputElement).value)} placeholder={$_('mps.search_placeholder')} />
 	</label>
 
 	{#if canManagePlaces && variant !== 'compact'}
 		<div class="admin-actions">
-			<button class="ghost-button" type="button" on:click={() => dispatch('newPlace')}>New Place</button>
+			<button class="ghost-button" type="button" on:click={() => dispatch('newPlace')}>{$_('mps.new_place')}</button>
 			{#if activePlace}
-				<button class="ghost-button" type="button" on:click={() => dispatch('editPlace')}>Edit Place</button>
+				<button class="ghost-button" type="button" on:click={() => dispatch('editPlace')}>{$_('mps.edit_place')}</button>
 			{/if}
 		</div>
 	{/if}
@@ -60,18 +61,18 @@
 	{/if}
 
 	<div class="place-list-header">
-		<strong>Places</strong>
+		<strong>{$_('mps.places')}</strong>
 		<span>{visiblePlaces.length}</span>
 	</div>
 
 	{#if loading && visiblePlaces.length === 0}
-		<p class="state-message">Loading map places...</p>
+		<p class="state-message">{$_('mps.loading')}</p>
 	{:else if visiblePlaces.length === 0}
 		<div class="state-message">
-			<div>{normalizedQuery ? 'No places match this search yet.' : 'No places have been configured yet.'}</div>
+			<div>{normalizedQuery ? $_('mps.no_match') : $_('mps.none_configured')}</div>
 			{#if canManagePlaces && !normalizedQuery}
 				<div class="admin-actions">
-					<button class="ghost-button" type="button" on:click={() => dispatch('newPlace')}>Create First Place</button>
+					<button class="ghost-button" type="button" on:click={() => dispatch('newPlace')}>{$_('mps.create_first')}</button>
 				</div>
 			{/if}
 		</div>
@@ -97,13 +98,13 @@
 								<span class="place-chip">{place.building}</span>
 							{/if}
 							{#if place.floor}
-								<span class="place-chip">Floor {place.floor}</span>
+								<span class="place-chip">{$_('mp.floor', { values: { floor: place.floor } })}</span>
 							{/if}
 							{#if place.mapLayers.length > 0 || place.mapImageUrl}
-								<span class="place-chip">{place.mapLayers.length || 1} layer{(place.mapLayers.length || 1) === 1 ? '' : 's'}</span>
+								<span class="place-chip">{$_((place.mapLayers.length || 1) === 1 ? 'mp.layer_one' : 'mp.layer_other', { values: { count: place.mapLayers.length || 1 } })}</span>
 							{/if}
 							{#if place.pois.length > 0}
-								<span class="place-chip">{place.pois.length} POI{place.pois.length === 1 ? '' : 's'}</span>
+								<span class="place-chip">{$_(place.pois.length === 1 ? 'mp.poi_one' : 'mp.poi_other', { values: { count: place.pois.length } })}</span>
 							{/if}
 							{#if place.lat != null && place.lon != null}
 								<span class="place-chip">OSM</span>

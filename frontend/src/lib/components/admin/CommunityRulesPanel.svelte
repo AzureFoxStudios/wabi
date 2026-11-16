@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
@@ -15,13 +16,13 @@
 
 	async function request(init: RequestInit = {}) {
 		const auth = getAuthToken($activeServerUrl);
-		if (!auth) throw new Error('Sign in again to manage server rules.');
+		if (!auth) throw new Error($_('crp.sign_in'));
 		const response = await fetch(`${$activeServerUrl}/api/server-center/rules`, {
 			...init, credentials: 'include',
 			headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
 		});
 		const data = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(data.error || `Rules request failed (${response.status}).`);
+		if (!response.ok) throw new Error(data.error || $_('crp.request_failed', { values: { status: response.status } }));
 		return data;
 	}
 	async function refresh() {
@@ -31,7 +32,7 @@
 			published = data.rules;
 			text = data.rules.text;
 			requireAckBeforePosting = data.rules.requireAckBeforePosting;
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not load rules.'; }
+		} catch (cause) { error = cause instanceof Error ? cause.message : $_('crp.load_failed'); }
 		finally { loading = false; }
 	}
 	async function save() {
@@ -41,23 +42,23 @@
 			published = data.rules;
 			text = data.rules.text;
 			requireAckBeforePosting = data.rules.requireAckBeforePosting;
-			saved = `Rules published as revision ${data.rules.revision}.`;
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not publish rules.'; }
+			saved = $_('crp.published', { values: { revision: data.rules.revision } });
+		} catch (cause) { error = cause instanceof Error ? cause.message : $_('crp.publish_failed'); }
 		finally { saving = false; }
 	}
 	onMount(() => { void refresh(); });
 </script>
 
 <details class="rules-editor">
-	<summary><strong>Server rules and newcomer screen</strong><span>Write the rules members see when they arrive.</span></summary>
+	<summary><strong>{$_('crp.title')}</strong><span>{$_('crp.summary_hint')}</span></summary>
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 	{#if saved}<p class="saved" role="status">{saved}</p>{/if}
-	{#if loading}<p>Loading published rules…</p>{:else}
-		<label>Rules text<textarea bind:value={text} rows="9" maxlength="12000" placeholder="What should someone know before joining this community?"></textarea></label>
-		<p class="hint">This is a readable welcome document. Safety-rule patterns and message retention are configured separately.</p>
-		<label class="check"><input type="checkbox" bind:checked={requireAckBeforePosting} /> Ask members to acknowledge these rules before posting in community channels</label>
-		<label class="check"><input type="checkbox" bind:checked={materialChange} /> This is a material rules change; ask members to acknowledge this revision again</label>
-		<div class="actions"><span>Published revision {published?.revision ?? 0}</span><button onclick={save} disabled={saving || (!text.trim() && requireAckBeforePosting)}>{saving ? 'Publishing…' : 'Publish rules'}</button></div>
+	{#if loading}<p>{$_('crp.loading')}</p>{:else}
+		<label>{$_('crp.rules_text')}<textarea bind:value={text} rows="9" maxlength="12000" placeholder={$_('crp.rules_ph')}></textarea></label>
+		<p class="hint">{$_('crp.hint')}</p>
+		<label class="check"><input type="checkbox" bind:checked={requireAckBeforePosting} /> {$_('crp.ack')}</label>
+		<label class="check"><input type="checkbox" bind:checked={materialChange} /> {$_('crp.material')}</label>
+		<div class="actions"><span>{$_('crp.published_rev', { values: { revision: published?.revision ?? 0 } })}</span><button onclick={save} disabled={saving || (!text.trim() && requireAckBeforePosting)}>{saving ? $_('crp.publishing') : $_('crp.publish')}</button></div>
 	{/if}
 </details>
 

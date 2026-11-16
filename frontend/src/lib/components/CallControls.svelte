@@ -15,6 +15,7 @@
 </script>
 
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { deviceVisual } from '$lib/deviceVisuals';
 	import { onMount, tick } from 'svelte';
 	import type { PresenterOverlayTool } from '$lib/calling/presenterOverlay';
@@ -80,11 +81,12 @@
 	const dockId = `call-dock-${++dockCounter}`;
 	const moreTriggerId = `${dockId}-more`;
 	// The drawing tool and line width are kit segmented controls (one Tab stop, ←/→ choose).
-	const toolOptions: { value: PresenterOverlayTool; label: string }[] = [
-		{ value: 'pen', label: 'Pen' },
-		{ value: 'arrow', label: 'Arrow' },
-		{ value: 'rect', label: 'Box' },
-		{ value: 'ellipse', label: 'Ellipse' }
+	let toolOptions: { value: PresenterOverlayTool; label: string }[];
+	$: toolOptions = [
+		{ value: 'pen', label: $_('notebook.pen') },
+		{ value: 'arrow', label: $_('call.tool_arrow') },
+		{ value: 'rect', label: $_('call.tool_box') },
+		{ value: 'ellipse', label: $_('call.tool_ellipse') }
 	];
 	const widthOptions = PRESENTER_OVERLAY_WIDTHS.map((width) => ({ value: width, label: `${width} px` }));
 
@@ -161,7 +163,7 @@
 	});
 
 	function deviceLabel(device: MediaDeviceInfo, index: number): string {
-		return device.label || `Device ${index + 1}`;
+		return device.label || $_('call.device_n', { values: { n: index + 1 } });
 	}
 </script>
 
@@ -171,26 +173,26 @@
 	{/if}
 
 	{#if presenterOverlayVisible && presenterOverlayAvailable}
-		<div class="presenter-overlay-toolbar" role="group" aria-label="Drawing tools, only on your screen">
+		<div class="presenter-overlay-toolbar" role="group" aria-label={$_('call.overlay_tools')}>
 			<Segmented
-				label="Tool"
+				label={$_('call.tool_label')}
 				options={toolOptions}
 				value={presenterOverlayTool}
 				onchange={onPresenterOverlayToolChange}
 			/>
 			<Segmented
-				label="Line width"
+				label={$_('call.width_label')}
 				options={widthOptions}
 				value={presenterOverlayStrokeWidth}
 				onchange={onPresenterOverlayStrokeWidthChange}
 			/>
-			<div class="presenter-overlay-swatches" role="group" aria-label="Color">
+			<div class="presenter-overlay-swatches" role="group" aria-label={$_('project_modal.color')}>
 				{#each PRESENTER_OVERLAY_COLORS as color, index}
 					<button
 						type="button"
 						class="presenter-overlay-swatch"
 						aria-pressed={presenterOverlayColor === color}
-						aria-label={`Color ${index + 1}`}
+						aria-label={$_('call.color_n', { values: { n: index + 1 } })}
 						style={`--overlay-color: ${color};`}
 						on:click={() => onPresenterOverlayColorChange(color)}
 					></button>
@@ -202,18 +204,18 @@
 				class="w-ibtn w-ibtn--sm"
 				on:click={onPresenterOverlayUndo}
 				disabled={!presenterOverlayCanUndo}
-				aria-label="Undo drawing"
-				title="Undo drawing"
+				aria-label={$_('call.undo_draw')}
+				title={$_('call.undo_draw')}
 			><Icon name="undo" size={16} /></button>
 			<button
 				type="button"
 				class="w-ibtn w-ibtn--sm"
 				on:click={onPresenterOverlayRedo}
 				disabled={!presenterOverlayCanRedo}
-				aria-label="Redo drawing"
-				title="Redo drawing"
+				aria-label={$_('call.redo_draw')}
+				title={$_('call.redo_draw')}
 			><Icon name="redo" size={16} /></button>
-			<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={onPresenterOverlayClear}>Clear</button>
+			<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={onPresenterOverlayClear}>{$_('call.clear')}</button>
 		</div>
 	{/if}
 
@@ -227,24 +229,24 @@
 			tabindex="-1"
 		>
 			<div class="device-picker__head">
-				<h3 class="device-picker__title" id={`${dockId}-devices`}>Microphone and speakers</h3>
+				<h3 class="device-picker__title" id={`${dockId}-devices`}>{$_('call.devices_title')}</h3>
 				<button
 					type="button"
 					class="w-ibtn w-ibtn--sm"
-					aria-label="Close"
-					title="Close"
+					aria-label={$_('common.close')}
+					title={$_('common.close')}
 					on:click={() => closeDevicePicker(true)}
 				><Icon name="x" size={16} /></button>
 			</div>
 			{#if !devices}
-				<p class="device-picker-empty" role="status">Looking for devices…</p>
+				<p class="device-picker-empty" role="status">{$_('call.looking')}</p>
 			{:else}
 				<!-- Toggle buttons (aria-pressed): choosing a row switches the device, so arrow keys must
 				     not switch it while you browse. -->
 				<div class="device-group" role="group" aria-labelledby={`${dockId}-mics`}>
-					<span class="device-group-title w-kicker" id={`${dockId}-mics`}>Microphone</span>
+					<span class="device-group-title w-kicker" id={`${dockId}-mics`}>{$_('audio_settings.microphone')}</span>
 					{#if devices.audioin.length === 0}
-						<p class="device-picker-empty">No microphone found</p>
+						<p class="device-picker-empty">{$_('call.no_mic')}</p>
 					{:else}
 						{#each devices.audioin as device, index (device.deviceId)}
 							<button
@@ -262,9 +264,9 @@
 				</div>
 
 				<div class="device-group" role="group" aria-labelledby={`${dockId}-outs`}>
-					<span class="device-group-title w-kicker" id={`${dockId}-outs`}>Speakers</span>
+					<span class="device-group-title w-kicker" id={`${dockId}-outs`}>{$_('call.group_speakers')}</span>
 					{#if devices.audioout.length === 0}
-						<p class="device-picker-empty">No choice of speakers on this device</p>
+						<p class="device-picker-empty">{$_('call.no_speakers')}</p>
 					{:else}
 						{#each devices.audioout as device, index (device.deviceId)}
 							<button
@@ -282,7 +284,7 @@
 				</div>
 			{/if}
 			<div class="device-picker__foot">
-				<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={openAudioSettings}>Audio settings</button>
+				<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={openAudioSettings}>{$_('call.audio_settings')}</button>
 			</div>
 		</div>
 	{/if}
@@ -290,57 +292,57 @@
 	<!-- `call-controls` and the Leave key's `end` class are the hooks the audio smoke harness
 	     (test/call-panel-browser-harness.ts) clicks; data-call-leave is the stable one. No style
 	     uses them. -->
-	<div class="call-dock call-controls" id={dockId} role="group" aria-label="Call controls" use:cornerBar>
+	<div class="call-dock call-controls" id={dockId} role="group" aria-label={$_('call.dock_label')} use:cornerBar>
 		{#each barControls as control (control)}
 			{#if control === 'mic'}
-				<Tooltip text={isMuted ? 'Unmute microphone' : 'Mute microphone'} placement="top">
+				<Tooltip text={isMuted ? $_('call.unmute_mic') : $_('profile_card.mute_mic')} placement="top">
 					<button
 						type="button"
 						class="w-ibtn call-dock__btn call-dock__mic"
-						aria-label="Mute microphone"
+						aria-label={$_('profile_card.mute_mic')}
 						aria-pressed={isMuted}
 						on:click={onToggleMute}
 					><Icon name={isMuted ? 'micOff' : 'mic'} /></button>
 				</Tooltip>
 			{:else if control === 'sound'}
-				<Tooltip text={isDeafened ? 'Turn sound back on' : 'Deafen'} placement="top">
+				<Tooltip text={isDeafened ? $_('call.undeafen') : $_('user.popout.deafen')} placement="top">
 					<button
 						type="button"
 						class="w-ibtn call-dock__btn call-dock__sound"
-						aria-label="Deafen"
+						aria-label={$_('user.popout.deafen')}
 						aria-pressed={isDeafened}
 						on:click={onToggleDeafen}
 					><Icon name={isDeafened ? 'headphonesOff' : 'headphones'} /></button>
 				</Tooltip>
 			{:else if control === 'camera'}
-				<Tooltip text={isVideoOff ? 'Turn camera on' : 'Turn camera off'} placement="top">
+				<Tooltip text={isVideoOff ? $_('call.cam_on') : $_('call.cam_off')} placement="top">
 					<button
 						type="button"
 						class="w-ibtn call-dock__btn"
-						aria-label="Camera"
+						aria-label={$_('calls.camera')}
 						aria-pressed={!isVideoOff}
 						on:click={onToggleVideo}
 					><Icon name={isVideoOff ? 'videoOff' : 'video'} /></button>
 				</Tooltip>
 			{:else if control === 'screen'}
-				<Tooltip text={isSharing ? 'Stop sharing your screen' : 'Share your screen'} placement="top">
+				<Tooltip text={isSharing ? $_('call.stop_share') : $_('call.share')} placement="top">
 					<button
 						type="button"
 						class="w-ibtn call-dock__btn"
-						aria-label="Share screen"
+						aria-label={$_('calls.share_screen')}
 						aria-pressed={isSharing}
 						on:click={onToggleScreenShare}
 					><Icon name="screen" /></button>
 				</Tooltip>
 			{/if}
 		{/each}
-		<Tooltip text="More call controls" placement="top">
+		<Tooltip text={$_('call.more_controls')} placement="top">
 		<Menu
 			id={moreTriggerId}
 			items={moreItems}
-			label="More call controls"
-			triggerLabel="More"
-			heading={compact ? 'Call controls' : null}
+			label={$_('call.more_controls')}
+			triggerLabel={$_('common.more')}
+			heading={compact ? $_('call.dock_label') : null}
 			class={moreHasActive ? 'w-ibtn call-dock__btn w-ibtn--dot' : 'w-ibtn call-dock__btn'}
 			align={compact ? 'end' : 'start'}
 			gap={DOCK_MENU_GAP}

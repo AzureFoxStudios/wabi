@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { getAuthToken } from '$lib/authSession';
 	import { parseLoreChannelId } from '$lib/api/lore';
 	import {
@@ -44,8 +45,8 @@
 	}
 
 	function describeError(status: number | undefined, fallback: string): string {
-		if (status === 409) return 'A space with this name already exists here.';
-		if (status === 502) return "Couldn't reach the source — the clone failed. Check the URL and try again.";
+		if (status === 409) return $_('lconn.err_name_taken');
+		if (status === 502) return $_('lconn.err_source_unreachable');
 		return fallback;
 	}
 
@@ -61,20 +62,20 @@
 
 	function submitLabel(): string {
 		if (creating) {
-			if (mode === 'create') return 'Creating…';
-			if (mode === 'link') return 'Linking…';
-			return externalTarget === 'track' ? 'Tracking…' : 'Importing…';
+			if (mode === 'create') return $_('lconn.creating');
+			if (mode === 'link') return $_('lconn.linking');
+			return externalTarget === 'track' ? $_('lconn.tracking') : $_('lconn.importing');
 		}
-		if (mode === 'create') return 'Create Space';
-		if (mode === 'link') return 'Link Space';
-		return externalTarget === 'track' ? 'Track Source' : 'Import Source';
+		if (mode === 'create') return $_('lconn.submit_create');
+		if (mode === 'link') return $_('lconn.submit_link');
+		return externalTarget === 'track' ? $_('lconn.submit_track') : $_('lconn.submit_import');
 	}
 
 	async function handleConnect() {
 		const token = getAuthToken();
 		const numericChannelId = parseLoreChannelId(channelId);
 		if (!token || !numericChannelId) {
-			error = 'Unable to identify channel';
+			error = $_('lconn.err_no_channel');
 			return;
 		}
 
@@ -82,7 +83,7 @@
 
 		if (mode === 'create') {
 			if (!repoName.trim()) {
-				error = 'Please enter a space name';
+				error = $_('lconn.err_name_required');
 				return;
 			}
 			creating = true;
@@ -91,13 +92,13 @@
 					auto_branch_on_upload: autoBranchOnUpload
 				});
 			} catch (e: any) {
-				error = e?.message || 'Failed to create space';
+				error = e?.message || $_('lconn.err_create_failed');
 				creating = false;
 				return;
 			}
 		} else if (mode === 'link') {
 			if (!repoName.trim()) {
-				error = 'Please enter the Lore space name';
+				error = $_('lconn.err_link_name_required');
 				return;
 			}
 			creating = true;
@@ -113,21 +114,21 @@
 				});
 				if (!res.ok) {
 					const err = await res.json().catch(() => ({}));
-					throw new Error(err.error || 'Failed to link space');
+					throw new Error(err.error || $_('lconn.err_link_failed'));
 				}
 			} catch (e: any) {
-				error = e?.message || 'Failed to link space';
+				error = e?.message || $_('lconn.err_link_failed');
 				creating = false;
 				return;
 			}
 		} else {
 			if (!upstreamUrl.trim()) {
-				error = 'Please enter the source URL';
+				error = $_('lconn.err_url_required');
 				return;
 			}
 			const name = repoName.trim() || defaultNameFromUrl(upstreamUrl);
 			if (!name) {
-				error = 'Please enter a name for this space';
+				error = $_('lconn.err_name_for_space');
 				return;
 			}
 			creating = true;
@@ -138,7 +139,7 @@
 					await importLoreRepo(token, numericChannelId, upstreamUrl.trim(), name);
 				}
 			} catch (e: any) {
-				error = describeError(e?.status, e?.message || 'Failed to connect the source');
+				error = describeError(e?.status, e?.message || $_('lconn.err_connect_failed'));
 				creating = false;
 				return;
 			}
@@ -154,7 +155,7 @@
 	});
 </script>
 
-<div class="lore-connect-modal" role="dialog" aria-modal="true" aria-label="Connect a Lore space">
+<div class="lore-connect-modal" role="dialog" aria-modal="true" aria-label={$_('lconn.dialog_label')}>
 	<div class="connect-card" onclick={(e) => e.stopPropagation()}>
 		<div class="connect-header">
 			<div class="header-icon">
@@ -164,34 +165,34 @@
 				</svg>
 			</div>
 			<div class="header-text">
-				<h2>Connect a Lore Space</h2>
-				<p>Versioned storage for this channel</p>
+				<h2>{$_('lconn.title')}</h2>
+				<p>{$_('lconn.subtitle')}</p>
 			</div>
-			<button class="close-btn" onclick={onClose} aria-label="Close">×</button>
+			<button class="close-btn" onclick={onClose} aria-label={$_('common.close')}>×</button>
 		</div>
 
 		<!-- Health check -->
 		<div class="health-section">
 			<div class="health-row">
-				<span class="health-label">Lore Storage</span>
+				<span class="health-label">{$_('lconn.health_label')}</span>
 				<span class="health-status" class:healthy={health === 'ok'} class:error={health === 'error' || health === 'disabled'}>
 					<span class="health-dot"></span>
 					{health === 'ok'
-						? 'Ready'
+						? $_('media_albums.ready')
 						: health === 'disabled'
-							? 'Disabled'
+							? $_('lconn.health_disabled')
 							: health === 'error'
-								? 'Unavailable'
-								: 'Checking...'}
+								? $_('lconn.health_unavailable')
+								: $_('lconn.health_checking')}
 				</span>
 			</div>
 			{#if health === 'error'}
 				<div class="health-warning">
-					⚠️ Lore storage is unreachable. Embedded servers need no separate process — ask your operator to check the lore addon health and config on the server.
+					⚠️ {$_('lconn.warn_unreachable')}
 				</div>
 			{:else if health === 'disabled'}
 				<div class="health-warning">
-					⚠️ The lore addon is disabled on this server (WABI_LORE_ENABLED=false). Ask your operator to enable it.
+					⚠️ {$_('lconn.warn_disabled')}
 				</div>
 			{/if}
 		</div>
@@ -201,8 +202,8 @@
 			<form class="connect-form" onsubmit={(e) => { e.preventDefault(); void handleConnect(); }}>
 				<div class="form-group">
 					<span class="form-label-row">
-						<label>Where is this space coming from?</label>
-						<span class="mode-toggle" role="tablist" aria-label="Connect option">
+						<label>{$_('lconn.origin_label')}</label>
+						<span class="mode-toggle" role="tablist" aria-label={$_('lconn.mode_group')}>
 							<button
 								type="button"
 								class="mode-btn"
@@ -210,7 +211,7 @@
 								onclick={() => mode = 'create'}
 								role="tab"
 								aria-selected={mode === 'create'}
-							>New space</button>
+							>{$_('lconn.mode_new')}</button>
 							<button
 								type="button"
 								class="mode-btn"
@@ -218,7 +219,7 @@
 								onclick={() => mode = 'link'}
 								role="tab"
 								aria-selected={mode === 'link'}
-							>Link existing</button>
+							>{$_('lconn.mode_link')}</button>
 							<button
 								type="button"
 								class="mode-btn"
@@ -233,54 +234,54 @@
 
 					{#if mode === 'create'}
 						<div class="form-group">
-							<label for="repo-name">Space name</label>
+							<label for="repo-name">{$_('lconn.space_name')}</label>
 							<input
 								id="repo-name"
 								type="text"
 								bind:value={repoName}
-								placeholder="my-project"
+								placeholder={$_('lconn.placeholder_project')}
 								class="input-field"
 								autofocus
 							/>
-							<span class="input-hint">Creates a brand-new empty space for this channel.</span>
+							<span class="input-hint">{$_('lconn.hint_create')}</span>
 						</div>
 
 						<label class="checkbox-row">
 							<input type="checkbox" bind:checked={autoBranchOnUpload} />
 							<span class="checkbox-copy">
-								<span class="checkbox-title">Review uploads with the team before they're official</span>
-								<span class="checkbox-hint">Uploads are saved as a new version and need approval before becoming official.</span>
+								<span class="checkbox-title">{$_('lconn.auto_branch_title')}</span>
+								<span class="checkbox-hint">{$_('lconn.auto_branch_hint')}</span>
 							</span>
 						</label>
 					{:else if mode === 'link'}
 						<div class="form-group">
-							<label for="repo-name">Space name</label>
+							<label for="repo-name">{$_('lconn.space_name')}</label>
 							<input
 								id="repo-name"
 								type="text"
 								bind:value={repoName}
-								placeholder="my-existing-project"
+								placeholder={$_('lconn.placeholder_existing')}
 								class="input-field"
 								autofocus
 							/>
-							<span class="input-hint">Links an existing space from the Lore server — history included (needs sidecar/remote mode; embedded servers have nothing to clone).</span>
+							<span class="input-hint">{$_('lconn.hint_link')}</span>
 						</div>
 					{:else}
 					<div class="form-group">
-						<label for="repo-name">Space name</label>
+						<label for="repo-name">{$_('lconn.space_name')}</label>
 						<input
 							id="repo-name"
 							type="text"
 							bind:value={repoName}
-							placeholder="my-project"
+							placeholder={$_('lconn.placeholder_project')}
 							class="input-field"
 							autofocus
 						/>
-						<span class="input-hint">What this space will be called in Wabi.</span>
+						<span class="input-hint">{$_('lconn.hint_external_name')}</span>
 					</div>
 
 					<div class="form-group">
-						<label for="upstream-url">Source URL (GitHub / GitLab)</label>
+						<label for="upstream-url">{$_('lconn.source_url_label')}</label>
 						<input
 							id="upstream-url"
 							type="text"
@@ -288,7 +289,7 @@
 							placeholder="https://github.com/org/project"
 							class="input-field"
 						/>
-						<span class="input-hint">Content is pulled from this location.</span>
+						<span class="input-hint">{$_('lconn.hint_source')}</span>
 					</div>
 				{/if}
 
@@ -304,7 +305,7 @@
 				{/if}
 
 				<div class="form-actions">
-					<button type="button" class="btn btn-secondary" onclick={onClose}>Cancel</button>
+					<button type="button" class="btn btn-secondary" onclick={onClose}>{$_('common.cancel')}</button>
 					{#if mode === 'external'}
 						<button
 							type="button"
@@ -313,7 +314,7 @@
 							onclick={() => { externalTarget = 'track'; void handleConnect(); }}
 						>
 							{#if creating && externalTarget === 'track'}<span class="spinner"></span>{/if}
-							Track it (read-only mirror)
+							{$_('lconn.track_btn')}
 						</button>
 						<button
 							type="button"
@@ -322,7 +323,7 @@
 							onclick={() => { externalTarget = 'import'; void handleConnect(); }}
 						>
 							{#if creating && externalTarget === 'import'}<span class="spinner"></span>{/if}
-							Import into Wabi (native, history starts fresh)
+							{$_('lconn.import_btn')}
 						</button>
 					{:else}
 						<button type="submit" class="btn btn-primary" disabled={creating}>
@@ -340,9 +341,9 @@
 						<polyline points="22 4 12 14.01 9 11.01"/>
 					</svg>
 				</div>
-				<h3>Space Connected!</h3>
-				<p>Your space <strong>{repoName}</strong> is now active for this channel.</p>
-				<button class="btn btn-primary" onclick={onConnected}>Start Working</button>
+				<h3>{$_('lconn.connected_title')}</h3>
+				<p>{$_('lconn.connected_pre')} <strong>{repoName}</strong> {$_('lconn.connected_post')}</p>
+				<button class="btn btn-primary" onclick={onConnected}>{$_('lconn.start_btn')}</button>
 			</div>
 		{/if}
 	</div>

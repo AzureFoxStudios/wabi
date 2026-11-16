@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { openGames } from '$lib/games/navigation';
 	import { createEventDispatcher } from 'svelte';
 	import { channels, channelMessages, channelUnreadCounts, currentUser, users, serverMembers, connected, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
@@ -61,7 +62,7 @@
 		ariaLabel: string;
 	};
 
-	const FILTER_LABELS: Record<ConversationFilter, string> = { all: 'All', unread: 'Unread', groups: 'Groups' };
+	const FILTER_LABELS: Record<ConversationFilter, string> = { all: 'dm.filter_all', unread: 'dm.filter_unread', groups: 'dm.filter_groups' };
 
 	const dispatch = createEventDispatcher<{
 		openSettings: { paymentSurface: 'connections' };
@@ -144,11 +145,11 @@
 
 	function lastPreview(messages: Record<string, Message[]>, channelId: string, self: User | null): string {
 		const msgs = messages[channelId] || [];
-		if (msgs.length === 0) return 'No messages yet';
+		if (msgs.length === 0) return $_('dm.no_messages');
 		const last = msgs[msgs.length - 1];
 		const mine = Boolean(self && (last.userId === self.id || last.user === self.username));
-		const body = last.type === 'text' || !last.type ? (last.text || '').replace(/\s+/g, ' ').trim() : `Sent a ${last.type}`;
-		return mine ? `You: ${body}` : body;
+		const body = last.type === 'text' || !last.type ? (last.text || '').replace(/\s+/g, ' ').trim() : $_('dm.sent_a', { values: { type: last.type } });
+		return mine ? $_('dm.you_prefix', { values: { body } }) : body;
 	}
 
 	function relativeTime(messages: Record<string, Message[]>, channelId: string): string {
@@ -157,10 +158,10 @@
 		const ts = msgs[msgs.length - 1].timestamp ?? 0;
 		if (!ts) return '';
 		const diff = Date.now() - ts;
-		if (diff < 60000) return 'now';
-		if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-		if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
-		return `${Math.floor(diff / 86400000)}d`;
+		if (diff < 60000) return $_('dm.time_now');
+		if (diff < 3600000) return $_('dm.time_m', { values: { count: Math.floor(diff / 60000) } });
+		if (diff < 86400000) return $_('dm.time_h', { values: { count: Math.floor(diff / 3600000) } });
+		return $_('dm.time_d', { values: { count: Math.floor(diff / 86400000) } });
 	}
 
 	function buildConversationRows(
@@ -186,7 +187,7 @@
 			const unread = unreadCounts[channel.id] || 0;
 			if (filter === 'groups' && !isGroup) continue;
 			if (filter === 'unread' && unread === 0) continue;
-			const name = isGroup ? channel.name || 'Group' : other!.username;
+			const name = isGroup ? channel.name || $_('panels.group') : other!.username;
 			if (needle) {
 				const haystack = [name, other?.handle || '', ...(isGroup ? (channel.memberUsers || []).map((member) => member.username) : [])].join(' ').toLowerCase();
 				if (!haystack.includes(needle)) continue;
@@ -293,24 +294,24 @@
 	async function handleDeleteOrLeave(channel: Channel) {
 		if (channel.type === 'group') {
 			const leave = await confirmAction({
-				title: 'Leave this group?',
-				body: `You stop receiving messages from ${channel.name || 'this group'}. Someone in it can add you again.`,
-				confirm: 'Leave group',
+				title: $_('dm.leave_group_title'),
+				body: $_('dm.leave_group_body', { values: { name: channel.name || $_('dm.this_group') } }),
+				confirm: $_('dm.leave_group_confirm'),
 				danger: true
 			});
 			if (!leave) return;
 			try { await leaveGroup(channel.id); }
 			catch (error) {
 				console.error('[DMs] leaving the group failed', error);
-				showToast('Could not leave the group. You are still a member.', 'error');
+				showToast($_('dm.leave_group_failed'), 'error');
 			}
 			// group-removed owns the targeted surface cleanup, never this click.
 			return;
 		}
 		const remove = await confirmAction({
-			title: 'Delete this conversation?',
-			body: 'It is deleted for both of you, with its shared notes. This cannot be undone.',
-			confirm: 'Delete conversation',
+			title: $_('dm.delete_title'),
+			body: $_('dm.delete_body'),
+			confirm: $_('dm.delete_confirm'),
 			danger: true
 		});
 		if (!remove) return;
@@ -354,8 +355,8 @@
 		} catch (error) {
 			console.warn(`[Call] group ${withVideo ? 'video' : 'voice'} call failed to start:`, error);
 			showToast(withVideo
-				? 'Could not start the video call. Check camera and microphone permissions.'
-				: 'Could not start the call. Check microphone permissions.', 'error');
+				? $_('dm.call_video_failed_perm')
+				: $_('dm.call_failed_perm'), 'error');
 		}
 	}
 
@@ -366,8 +367,8 @@
 			actions.push(
 				{
 					id: 'voice',
-					label: 'Voice call',
-					title: `Call ${other.username}`,
+					label: $_('user.voice_call'),
+					title: $_('dm.call_title', { values: { name: other.username } }),
 					icon: 'phone',
 					glyph: 'phone',
 					showInline: true,
@@ -375,8 +376,8 @@
 				},
 				{
 					id: 'video',
-					label: 'Video call',
-					title: `Video call ${other.username}`,
+					label: $_('user.video_call'),
+					title: $_('dm.video_call_title', { values: { name: other.username } }),
 					icon: 'video',
 					glyph: 'video',
 					showInline: true,
@@ -387,8 +388,8 @@
 			actions.push(
 				{
 					id: 'voice',
-					label: 'Voice call',
-					title: `Call ${channel.name || 'group'}`,
+					label: $_('user.voice_call'),
+					title: $_('dm.call_title', { values: { name: channel.name || $_('dm.group_lower') } }),
 					icon: 'phone',
 					glyph: 'phone',
 					showInline: true,
@@ -396,8 +397,8 @@
 				},
 				{
 					id: 'video',
-					label: 'Video call',
-					title: `Video call ${channel.name || 'group'}`,
+					label: $_('user.video_call'),
+					title: $_('dm.video_call_title', { values: { name: channel.name || $_('dm.group_lower') } }),
 					icon: 'video',
 					glyph: 'video',
 					showInline: true,
@@ -408,8 +409,8 @@
 
 		actions.push({
 			id: 'remove',
-			label: channel.type === 'group' ? 'Leave group' : 'Delete conversation',
-			title: channel.type === 'group' ? `Leave ${channel.name || 'group'}` : `Delete conversation with ${other?.username || 'this person'}`,
+			label: channel.type === 'group' ? $_('dm.leave_group_confirm') : $_('dm.delete_confirm'),
+			title: channel.type === 'group' ? $_('dm.leave_title', { values: { name: channel.name || $_('dm.group_lower') } }) : $_('dm.delete_with', { values: { name: other?.username || $_('dm.this_person') } }),
 			icon: channel.type === 'group' ? 'log-out' : 'trash-2',
 			glyph: channel.type === 'group' ? 'logout' : 'trash',
 			danger: true,
@@ -431,7 +432,7 @@
 	$: headerActions = selectedDmChannel ? getInlineActions(selectedDmChannel, dmOther) : [];
 	$: headerCallActions = headerActions.filter((action) => action.id === 'voice' || action.id === 'video');
 	$: headerRemoveAction = headerActions.find((action) => action.id === 'remove');
-	$: activeHeaderTitle = activeGroup?.name || (isKeepNotesSelected ? 'Notes' : dmOther?.username || 'Direct message');
+	$: activeHeaderTitle = activeGroup?.name || (isKeepNotesSelected ? $_('places.notes') : dmOther?.username || $_('chat.dm.badge'));
 
 	function openContextMenu(event: MouseEvent, channel: Channel, other: User | null = null) {
 		event.preventDefault();
@@ -482,17 +483,17 @@
 	$: contextMenuItems = buildContextMenuItems(contextMenuChannel, contextMenuUser, pinnedDmSet);
 	$: headerActionMenuItems = buildHeaderActionMenuItems({ headerRemoveAction, activeGroup, selectedDmId, isKeepNotesSelected, showGroupSettings });
 	$: filterMenuItems = [
-		{ id: 'k-show', type: 'kicker', label: 'Show' },
+		{ id: 'k-show', type: 'kicker', label: $_('panels.show') },
 		...(['all', 'unread', 'groups'] as const).map((value) => ({
 			id: `filter:${value}`,
-			label: FILTER_LABELS[value],
+			label: $_(FILTER_LABELS[value]),
 			role: 'menuitemradio' as const,
 			checked: conversationFilter === value
 		}))
 	] satisfies MenuEntry[];
 	const newConversationItems: MenuEntry[] = [
-		{ id: 'new-dm', label: 'New message', icon: 'chat', onSelect: () => { createDmError = ''; showNewDM = true; } },
-		{ id: 'new-group', label: 'New group', icon: 'users', onSelect: () => { showCreateGroup = true; } }
+		{ id: 'new-dm', label: $_('panels.new_message'), icon: 'chat', onSelect: () => { createDmError = ''; showNewDM = true; } },
+		{ id: 'new-group', label: $_('dm.new_group'), icon: 'users', onSelect: () => { showCreateGroup = true; } }
 	];
 
 	function handleFilterSelect(id: string): void {
@@ -513,13 +514,13 @@
 		const items: MenuEntry[] = [
 			{
 				id: 'open',
-				label: 'Open conversation',
+				label: $_('dm.open_conversation'),
 				icon: 'chat',
 				onSelect: () => selectConversation(channel)
 			},
 			{
 				id: 'pin-toggle',
-				label: pinned.has(channel.id) ? 'Unpin conversation' : 'Pin conversation',
+				label: pinned.has(channel.id) ? $_('dm.unpin') : $_('dm.pin'),
 				icon: 'pin',
 				onSelect: () => toggleConversationPin(channel.id)
 			}
@@ -543,13 +544,13 @@
 	}): MenuEntry[] {
 		const items: MenuEntry[] = [];
 		if (selectedDmId && !isKeepNotesSelected) items.push({
-			id: 'header-find-game', label: 'What can we play?', icon: 'gamepad',
+			id: 'header-find-game', label: $_('dm.find_game'), icon: 'gamepad',
 			onSelect: () => openGames({ channelId: selectedDmId, tab: 'match' })
 		});
 		if (activeGroup) {
 			items.push({
 				id: 'header-group-settings',
-				label: showGroupSettings ? 'Back to messages' : 'Group settings',
+				label: showGroupSettings ? $_('dm.back_to_messages') : $_('dm.group_settings'),
 				icon: 'gear',
 				onSelect: toggleGroupSettings
 			});
@@ -572,7 +573,7 @@
 		<!-- Active conversation: its row B (40px) names it and holds its actions. -->
 		<div class="dm-tab-active">
 			<div class="dm-rowb dm-active-head">
-				<button type="button" class="w-ibtn w-ibtn--sm" on:click={backToList} title="All DMs" aria-label="Back to all DMs">
+				<button type="button" class="w-ibtn w-ibtn--sm" on:click={backToList} title={$_('dm.all_dms')} aria-label={$_('dm.back_to_all')}>
 					<Icon name="chevLeft" size={16} />
 				</button>
 				<span class="dm-head-title" title={activeHeaderTitle}>
@@ -583,7 +584,7 @@
 					{/if}
 				</span>
 				{#if isKeepNotesSelected}
-					<span class="w-tag dm-head-tag">Only you · this device</span>
+					<span class="w-tag dm-head-tag">{$_('locality.only_you_device')}</span>
 				{/if}
 				{#each headerCallActions as action (action.id)}
 					<button type="button" class="w-ibtn w-ibtn--sm" on:click={action.onSelect} title={action.title} aria-label={action.title}>
@@ -593,8 +594,8 @@
 				{#if headerActionMenuItems.length > 0}
 					<Menu
 						items={headerActionMenuItems}
-						label="Conversation actions"
-						triggerLabel="Conversation actions"
+						label={$_('dm.conversation_actions')}
+						triggerLabel={$_('dm.conversation_actions')}
 						class="w-ibtn w-ibtn--sm"
 						align="end"
 						heading={activeHeaderTitle}
@@ -631,28 +632,28 @@
 			<div class="dm-rowb">
 				<label class="w-field w-field--chrome dm-find">
 					<Icon name="search" size={16} />
-					<input type="search" bind:value={conversationQuery} placeholder="Search DMs" aria-label="Search DMs" autocomplete="off" spellcheck="false" />
+					<input type="search" bind:value={conversationQuery} placeholder={$_('panels.search_dms')} aria-label={$_('panels.search_dms')} autocomplete="off" spellcheck="false" />
 				</label>
 				<Menu
 					items={filterMenuItems}
-					label="Show conversations"
-					triggerLabel={filterApplied ? `Filter DMs, showing ${FILTER_LABELS[conversationFilter].toLowerCase()}` : 'Filter DMs'}
+					label={$_('dm.show_conversations')}
+					triggerLabel={filterApplied ? $_('dm.filter_showing', { values: { filter: $_(FILTER_LABELS[conversationFilter]).toLowerCase() } }) : $_('dm.filter_dms')}
 					class={filterApplied ? 'w-ibtn w-ibtn--edge w-ibtn--dot dm-ibtn' : 'w-ibtn w-ibtn--edge dm-ibtn'}
 					align="end"
-					heading="DMs"
+					heading={$_('shell.mobile.messages')}
 					onselect={handleFilterSelect}
 				>
 					<Icon name="sliders" />
 				</Menu>
-				<Menu items={newConversationItems} label="New conversation" triggerLabel="New conversation" class="w-ibtn w-ibtn--edge dm-ibtn" align="end" heading="New conversation">
+				<Menu items={newConversationItems} label={$_('dm.new_conversation')} triggerLabel={$_('dm.new_conversation')} class="w-ibtn w-ibtn--edge dm-ibtn" align="end" heading={$_('dm.new_conversation')}>
 					<Icon name="plus" />
 				</Menu>
 			</div>
 			{#if filterApplied}
 				<div class="dm-chips">
 					<span class="w-tag dm-chip">
-						{FILTER_LABELS[conversationFilter]} only
-						<button type="button" class="dm-chip-clear" aria-label="Show all conversations" on:click={() => (conversationFilter = 'all')}>
+						{$_('dm.filter_only', { values: { filter: $_(FILTER_LABELS[conversationFilter]) } })}
+						<button type="button" class="dm-chip-clear" aria-label={$_('dm.show_all_convos')} on:click={() => (conversationFilter = 'all')}>
 							<Icon name="x" size={12} />
 						</button>
 					</span>
@@ -662,14 +663,14 @@
 			{#if showNewDM}
 				<div class="dm-new-panel">
 					<div class="dm-new-head">
-						<span class="w-kicker">New message</span>
-						<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close new message" on:click={() => { showNewDM = false; searchQuery = ''; createDmError = ''; }}>
+						<span class="w-kicker">{$_('panels.new_message')}</span>
+						<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('dm.close_new_message')} on:click={() => { showNewDM = false; searchQuery = ''; createDmError = ''; }}>
 							<Icon name="x" size={16} />
 						</button>
 					</div>
 					<label class="w-field w-field--chrome dm-find">
 						<Icon name="user" size={16} />
-						<input type="search" bind:value={searchQuery} placeholder="Find a person" aria-label="Find a person to message" autocomplete="off" spellcheck="false" />
+						<input type="search" bind:value={searchQuery} placeholder={$_('dm.find_person')} aria-label={$_('dm.find_person_to_message')} autocomplete="off" spellcheck="false" />
 					</label>
 					{#if createDmError}
 						<p class="dm-new-error" role="alert"><Icon name="alert" size={14} />{createDmError}</p>
@@ -686,7 +687,7 @@
 								{#if user.handle}<span class="dm-new-handle">@{user.handle}</span>{/if}
 							</button>
 						{:else}
-							<p class="dm-empty-search">No one matches “{searchQuery.trim()}”.</p>
+							<p class="dm-empty-search">{$_('dm.no_match', { values: { query: searchQuery.trim() } })}</p>
 						{/each}
 					</div>
 				</div>
@@ -725,7 +726,7 @@
 									<span class="dm-row-name">
 										{#if row.isGroup}{row.name}{:else if row.other}<ProfileName username={row.name} font={row.other.usernameFont} color={row.color} />{/if}
 									</span>
-									{#if row.pinned}<span class="dm-row-pin" title="Pinned conversation"><Icon name="pin" size={12} /></span>{/if}
+									{#if row.pinned}<span class="dm-row-pin" title={$_('dm.pinned')}><Icon name="pin" size={12} /></span>{/if}
 									{#if row.time}<span class="dm-row-time">{row.time}</span>{/if}
 								</span>
 								<span class="dm-row-bottom">
@@ -740,7 +741,7 @@
 									<Icon name={action.glyph} size={16} />
 								</button>
 							{/each}
-							<button type="button" class="w-ibtn w-ibtn--sm" aria-label={`More for ${row.name}`} aria-haspopup="menu" on:click={(e) => openRowMenu(e, row.channel, row.other)}>
+							<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('dm.more_for', { values: { name: row.name } })} aria-haspopup="menu" on:click={(e) => openRowMenu(e, row.channel, row.other)}>
 								<Icon name="more" size={16} />
 							</button>
 						</span>
@@ -751,9 +752,9 @@
 							class="dm-empty"
 							as="p"
 							icon="dm"
-							title="No conversations match"
-							text={conversationQuery.trim() ? 'Try another name.' : `No ${FILTER_LABELS[conversationFilter].toLowerCase()} conversations right now.`}
-							action="Show all"
+							title={$_('dm.empty_match_title')}
+							text={conversationQuery.trim() ? $_('dm.try_another') : $_('dm.empty_filter_text', { values: { filter: $_(FILTER_LABELS[conversationFilter]).toLowerCase() } })}
+							action={$_('dm.show_all')}
 							onaction={clearListFilters}
 						/>
 					{:else}
@@ -761,9 +762,9 @@
 							class="dm-empty"
 							as="p"
 							icon="dm"
-							title="No conversations yet"
-							text="Start one with anyone in this community. It appears here."
-							action="New message"
+							title={$_('dm.empty_none_title')}
+							text={$_('dm.empty_none_text')}
+							action={$_('panels.new_message')}
 							onaction={() => { showNewDM = true; }}
 						/>
 					{/if}
@@ -777,7 +778,7 @@
 		x={contextMenuX}
 		y={contextMenuY}
 		items={contextMenuItems}
-		ariaLabel="Conversation actions"
+		ariaLabel={$_('dm.conversation_actions')}
 		headerLabel={contextMenuChannel?.type === 'group' ? contextMenuChannel?.name || null : contextMenuUser?.username || null}
 		on:close={closeContextMenu}
 	/>

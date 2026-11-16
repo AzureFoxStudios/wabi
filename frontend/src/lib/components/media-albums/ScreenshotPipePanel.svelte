@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { GameScreenshotDirectoryCandidate } from '$lib/gameScreenshotPipe';
 
 	export let scopeId = '';
@@ -25,8 +26,8 @@
 <div class="screenshot-pipe-panel">
 	<div class="screenshot-pipe-panel__header">
 		<div class="screenshot-pipe-panel__copy">
-			<strong>FFXIV screenshot pipe</strong>
-			<span>Route desktop screenshots into the current album scope.</span>
+			<strong>{$_('ssp.title')}</strong>
+			<span>{$_('ssp.hint')}</span>
 		</div>
 		<div class="screenshot-pipe-panel__actions">
 			<button
@@ -38,14 +39,14 @@
 				}}
 				disabled={!scopeId}
 			>
-				{enabled ? 'Enabled' : 'Disabled'}
+				{enabled ? $_('server_policy.enabled') : $_('ssp.disabled')}
 			</button>
 			<button
 				type="button"
 				on:click={onScanNow}
 				disabled={!scopeId || !enabled || !targetAlbumId || isScanning}
 			>
-				{isScanning ? 'Scanning...' : 'Scan now'}
+				{isScanning ? $_('ssp.scanning') : $_('ssp.scan_now')}
 			</button>
 		</div>
 	</div>
@@ -53,7 +54,7 @@
 		<input
 			type="text"
 			bind:value={folderPath}
-			placeholder="FFXIV screenshot folder path"
+			placeholder={$_('ssp.folder_ph')}
 			on:change={onPersistSettings}
 			disabled={!scopeId}
 		/>
@@ -62,7 +63,7 @@
 			on:click={onUseDetectedFolder}
 			disabled={!scopeId || isLoadingCandidates}
 		>
-			{isLoadingCandidates ? 'Detecting...' : 'Detect folder'}
+			{isLoadingCandidates ? $_('ssp.detecting') : $_('ssp.detect')}
 		</button>
 	</div>
 	<div class="screenshot-pipe-panel__row">
@@ -71,25 +72,25 @@
 			on:click={onSetTargetFromSelectedAlbum}
 			disabled={!scopeKey || !selectedAlbumId}
 		>
-			Pipe into selected album
+			{$_('ssp.pipe')}
 		</button>
 		<button
 			type="button"
 			on:click={onClearTarget}
 			disabled={!scopeKey || targetAlbumId === null}
 		>
-			Clear target
+			{$_('ssp.clear')}
 		</button>
 	</div>
 	<div class="screenshot-pipe-panel__meta">
 		<span>
 			{#if targetAlbumId}
-				Target album: {targetAlbumName || `#${targetAlbumId}`}
+				{$_('ssp.target', { values: { name: targetAlbumName || `#${targetAlbumId}` } })}
 			{:else}
-				No target album set for this scope.
+				{$_('ssp.no_target')}
 			{/if}
 		</span>
-		<span>{folderPath || 'No folder selected yet.'}</span>
+		<span>{folderPath || $_('ssp.no_folder')}</span>
 	</div>
 	{#if existingCandidates.length > 0}
 		<div class="screenshot-pipe-candidates">

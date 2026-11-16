@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { currentChannel } from '$lib/channelStore';
 	import { getAuthToken } from '$lib/authSession';
@@ -65,16 +66,16 @@
 {#if channelId}
 	<div class="lore-code-panel">
 		<div class="panel-head">
-			<span class="panel-title">Project</span>
+			<span class="panel-title">{$_('places.project')}</span>
 			{#if $loreRepo}
 				<span class="repo-name" title={$loreRepo.repoName}>{$loreRepo.repoName}</span>
 			{/if}
-			<button type="button" class="refresh-btn" on:click={refresh} title="Refresh repo">↻</button>
+			<button type="button" class="refresh-btn" on:click={refresh} title={$_('lcode.refresh_title')}>↻</button>
 		</div>
 		{#if loading}
-			<div class="panel-empty">Loading repo…</div>
+			<div class="panel-empty">{$_('lcode.loading')}</div>
 		{:else if !$loreRepo}
-			<div class="panel-empty">Open a Project channel to browse its repo.</div>
+			<div class="panel-empty">{$_('lcode.empty')}</div>
 		{:else}
 			<div class="panel-tree">
 				<LoreFileTree

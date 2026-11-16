@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { Message } from '$lib/socket';
 	import { openReaderDocument } from '$lib/readerWorkspace';
 	import { createLongMessageExcerpt, getLongMessageStats } from './longMessagePreview';
@@ -13,15 +14,15 @@
 	$: excerpt = createLongMessageExcerpt(text);
 	$: stats = getLongMessageStats(text);
 	$: readerTitle = contextLabel
-		? `Message from ${message.user} · ${contextLabel}`
-		: `Message from ${message.user}`;
+		? $_('lmp.reader_title_ctx', { values: { user: message.user, context: contextLabel } })
+		: $_('lmp.reader_title', { values: { user: message.user } });
 
 	function openInReader(): void {
 		openReaderDocument(readerTitle, text, 'markdown', 'chat', undefined, String(message.id), { remoteMedia: !keepOnDevice });
 	}
 </script>
 
-<article class="long-message-preview" aria-label="Long message preview">
+<article class="long-message-preview" aria-label={$_('lmp.aria')}>
 	<div class="long-message-header">
 		<div class="long-message-heading">
 			<span class="long-message-icon" aria-hidden="true">
@@ -31,24 +32,24 @@
 				</svg>
 			</span>
 			<div>
-				<div class="long-message-kicker">{spoiler ? 'Long spoiler message' : 'Long message'}</div>
-				<div class="long-message-title">Open in Reader for the full post</div>
+				<div class="long-message-kicker">{spoiler ? $_('lmp.kicker_spoiler') : $_('lmp.kicker')}</div>
+				<div class="long-message-title">{$_('lmp.title')}</div>
 			</div>
 		</div>
-		<span class="long-message-reader-label">Reader</span>
+		<span class="long-message-reader-label">{$_('places.reader')}</span>
 	</div>
 
-	<div class="long-message-meta" aria-label="Message length">
-		<span>{stats.characterCount.toLocaleString()} chars</span>
+	<div class="long-message-meta" aria-label={$_('lmp.length_label')}>
+		<span>{$_('lmp.chars', { values: { count: stats.characterCount.toLocaleString() } })}</span>
 		<span aria-hidden="true">·</span>
-		<span>{stats.wordCount.toLocaleString()} words</span>
+		<span>{$_('lmp.words', { values: { count: stats.wordCount.toLocaleString() } })}</span>
 		<span aria-hidden="true">·</span>
-		<span>~{stats.readMinutes} min read</span>
+		<span>{$_('lmp.read_time', { values: { minutes: stats.readMinutes } })}</span>
 	</div>
 
 	{#if spoiler}
 		<p class="long-message-spoiler-copy">
-			Preview hidden because this message is marked as a spoiler. Opening Reader reveals the full message.
+			{$_('lmp.spoiler_copy')}
 		</p>
 	{:else}
 		<p class="long-message-excerpt">{excerpt}</p>
@@ -56,12 +57,12 @@
 
 	<div class="long-message-actions">
 		<button type="button" class="long-message-open" on:click|stopPropagation={openInReader}>
-			<span>{spoiler ? 'Reveal in Reader' : 'Open in Reader'}</span>
+			<span>{spoiler ? $_('lmp.reveal') : $_('lmp.open')}</span>
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 				<path d="m9 18 6-6-6-6" />
 			</svg>
 		</button>
-		<span class="long-message-hint">Full markdown, comfortable width, reading progress</span>
+		<span class="long-message-hint">{$_('lmp.hint')}</span>
 	</div>
 </article>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, tick } from 'svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { isMobile, focusMode } from '$lib/layoutStoreStates';
@@ -229,20 +230,20 @@
 		const pinned = inPinnedSet(panelId);
 		return [
 			pinned
-				? { id: 'unpin', label: 'Unpin', icon: 'x', onSelect: () => togglePinFromMenu(panelId) }
+				? { id: 'unpin', label: $_('pinned.actions.unpin'), icon: 'x', onSelect: () => togglePinFromMenu(panelId) }
 				: {
 						id: 'pin',
-						label: 'Pin',
+						label: $_('panels.pin'),
 						icon: 'pin',
 						disabled: !$dockCanPin,
-						hint: $dockCanPin ? undefined : 'Needs a wider window',
+						hint: $dockCanPin ? undefined : $_('rstub.needs_wider'),
 						onSelect: () => togglePinFromMenu(panelId)
 					},
 			{ id: 'sep-move', type: 'separator' },
-			{ id: 'up', label: 'Move up', icon: 'chevUp', disabled: index <= 0, onSelect: () => moveStub(panelId, -1) },
-			{ id: 'down', label: 'Move down', icon: 'chevDown', disabled: index < 0 || index >= $layoutStore.stubStrip.length - 1, onSelect: () => moveStub(panelId, 1) },
+			{ id: 'up', label: $_('panels.move_up'), icon: 'chevUp', disabled: index <= 0, onSelect: () => moveStub(panelId, -1) },
+			{ id: 'down', label: $_('panels.move_down'), icon: 'chevDown', disabled: index < 0 || index >= $layoutStore.stubStrip.length - 1, onSelect: () => moveStub(panelId, 1) },
 			{ id: 'sep-remove', type: 'separator' },
-			{ id: 'remove', label: 'Remove from rail', icon: 'minus', onSelect: () => removeStub(panelId) }
+			{ id: 'remove', label: $_('panels.remove_from_rail'), icon: 'minus', onSelect: () => removeStub(panelId) }
 		];
 	});
 
@@ -333,15 +334,15 @@
 	/** The stub's accessible name: the badge said in words that are true for that panel. */
 	function stubName(panel: WorkspacePanelManifest, badge: string | null): string {
 		if (!badge) return panel.label;
-		if (panel.id === 'dms') return `${panel.label}, ${badge} unread`;
+		if (panel.id === 'dms') return $_('rstub.dms_unread', { values: { label: panel.label, badge } });
 		if (panel.id === 'transfers') {
 			const parts = [
-				transferOffers ? `${transferOffers} incoming` : '',
-				transfersRunning ? `${transfersRunning} in progress` : ''
+				transferOffers ? $_('rstub.incoming', { values: { count: transferOffers } }) : '',
+				transfersRunning ? $_('rstub.in_progress', { values: { count: transfersRunning } }) : ''
 			].filter(Boolean);
 			if (parts.length) return `${panel.label}, ${parts.join(', ')}`;
 		}
-		return `${panel.label}, ${badge} updates`;
+		return $_('rstub.updates', { values: { label: panel.label, badge } });
 	}
 
 	function badgeText(panel: WorkspacePanelManifest): string | null {
@@ -381,10 +382,10 @@
 	}
 
 	const peekHint = $derived(
-		$railPeekKey === 'none' ? 'hover to peek' : `hold ${peekKeyLabel($railPeekKey)} to peek`
+		$railPeekKey === 'none' ? $_('rstub.hover_peek') : $_('rstub.hold_peek', { values: { key: peekKeyLabel($railPeekKey) } })
 	);
 
-	const STOWED_NOTE = 'Pinned, shown when there is room';
+	
 
 	/** A panel is on screen: a stowed pin (no room beside the stage) is not, unless a held peek shows it. */
 	function panelOnScreen(): boolean {
@@ -432,9 +433,9 @@
 	// nothing then (§7.22), so the tooltip never promises a gesture that cannot happen.
 	function stubTip(panel: WorkspacePanelManifest): string {
 		const action = isOpen(panel.id)
-			? isPinned(panel.id) ? 'click to unpin' : 'click to close'
-			: $dockCanPin ? 'click to pin' : 'click to open over the page';
-		const stowed = isStowed(panel.id) ? ` · ${STOWED_NOTE.toLowerCase()}` : '';
+			? isPinned(panel.id) ? $_('rstub.click_unpin') : $_('rstub.click_close')
+			: $dockCanPin ? $_('rstub.click_pin') : $_('rstub.click_open');
+		const stowed = isStowed(panel.id) ? ` · ${$_('rstub.stowed_note').toLowerCase()}` : '';
 		const peek = isOpen(panel.id) || panelCommitted() ? '' : ` · ${peekHint}`;
 		return `${panel.label}${stowed} · ${action}${peek}`;
 	}
@@ -450,7 +451,7 @@
 		class:side-right={$layoutStore.stubSide === 'right'}
 		class:joined
 		role="group"
-		aria-label="Panel rail"
+		aria-label={$_('rstub.rail_label')}
 		onmouseenter={() => { setPeekPointerInside(true); cancelPeekDismiss(); }}
 		onmouseleave={() => { setPeekPointerInside(false); handleStubLeave(); }}
 	>
@@ -496,7 +497,7 @@
 		<!-- The footer band: its top hairline is the footer rule shared with the sidebar foot, the
 		     composer and the Scratchpad tray (y = 100% - --w-foot). -->
 		<div class="w-rail__foot">
-			<Tooltip text="Add or arrange panels" placement={tipSide} disabled={drawerOpen}>
+			<Tooltip text={$_('rstub.add_arrange')} placement={tipSide} disabled={drawerOpen}>
 				<button
 					type="button"
 					class="stub-add w-ibtn"
@@ -505,7 +506,7 @@
 					onkeydown={handleAddKeydown}
 					onmouseenter={cancelPeekDismiss}
 					onmouseleave={handleStubLeave}
-					aria-label="Add panels"
+					aria-label={$_('panels.add_panels')}
 					aria-haspopup="dialog"
 					aria-expanded={drawerOpen}
 					aria-controls={drawerOpen ? drawerId : undefined}
@@ -521,7 +522,7 @@
 		x={contextMenu?.x ?? 0}
 		y={contextMenu?.y ?? 0}
 		items={menuItems}
-		ariaLabel="Rail options"
+		ariaLabel={$_('rstub.rail_options')}
 		headerLabel={menuPanel?.label ?? null}
 		returnFocus={contextTrigger}
 		onClose={() => (contextMenu = null)}
@@ -541,13 +542,13 @@
 			onfocusout={handleDrawerFocusOut}
 			onmouseenter={cancelPeekDismiss}
 		>
-			<h2 class="panel-drawer-heading" id={drawerHeadingId}>Add panels</h2>
+			<h2 class="panel-drawer-heading" id={drawerHeadingId}>{$_('panels.add_panels')}</h2>
 			<div class="panel-drawer-list">
 				{#each drawerPanels as panel (panel.id)}
 					<button
 						type="button"
 						class="panel-drawer-item"
-						aria-label={`Add ${panel.label} to the rail`}
+						aria-label={$_('rstub.add_to_rail', { values: { label: panel.label } })}
 						aria-describedby={panel.description ? `${drawerId}-desc-${panel.id}` : undefined}
 						onclick={() => {
 							layoutStore.addStub(panel.id);
@@ -564,33 +565,33 @@
 					</button>
 				{/each}
 				{#if drawerPanels.length === 0}
-					<p class="panel-drawer-empty">Every panel you can open is already on the rail.</p>
+					<p class="panel-drawer-empty">{$_('rstub.drawer_empty')}</p>
 				{/if}
 			</div>
 			<div class="panel-drawer-footer" role="group" aria-labelledby={`${drawerId}-rail`}>
-				<h3 class="panel-drawer-kicker" id={`${drawerId}-rail`}>Rail</h3>
+				<h3 class="panel-drawer-kicker" id={`${drawerId}-rail`}>{$_('panels.rail')}</h3>
 				<div class="rail-pref">
-					<span class="rail-pref-label" id={sideLabelId}>Side</span>
+					<span class="rail-pref-label" id={sideLabelId}>{$_('panels.side')}</span>
 					<Segmented
 						labelledby={sideLabelId}
-						options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
+						options={[{ value: 'left', label: $_('panels.left') }, { value: 'right', label: $_('panels.right') }]}
 						value={$layoutStore.stubSide}
 						onchange={(side) => void setSide(side as 'left' | 'right')}
 					/>
 				</div>
 				<div class="rail-pref">
 					<span class="rail-pref-text">
-						<span class="rail-pref-label" id={hoverLabelId}>Open on hover</span>
-						<span class="rail-pref-note" id={hoverNoteId}>Only while no panel is pinned</span>
+						<span class="rail-pref-label" id={hoverLabelId}>{$_('panels.open_on_hover')}</span>
+						<span class="rail-pref-note" id={hoverNoteId}>{$_('rstub.hover_note')}</span>
 					</span>
 					<Segmented
 						labelledby={`${hoverLabelId} ${hoverNoteId}`}
-						options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}
+						options={[{ value: 'off', label: $_('audio_settings.off') }, { value: 'on', label: $_('audio_settings.on') }]}
 						value={openOnHover}
 						onchange={(value) => setOpenOnHover(value as 'on' | 'off')}
 					/>
 				</div>
-				<button type="button" class="w-btn w-btn--quiet w-btn--sm rail-reset" onclick={resetStrip}>Reset rail</button>
+				<button type="button" class="w-btn w-btn--quiet w-btn--sm rail-reset" onclick={resetStrip}>{$_('panels.reset_rail')}</button>
 			</div>
 		</div>
 	{/if}

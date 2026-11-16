@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import { formatMapPlaceMeta } from '../mapWorkspaceHelpers';
 	import type { PlaceRecord } from '$lib/placeRegistry';
@@ -16,8 +17,8 @@
 
 <div class="compact-map-toolbar">
 	<label class="search-field compact-map-search">
-		<span>Search places</span>
-		<input type="text" bind:value={searchQuery} placeholder="Search this server map..." />
+		<span>{$_('mps.search_label')}</span>
+		<input type="text" bind:value={searchQuery} placeholder={$_('mct.placeholder')} />
 	</label>
 	{#if compactPlaceSuggestions.length > 0}
 		<div class="compact-place-picker" role="list">
@@ -33,7 +34,7 @@
 			{/each}
 		</div>
 	{:else if normalizedQuery}
-		<div class="compact-map-empty">No places match this search yet.</div>
+		<div class="compact-map-empty">{$_('mps.no_match')}</div>
 	{:else if activePlace}
 		<div class="compact-active-place">
 			<strong>{activePlace.name}</strong>

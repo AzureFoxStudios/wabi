@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { themeStore } from '$lib/theme/themeStore';
 	import { getAuthToken } from '$lib/authSession';
@@ -62,12 +63,12 @@
 	}
 
 	function distortionLabel(value: number): string {
-		if (value <= 0.002) return 'Off';
-		if (value < 0.18) return 'Light phosphor';
-		if (value < 0.42) return 'Arcade monitor';
-		if (value < 0.68) return 'Warped glass';
-		if (value < 0.86) return 'Bad sync';
-		return 'Dying tube';
+		if (value <= 0.002) return 'crt.off';
+		if (value < 0.18) return 'crt.light';
+		if (value < 0.42) return 'crt.arcade';
+		if (value < 0.68) return 'crt.warped';
+		if (value < 0.86) return 'crt.bad_sync';
+		return 'crt.dying';
 	}
 
 	async function save(): Promise<void> {
@@ -90,10 +91,10 @@
 					theme_ambient: ambient,
 				});
 			}
-			showToast('CRT distortion saved', 'info');
+			showToast($_('crt.toast_saved'), 'info');
 		} catch (error) {
 			console.error('[CRTSettings] Save failed:', error);
-			showToast('Failed to save CRT distortion', 'error');
+			showToast($_('crt.toast_failed'), 'error');
 		} finally {
 			saving = false;
 		}
@@ -116,13 +117,13 @@
 </script>
 
 <div class="settings-subsection crt-settings">
-	<h4 class="subsection-label">CRT Screen</h4>
+	<h4 class="subsection-label">{$_('crt.heading')}</h4>
 
 	<div class="setting-item setting-item-stack">
 		<div class="setting-info">
-			<span class="setting-label">Distortion</span>
+			<span class="setting-label">{$_('crt.distortion')}</span>
 			<span class="setting-description">
-				{Math.round(distortion * 100)}% · {distortionLabel(distortion)} — warps the entire Wabi viewport, not just the background.
+				{$_('crt.desc', { values: { percent: Math.round(distortion * 100), label: $_(distortionLabel(distortion)) } })}
 			</span>
 		</div>
 		<input
@@ -133,27 +134,27 @@
 			bind:value={distortion}
 			on:input={applyLive}
 			class="volume-slider"
-			aria-label="CRT distortion"
+			aria-label={$_('crt.aria')}
 		/>
 		<div class="crt-scale" aria-hidden="true">
-			<span>Clean</span>
-			<span>Arcade</span>
-			<span>Warped</span>
-			<span>Dying tube</span>
+			<span>{$_('crt.clean')}</span>
+			<span>{$_('crt.arcade_scale')}</span>
+			<span>{$_('crt.warped_scale')}</span>
+			<span>{$_('crt.dying')}</span>
 		</div>
 	</div>
 
 	<div class="crt-note">
-		This is one deliberately coupled tube-health control: it increases geometry warp, RGB separation, bloom, phosphor mask, scanlines, vignette, flicker, and sync instability together. 100% is intentionally excessive. Reduced-motion mode keeps the static distortion but stops motion effects.
+		{$_('crt.note')}
 	</div>
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Save screen effect</span>
-			<span class="setting-description">CRT is independent of the selected background effect or theme.</span>
+			<span class="setting-label">{$_('crt.save_effect')}</span>
+			<span class="setting-description">{$_('crt.independent')}</span>
 		</div>
 		<button type="button" class="action-btn" on:click={save} disabled={saving}>
-			{saving ? 'Saving...' : 'Save CRT'}
+			{saving ? $_('donation_config.saving') : $_('crt.save')}
 		</button>
 	</div>
 </div>

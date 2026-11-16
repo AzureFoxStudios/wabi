@@ -72,7 +72,7 @@
 		} catch (error) {
 			console.warn('[Add-ons] office add-on switch failed:', error);
 			const name = id === 'sheets' ? 'Sheets' : 'Present';
-			officeError = { id, text: `${name} wasn't turned ${next ? 'on' : 'off'}. Nothing changed on this device.` };
+			officeError = { id, text: $t(next ? 'addon.office_fail_on' : 'addon.office_fail_off', { values: { name } }) };
 		} finally {
 			officeBusy = null;
 		}
@@ -85,9 +85,9 @@
 	let categoryFilter = $state<AddonCategoryFilter>('all');
 	const enabledOnly = $derived(showWhich === 'on');
 	const categoryOptions = $derived([
-		{ value: 'all', label: 'All kinds' },
+		{ value: 'all', label: $t('addon.kind_all') },
 		...ADDON_SECTION_IDS.map((section) => ({ value: section, label: ADDON_SECTION_LABELS[section] })),
-		{ value: 'server', label: 'On this server', group: 'Server' }
+		{ value: 'server', label: $t('addon.kind_server'), group: $t('settings.tabs.server') }
 	]);
 
 	// ── What this server includes (GET /api/addons) ──
@@ -133,10 +133,10 @@
 	}
 
 	function serverAddonDescription(addon: DetectedAddon): string {
-		if (!addon.runtimeSwitch) return 'Part of this server, fixed when the server was set up.';
+		if (!addon.runtimeSwitch) return $t('addon.srv_fixed');
 		return canSwitchServerAddons
-			? 'Part of this server. Switching it changes it for everyone here.'
-			: 'Part of this server. Its owners and admins can turn it on or off.';
+			? $t('addon.srv_switch')
+			: $t('addon.srv_owners');
 	}
 
 	/**
@@ -151,13 +151,13 @@
 		const result = await switchAddon(getServerUrl(), getAuthToken(), addon.id, next);
 		addonSwitchBusy = null;
 		if (!result) {
-			addonSwitchStatus = `${addon.name} didn't change. Only owners and admins of this server can switch it.`;
+			addonSwitchStatus = $t('addon.switch_failed', { values: { name: addon.name } });
 			return;
 		}
 		backendAddons = backendAddons.map((entry) => (entry.id === addon.id ? { ...entry, enabled: result.enabled } : entry));
 		addonSwitchStatus = result.appliesOnRestart
-			? `${addon.name} is ${result.enabled ? 'on' : 'off'} after the server next restarts.`
-			: `${addon.name} is ${result.enabled ? 'on' : 'off'}.`;
+			? $t(result.enabled ? 'addon.restart_on' : 'addon.restart_off', { values: { name: addon.name } })
+			: $t(result.enabled ? 'addon.now_on' : 'addon.now_off', { values: { name: addon.name } });
 		void refreshAddonDetection();
 	}
 
@@ -193,8 +193,8 @@
 <!-- Office tools: one switch per device each, maturity and consent said first. -->
 <section class="settings-block addons-office" aria-labelledby="addons-office-title">
 	<p class="w-kicker addons-office__kicker" title={word('maturity.preview_title', PREVIEW_TITLE)}>{word('maturity.optional_addon_preview', OFFICE_KICKER)}</p>
-	<h3 class="settings-block__title" id="addons-office-title">Office tools</h3>
-	<p class="settings-block__hint">An integration candidate, not a deployed feature. Each tool is off on this device until you turn it on here.</p>
+	<h3 class="settings-block__title" id="addons-office-title">{$t('addon.office_title')}</h3>
+	<p class="settings-block__hint">{$t('addon.office_hint')}</p>
 	<div class="w-srows">
 		{#each OFFICE_ADDON_ROWS as row (row.id)}
 			{@const available = officeAvailable[row.id]}
@@ -206,7 +206,7 @@
 						<span class="w-tag w-tag--mat" title={word('maturity.preview_title', PREVIEW_TITLE)}>{word('maturity.preview', 'Preview')}</span>
 					</p>
 					<p class="w-srow__hint" id={`addons-office-${row.id}-hint`}>{row.summary} {officeAddonState(available, on)}</p>
-					<ul class="addons-office__facts" aria-label={`Turning on ${row.name}`}>
+					<ul class="addons-office__facts" aria-label={$t('addon.office_turning_on', { values: { name: row.name } })}>
 						{#each row.facts as fact (fact)}<li>{fact}</li>{/each}
 					</ul>
 					{#if officeError?.id === row.id}
@@ -229,21 +229,21 @@
 			</div>
 		{/each}
 	</div>
-	<p class="addon-note">Admins of this server choose whether members can share spreadsheets and decks.</p>
+	<p class="addon-note">{$t('addon.office_note')}</p>
 </section>
 
 <!-- Small tools for chat and reading. -->
 <section class="settings-block addons-local" aria-labelledby="addons-local-title">
-	<h3 class="settings-block__title" id="addons-local-title">Chat and reading tools</h3>
-	<p class="settings-block__hint">Small tools that change how {brandName} looks and behaves for you.</p>
-	<div class="addons-toolbar" role="search" aria-label="Find an add-on">
+	<h3 class="settings-block__title" id="addons-local-title">{$t('addon.local_title')}</h3>
+	<p class="settings-block__hint">{$t('addon.local_hint', { values: { brand: brandName } })}</p>
+	<div class="addons-toolbar" role="search" aria-label={$t('addon.find')}>
 		<label class="w-field w-field--chrome addons-toolbar__search">
 			<Icon name="search" size={16} />
 			<input
 				type="search"
 				bind:value={addonSearchQuery}
-				placeholder="Find an add-on"
-				aria-label="Find an add-on"
+				placeholder={$t('addon.find')}
+				aria-label={$t('addon.find')}
 				autocomplete="off"
 				spellcheck="false"
 				data-lpignore="true"
@@ -251,22 +251,22 @@
 				data-form-type="other"
 			/>
 		</label>
-		<Segmented label="Show" options={[{ value: 'all', label: 'All' }, { value: 'on', label: 'On' }]} bind:value={showWhich} />
-		<Select ariaLabel="Kind of add-on" options={categoryOptions} value={categoryFilter} onchange={(value) => (categoryFilter = value as AddonCategoryFilter)} applied={categoryFilter !== 'all'} align="end" />
+		<Segmented label={$t('panels.show')} options={[{ value: 'all', label: $t('emoji_picker.filters.all') }, { value: 'on', label: $t('audio_settings.on') }]} bind:value={showWhich} />
+		<Select ariaLabel={$t('addon.kind_label')} options={categoryOptions} value={categoryFilter} onchange={(value) => (categoryFilter = value as AddonCategoryFilter)} applied={categoryFilter !== 'all'} align="end" />
 	</div>
 	{#if filtering && !nothingMatches}
 		<p class="addons-toolbar__count" role="status">
-			{visibleLocalCount + visibleServerCount} shown
-			<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={clearFilters}>Clear</button>
+			{$t('addon.shown', { values: { count: visibleLocalCount + visibleServerCount } })}
+			<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={clearFilters}>{$t('addon.clear')}</button>
 		</p>
 	{/if}
 	{#if nothingMatches}
 		<!-- One message for an empty search, with its way out (§7.16). -->
 		<div class="w-empty addons-empty" role="status">
 			<Icon name="search" />
-			<p class="w-empty__title">{serverListPending ? 'No tools match' : 'No add-ons match'}</p>
-			<p class="w-empty__text">Try another word, or show every kind.</p>
-			<div class="w-empty__actions"><button type="button" class="w-btn w-btn--sm" onclick={clearFilters}>Clear filters</button></div>
+			<p class="w-empty__title">{serverListPending ? $t('addon.no_tools') : $t('addon.no_addons')}</p>
+			<p class="w-empty__text">{$t('addon.empty_text')}</p>
+			<div class="w-empty__actions"><button type="button" class="w-btn w-btn--sm" onclick={clearFilters}>{$t('forum.clear_filters')}</button></div>
 		</div>
 	{/if}
 
@@ -289,12 +289,12 @@
 <!-- What this server includes. -->
 {#if showServerSection}
 	<section class="settings-block addons-server" aria-labelledby="addons-server-title" aria-busy={addonsLoading}>
-		<h3 class="settings-block__title" id="addons-server-title">Included with this server</h3>
-		<p class="settings-block__hint">Built into this server and app, and the same for everyone on this server.</p>
+		<h3 class="settings-block__title" id="addons-server-title">{$t('addon.server_title')}</h3>
+		<p class="settings-block__hint">{$t('addon.server_hint')}</p>
 		{#if addonsError}
-			<Notice title="This server didn't list its add-ons" text="Office tools and the tools above work as they are." onretry={refreshAddonDetection} />
+			<Notice title={$t('addon.list_failed_title')} text={$t('addon.list_failed_text')} onretry={refreshAddonDetection} />
 		{:else if addonsLoading && !backendAddons.length && !frontendAddons.length}
-			<p class="addon-note" role="status">Checking this server…</p>
+			<p class="addon-note" role="status">{$t('addon.checking')}</p>
 		{:else if addonView.showServerRows}
 			<div class="w-srows w-addons">
 				{#each visibleBackendAddons as addon (addon.id)}
@@ -305,7 +305,7 @@
 						enabled={addon.enabled}
 						locked={!addon.runtimeSwitch || !canSwitchServerAddons}
 						fixedWord={addon.runtimeSwitch ? (addon.enabled ? 'On' : 'Off') : undefined}
-						meta={`Version ${addon.version}`}
+						meta={$t('addon.version', { values: { version: addon.version } })}
 						onToggle={addon.runtimeSwitch && canSwitchServerAddons ? () => void toggleServerAddon(addon) : undefined}
 					/>
 				{/each}
@@ -313,10 +313,10 @@
 					<AddonRow
 						id={`bundled:${addon.id}`}
 						label={addon.name}
-						description="Comes with this app."
+						description={$t('addon.bundled_desc')}
 						enabled={addon.enabled}
 						locked={true}
-						meta={`Version ${addon.version}`}
+						meta={$t('addon.version', { values: { version: addon.version } })}
 					/>
 				{/each}
 			</div>

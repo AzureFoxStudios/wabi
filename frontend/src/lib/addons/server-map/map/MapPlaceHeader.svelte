@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import { formatMapPlaceMeta } from '../mapWorkspaceHelpers';
 	import type { PlaceRecord } from '$lib/placeRegistry';
@@ -40,7 +41,7 @@
 {#if !isCompactLayout}
 	<div class="place-header">
 		<div class="place-heading">
-			<div class="place-kicker">Map Place</div>
+			<div class="place-kicker">{$_('mp.kicker')}</div>
 			<h3>{stagePlace?.name}</h3>
 			<p>{stagePlace?.description || formatMapPlaceMeta(stagePlace)}</p>
 			<div class="place-chip-row place-chip-row--hero">
@@ -48,43 +49,43 @@
 					<span class="place-chip">{stagePlace.building}</span>
 				{/if}
 				{#if stagePlace?.floor}
-					<span class="place-chip">Floor {stagePlace.floor}</span>
+					<span class="place-chip">{$_('mp.floor', { values: { floor: stagePlace.floor } })}</span>
 				{/if}
-				<span class="place-chip">{stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}</span>
-				<span class="place-chip">{allStagePois.length} POI{allStagePois.length === 1 ? '' : 's'}</span>
+				<span class="place-chip">{$_(stageMapLayers.length === 1 || (stageMapLayers.length === 0 && stagePlace?.mapImageUrl) ? 'mp.layer_one' : 'mp.layer_other', { values: { count: stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0) } })}</span>
+				<span class="place-chip">{$_(allStagePois.length === 1 ? 'mp.poi_one' : 'mp.poi_other', { values: { count: allStagePois.length } })}</span>
 				{#if surfaceHasCustom}
-					<span class="place-chip">Custom Map</span>
+					<span class="place-chip">{$_('mp.custom_map')}</span>
 				{/if}
 				{#if surfaceHasOsm}
-					<span class="place-chip">OSM Ready</span>
+					<span class="place-chip">{$_('mp.osm_ready')}</span>
 				{/if}
 			</div>
 		</div>
 		<div class="place-actions">
 			{#if canManagePlaces && !surfaceHasCustom}
 				<button class="ghost-button" type="button" on:click={() => dispatch('startQuickMapUpload')} disabled={uploadBusy}>
-					{uploadBusy ? 'Uploading...' : 'Upload Custom Map'}
+					{uploadBusy ? $_('message_content.uploading_ellipsis') : $_('mp.upload_custom')}
 				</button>
 			{/if}
 			{#if canManagePlaces && !surfaceHasOsm}
 				<button class="ghost-button" type="button" on:click={() => dispatch('startQuickOsmSetup')}>
-					Add OSM Coordinates
+					{$_('mp.add_osm')}
 				</button>
 			{/if}
 			{#if surfaceHasCustom && surfaceHasOsm}
-				<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
-					<button type="button" class:active={surfaceMode === 'custom'} on:click={() => dispatch('changeSurfaceMode', 'custom')}>Custom</button>
+				<div class="surface-toggle" role="tablist" aria-label={$_('mp.surface_label')}>
+					<button type="button" class:active={surfaceMode === 'custom'} on:click={() => dispatch('changeSurfaceMode', 'custom')}>{$_('emoji_picker.filters.custom')}</button>
 					<button type="button" class:active={surfaceMode === 'osm'} on:click={() => dispatch('changeSurfaceMode', 'osm')}>OSM</button>
 				</div>
 			{/if}
 			{#if externalUrl}
-				<a class="ghost-button" href={externalUrl} target="_blank" rel="noreferrer noopener">Open External Map</a>
+				<a class="ghost-button" href={externalUrl} target="_blank" rel="noreferrer noopener">{$_('mp.open_external')}</a>
 			{/if}
 			{#if modelUrl}
 				{#if modelViewerAvailable}
-					<button class="ghost-button" type="button" on:click={() => dispatch('openPlaceModelViewport')}>Open 3D Tab</button>
+					<button class="ghost-button" type="button" on:click={() => dispatch('openPlaceModelViewport')}>{$_('mp.open_3d')}</button>
 				{/if}
-				<a class="ghost-button" href={modelUrl} target="_blank" rel="noreferrer noopener">Open Model</a>
+				<a class="ghost-button" href={modelUrl} target="_blank" rel="noreferrer noopener">{$_('mp.open_model')}</a>
 			{/if}
 		</div>
 	</div>
@@ -97,36 +98,36 @@
 		<div class="display-preference-row">
 			{#if stageMapLayers.length > 1}
 				<label class="display-mode-field">
-					<span>Map Layer</span>
+					<span>{$_('mp.map_layer')}</span>
 					<select value={selectedLayerId} on:change={(event) => dispatch('changeLayerId', (event.currentTarget as HTMLSelectElement).value)}>
 						{#each stageMapLayers as layer (layer.id)}
-							<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
+							<option value={layer.id}>{layer.name}{layer.floor ? ` | ${$_('mp.floor', { values: { floor: layer.floor } })}` : ''}</option>
 						{/each}
 					</select>
 				</label>
 			{/if}
 			{#if stagePois.length > 0}
 				<label class="display-mode-field">
-					<span>POI View</span>
+					<span>{$_('mp.poi_view')}</span>
 					<select
 						value={poiDisplayPreference}
 						on:change={(event) =>
 							dispatch('changePoiDisplayPreference', (event.currentTarget as HTMLSelectElement).value as MapPoiDisplayPreference)}
 					>
-						<option value="server">Server Default</option>
-						<option value="label">Labels Only</option>
-						<option value="pin">Pins Only</option>
-						<option value="both">Labels + Pins</option>
+						<option value="server">{$_('mp.poi_server')}</option>
+						<option value="label">{$_('mp.poi_labels')}</option>
+						<option value="pin">{$_('mp.poi_pins')}</option>
+						<option value="both">{$_('mp.poi_both')}</option>
 					</select>
 				</label>
 			{/if}
 			<small class="display-mode-note">
 				{#if stageMapLayers.length > 1}
-					Showing {activeMapLayer?.name || 'selected layer'}
+					{$_('mp.showing', { values: { name: activeMapLayer?.name || $_('mp.selected_layer') } })}
 					{#if stagePois.length > 0} | {/if}
 				{/if}
 				{#if stagePois.length > 0}
-					Local POI override only. Server defaults remain unchanged.
+					{$_('mp.poi_note')}
 					{/if}
 			</small>
 		</div>
@@ -135,22 +136,22 @@
 	<div class="compact-stage-toolbar">
 		<div class="compact-stage-summary">
 			<strong>{stagePlace?.name}</strong>
-			<span>{stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}{#if allStagePois.length > 0} | {allStagePois.length} POI{allStagePois.length === 1 ? '' : 's'}{/if}</span>
+			<span>{stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace?.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}{#if allStagePois.length > 0} | {$_(allStagePois.length === 1 ? 'mp.poi_one' : 'mp.poi_other', { values: { count: allStagePois.length } })}{/if}</span>
 		</div>
 		<div class="compact-stage-controls">
 			{#if stageMapLayers.length > 1}
 				<label class="display-mode-field compact-display-mode-field">
-					<span>Layer</span>
+					<span>{$_('message_content.layer_label')}</span>
 					<select value={selectedLayerId} on:change={(event) => dispatch('changeLayerId', (event.currentTarget as HTMLSelectElement).value)}>
 						{#each stageMapLayers as layer (layer.id)}
-							<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
+							<option value={layer.id}>{layer.name}{layer.floor ? ` | ${$_('mp.floor', { values: { floor: layer.floor } })}` : ''}</option>
 						{/each}
 					</select>
 				</label>
 			{/if}
 			{#if surfaceHasCustom && surfaceHasOsm}
-				<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
-					<button type="button" class:active={surfaceMode === 'custom'} on:click={() => dispatch('changeSurfaceMode', 'custom')}>Custom</button>
+				<div class="surface-toggle" role="tablist" aria-label={$_('mp.surface_label')}>
+					<button type="button" class:active={surfaceMode === 'custom'} on:click={() => dispatch('changeSurfaceMode', 'custom')}>{$_('emoji_picker.filters.custom')}</button>
 					<button type="button" class:active={surfaceMode === 'osm'} on:click={() => dispatch('changeSurfaceMode', 'osm')}>OSM</button>
 				</div>
 			{/if}

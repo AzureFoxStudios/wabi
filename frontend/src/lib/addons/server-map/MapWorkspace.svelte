@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, tick } from 'svelte';
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { currentUser } from '$lib/socket';
@@ -319,7 +320,7 @@
 
 	function maybeDiscardDraft(): boolean {
 		if (!editorDirty) return true;
-		return window.confirm('Discard unsaved map changes?');
+		return window.confirm($_('map.confirm_discard'));
 	}
 
 	async function hydrateWorkspace(): Promise<void> {
@@ -333,7 +334,7 @@
 				seedEditorFromPlace(focused);
 			}
 		} catch (error) {
-			loadError = error instanceof Error ? error.message : 'Failed to load map places';
+			loadError = error instanceof Error ? error.message : $_('map.err_load');
 		} finally {
 			loading = false;
 		}
@@ -348,7 +349,7 @@
 				seedEditorFromPlace(focused);
 			}
 		} catch (error) {
-			loadError = error instanceof Error ? error.message : 'Failed to focus map place';
+			loadError = error instanceof Error ? error.message : $_('map.err_focus');
 		}
 	}
 	async function selectPlace(place: PlaceRecord): Promise<void> {
@@ -359,7 +360,7 @@
 			editorMode = 'view';
 			seedEditorFromPlace(place);
 		} catch (error) {
-			loadError = error instanceof Error ? error.message : 'Failed to open selected place';
+			loadError = error instanceof Error ? error.message : $_('map.err_open_place');
 		}
 	}
 
@@ -588,7 +589,7 @@
 	async function saveCurrentPlace(): Promise<void> {
 		if (!canManagePlaces || saveBusy) return;
 		if (!placeDraft.name.trim()) {
-			loadError = 'Place name is required.';
+			loadError = $_('map.err_name_required');
 			return;
 		}
 		saveBusy = true;
@@ -601,7 +602,7 @@
 			await loadPlaceRegistry(true);
 			seedEditorFromPlace($focusedMapPlace || null);
 		} catch (error) {
-			loadError = error instanceof Error ? error.message : 'Failed to save place';
+			loadError = error instanceof Error ? error.message : $_('map.err_save');
 		} finally {
 			saveBusy = false;
 		}
@@ -609,7 +610,7 @@
 
 	async function deleteCurrentPlaceRecord(): Promise<void> {
 		if (!canManagePlaces || deleteBusy || !activePlace) return;
-		if (!window.confirm(`Delete ${activePlace.name}? This removes the place and its custom map upload.`)) {
+		if (!window.confirm($_('map.confirm_delete', { values: { name: activePlace.name } }))) {
 			return;
 		}
 		deleteBusy = true;
@@ -621,7 +622,7 @@
 			const nextFocus = await ensureMapFocus(null);
 			seedEditorFromPlace(nextFocus);
 		} catch (error) {
-			loadError = error instanceof Error ? error.message : 'Failed to delete place';
+			loadError = error instanceof Error ? error.message : $_('map.err_delete');
 		} finally {
 			deleteBusy = false;
 		}
@@ -668,7 +669,7 @@
 	function removeDraftMapLayer(index: number): void {
 		const target = placeDraft.mapLayers[index];
 		if (!target) return;
-		if (!window.confirm(`Remove map layer ${target.name || `#${index + 1}`}?`)) return;
+		if (!window.confirm($_('map.confirm_remove_layer', { values: { name: target.name || `#${index + 1}` } }))) return;
 		const removedLayerId = normalizeKey(target.id || target.name || target.floor || '');
 		const nextLayers = placeDraft.mapLayers.slice();
 		nextLayers.splice(index, 1);
@@ -730,7 +731,7 @@
 	function removeDraftPoi(index: number): void {
 		const target = placeDraft.pois[index];
 		if (!target) return;
-		if (!window.confirm(`Remove POI ${target.name || `#${index + 1}`}?`)) return;
+		if (!window.confirm($_('map.confirm_remove_poi', { values: { name: target.name || `#${index + 1}` } }))) return;
 		const nextPois = placeDraft.pois.slice();
 		nextPois.splice(index, 1);
 		placeDraft = { ...placeDraft, pois: nextPois };
@@ -786,7 +787,7 @@
 	async function uploadMapImage(file: File): Promise<void> {
 		const token = getAuthToken();
 		if (!token) {
-			loadError = 'You must be logged in as owner/admin to upload map art.';
+			loadError = $_('map.err_login_upload');
 			return;
 		}
 		uploadBusy = true;
@@ -803,7 +804,7 @@
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok || !payload?.fileUrl) {
-				throw new Error(payload?.error || `Map upload failed (${response.status})`);
+				throw new Error(payload?.error || $_('map.err_upload_status', { values: { status: response.status } }));
 			}
 			if (selectedDraftLayerIndex < 0) {
 				addDraftMapLayer();
@@ -816,7 +817,7 @@
 			await tick();
 			resetCustomMapView();
 		} catch (error) {
-			loadError = error instanceof Error ? error.message : 'Failed to upload map image';
+			loadError = error instanceof Error ? error.message : $_('map.err_upload');
 		} finally {
 			uploadBusy = false;
 		}
@@ -843,7 +844,7 @@
 
 <div class="map-workspace {variant}" class:map-first={editorMode === 'view' && !isCompactLayout}>
 	{#if !isCompactLayout}
-	<button class="places-toggle" type="button" aria-expanded={placesOpen} on:click={() => placesOpen = !placesOpen}>Places {visiblePlaces.length ? `(${visiblePlaces.length})` : ''}</button>
+	<button class="places-toggle" type="button" aria-expanded={placesOpen} on:click={() => placesOpen = !placesOpen}>{$_('map.places')} {visiblePlaces.length ? `(${visiblePlaces.length})` : ''}</button>
 	<div class="places-flyout" class:places-open={placesOpen || editorMode !== 'view'}>
 	<MapPlaceSidebar
 		{variant}
@@ -908,23 +909,23 @@
 				<div class="compact-stage-toolbar">
 					<div class="compact-stage-summary">
 						<strong>{stagePlace.name}</strong>
-						<span>{stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)} layer{(stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)) === 1 ? '' : 's'}{#if allStagePois.length > 0} | {allStagePois.length} POI{allStagePois.length === 1 ? '' : 's'}{/if}</span>
+						<span>{$_((stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0)) === 1 ? 'map.layers_one' : 'map.layers_other', { values: { count: stageMapLayers.length || (stagePlace.mapImageUrl ? 1 : 0) } })}{#if allStagePois.length > 0} | {$_(allStagePois.length === 1 ? 'map.pois_one' : 'map.pois_other', { values: { count: allStagePois.length } })}{/if}</span>
 					</div>
 					<div class="compact-stage-controls">
 						{#if stageMapLayers.length > 1}
 							<label class="display-mode-field compact-display-mode-field">
-								<span>Layer</span>
+								<span>{$_('message_content.layer_label')}</span>
 								<select value={selectedLayerId} on:change={(event) => (selectedLayerId = (event.currentTarget as HTMLSelectElement).value)}>
 									{#each stageMapLayers as layer (layer.id)}
-										<option value={layer.id}>{layer.name}{layer.floor ? ` | Floor ${layer.floor}` : ''}</option>
+										<option value={layer.id}>{layer.name}{layer.floor ? ` | ${$_('map.floor_n', { values: { n: layer.floor } })}` : ''}</option>
 									{/each}
 								</select>
 							</label>
 						{/if}
 						{#if surfaceHasCustom && surfaceHasOsm}
-							<div class="surface-toggle" role="tablist" aria-label="Map surface selector">
-								<button type="button" class:active={surfaceMode === 'custom'} on:click={() => (surfaceMode = 'custom')}>Custom</button>
-								<button type="button" class:active={surfaceMode === 'osm'} on:click={() => (surfaceMode = 'osm')}>OSM</button>
+							<div class="surface-toggle" role="tablist" aria-label={$_('map.surface_selector')}>
+								<button type="button" class:active={surfaceMode === 'custom'} on:click={() => (surfaceMode = 'custom')}>{$_('emoji_picker.filters.custom')}</button>
+								<button type="button" class:active={surfaceMode === 'osm'} on:click={() => (surfaceMode = 'osm')}>{$_('map.surface_osm')}</button>
 							</div>
 						{/if}
 					</div>
@@ -971,43 +972,43 @@
 					{#if canManagePlaces && variant !== 'compact'}
 						<div class="detail-card editor-card">
 							<div class="editor-header">
-								<h4>{editorMode === 'new' ? 'New Place' : editorMode === 'edit' ? 'Edit Place' : 'Manage Place'}</h4>
+								<h4>{editorMode === 'new' ? $_('map.new_place') : editorMode === 'edit' ? $_('map.edit_place') : $_('map.manage_place')}</h4>
 								{#if editorMode !== 'view'}
-									<span class="editor-status">{editorDirty ? 'Unsaved' : 'Saved locally'}</span>
+									<span class="editor-status">{editorDirty ? $_('map.unsaved') : $_('reader_doc.saved_locally')}</span>
 								{/if}
 							</div>
 
 							{#if editorMode === 'view'}
 								<div class="editor-actions">
-									<button class="ghost-button" type="button" on:click={beginNewPlace}>New Place</button>
-									<button class="ghost-button" type="button" on:click={beginEditingCurrentPlace} disabled={!activePlace}>Edit Current</button>
+									<button class="ghost-button" type="button" on:click={beginNewPlace}>{$_('map.new_place')}</button>
+									<button class="ghost-button" type="button" on:click={beginEditingCurrentPlace} disabled={!activePlace}>{$_('map.edit_current')}</button>
 									<button class="ghost-button danger" type="button" on:click={() => void deleteCurrentPlaceRecord()} disabled={!activePlace || deleteBusy}>
-										{deleteBusy ? 'Deleting...' : 'Delete'}
+										{deleteBusy ? $_('map.deleting') : $_('admin.actions.delete')}
 									</button>
 								</div>
 							{:else}
 								<div class="editor-grid">
-									<label><span>ID</span><input type="text" value={placeDraft.id} on:input={(event) => updateDraftField('id', (event.currentTarget as HTMLInputElement).value)} placeholder="canteen" /></label>
-									<label><span>Name</span><input type="text" value={placeDraft.name} on:input={(event) => updateDraftField('name', (event.currentTarget as HTMLInputElement).value)} placeholder="Canteen" /></label>
-									<label><span>Building</span><input type="text" value={placeDraft.building} on:input={(event) => updateDraftField('building', (event.currentTarget as HTMLInputElement).value)} /></label>
-									<label><span>Floor</span><input type="text" value={placeDraft.floor} on:input={(event) => updateDraftField('floor', (event.currentTarget as HTMLInputElement).value)} /></label>
-									<label><span>POI Theme</span><select value={placeDraft.poiThemePreset} on:change={(event) => updateDraftField('poiThemePreset', (event.currentTarget as HTMLSelectElement).value)}><option value="classic">Classic</option><option value="campus">Campus</option><option value="quest">Quest</option><option value="terminal">Terminal</option></select></label>
-									<label><span>Latitude</span><input bind:this={latitudeInput} type="text" value={placeDraft.lat} on:input={(event) => updateDraftField('lat', (event.currentTarget as HTMLInputElement).value)} placeholder="13.7563" /></label>
-									<label><span>Longitude</span><input type="text" value={placeDraft.lon} on:input={(event) => updateDraftField('lon', (event.currentTarget as HTMLInputElement).value)} placeholder="100.5018" /></label>
-									<label class="wide"><span>Aliases</span><input type="text" value={placeDraft.aliases} on:input={(event) => updateDraftField('aliases', (event.currentTarget as HTMLInputElement).value)} placeholder="cafeteria, lunch hall" /></label>
-									<label class="wide"><span>Tags</span><input type="text" value={placeDraft.tags} on:input={(event) => updateDraftField('tags', (event.currentTarget as HTMLInputElement).value)} placeholder="food, student-services" /></label>
-									<label class="wide"><span>Model URL</span><input type="text" value={placeDraft.modelUrl} on:input={(event) => updateDraftField('modelUrl', (event.currentTarget as HTMLInputElement).value)} placeholder="/uploads/model.glb" /></label>
-									<label class="wide"><span>Description</span><textarea rows="3" value={placeDraft.description} on:input={(event) => updateDraftField('description', (event.currentTarget as HTMLTextAreaElement).value)}></textarea></label>
+									<label><span>{$_('map.id')}</span><input type="text" value={placeDraft.id} on:input={(event) => updateDraftField('id', (event.currentTarget as HTMLInputElement).value)} placeholder="canteen" /></label>
+									<label><span>{$_('messages.viewer.details_name')}</span><input type="text" value={placeDraft.name} on:input={(event) => updateDraftField('name', (event.currentTarget as HTMLInputElement).value)} placeholder={$_('map.ph_canteen_name')} /></label>
+									<label><span>{$_('message_content.building_label')}</span><input type="text" value={placeDraft.building} on:input={(event) => updateDraftField('building', (event.currentTarget as HTMLInputElement).value)} /></label>
+									<label><span>{$_('message_content.floor_label')}</span><input type="text" value={placeDraft.floor} on:input={(event) => updateDraftField('floor', (event.currentTarget as HTMLInputElement).value)} /></label>
+									<label><span>{$_('map.poi_theme')}</span><select value={placeDraft.poiThemePreset} on:change={(event) => updateDraftField('poiThemePreset', (event.currentTarget as HTMLSelectElement).value)}><option value="classic">{$_('map.theme_classic')}</option><option value="campus">{$_('map.theme_campus')}</option><option value="quest">{$_('map.theme_quest')}</option><option value="terminal">{$_('map.theme_terminal')}</option></select></label>
+									<label><span>{$_('map.latitude')}</span><input bind:this={latitudeInput} type="text" value={placeDraft.lat} on:input={(event) => updateDraftField('lat', (event.currentTarget as HTMLInputElement).value)} placeholder="13.7563" /></label>
+									<label><span>{$_('map.longitude')}</span><input type="text" value={placeDraft.lon} on:input={(event) => updateDraftField('lon', (event.currentTarget as HTMLInputElement).value)} placeholder="100.5018" /></label>
+									<label class="wide"><span>{$_('map.aliases')}</span><input type="text" value={placeDraft.aliases} on:input={(event) => updateDraftField('aliases', (event.currentTarget as HTMLInputElement).value)} placeholder={$_('map.ph_aliases')} /></label>
+									<label class="wide"><span>{$_('map.tags')}</span><input type="text" value={placeDraft.tags} on:input={(event) => updateDraftField('tags', (event.currentTarget as HTMLInputElement).value)} placeholder={$_('map.ph_tags')} /></label>
+									<label class="wide"><span>{$_('map.model_url')}</span><input type="text" value={placeDraft.modelUrl} on:input={(event) => updateDraftField('modelUrl', (event.currentTarget as HTMLInputElement).value)} placeholder="/uploads/model.glb" /></label>
+									<label class="wide"><span>{$_('donation_config.description')}</span><textarea rows="3" value={placeDraft.description} on:input={(event) => updateDraftField('description', (event.currentTarget as HTMLTextAreaElement).value)}></textarea></label>
 								</div>
 								<div class="draft-meta-note">
-									<div><strong>Slug preview</strong><span>@{draftPlaceIdPreview}</span></div>
+									<div><strong>{$_('map.slug_preview')}</strong><span>@{draftPlaceIdPreview}</span></div>
 									{#if !placeDraft.name.trim()}
-										<div><strong>Save blocked</strong><span>Add a place name before saving.</span></div>
+										<div><strong>{$_('map.save_blocked')}</strong><span>{$_('map.save_blocked_hint')}</span></div>
 									{:else if draftNeedsMapHint}
-										<div><strong>Map hint</strong><span>Add coordinates or upload a layer so this place opens somewhere useful.</span></div>
+										<div><strong>{$_('map.map_hint')}</strong><span>{$_('map.map_hint_text')}</span></div>
 									{/if}
 									{#if draftValidationIssues.length > 0}
-										<div><strong>Validation</strong><span>{draftValidationIssues[0]}</span></div>
+										<div><strong>{$_('map.validation')}</strong><span>{draftValidationIssues[0]}</span></div>
 									{/if}
 								</div>
 								{#if draftValidationIssues.length > 1}
@@ -1020,23 +1021,23 @@
 
 								<div class="detail-card nested-card poi-editor-card">
 									<div class="editor-header">
-										<h4>Map Layers</h4>
-										<button class="ghost-button" type="button" on:click={addDraftMapLayer}>Add Layer</button>
+										<h4>{$_('map.map_layers')}</h4>
+										<button class="ghost-button" type="button" on:click={addDraftMapLayer}>{$_('map.add_layer')}</button>
 									</div>
 									<input bind:this={mapUploadInput} class="hidden-input" type="file" accept="image/*" on:change={handleMapUploadChange} />
 									{#if placeDraft.mapLayers.length === 0}
-										<p class="state-message">No custom layers yet. Add one to support floors or alternate map views.</p>
+										<p class="state-message">{$_('map.no_layers')}</p>
 									{:else}
 										<div class="poi-editor-list">
 											{#each placeDraft.mapLayers as layer, index}
 												<div class="poi-editor-item" class:active={selectedDraftLayerIndex === index}>
 													<button type="button" class="poi-editor-select" on:click={() => selectDraftMapLayer(index)}>
-														<strong>{layer.name || layer.floor || `Layer ${index + 1}`}</strong>
-														<small>{layer.floor || (layer.imageUrl ? 'Custom art ready' : 'No image yet')}</small>
+														<strong>{layer.name || layer.floor || $_('map.layer_n', { values: { n: index + 1 } })}</strong>
+														<small>{layer.floor || (layer.imageUrl ? $_('map.custom_art_ready') : $_('map.no_image'))}</small>
 													</button>
 													<div class="poi-editor-actions">
-														<button class="ghost-button" type="button" on:click={() => duplicateDraftMapLayer(index)}>Duplicate</button>
-														<button class="ghost-button danger" type="button" on:click={() => removeDraftMapLayer(index)}>Remove</button>
+														<button class="ghost-button" type="button" on:click={() => duplicateDraftMapLayer(index)}>{$_('map.duplicate')}</button>
+														<button class="ghost-button danger" type="button" on:click={() => removeDraftMapLayer(index)}>{$_('profile_settings.remove')}</button>
 													</div>
 												</div>
 											{/each}
@@ -1045,40 +1046,40 @@
 
 									{#if selectedDraftLayer}
 										<div class="editor-grid poi-grid">
-											<label><span>Layer ID</span><input type="text" value={selectedDraftLayer.id} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'id', (event.currentTarget as HTMLInputElement).value)} placeholder="floor-1" /></label>
-											<label><span>Name</span><input type="text" value={selectedDraftLayer.name} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'name', (event.currentTarget as HTMLInputElement).value)} placeholder="First Floor" /></label>
-											<label><span>Floor</span><input type="text" value={selectedDraftLayer.floor} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'floor', (event.currentTarget as HTMLInputElement).value)} placeholder="1" /></label>
-											<label><span>Rotation</span><input type="text" value={selectedDraftLayer.rotation} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'rotation', (event.currentTarget as HTMLInputElement).value)} placeholder="0" /></label>
-											<label class="wide"><span>Layer Image URL</span><input type="text" value={selectedDraftLayer.imageUrl} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'imageUrl', (event.currentTarget as HTMLInputElement).value)} placeholder="/uploads/map-floor-1.png" /></label>
+											<label><span>{$_('map.layer_id')}</span><input type="text" value={selectedDraftLayer.id} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'id', (event.currentTarget as HTMLInputElement).value)} placeholder="floor-1" /></label>
+											<label><span>{$_('messages.viewer.details_name')}</span><input type="text" value={selectedDraftLayer.name} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'name', (event.currentTarget as HTMLInputElement).value)} placeholder={$_('map.ph_first_floor')} /></label>
+											<label><span>{$_('message_content.floor_label')}</span><input type="text" value={selectedDraftLayer.floor} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'floor', (event.currentTarget as HTMLInputElement).value)} placeholder="1" /></label>
+											<label><span>{$_('map.rotation')}</span><input type="text" value={selectedDraftLayer.rotation} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'rotation', (event.currentTarget as HTMLInputElement).value)} placeholder="0" /></label>
+											<label class="wide"><span>{$_('map.layer_image_url')}</span><input type="text" value={selectedDraftLayer.imageUrl} on:input={(event) => updateDraftMapLayerField(selectedDraftLayerIndex, 'imageUrl', (event.currentTarget as HTMLInputElement).value)} placeholder="/uploads/map-floor-1.png" /></label>
 										</div>
 
 										<div class="upload-row">
-											<button class="ghost-button" type="button" on:click={triggerMapUploadPicker} disabled={uploadBusy}>{uploadBusy ? 'Uploading...' : 'Upload Layer Art'}</button>
-											<button class="ghost-button" type="button" on:click={clearMapImage} disabled={!selectedDraftLayer.imageUrl}>Clear Layer Art</button>
-											<button class="ghost-button" type="button" on:click={syncDraftRotationToView}>Use View Angle</button>
+											<button class="ghost-button" type="button" on:click={triggerMapUploadPicker} disabled={uploadBusy}>{uploadBusy ? $_('message_content.uploading_ellipsis') : $_('map.upload_layer_art')}</button>
+											<button class="ghost-button" type="button" on:click={clearMapImage} disabled={!selectedDraftLayer.imageUrl}>{$_('map.clear_layer_art')}</button>
+											<button class="ghost-button" type="button" on:click={syncDraftRotationToView}>{$_('map.use_view_angle')}</button>
 										</div>
 									{/if}
 								</div>
 
 								<div class="detail-card nested-card poi-editor-card">
 									<div class="editor-header">
-										<h4>POI Editor</h4>
-										<button class="ghost-button" type="button" on:click={addDraftPoi}>Add POI</button>
+										<h4>{$_('map.poi_editor')}</h4>
+										<button class="ghost-button" type="button" on:click={addDraftPoi}>{$_('map.add_poi')}</button>
 									</div>
 									{#if placeDraft.pois.length === 0}
-										<p class="state-message">No POIs in this place yet.</p>
+										<p class="state-message">{$_('map.no_pois')}</p>
 									{:else}
 										<div class="poi-editor-list">
 											{#each placeDraft.pois as poi, index}
 												<div class="poi-editor-item" class:active={selectedDraftPoiIndex === index}>
 													<button type="button" class="poi-editor-select" on:click={() => (selectedDraftPoiIndex = index)}>
-														<strong>{poi.name || `POI ${index + 1}`}</strong>
-														<small>{poi.layerId || 'All layers'} | {poi.x && poi.y ? `${poi.x}, ${poi.y}` : 'Unplaced'}</small>
+														<strong>{poi.name || $_('map.poi_n', { values: { n: index + 1 } })}</strong>
+														<small>{poi.layerId || $_('map.all_layers')} | {poi.x && poi.y ? `${poi.x}, ${poi.y}` : $_('map.unplaced')}</small>
 													</button>
 													<div class="poi-editor-actions">
-														<button class="ghost-button" type="button" on:click={() => startPoiPlacement(index)} disabled={!selectedDraftLayer || !selectedDraftLayer.imageUrl}>Place</button>
-														<button class="ghost-button" type="button" on:click={() => duplicateDraftPoi(index)}>Duplicate</button>
-														<button class="ghost-button danger" type="button" on:click={() => removeDraftPoi(index)}>Remove</button>
+														<button class="ghost-button" type="button" on:click={() => startPoiPlacement(index)} disabled={!selectedDraftLayer || !selectedDraftLayer.imageUrl}>{$_('message_content.place_label')}</button>
+														<button class="ghost-button" type="button" on:click={() => duplicateDraftPoi(index)}>{$_('map.duplicate')}</button>
+														<button class="ghost-button danger" type="button" on:click={() => removeDraftPoi(index)}>{$_('profile_settings.remove')}</button>
 													</div>
 												</div>
 											{/each}
@@ -1086,27 +1087,27 @@
 
 										{#if selectedDraftPoi}
 											<div class="editor-grid poi-grid">
-												<label><span>POI ID</span><input type="text" value={selectedDraftPoi.id} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'id', (event.currentTarget as HTMLInputElement).value)} /></label>
-												<label><span>Name</span><input type="text" value={selectedDraftPoi.name} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'name', (event.currentTarget as HTMLInputElement).value)} /></label>
+												<label><span>{$_('map.poi_id')}</span><input type="text" value={selectedDraftPoi.id} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'id', (event.currentTarget as HTMLInputElement).value)} /></label>
+												<label><span>{$_('messages.viewer.details_name')}</span><input type="text" value={selectedDraftPoi.name} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'name', (event.currentTarget as HTMLInputElement).value)} /></label>
 												<label><span>X</span><input type="text" value={selectedDraftPoi.x} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'x', (event.currentTarget as HTMLInputElement).value)} /></label>
 												<label><span>Y</span><input type="text" value={selectedDraftPoi.y} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'y', (event.currentTarget as HTMLInputElement).value)} /></label>
-												<label><span>Layer</span><select value={selectedDraftPoi.layerId} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'layerId', (event.currentTarget as HTMLSelectElement).value)}><option value="">All Layers / Legacy</option>{#each placeDraft.mapLayers as layer, index}<option value={layer.id || layer.name || `layer-${index + 1}`}>{layer.name || layer.floor || `Layer ${index + 1}`}</option>{/each}</select></label>
-												<label><span>Mode</span><select value={selectedDraftPoi.renderMode} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'renderMode', (event.currentTarget as HTMLSelectElement).value)}><option value="label">Label</option><option value="pin">Pin</option><option value="both">Both</option></select></label>
-												<label><span>Theme</span><select value={selectedDraftPoi.themePreset} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'themePreset', (event.currentTarget as HTMLSelectElement).value)}><option value="">Place Default</option><option value="classic">Classic</option><option value="campus">Campus</option><option value="quest">Quest</option><option value="terminal">Terminal</option></select></label>
-												<label><span>Icon Preset</span><select value={selectedDraftPoi.iconPreset} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'iconPreset', (event.currentTarget as HTMLSelectElement).value)}><option value="pin">Pin</option><option value="star">Star</option><option value="door">Door</option><option value="food">Food</option><option value="meeting">Meeting</option><option value="warning">Warning</option><option value="vendor">Vendor</option><option value="boss">Boss</option><option value="info">Info</option></select></label>
-												<label><span>Icon</span><input type="text" value={selectedDraftPoi.iconGlyph} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'iconGlyph', (event.currentTarget as HTMLInputElement).value)} placeholder="*" /></label>
-												<label><span>Color</span><input type="color" value={selectedDraftPoi.iconColor || '#78b4ff'} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'iconColor', (event.currentTarget as HTMLInputElement).value)} /></label>
-												<label class="wide"><span>Description</span><textarea rows="2" value={selectedDraftPoi.description} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'description', (event.currentTarget as HTMLTextAreaElement).value)}></textarea></label>
+												<label><span>{$_('message_content.layer_label')}</span><select value={selectedDraftPoi.layerId} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'layerId', (event.currentTarget as HTMLSelectElement).value)}><option value="">{$_('map.all_layers_legacy')}</option>{#each placeDraft.mapLayers as layer, index}<option value={layer.id || layer.name || `layer-${index + 1}`}>{layer.name || layer.floor || `Layer ${index + 1}`}</option>{/each}</select></label>
+												<label><span>{$_('server_policy.mode')}</span><select value={selectedDraftPoi.renderMode} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'renderMode', (event.currentTarget as HTMLSelectElement).value)}><option value="label">{$_('map.label')}</option><option value="pin">{$_('panels.pin')}</option><option value="both">{$_('map.both')}</option></select></label>
+												<label><span>{$_('settings.appearance.theme')}</span><select value={selectedDraftPoi.themePreset} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'themePreset', (event.currentTarget as HTMLSelectElement).value)}><option value="">{$_('map.place_default')}</option><option value="classic">{$_('map.theme_classic')}</option><option value="campus">{$_('map.theme_campus')}</option><option value="quest">{$_('map.theme_quest')}</option><option value="terminal">{$_('map.theme_terminal')}</option></select></label>
+												<label><span>{$_('map.icon_preset')}</span><select value={selectedDraftPoi.iconPreset} on:change={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'iconPreset', (event.currentTarget as HTMLSelectElement).value)}><option value="pin">{$_('panels.pin')}</option><option value="star">{$_('map.icon_star')}</option><option value="door">{$_('map.icon_door')}</option><option value="food">{$_('map.icon_food')}</option><option value="meeting">{$_('map.icon_meeting')}</option><option value="warning">{$_('map.icon_warning')}</option><option value="vendor">{$_('map.icon_vendor')}</option><option value="boss">{$_('map.icon_boss')}</option><option value="info">{$_('map.icon_info')}</option></select></label>
+												<label><span>{$_('map.icon')}</span><input type="text" value={selectedDraftPoi.iconGlyph} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'iconGlyph', (event.currentTarget as HTMLInputElement).value)} placeholder="*" /></label>
+												<label><span>{$_('project_modal.color')}</span><input type="color" value={selectedDraftPoi.iconColor || '#78b4ff'} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'iconColor', (event.currentTarget as HTMLInputElement).value)} /></label>
+												<label class="wide"><span>{$_('donation_config.description')}</span><textarea rows="2" value={selectedDraftPoi.description} on:input={(event) => updateDraftPoiField(selectedDraftPoiIndex, 'description', (event.currentTarget as HTMLTextAreaElement).value)}></textarea></label>
 											</div>
 										{/if}
 									{/if}
 								</div>
 
 								<div class="editor-actions final-actions">
-									<button class="ghost-button" type="button" on:click={cancelEditing}>Cancel</button>
-									<button class="ghost-button" type="button" on:click={() => void saveCurrentPlace()} disabled={!canSaveDraft}>{saveBusy ? 'Saving...' : 'Save Place'}</button>
+									<button class="ghost-button" type="button" on:click={cancelEditing}>{$_('common.cancel')}</button>
+									<button class="ghost-button" type="button" on:click={() => void saveCurrentPlace()} disabled={!canSaveDraft}>{saveBusy ? $_('donation_config.saving') : $_('map.save_place')}</button>
 										{#if editorMode === 'edit' && activePlace}
-											<button class="ghost-button danger" type="button" on:click={() => void deleteCurrentPlaceRecord()} disabled={deleteBusy}>{deleteBusy ? 'Deleting...' : 'Delete'}</button>
+											<button class="ghost-button danger" type="button" on:click={() => void deleteCurrentPlaceRecord()} disabled={deleteBusy}>{deleteBusy ? $_('map.deleting') : $_('admin.actions.delete')}</button>
 										{/if}
 									</div>
 								{/if}

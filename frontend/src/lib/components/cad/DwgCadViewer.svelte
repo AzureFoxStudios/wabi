@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, untrack } from 'svelte';
 	import { getApiBase, fetchWithTimeout, parseApiJson } from '$lib/api/utils';
 	import { getAuthToken } from '$lib/authSession';
@@ -59,12 +60,12 @@
 
 	async function sourceBytes(source: string, signal: AbortSignal): Promise<ArrayBuffer> {
 		const response = await fetch(source, { signal });
-		if (!response.ok) throw new Error(`Could not load DWG (${response.status}).`);
+		if (!response.ok) throw new Error($_('cad.err_load', { values: { status: response.status } }));
 		const declared = Number(response.headers.get('content-length') || 0);
-		if (declared > MAX_SOURCE_BYTES) throw new Error("DWG is larger than Wabi's 20 MB preview limit.");
+		if (declared > MAX_SOURCE_BYTES) throw new Error($_('cad.err_src_limit'));
 		const buffer = await response.arrayBuffer();
-		if (buffer.byteLength > MAX_SOURCE_BYTES) throw new Error("DWG is larger than Wabi's 20 MB preview limit.");
-		if (buffer.byteLength === 0) throw new Error('DWG file is empty.');
+		if (buffer.byteLength > MAX_SOURCE_BYTES) throw new Error($_('cad.err_src_limit'));
+		if (buffer.byteLength === 0) throw new Error($_('cad.err_empty_file'));
 		return buffer;
 	}
 
@@ -72,7 +73,7 @@
 		try {
 			const server = getApiBase().replace(/\/+$/, '');
 			const token = getAuthToken(server);
-			if (!token) throw new Error('Sign in to this Wabi server before converting DWG previews.');
+			if (!token) throw new Error($_('cad.err_sign_in'));
 			const headers = { Authorization: `Bearer ${token}` };
 
 			const capabilities = await fetchWithTimeout(`${server}/api/cad/capabilities`, {
@@ -81,14 +82,14 @@
 				timeoutMs: 8_000
 			});
 			if (!capabilities.ok) {
-				throw new Error(await jsonError(capabilities, `Could not check DWG converter availability (${capabilities.status}).`));
+				throw new Error(await jsonError(capabilities, $_('cad.err_check_status', { values: { status: capabilities.status } })));
 			}
 			const capabilityPayload = await parseApiJson(capabilities) as { dwg_to_dxf?: boolean } | null;
 			if (!capabilityPayload) {
-				throw new Error('This Wabi server does not expose the CAD conversion API yet. Update the server before opening DWG previews.');
+				throw new Error($_('cad.err_no_api'));
 			}
 			if (!capabilityPayload.dwg_to_dxf) {
-				throw new Error("This Wabi server does not have LibreDWG's dwg2dxf helper enabled. Install it on the server or point WABI_DWG2DXF_BIN at the helper; the original DWG remains unchanged.");
+				throw new Error($_('cad.err_no_helper'));
 			}
 			if (requestGeneration !== generation || controller.signal.aborted) return;
 
@@ -105,20 +106,20 @@
 				timeoutMs: CONVERSION_TIMEOUT_MS
 			});
 			if (!response.ok) {
-				throw new Error(await jsonError(response, `DWG conversion failed (${response.status}).`));
+				throw new Error(await jsonError(response, $_('cad.err_convert_status', { values: { status: response.status } })));
 			}
 			const declared = Number(response.headers.get('content-length') || 0);
-			if (declared > MAX_SOURCE_BYTES) throw new Error("Converted DXF is larger than Wabi's 20 MB preview limit.");
+			if (declared > MAX_SOURCE_BYTES) throw new Error($_('cad.err_dxf_limit'));
 			const dxf = await response.arrayBuffer();
-			if (dxf.byteLength === 0) throw new Error('DWG conversion returned an empty DXF preview.');
-			if (dxf.byteLength > MAX_SOURCE_BYTES) throw new Error("Converted DXF is larger than Wabi's 20 MB preview limit.");
+			if (dxf.byteLength === 0) throw new Error($_('cad.err_empty_dxf'));
+			if (dxf.byteLength > MAX_SOURCE_BYTES) throw new Error($_('cad.err_dxf_limit'));
 			if (requestGeneration !== generation || controller.signal.aborted) return;
 
 			revokePreview();
 			previewSrc = URL.createObjectURL(new Blob([dxf], { type: 'text/plain;charset=utf-8' }));
 		} catch (reason) {
 			if (requestGeneration === generation && !controller.signal.aborted) {
-				error = reason instanceof Error ? reason.message : 'Could not convert this DWG preview.';
+				error = reason instanceof Error ? reason.message : $_('cad.err_generic');
 			}
 		} finally {
 			if (requestGeneration === generation) converting = false;
@@ -158,8 +159,8 @@
 <div class="dwg-adapter" class:full-bleed={fullBleed} style={`--viewer-height:${Math.max(220, height)}px`}>
 	{#if !started}
 		<button class="activate" type="button" onclick={start}>
-			<strong>Activate DWG preview</strong>
-			<span>{fileName} · Wabi converts a temporary copy, then separates Model Space and drawing layouts</span>
+			<strong>{$_('cad.activate')}</strong>
+			<span>{fileName} · {$_('cad.activate_hint')}</span>
 		</button>
 	{:else if previewSrc}
 		<CadDocument2DViewer
@@ -170,16 +171,16 @@
 			{channelId}
 			sourceIdentity={src}
 		/>
-		{#if fullBleed}<span class="source-badge" title={fileName}>DWG source · LibreDWG document preview</span>{/if}
+		{#if fullBleed}<span class="source-badge" title={fileName}>{$_('cad.source_badge')}</span>{/if}
 	{:else}
 		<div class="status" class:error={!!error} role={error ? 'alert' : 'status'}>
 			{#if error}
-				<strong>DWG preview unavailable</strong>
+				<strong>{$_('cad.unavailable')}</strong>
 				<span>{error}</span>
-				<button type="button" onclick={retry}>Retry conversion</button>
+				<button type="button" onclick={retry}>{$_('cad.retry')}</button>
 			{:else}
-				<strong>Preparing DWG preview…</strong>
-				<span>{converting ? 'Checking the server converter and building document views.' : 'Starting converter…'}</span>
+				<strong>{$_('cad.preparing')}</strong>
+				<span>{converting ? $_('cad.checking') : $_('cad.starting')}</span>
 			{/if}
 		</div>
 	{/if}

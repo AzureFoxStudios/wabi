@@ -2,8 +2,8 @@
 	import { createEventDispatcher } from 'svelte';
 	import { showToast } from '$lib/toast';
 	async function copyHandle() {
-		try { await navigator.clipboard.writeText(`@${liveUser?.handle || liveUser?.username}`); showToast('Handle copied.', 'info', 1200); }
-		catch { showToast('Could not copy handle.', 'error', 3000); }
+		try { await navigator.clipboard.writeText(`@${liveUser?.handle || liveUser?.username}`); showToast($_('upop.handle_copied'), 'info', 1200); }
+		catch { showToast($_('upop.handle_copy_failed'), 'error', 3000); }
 	}
 	import {
 		channels,
@@ -90,15 +90,15 @@
 	$: noteDraftSurface = surface === 'panel' ? 'panel' : 'profile';
 	type ConnectionRow = { label: string; value: string; url?: string };
 	const fallbackRoleLabels: Record<string, string> = {
-		owner: 'Owner',
-		admin: 'Admin',
-		mod: 'Moderator',
-		member: 'Member',
-		guest: 'Guest'
+		owner: 'upop.role_owner',
+		admin: 'upop.role_admin',
+		mod: 'upop.role_mod',
+		member: 'upop.role_member',
+		guest: 'upop.role_guest'
 	};
 
 	$: roleLabelMap = (() => {
-		const labels: Record<string, string> = { ...fallbackRoleLabels };
+		const labels: Record<string, string> = Object.fromEntries(Object.entries(fallbackRoleLabels).map(([role, key]) => [role, $_(key)]));
 		for (const role of $roleDefinitions) {
 			labels[role.roleName] = role.displayName;
 		}
@@ -155,7 +155,7 @@
 		return color && !color.startsWith('var(') ? color : '';
 	})();
 	$: inkStyle = $inkFor(identityColor);
-	$: roleWord = liveUser?.isBot ? 'Bot' : roleBadgeLabel(liveUser);
+	$: roleWord = liveUser?.isBot ? $_('upop.role_bot') : roleBadgeLabel(liveUser);
 	$: joinedLine = memberSince(liveUser?.joinedAt);
 	const titleId = `profile-${Math.random().toString(36).slice(2, 8)}-name`;
 
@@ -197,7 +197,7 @@
 		userNote = ''; userNoteDraft = ''; noteRevision = 0; noteBusy = false; noteProblem = '';
 		legacyNotesFound = hasLegacyUserNotes();
 		if (!owner || !subject) {
-			userNoteStatus = !subject ? '' : $notebookOwner.error ? "Your notebook isn't available right now." : 'Opening your notebook…';
+			userNoteStatus = !subject ? '' : $notebookOwner.error ? $_('upop.notebook_unavailable') : $_('upop.notebook_opening');
 			return;
 		}
 		const retained = getUserNoteDraft(owner, subject, noteDraftSurface);
@@ -215,7 +215,7 @@
 			userNoteDraft = draft?.text ?? saved.text;
 			noteRevision = draft?.baseRevision ?? saved.revision;
 			noteReady = true;
-			userNoteStatus = draft && draft.text !== saved.text ? 'Unsaved draft restored' : '';
+			userNoteStatus = draft && draft.text !== saved.text ? $_('upop.draft_restored') : '';
 		} catch (error) {
 			if (ticket !== noteLoad) return;
 			console.warn('[profile] personal note load failed', error);
@@ -226,20 +226,20 @@
 	function retainNoteDraft() {
 		if (!noteOwner || !noteSubject || !noteReady) return;
 		retainUserNoteDraft(noteOwner, noteSubject, { text: userNoteDraft, baseRevision: noteRevision }, noteDraftSurface);
-		userNoteStatus = userNoteDraft === userNote ? '' : 'Not saved yet';
+		userNoteStatus = userNoteDraft === userNote ? '' : $_('upop.not_saved');
 	}
 
 	async function saveUserNoteDraft() {
 		if (!noteOwner || !noteSubject || !noteReady || noteBusy || userNoteDraft === userNote) return;
 		const owner = noteOwner, subject = noteSubject, ticket = noteLoad, text = userNoteDraft, revision = noteRevision, draftSurface = noteDraftSurface;
-		retainNoteDraft(); noteBusy = true; noteProblem = ''; userNoteStatus = 'Saving…';
+		retainNoteDraft(); noteBusy = true; noteProblem = ''; userNoteStatus = $_('payment_access_panel.saving');
 		try {
 			const saved = await setUserNote(owner, subject, text, revision);
 			const retained = getUserNoteDraft(owner, subject, draftSurface);
 			if (retained?.text === text && retained.baseRevision === revision) forgetUserNoteDraft(owner, subject, draftSurface);
 			if (ticket !== noteLoad || !owner.isCurrent()) return;
 			userNote = saved.text; noteRevision = saved.revision;
-			userNoteStatus = saved.text ? 'Saved on this device' : 'Note cleared';
+			userNoteStatus = saved.text ? $_('locality.saved_on_device') : $_('upop.note_cleared');
 		} catch (error) {
 			if (ticket !== noteLoad) return;
 			console.warn('[profile] personal note save failed', error);
@@ -483,7 +483,7 @@
 			closePopout();
 		} catch (error) {
 			console.warn('[Call] Screen share failed to start:', error);
-			showToast("Couldn't start screen sharing. Check that this browser may share your screen.", 'error', 5000);
+			showToast($_('upop.screen_failed'), 'error', 5000);
 		}
 	}
 
@@ -514,14 +514,14 @@
 	}
 	async function setUserRole(role: string) {
 		if (!user?.dbUserId || !canManageRoles) return;
-		roleActionStatus = 'Saving…';
+		roleActionStatus = $_('payment_access_panel.saving');
 		try {
 			await requestLiveRoleChange($socket, user.dbUserId, role);
-			roleActionStatus = 'Role saved';
+			roleActionStatus = $_('upop.role_saved');
 			setTimeout(() => (roleActionStatus = ''), 2200);
 		} catch (error) {
 			console.warn('[profile] role change failed', error);
-			roleActionStatus = "Couldn't change the role. Nothing changed.";
+			roleActionStatus = $_('upop.role_failed');
 		}
 	}
 
@@ -529,35 +529,35 @@
 		if (!user?.dbUserId || !canManageRoles || !browser) return;
 		const handle = user.handle || user.username;
 		const confirmed = await confirmAction({
-			title: `Ban @${handle} from this server?`,
-			body: 'They are signed out and cannot sign in again until someone unbans them.',
-			confirm: 'Ban from server',
+			title: $_('upop.ban_title', { values: { handle } }),
+			body: $_('upop.ban_body'),
+			confirm: $_('upop.ban_confirm'),
 			danger: true
 		});
 		if (!confirmed || !user?.dbUserId) return;
-		banActionStatus = 'Banning…';
+		banActionStatus = $_('upop.banning');
 		try {
 			const { banUser } = await import('$lib/presenceStore');
 			await banUser(user.dbUserId);
-			banActionStatus = 'Banned';
+			banActionStatus = $_('upop.banned');
 			setTimeout(() => (banActionStatus = ''), 2200);
 		} catch (error) {
 			console.warn('[profile] ban failed', error);
-			banActionStatus = "Couldn't ban this member. Nothing changed.";
+			banActionStatus = $_('upop.ban_failed');
 		}
 	}
 
 	async function handleUnbanUser() {
 		if (!user?.dbUserId || !canManageRoles) return;
-		banActionStatus = 'Unbanning…';
+		banActionStatus = $_('upop.unbanning');
 		try {
 			const { unbanUser } = await import('$lib/presenceStore');
 			await unbanUser(user.dbUserId);
-			banActionStatus = 'Unbanned';
+			banActionStatus = $_('upop.unbanned');
 			setTimeout(() => (banActionStatus = ''), 2200);
 		} catch (error) {
 			console.warn('[profile] unban failed', error);
-			banActionStatus = "Couldn't unban this member. Nothing changed.";
+			banActionStatus = $_('upop.unban_failed');
 		}
 	}
 
@@ -598,7 +598,7 @@
 
 {#if isOpen && user}
 	{#if profileExpanded}
-		<button type="button" class="profile-full-backdrop" use:portal tabindex="-1" aria-label="Close full profile" on:click={closePopout}></button>
+		<button type="button" class="profile-full-backdrop" use:portal tabindex="-1" aria-label={$_('upop.close_full')} on:click={closePopout}></button>
 	{/if}
 	<div
 		class="popout-container"
@@ -616,11 +616,11 @@
 	>
 		<div class="pop-tools">
 			{#if surface !== 'panel'}
-				<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Keep in side panel" title="Keep in side panel" on:click={keepInProfilePanel}>
+				<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('upop.keep_panel')} title={$_('upop.keep_panel')} on:click={keepInProfilePanel}>
 					<Icon name="sidebarRight" size={16} />
 				</button>
 			{/if}
-			<button type="button" class="w-ibtn w-ibtn--sm" aria-label={profileExpanded ? 'Close full profile' : 'Close profile'} on:click={closePopout}>
+			<button type="button" class="w-ibtn w-ibtn--sm" aria-label={profileExpanded ? $_('upop.close_full') : $_('upop.close_profile')} on:click={closePopout}>
 				<Icon name="x" size={16} />
 			</button>
 		</div>
@@ -650,7 +650,7 @@
 						<ProfileName username={popoutDisplayName} font={liveUser?.usernameFont} color={identityColor} />
 					</h3>
 					<p class="pop-meta">
-						<button type="button" class="pop-handle" title="Copy handle" on:click={copyHandle}>@{liveUser?.handle || liveUser?.username}</button>
+						<button type="button" class="pop-handle" title={$_('upop.copy_handle')} on:click={copyHandle}>@{liveUser?.handle || liveUser?.username}</button>
 						{#if roleWord}<span class="w-role" title={getUserTopRoleLabel(liveUser ?? user)}>{roleWord}</span>{/if}
 					</p>
 					<p class="pop-presence">
@@ -661,7 +661,7 @@
 			</header>
 
 			{#if localNickname}
-				<p class="pop-aside">Nickname on this device · {liveUser?.username || user.username}</p>
+				<p class="pop-aside">{$_('upop.nickname_here')} · {liveUser?.username || user.username}</p>
 			{/if}
 
 			{#if liveUser?.bio}
@@ -676,7 +676,7 @@
 
 			{#if completeProfile}
 				<dl class="w-pop__facts pop-facts">
-					<dt>Role</dt>
+					<dt>{$_('upop.role')}</dt>
 					<dd>{getUserTopRoleLabel(liveUser ?? user)}</dd>
 					{#if joinedLine}
 						<dt>{$_('user.popout.member_since')}</dt>
@@ -715,7 +715,7 @@
 
 			{#if nicknameEditing}
 				<div class="pop-line">
-					<label class="pop-line__label" for="{titleId}-nickname">Nickname on this device</label>
+					<label class="pop-line__label" for="{titleId}-nickname">{$_('upop.nickname_here')}</label>
 					<input
 						id="{titleId}-nickname"
 						class="w-field pop-line__field"
@@ -727,8 +727,8 @@
 						on:keydown={handleNicknameKeydown}
 					/>
 					<div class="pop-line__actions">
-						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={() => (nicknameEditing = false)}>Cancel</button>
-						<button type="button" class="w-btn w-btn--sm" on:click={saveLocalNickname}>Save nickname</button>
+						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={() => (nicknameEditing = false)}>{$_('common.cancel')}</button>
+						<button type="button" class="w-btn w-btn--sm" on:click={saveLocalNickname}>{$_('upop.save_nickname')}</button>
 					</div>
 				</div>
 			{/if}
@@ -747,7 +747,7 @@
 						disabled={!noteReady}
 						readonly={noteBusy}
 						aria-busy={noteBusy}
-						aria-label="Private note about {popoutDisplayName}"
+						aria-label={$_('upop.note_aria', { values: { name: popoutDisplayName } })}
 						aria-describedby="{titleId}-note-status"
 						placeholder={$_('user.popout.note_placeholder')}
 					></textarea>
@@ -761,14 +761,14 @@
 							<p class="w-notice__text">{noteProblemText.text}</p>
 							<div class="w-notice__actions">
 								{#if noteProblemText.canDownload}
-									<button type="button" class="w-btn w-btn--sm" on:click={downloadNoteDraft}>Download draft</button>
+									<button type="button" class="w-btn w-btn--sm" on:click={downloadNoteDraft}>{$_('notebook.download_draft')}</button>
 								{/if}
 								<button type="button" class="w-btn w-btn--sm" on:click={reloadSavedNote} disabled={noteBusy}>{noteProblemText.retryLabel}</button>
 							</div>
 						</div>
 					{/if}
 					{#if legacyNotesFound}
-						<p class="pop-aside">Older notes on this device are kept apart and are not linked to this account.</p>
+						<p class="pop-aside">{$_('upop.legacy_notes')}</p>
 					{/if}
 				</div>
 			{/if}
@@ -778,8 +778,8 @@
 			{/if}
 
 			{#if $displayEnhancementSettingsStore.showConnectionsEnabled && connectionRows.length > 0}
-				<section class="pop-links" aria-label="Links">
-					<h4 class="w-kicker">Links</h4>
+				<section class="pop-links" aria-label={$_('notebook.links')}>
+					<h4 class="w-kicker">{$_('notebook.links')}</h4>
 					<ul>
 						{#each connectionRows as row (row.label + row.value)}
 							<li>

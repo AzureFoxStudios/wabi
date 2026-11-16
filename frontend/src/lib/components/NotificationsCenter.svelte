@@ -12,6 +12,7 @@
 	Empty states say what is missing and what happens next (§7.16). Failures are one notice.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { channels, channelMessages, channelUnreadCounts, currentUser, serverMembers, users, type User } from '$lib/socket';
 	import { friendships, startFriendshipSync, acceptFriendship, dismissFriendship } from '$lib/friendships';
@@ -81,7 +82,7 @@
 
 	$: currentServerUrl = normalizeServerUrl(resolveServerUrl().url) || resolveServerUrl().url;
 	$: currentServer = $savedServers.find((server) => server.url === currentServerUrl);
-	$: currentServerName = currentServer?.effectiveName || 'This server';
+	$: currentServerName = currentServer?.effectiveName || $_('notif.this_server');
 	$: people = [...$serverMembers, ...$users];
 	$: dmAlerts = $channels
 		.filter((channel) => (channel.type === 'dm' || channel.type === 'group') && ($channelUnreadCounts[channel.id] || 0) > 0)
@@ -105,42 +106,42 @@
 	}
 	function personName(channelId: string): { name: string; color: string | null; group: boolean } {
 		const channel = $channels.find((item) => item.id === channelId);
-		if (!channel) return { name: 'Conversation', color: null, group: false };
-		if (channel.type === 'group') return { name: channel.name || 'Group conversation', color: null, group: true };
+		if (!channel) return { name: $_('notif.conversation'), color: null, group: false };
+		if (channel.type === 'group') return { name: channel.name || $_('notif.group_conversation'), color: null, group: true };
 		const member = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers);
-		return { name: member?.handle || member?.username || channel.name || 'Direct message', color: member?.color || null, group: false };
+		return { name: member?.handle || member?.username || channel.name || $_('chat.dm.badge'), color: member?.color || null, group: false };
 	}
-	const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+	
 
 	$: requestRows = [
 		...$friendships.incoming.map((request): Row => ({
 			key: `request:${request.id}`, kind: 'request', name: request.username, color: colorOf(request.username), glyph: null,
-			text: 'wants to be friends', place: currentServerName, time: request.created_at, unread: true, requestId: request.id
+			text: $_('notif.wants_friends'), place: currentServerName, time: request.created_at, unread: true, requestId: request.id
 		})),
 		...remoteRequests.map(({ server, request }): Row => ({
 			key: `remote:${server.url}:${request.id}`, kind: 'remote-request', name: request.username, color: null, glyph: null,
-			text: 'wants to be friends', place: server.effectiveName, time: request.created_at, unread: true, serverUrl: server.url
+			text: $_('notif.wants_friends'), place: server.effectiveName, time: request.created_at, unread: true, serverUrl: server.url
 		}))
 	];
 	$: dmRows = dmAlerts.map(({ channel, unread, last }): Row => {
 		const who = personName(channel.id);
 		return {
 			key: `dm:${channel.id}`, kind: 'dm', name: who.name, color: who.color, glyph: who.group ? 'users' : null,
-			text: who.group ? `has ${plural(unread, 'new message', 'new messages')}` : `sent you ${plural(unread, 'message', 'messages')}`,
-			place: `${currentServerName} · ${who.group ? 'Group' : 'Direct message'}`,
-			preview: showPreviews && last && !last.id.startsWith('live_') ? last.text || 'New message' : undefined,
+			text: who.group ? $_(unread === 1 ? 'notif.has_new_one' : 'notif.has_new_many', { values: { count: unread } }) : $_(unread === 1 ? 'notif.sent_one' : 'notif.sent_many', { values: { count: unread } }),
+			place: `${currentServerName} · ${who.group ? $_('panels.group') : $_('chat.dm.badge')}`,
+			preview: showPreviews && last && !last.id.startsWith('live_') ? last.text || $_('panels.new_message') : undefined,
 			time: last?.timestamp, unread: true, open: () => dispatch('openDm', { channelId: channel.id })
 		};
 	});
 	$: mentionRows = mentionAlerts.map(({ channel, message }): Row => ({
-		key: `mention:${channel.id}`, kind: 'mention', name: message?.user || 'Someone', color: colorOf(message?.user), glyph: null,
-		text: 'mentioned you in', where: `#${channel.name}`, place: currentServerName,
+		key: `mention:${channel.id}`, kind: 'mention', name: message?.user || $_('notif.someone'), color: colorOf(message?.user), glyph: null,
+		text: $_('notif.mentioned_in'), where: `#${channel.name}`, place: currentServerName,
 		preview: showPreviews && message && !message.id.startsWith('live_') ? message.text : undefined,
 		time: message?.timestamp, unread: true, open: () => dispatch('openChannel', { channelId: channel.id })
 	}));
 	$: followRows = followItems.map((item): Row => ({
 		key: `follow:${item.serverUrl}:${item.channelId}`, kind: 'follow', name: `#${item.channelName}`, color: null, glyph: 'hash',
-		text: item.unreadCount ? `has ${plural(item.unreadCount, 'new message', 'new messages')}` : 'is quiet', place: item.serverName || item.serverUrl,
+		text: item.unreadCount ? $_(item.unreadCount === 1 ? 'notif.has_new_one' : 'notif.has_new_many', { values: { count: item.unreadCount } }) : $_('notif.is_quiet'), place: item.serverName || item.serverUrl,
 		preview: showPreviews && item.previewMessages.length ? item.previewMessages.at(-1)?.text : undefined,
 		time: item.lastActivityAt, unread: item.unreadCount > 0, open: () => openFollow(item.serverUrl, item.channelId)
 	}));
@@ -164,7 +165,7 @@
 		busyRequest = requestId;
 		actionError = '';
 		try { await (accept ? acceptFriendship(requestId) : dismissFriendship(requestId)); }
-		catch (e) { actionDetail = e; actionError = accept ? "Couldn't accept the request" : "Couldn't decline the request"; }
+		catch (e) { actionDetail = e; actionError = accept ? $_('notif.accept_failed') : $_('notif.decline_failed'); }
 		finally { busyRequest = ''; }
 	}
 	function time(value: number | undefined): string {
@@ -176,14 +177,14 @@
 	const initial = (name: string) => (name.replace(/^[#@]/, '').trim().charAt(0) || '?').toUpperCase();
 
 	const EMPTY: Record<ActivityFilter, { title: string; text: string; glyph: IconName }> = {
-		all: { title: 'Nothing needs you right now.', text: 'Messages to you, mentions and friend requests on this server show up here, newest first.', glyph: 'bell' },
-		mentions: { title: 'No mentions yet', text: 'When someone mentions you in a channel this device has loaded, it shows up here.', glyph: 'at' },
-		follows: { title: 'No followed channels yet', text: 'Follow a channel from its server to see it here. Following starts silent; raise its alert level from the channel list.', glyph: 'star' }
+		all: { title: 'notif.empty_all_title', text: 'notif.empty_all_text', glyph: 'bell' },
+		mentions: { title: 'notif.empty_mentions_title', text: 'notif.empty_mentions_text', glyph: 'at' },
+		follows: { title: 'notif.empty_follows_title', text: 'notif.empty_follows_text', glyph: 'star' }
 	};
-	$: headerActions = [{ id: 'settings', label: 'Notification settings', icon: 'gear', iconOnly: true, onSelect: () => dispatch('settings') }] as StageHeaderAction[];
+	$: headerActions = [{ id: 'settings', label: $_('notif.settings'), icon: 'gear', iconOnly: true, onSelect: () => dispatch('settings') }] as StageHeaderAction[];
 	$: if (mounted) setStageHeader(HEADER_OWNER, {
 		view: 'notifications',
-		title: 'Activity',
+		title: $_('shell.mobile.activity'),
 		component: ActivityStageHeader,
 		props: { value: filter, counts, onchange: (next: ActivityFilter) => (filter = next) },
 		actions: headerActions
@@ -191,23 +192,23 @@
 	$: shownError = error || actionError;
 </script>
 
-<main class="activity" aria-label="Activity">
+<main class="activity" aria-label={$_('shell.mobile.activity')}>
 	{#if $isMobile}
 		<div class="activity__phone-seg">
-			<Segmented label="Show" value={filter} options={[{ value: 'all', label: counts.all ? `All ${counts.all}` : 'All' }, { value: 'mentions', label: 'Mentions' }, { value: 'follows', label: 'Follows' }]} onchange={(next) => (filter = next as ActivityFilter)} />
+			<Segmented label={$_('panels.show')} value={filter} options={[{ value: 'all', label: counts.all ? $_('notif.all_count', { values: { count: counts.all } }) : $_('emoji_picker.filters.all') }, { value: 'mentions', label: $_('activity.mentions') }, { value: 'follows', label: $_('activity.follows') }]} onchange={(next) => (filter = next as ActivityFilter)} />
 		</div>
 	{/if}
 	<div class="activity__scroll">
 		<div class="activity__column">
-			{#if shownError}<Notice class="activity__notice" title={shownError} text="Nothing else changed." error={actionDetail} ondismiss={() => { actionError = ''; }} />{/if}
+			{#if shownError}<Notice class="activity__notice" title={shownError} text={$_('notif.nothing_changed')} error={actionDetail} ondismiss={() => { actionError = ''; }} />{/if}
 			{#if filter === 'follows'}
 				<div class="activity__filters">
-					<label class="activity__server"><span class="w-label">Server</span><span class="w-field"><select aria-label="Server" bind:value={serverFilter}><option value="all">All saved servers</option>{#each savedServerChoices as server (server.url)}<option value={server.url}>{server.effectiveName}</option>{/each}</select></span></label>
-					<span class="activity__unread"><span id="activity-unread-label">Unread only</span><Switch labelledby="activity-unread-label" bind:checked={unreadOnly} /></span>
+					<label class="activity__server"><span class="w-label">{$_('settings.tabs.server')}</span><span class="w-field"><select aria-label={$_('settings.tabs.server')} bind:value={serverFilter}><option value="all">{$_('notif.all_servers')}</option>{#each savedServerChoices as server (server.url)}<option value={server.url}>{server.effectiveName}</option>{/each}</select></span></label>
+					<span class="activity__unread"><span id="activity-unread-label">{$_('notif.unread_only')}</span><Switch labelledby="activity-unread-label" bind:checked={unreadOnly} /></span>
 				</div>
 			{/if}
 			{#if rows.length}
-				<ul class="activity__list" aria-label={filter === 'all' ? 'Needs you' : filter === 'mentions' ? 'Mentions' : 'Followed channels'}>
+				<ul class="activity__list" aria-label={filter === 'all' ? $_('notif.needs_you') : filter === 'mentions' ? $_('activity.mentions') : $_('notif.followed')}>
 					{#each rows as row (row.key)}
 						<li class="activity-row" class:activity-row--unread={row.unread} class:activity-row--open={!!row.open}>
 							<span class="activity-row__stamp" class:activity-row__stamp--glyph={!!row.glyph} style={row.color ? $inkFor(row.color) : ''} aria-hidden="true">
@@ -215,22 +216,22 @@
 							</span>
 							<span class="activity-row__text">
 								<span class="activity-row__sentence"><strong class="activity-row__name" style={row.color ? $inkFor(row.color) : ''}>{row.name}</strong> {row.text}{#if row.where} <strong class="activity-row__where">{row.where}</strong>{/if}</span>
-								<span class="activity-row__place">{row.place}{#if row.unread}<span class="sr-only"> · unread</span>{/if}</span>
+								<span class="activity-row__place">{row.place}{#if row.unread}<span class="sr-only"> · {$_('notif.unread')}</span>{/if}</span>
 								{#if row.preview}<span class="activity-row__preview">{row.preview}</span>{/if}
 							</span>
 							{#if row.kind === 'request' && row.requestId}
 								{@const id = row.requestId}
 								<span class="activity-row__actions">
-									<button type="button" class="w-btn w-btn--primary w-btn--sm" disabled={!!busyRequest} aria-label={`Accept ${row.name}'s friend request`} on:click={() => void answer(id, true)}>Accept</button>
-									<button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={!!busyRequest} aria-label={`Decline ${row.name}'s friend request`} on:click={() => void answer(id, false)}>Decline</button>
+									<button type="button" class="w-btn w-btn--primary w-btn--sm" disabled={!!busyRequest} aria-label={$_('notif.accept_request', { values: { name: row.name } })} on:click={() => void answer(id, true)}>{$_('activity.accept')}</button>
+									<button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={!!busyRequest} aria-label={$_('notif.decline_request', { values: { name: row.name } })} on:click={() => void answer(id, false)}>{$_('activity.decline')}</button>
 								</span>
 							{:else if row.kind === 'remote-request' && row.serverUrl}
 								{@const url = row.serverUrl}
-								<span class="activity-row__actions"><button type="button" class="w-btn w-btn--sm" on:click={() => openRemoteFriends(url)}>Switch to review</button></span>
+								<span class="activity-row__actions"><button type="button" class="w-btn w-btn--sm" on:click={() => openRemoteFriends(url)}>{$_('notif.switch_review')}</button></span>
 							{/if}
 							{#if row.time}<time class="activity-row__time" datetime={new Date(row.time).toISOString()}>{time(row.time)}</time>{/if}
 							{#if row.open}
-								<button type="button" class="activity-row__hit" aria-label={`${row.name} ${row.text}${row.where ? ` ${row.where}` : ''}, ${row.place}`} on:click={row.open}></button>
+								<button type="button" class="activity-row__hit" aria-label={row.where ? $_('notif.row_label_where', { values: { name: row.name, text: row.text, where: row.where, place: row.place } }) : $_('notif.row_label', { values: { name: row.name, text: row.text, place: row.place } })} on:click={row.open}></button>
 							{/if}
 						</li>
 					{/each}
@@ -239,9 +240,9 @@
 				{@const empty = EMPTY[filter]}
 				<div class="activity__empty">
 					<Icon name={empty.glyph} size={28} class="activity__empty-glyph" />
-					<h2 class="activity__empty-title">{empty.title}</h2>
-					<p class="activity__empty-text">{empty.text}</p>
-					<button type="button" class="w-btn" on:click={() => dispatch('settings')}>Notification settings</button>
+					<h2 class="activity__empty-title">{$_(empty.title)}</h2>
+					<p class="activity__empty-text">{$_(empty.text)}</p>
+					<button type="button" class="w-btn" on:click={() => dispatch('settings')}>{$_('notif.settings')}</button>
 				</div>
 			{/if}
 		</div>
