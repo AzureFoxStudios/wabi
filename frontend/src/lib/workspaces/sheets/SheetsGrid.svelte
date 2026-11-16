@@ -149,7 +149,8 @@
         el.focus();el.setSelectionRange(el.value.length,el.value.length);syncCaret();
     }
     function resetPoint(){pointSpan=null;pointAnchor=null;pointCursor=null;pointCells=null;}
-    function cellInput(event:Event){stage((event.currentTarget as HTMLInputElement).value);if(!liveSpan(draft,pointSpan))resetPoint();suggestHidden=false;suggestIndex=0;syncCaret();}
+    // Typing or deleting ends point mode (the next click starts a new reference); our own reference writes go through setDraftAt, not here.
+    function cellInput(event:Event){stage((event.currentTarget as HTMLInputElement).value);resetPoint();suggestHidden=false;suggestIndex=0;syncCaret();}
     function cellBlur(event:FocusEvent){
         if(event.relatedTarget===formulaInput){editSurface='bar';editMode='edit';return;}
         if(!document.hasFocus())return;
@@ -477,7 +478,7 @@
     <form class="sheet-formula" onsubmit={event=>{event.preventDefault();commitAndMove('down');}}>
         <output class="sheet-formula__name" aria-label="Selected cell">{cellName}</output>
         <span class="sheet-formula__fx" aria-hidden="true">fx</span>
-        <input class="sheet-formula__input" aria-label="Cell value or formula" bind:this={formulaInput} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" disabled={!editable||(!editing&&selectionProtected)} onfocus={()=>{editSurface='bar';editMode='edit';beginEdit();syncCaret();}} oninput={event=>{stage(event.currentTarget.value);suggestHidden=false;suggestIndex=0;syncCaret();}} onblur={()=>commit()} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} />
+        <input class="sheet-formula__input" aria-label="Cell value or formula" bind:this={formulaInput} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" disabled={!editable||(!editing&&selectionProtected)} onfocus={()=>{editSurface='bar';editMode='edit';beginEdit();syncCaret();}} oninput={event=>{stage(event.currentTarget.value);resetPoint();suggestHidden=false;suggestIndex=0;syncCaret();}} onblur={()=>commit()} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} />
         {#if activeCached}<span class="w-tag sheet-formula__tag" title={activeCached==='stale'?'The saved result from the original file. The workbook changed since, and Wabi cannot recalculate this formula.':'The saved result from the original file. Wabi cannot recalculate this formula.'}>{activeCached==='stale'?'Stale':'Cached'}</span>{/if}
         {#if selectionProtected}<span class="w-seal sheet-formula__protected"><Icon name="lock" />{$_('office.sheets.protected')}</span>{/if}
         {#if editing}<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Cancel cell edit" onpointerdown={event=>event.preventDefault()} onclick={cancelEdit}><Icon name="x" /></button>{/if}
