@@ -13,12 +13,35 @@ test('the catalog and the calculator offer exactly the same functions', () => {
 	}
 });
 
+// Asserts what must hold however many functions exist, so adding one never breaks this test:
+// every result starts with the typed letters, the list is alphabetical and capped, and the
+// functions people reach for first are in it.
+function expectOffers(text: string, prefix: string, mustInclude: string[]) {
+	const found = names(text);
+	expect(found.length).toBeGreaterThan(0);
+	expect(found.length).toBeLessThanOrEqual(8);
+	for (const name of found) expect(name.startsWith(prefix)).toBe(true);
+	expect(found).toEqual([...found].sort());
+	for (const name of mustInclude) expect(found).toContain(name);
+}
+
 test('typing a letter after = offers matching functions, alphabetically', () => {
-	expect(names('=S')).toEqual(['SUM', 'SUMIF']);
-	expect(names('=su')).toEqual(['SUM', 'SUMIF']);
-	expect(names('=CO')).toEqual(['CONCAT', 'COUNT', 'COUNTA', 'COUNTIF']);
-	expect(names('=SUM(1,a')).toEqual(['ABS', 'AND', 'AVERAGE']);
-	expect(names('=1+m')).toEqual(['MAX', 'MIN']);
+	expectOffers('=S', 'S', ['SUM']);
+	expectOffers('=su', 'SU', ['SUM', 'SUMIF']);
+	expectOffers('=CO', 'CO', ['CONCAT', 'COUNT', 'COUNTA', 'COUNTIF']);
+	expectOffers('=SUM(1,a', 'A', ['ABS', 'AND', 'AVERAGE']);
+	expectOffers('=1+m', 'M', ['MAX', 'MIN']);
+});
+
+test('a longer prefix narrows the list, and an exact name still lists itself first', () => {
+	expect(names('=SUM')[0]).toBe('SUM');
+	expect(names('=sumif').slice(0, 2)).toEqual(['SUMIF', 'SUMIFS']);
+	expect(names('=vlook')).toEqual(['VLOOKUP']);
+});
+
+test('the lookup, text, date and error-handling functions Excel users reach for are offered', () => {
+	for (const name of ['VLOOKUP', 'XLOOKUP', 'INDEX', 'MATCH', 'IFERROR', 'TEXT', 'LEFT', 'TODAY', 'DATE', 'SUMIFS', 'COUNTIFS'])
+		expect(FUNCTION_CATALOG.map((item) => item.name)).toContain(name);
 });
 
 test('nothing is offered where a function cannot start', () => {
