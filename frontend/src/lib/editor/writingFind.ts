@@ -228,7 +228,14 @@ function createFindPanel(view: EditorView): Panel {
 
 	dom.append(findRow, replaceRow);
 
-	finder.input.addEventListener('input', () => setFindQuery(view, { search: finder.input.value }));
+	finder.input.addEventListener('input', () => {
+		setFindQuery(view, { search: finder.input.value });
+		// Land on the first match from the caret as you type, as a browser's find does. Focus stays in the box.
+		const { matches } = view.state.field(findField);
+		if (matches.length === 0) return;
+		const { from } = view.state.selection.main;
+		selectMatch(view, matches.find((range) => range.from >= from) ?? matches[0]);
+	});
 	replacer.input.addEventListener('input', () => setFindQuery(view, { replace: replacer.input.value }));
 	finder.input.addEventListener('keydown', (event) => {
 		if (event.key === 'Enter') {
