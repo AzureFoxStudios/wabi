@@ -327,8 +327,8 @@ html[data-theme='light'] .login-container .login-logo-invert {
 /* Why a request never reached the server; small, selectable, wraps on phones. */
 .login-container .connection-details {
 	margin: 8px 0 0;
-	font-size: 0.8125rem;
-	opacity: 0.85;
+	font-size: calc(13px * var(--w-fs));
+	color: var(--w-mute);
 }
 .login-container .connection-details summary {
 	cursor: pointer;
@@ -339,7 +339,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 	user-select: text;
-	font-size: 0.75rem;
+	font-size: calc(12px * var(--w-fs));
 }
 
 /* ---- owner setup ---- */
