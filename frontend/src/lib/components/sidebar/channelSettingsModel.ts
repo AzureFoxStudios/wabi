@@ -3,6 +3,7 @@
  * Kept out of the component so the copy and the save rules can be tested without a DOM.
  */
 import { retentionLabel } from '$lib/privacy/privacyState';
+import type { Translate } from '$lib/i18n/translate';
 import type { SelectOption } from '$lib/components/ui/Select.svelte';
 import {
 	LIVE_RETENTION,
@@ -24,20 +25,20 @@ export function isChatLikeKind(kind: string | null | undefined): boolean {
 }
 
 /** Dialog title in sentence case, named by kind ("Channel settings", "Voice room settings"). */
-export function channelSettingsTitle(kind: string | null | undefined): string {
+export function channelSettingsTitle(kind: string | null | undefined, t: Translate): string {
 	switch (kind) {
 		case 'wiki':
-			return 'Wiki settings';
+			return t('chset_model.title_wiki');
 		case 'forum':
-			return 'Forum settings';
+			return t('chset_model.title_forum');
 		case 'gallery':
-			return 'Gallery settings';
+			return t('chset_model.title_gallery');
 		case 'voice':
-			return 'Voice room settings';
+			return t('chset_model.title_voice');
 		case 'category':
-			return 'Folder settings';
+			return t('chset_model.title_category');
 		default:
-			return 'Channel settings';
+			return t('chset_model.title_text');
 	}
 }
 
@@ -47,12 +48,12 @@ export function channelSettingsNote(kind: string | null | undefined, name: strin
 }
 
 /** The sections this kind of channel has; Retention only where messages are kept. */
-export function channelSettingsTabs(kind: string | null | undefined): { id: ChannelSettingsTab; label: string }[] {
+export function channelSettingsTabs(kind: string | null | undefined, t: Translate): { id: ChannelSettingsTab; label: string }[] {
 	const tabs: { id: ChannelSettingsTab; label: string }[] = [
-		{ id: 'general', label: 'General' },
-		{ id: 'permissions', label: 'Permissions' }
+		{ id: 'general', label: t('chset_model.tab_general') },
+		{ id: 'permissions', label: t('chset_model.tab_permissions') }
 	];
-	if (isChatLikeKind(kind)) tabs.push({ id: 'retention', label: 'Retention' });
+	if (isChatLikeKind(kind)) tabs.push({ id: 'retention', label: t('chset_model.tab_retention') });
 	return tabs;
 }
 
@@ -68,31 +69,31 @@ export function retentionChoiceFor(value: string): RetentionChoice {
 }
 
 /** One option per lifetime, worded like the colophon's retention chip (§9.2). */
-export function retentionOptions(): SelectOption[] {
+export function retentionOptions(t: Translate): SelectOption[] {
 	return [
-		{ value: LIVE_RETENTION, label: retentionLabel(LIVE_RETENTION) ?? 'Live only · not saved' },
-		{ value: FOREVER_VALUE, label: retentionLabel(FOREVER_VALUE) ?? 'Kept until someone deletes them' },
+		{ value: LIVE_RETENTION, label: t('privacy.retention.live') },
+		{ value: FOREVER_VALUE, label: t('privacy.retention.forever') },
 		...MESSAGE_RETENTION_PRESETS.map((preset) => ({
 			value: preset,
 			label: retentionLabel(preset) ?? preset,
-			group: 'Timed'
+			group: t('chset_model.group_timed')
 		}))
 	];
 }
 
 /** Who manages a room, in the same words as the gate's top option and Admin › Channels. */
-export const MANAGERS_LABEL = 'Admins and owner';
 
 /** The hint a read-only row adds for members who cannot change it. */
-export const MANAGERS_ONLY_HINT = 'Only admins and the owner can change it.';
 
 /** Who may open an ordinary room (the server's channel gate). Same words as Admin › Channels. */
-export const GATE_OPTIONS: SelectOption[] = [
-	{ value: '', label: 'All signed-in accounts' },
-	{ value: 'member', label: 'Registered members' },
-	{ value: 'moderator', label: 'Moderators and admins' },
-	{ value: 'admin', label: MANAGERS_LABEL }
-];
+export function gateOptions(t: Translate): SelectOption[] {
+	return [
+	{ value: '', label: t('chset_model.gate_all') },
+	{ value: 'member', label: t('chset_model.gate_member') },
+	{ value: 'moderator', label: t('chset_model.gate_moderator') },
+	{ value: 'admin', label: t('chset_model.managers_label') }
+	];
+}
 
 /**
  * Where the "Offline copies and older history" switch lives for a kind, or null where it means

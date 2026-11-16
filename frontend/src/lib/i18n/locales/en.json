@@ -8424,5 +8424,22 @@
     "planning": "Planning",
     "reception": "Reception",
     "text": "Text"
+  },
+  "chset_model": {
+    "title_text": "Channel settings",
+    "title_wiki": "Wiki settings",
+    "title_forum": "Forum settings",
+    "title_gallery": "Gallery settings",
+    "title_voice": "Voice room settings",
+    "title_category": "Folder settings",
+    "tab_general": "General",
+    "tab_permissions": "Permissions",
+    "tab_retention": "Retention",
+    "managers_label": "Admins and owner",
+    "managers_only_hint": "Only admins and the owner can change it.",
+    "gate_all": "All signed-in accounts",
+    "gate_member": "Registered members",
+    "gate_moderator": "Moderators and admins",
+    "group_timed": "Timed"
   }
 }

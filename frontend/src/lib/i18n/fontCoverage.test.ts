@@ -84,6 +84,8 @@ function undrawn(catalog: unknown, faces: Set<number>[]): string[] {
 	for (const ch of flatten(catalog).join('')) {
 		const cp = ch.codePointAt(0)!;
 		if (cp < 0x80) continue;
+		// Symbols, arrows and emoji have no text-face glyph in any language; they render through the system font, as they do in English.
+		if (/[\p{S}\p{Extended_Pictographic}]/u.test(ch)) continue;
 		if (!faces.some((face) => face.has(cp))) missing.add(`${ch} U+${cp.toString(16).toUpperCase().padStart(4, '0')}`);
 	}
 	return [...missing];

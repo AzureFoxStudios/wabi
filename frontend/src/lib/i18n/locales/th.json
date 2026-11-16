@@ -8424,5 +8424,22 @@
     "planning": "การวางแผน",
     "reception": "ต้อนรับ",
     "text": "ข้อความ"
+  },
+  "chset_model": {
+    "title_text": "การตั้งค่าช่อง",
+    "title_wiki": "การตั้งค่าวิกิ",
+    "title_forum": "การตั้งค่าฟอรัม",
+    "title_gallery": "การตั้งค่าแกลเลอรี",
+    "title_voice": "การตั้งค่าห้องเสียง",
+    "title_category": "การตั้งค่าโฟลเดอร์",
+    "tab_general": "ทั่วไป",
+    "tab_permissions": "สิทธิ์",
+    "tab_retention": "การเก็บรักษา",
+    "managers_label": "ผู้ดูแลและเจ้าของ",
+    "managers_only_hint": "เฉพาะผู้ดูแลและเจ้าของเท่านั้นที่เปลี่ยนได้",
+    "gate_all": "บัญชีที่ลงชื่อเข้าใช้ทั้งหมด",
+    "gate_member": "สมาชิกที่ลงทะเบียน",
+    "gate_moderator": "ผู้กำกับดูแลและผู้ดูแล",
+    "group_timed": "มีกำหนดเวลา"
   }
 }

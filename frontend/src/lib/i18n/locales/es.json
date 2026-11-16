@@ -8424,5 +8424,22 @@
     "planning": "Planificación",
     "reception": "Recepción",
     "text": "Texto"
+  },
+  "chset_model": {
+    "title_text": "Configuración del canal",
+    "title_wiki": "Ajustes de la wiki",
+    "title_forum": "Ajustes del foro",
+    "title_gallery": "Ajustes de la galería",
+    "title_voice": "Ajustes de la sala de voz",
+    "title_category": "Ajustes de la carpeta",
+    "tab_general": "General",
+    "tab_permissions": "Permisos",
+    "tab_retention": "Retención",
+    "managers_label": "Administradores y propietario",
+    "managers_only_hint": "Solo los administradores y el propietario pueden cambiarlo.",
+    "gate_all": "Todas las cuentas que han iniciado sesión",
+    "gate_member": "Miembros registrados",
+    "gate_moderator": "Moderadores y administradores",
+    "group_timed": "Con tiempo"
   }
 }
