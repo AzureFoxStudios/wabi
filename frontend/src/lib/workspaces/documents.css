@@ -182,6 +182,10 @@
 
 /* ---------- print (Ctrl P): the title, the meta line and the text, dark on white ---------- */
 @media print {
+	/* Paper is light whatever the theme: with a light scheme Canvas is white and CanvasText is black, so nothing here names a colour. */
+	:root {
+		color-scheme: light;
+	}
 	@page {
 		margin: 20mm 18mm;
 	}
@@ -201,7 +205,7 @@
 		transform: none !important;
 		border: 0 !important;
 		box-shadow: none !important;
-		background: white !important;
+		background: Canvas !important;
 		container-type: normal !important;
 	}
 	:has(.document-sheet) > :not(:has(.document-sheet)):not(.document-sheet) {
@@ -213,14 +217,14 @@
 		max-width: none !important;
 		margin: 0 !important;
 		padding: 0 !important;
-		color: black;
-		background: white;
+		color: CanvasText;
+		background: Canvas;
 		/* Fixed light roles, whatever the theme: the page prints dark on white. */
-		--w-text: black;
-		--w-mute: color-mix(in srgb, black 72%, white);
-		--w-faint: color-mix(in srgb, black 60%, white);
-		--w-line: color-mix(in srgb, black 28%, white);
-		--w-bg: white;
+		--w-text: CanvasText;
+		--w-mute: color-mix(in srgb, CanvasText 72%, Canvas);
+		--w-faint: color-mix(in srgb, CanvasText 60%, Canvas);
+		--w-line: color-mix(in srgb, CanvasText 28%, Canvas);
+		--w-bg: Canvas;
 		--w-accent: navy;
 	}
 	.document-sheet,
@@ -230,7 +234,7 @@
 		print-color-adjust: exact;
 	}
 	.document-title {
-		color: black;
+		color: CanvasText;
 		font-size: 26pt;
 		line-height: 1.2;
 		break-after: avoid;
@@ -240,12 +244,12 @@
 	}
 	.document-meta {
 		margin-top: 6pt;
-		color: color-mix(in srgb, black 72%, white);
+		color: color-mix(in srgb, CanvasText 72%, Canvas);
 		font-size: 10pt;
 	}
 	.document-rule {
 		margin: 12pt 0 14pt;
-		border-top-color: color-mix(in srgb, black 40%, white);
+		border-top-color: color-mix(in srgb, CanvasText 40%, Canvas);
 	}
 	/* Chrome inside the sheet: block handle, selection bubble, Insert, find panel, hover boxes. */
 	.document-sheet .cm-w-find,
@@ -278,18 +282,18 @@
 		padding-left: 0 !important;
 		padding-right: 0 !important;
 		padding-bottom: 0 !important;
-		background: white !important;
-		color: black !important;
+		background: Canvas !important;
+		color: CanvasText !important;
 	}
 	.document-sheet .cm-line {
 		orphans: 3;
 		widows: 3;
-		color: black;
+		color: CanvasText;
 	}
 	.document-sheet .cm-w-heading {
 		break-after: avoid;
 		break-inside: avoid;
-		color: black;
+		color: CanvasText;
 	}
 	.document-sheet .cm-w-code,
 	.document-sheet .cm-w-quote,
@@ -300,7 +304,7 @@
 		display: none;
 	}
 	.document-sheet .cm-w-marker {
-		color: color-mix(in srgb, black 60%, white);
+		color: color-mix(in srgb, CanvasText 60%, Canvas);
 	}
 	.document-sheet .cm-w-link {
 		color: navy;
@@ -308,14 +312,14 @@
 	}
 	.document-sheet .document-read {
 		padding-bottom: 0;
-		color: black;
+		color: CanvasText;
 	}
 	.document-sheet .document-read h1,
 	.document-sheet .document-read h2,
 	.document-sheet .document-read h3,
 	.document-sheet .document-read h4 {
 		break-after: avoid;
-		color: black;
+		color: CanvasText;
 	}
 	.document-sheet .document-read pre,
 	.document-sheet .document-read blockquote,
