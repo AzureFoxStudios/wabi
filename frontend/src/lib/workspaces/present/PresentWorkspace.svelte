@@ -7,13 +7,14 @@
 	Present to channel…, and the live room's actions), Share… and ⋯ (exports with their truths).
 
 	Edit: a 168px filmstrip of real thumbnails (the current slide ringed in --w-accent; arrows move,
-	Alt + arrows reorder, Delete removes, right-click for the slide menu), the slide centred on a
+	Ctrl + M new slide, Ctrl + Shift + D duplicate, Ctrl + Up / Down (or Alt + arrows) reorder,
+	Ctrl + Shift + Up / Down to start / end, Delete removes, right-click for the slide menu), the slide centred on a
 	--w-sink pasteboard with the private speaker notes under it, and the 272px inspector
 	(Slide | Object, NativeSlideDesigner).
 
 	Present: the local show in center stage: the slide as large as the stage allows on a dark
 	surface, a transport (‹ 2 / 5 › · Blank · Notes · Fullscreen · End), keyboard control
-	(←/→, PageUp/PageDown, Space, Home/End, B, F, Esc) and the speaker notes only when asked for.
+	(←/→/↑/↓, PageUp/PageDown, Space, N/P, Backspace, a number then Enter, Home/End, B and W for a black or white screen, F, Esc) and the speaker notes only when asked for.
 	Slide changes are announced politely.
 
 	Errors are one notice at the top of the stage (our sentences; anything else is logged and the
@@ -67,7 +68,9 @@
 	let proposed = $state<Proposal | null>(null), previewOpen = $state(false);
 	let channelId = $state(''), startOpen = $state(false), startPreview = $state<AudienceSlide[]>([]), startAspect = $state(16 / 9);
 	let mode = $state<'edit' | 'present'>('edit');
-	let show = $state<{ slides: AudienceSlide[]; index: number; blank: boolean; aspect: number }>({ slides: [], index: 0, blank: false, aspect: 16 / 9 });
+	let show = $state<{ slides: AudienceSlide[]; index: number; blank: boolean; white: boolean; aspect: number }>({ slides: [], index: 0, blank: false, white: false, aspect: 16 / 9 });
+	/** Digits typed in the show, waiting for Enter to jump to that slide. */
+	let digits = $state('');
 	let notesOpen = $state(false), fullscreen = $state(false), idle = $state(false);
 	let idleTimer: ReturnType<typeof setTimeout> | undefined;
 	let roomId = $state('');
@@ -189,7 +192,30 @@
 		await settled();
 		if (hadFocus) filmList?.querySelector<HTMLButtonElement>(`[data-slide="${CSS.escape(selectedId)}"]`)?.focus();
 	}
+	/**
+	 * PowerPoint's slide keys: Ctrl + M new slide after this one, Ctrl + Shift + D duplicate it,
+	 * Ctrl + Up / Down move it, Ctrl + Shift + Up / Down move it to the start / end. (Alt + Up /
+	 * Down also move it in the filmstrip.) F5 and Ctrl + N / W / T belong to the browser.
+	 */
+	function slideShortcut(event: KeyboardEvent, id: string): boolean {
+		const mod = (event.ctrlKey || event.metaKey) && !event.altKey;
+		const index = slides.findIndex((s) => s.id === id);
+		if (!mod || index < 0) return false;
+		const lower = event.key.toLowerCase();
+		if (!editable) return false;
+		if (!event.shiftKey && lower === 'm') { event.preventDefault(); attempt(() => newSlide(false, slides[index]), "Couldn't add a slide"); return true; }
+		if (event.shiftKey && lower === 'd') { event.preventDefault(); attempt(() => newSlide(true, slides[index]), "Couldn't duplicate the slide"); return true; }
+		if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+			event.preventDefault();
+			const down = event.key === 'ArrowDown';
+			const by = event.shiftKey ? (down ? slides.length - 1 - index : -index) : down ? 1 : -1;
+			if (by) attempt(() => move(by, id), "Couldn't move the slide");
+			return true;
+		}
+		return false;
+	}
 	function filmKeys(event: KeyboardEvent, slide: DeckSlide, index: number) {
+		if (slideShortcut(event, slide.id)) return;
 		const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 0;
 		if (step && event.altKey) { event.preventDefault(); attempt(() => move(step, slide.id), "Couldn't move the slide"); return; }
 		if (step || event.key === 'Home' || event.key === 'End') {
@@ -213,9 +239,12 @@
 		if (!slide) return [];
 		const index = slides.indexOf(slide);
 		return [
-			{ id: 'duplicate', label: 'Duplicate slide', icon: 'copy', disabled: !editable, onSelect: () => attempt(() => newSlide(true, slide), "Couldn't duplicate the slide") },
-			{ id: 'up', label: 'Move up', icon: 'chevUp', shortcut: 'Alt ↑', disabled: !editable || index === 0, onSelect: () => attempt(() => move(-1, slide.id), "Couldn't move the slide") },
-			{ id: 'down', label: 'Move down', icon: 'chevDown', shortcut: 'Alt ↓', disabled: !editable || index === slides.length - 1, onSelect: () => attempt(() => move(1, slide.id), "Couldn't move the slide") },
+			{ id: 'new', label: 'New slide', icon: 'plus', shortcut: 'Ctrl M', disabled: !editable, onSelect: () => attempt(() => newSlide(false, slide), "Couldn't add a slide") },
+			{ id: 'duplicate', label: 'Duplicate slide', icon: 'copy', shortcut: 'Ctrl Shift D', disabled: !editable, onSelect: () => attempt(() => newSlide(true, slide), "Couldn't duplicate the slide") },
+			{ id: 'up', label: 'Move up', icon: 'chevUp', shortcut: 'Ctrl ↑', disabled: !editable || index === 0, onSelect: () => attempt(() => move(-1, slide.id), "Couldn't move the slide") },
+			{ id: 'down', label: 'Move down', icon: 'chevDown', shortcut: 'Ctrl ↓', disabled: !editable || index === slides.length - 1, onSelect: () => attempt(() => move(1, slide.id), "Couldn't move the slide") },
+			{ id: 'start', label: 'Move to start', icon: 'chevUp', shortcut: 'Ctrl Shift ↑', disabled: !editable || index === 0, onSelect: () => attempt(() => move(-index, slide.id), "Couldn't move the slide") },
+			{ id: 'end', label: 'Move to end', icon: 'chevDown', shortcut: 'Ctrl Shift ↓', disabled: !editable || index === slides.length - 1, onSelect: () => attempt(() => move(slides.length - 1 - index, slide.id), "Couldn't move the slide") },
 			{ id: 'hide', label: slide.hidden ? 'Show to audience' : 'Hide from audience', icon: slide.hidden ? 'eye' : 'eyeOff', disabled: !editable, onSelect: () => attempt(() => set('hidden', !slide.hidden, slide.id)) },
 			{ id: 'sep', type: 'separator', label: '' },
 			{ id: 'remove', label: 'Remove slide', icon: 'trash', danger: true, shortcut: 'Delete', disabled: !editable || slides.length <= 1, hint: slides.length <= 1 ? 'Keep at least one slide' : undefined, onSelect: () => attempt(() => remove(slide.id), "Couldn't remove the slide") }
@@ -330,7 +359,8 @@
 		const pinned = audienceSlides(active.data);
 		if (!pinned.length) throw new Error('Unhide at least one slide before presenting.');
 		const at = from === 'current' ? Math.max(0, pinned.findIndex((s) => s.id === current?.id)) : 0;
-		show = { slides: pinned, index: at, blank: false, aspect };
+		show = { slides: pinned, index: at, blank: false, white: false, aspect };
+		digits = '';
 		mode = 'present';
 		wake();
 		void settled().then(() => showStage?.focus());
@@ -342,8 +372,12 @@
 		mode = 'edit';
 		if (at && slides.some((s) => s.id === at.id)) select(at.id);
 	}
+	/** Any move comes back from a black or white screen, as in PowerPoint. */
 	function go(index: number) {
 		show.index = Math.max(0, Math.min(show.slides.length - 1, index));
+		show.blank = false;
+		show.white = false;
+		digits = '';
 	}
 	async function toggleFullscreen() {
 		try {
@@ -364,14 +398,30 @@
 		const target = event.target as HTMLElement | null;
 		if (target?.closest('input, textarea, select, [contenteditable="true"], [role="menu"], dialog')) return;
 		const onButton = target instanceof HTMLButtonElement;
-		const key = event.key;
-		if (['ArrowRight', 'ArrowDown', 'PageDown'].includes(key) || (key === ' ' && !onButton)) { event.preventDefault(); go(show.index + 1); }
-		else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(key)) { event.preventDefault(); go(show.index - 1); }
+		const key = event.key, plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+		if (/^[0-9]$/.test(key) && plain) { event.preventDefault(); digits = (digits + key).slice(0, 4); }
+		else if (key === 'Enter' && plain && !onButton) { event.preventDefault(); if (digits) go(Number(digits) - 1); else go(show.index + 1); }
+		else if (key === 'Backspace' && plain && digits) { event.preventDefault(); digits = digits.slice(0, -1); }
+		else if (key === 'Escape' && digits) { event.preventDefault(); digits = ''; }
+		else if (['ArrowRight', 'ArrowDown', 'PageDown'].includes(key) || (key === ' ' && !onButton) || ((key === 'n' || key === 'N') && plain)) { event.preventDefault(); go(show.index + 1); }
+		else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(key) || ((key === 'p' || key === 'P') && plain)) { event.preventDefault(); go(show.index - 1); }
 		else if (key === 'Home') { event.preventDefault(); go(0); }
 		else if (key === 'End') { event.preventDefault(); go(show.slides.length - 1); }
-		else if ((key === 'b' || key === 'B' || key === '.') && !event.ctrlKey && !event.metaKey) { event.preventDefault(); show.blank = !show.blank; }
+		else if ((key === 'b' || key === 'B' || key === '.') && !event.ctrlKey && !event.metaKey) { event.preventDefault(); show.white = false; show.blank = !show.blank; }
+		else if ((key === 'w' || key === 'W' || key === ',') && plain) { event.preventDefault(); show.blank = false; show.white = !show.white; }
 		else if ((key === 'f' || key === 'F') && !event.ctrlKey && !event.metaKey) { event.preventDefault(); void toggleFullscreen(); }
 		else if (key === 'Escape' && !document.fullscreenElement) { event.preventDefault(); void endShow(); }
+	}
+	/** Slide keys while the slide itself has focus; the designer handles its own first (arrows on an object), so only what it left alone gets here. */
+	function editKeys(event: KeyboardEvent) {
+		if (mode !== 'edit' || event.defaultPrevented || !current || previewOpen || startOpen || pendingOffice) return;
+		const target = event.target as HTMLElement | null;
+		if (!target?.closest('.designer-stage') || target.closest('input, textarea, select, [contenteditable="true"]')) return;
+		slideShortcut(event, current.id);
+	}
+	function windowKeys(event: KeyboardEvent) {
+		showKeys(event);
+		editKeys(event);
 	}
 
 	// ---------- Present to channel ----------
@@ -512,7 +562,7 @@
 	});
 </script>
 
-<svelte:window onkeydown={showKeys} />
+<svelte:window onkeydown={windowKeys} />
 
 {#snippet failure()}
 	{#if error}
@@ -625,6 +675,7 @@
 							<div class="present-show__fit">
 								<div class="present-show__frame" style:--present-ratio={show.aspect}>
 									<AudienceSlideView slide={shown} aspect={show.aspect} blank={show.blank} />
+									{#if show.white}<div class="present-show__white" aria-hidden="true"></div>{/if}
 								</div>
 							</div>
 							<div class="w-tool present-transport" role="toolbar" aria-label="Presentation controls">
@@ -658,7 +709,7 @@
 								{/if}
 							</aside>
 						{/if}
-						<p class="sr-only" aria-live="polite">{show.blank ? 'Screen blanked' : `Slide ${show.index + 1} of ${show.slides.length}${shown?.title ? `: ${shown.title}` : ''}`}</p>
+						<p class="sr-only" aria-live="polite">{digits ? `Go to slide ${digits}, press Enter` : show.blank ? 'Screen blanked' : show.white ? 'Screen white' : `Slide ${show.index + 1} of ${show.slides.length}${shown?.title ? `: ${shown.title}` : ''}`}</p>
 					</div>
 				{:else}
 					<div class="present-edit">
@@ -676,7 +727,7 @@
 												data-slide={slide.id}
 												aria-label={`Slide ${index + 1}: ${slide.title || 'Untitled slide'}${slide.hidden ? ', hidden from audience' : ''}`}
 												aria-current={slide.id === current?.id ? 'true' : undefined}
-												aria-keyshortcuts="ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown Delete"
+												aria-keyshortcuts="ArrowUp ArrowDown Alt+ArrowUp Alt+ArrowDown Control+ArrowUp Control+ArrowDown Control+Shift+ArrowUp Control+Shift+ArrowDown Control+M Control+Shift+D Delete"
 												tabindex={slide.id === current?.id ? 0 : -1}
 												onclick={() => select(slide.id)}
 												oncontextmenu={(event) => openSlideMenu(event, slide.id)}
