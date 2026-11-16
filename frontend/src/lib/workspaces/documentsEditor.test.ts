@@ -47,11 +47,22 @@ describe('the page', () => {
 	});
 
 	test('the sheet: display title, meta (who, when started) and a hairline before the text', () => {
-		expect(page).toContain('<h1 class="document-title">{title}</h1>');
+		// The heading stays an h1; in write mode it holds a field, otherwise the plain words.
+		expect(page).toContain('<h1 class="document-title">');
+		expect(page).toMatch(/\{:else\}\s*\{title\}\s*\{\/if\}\s*<\/h1>/);
 		expect(page).toContain('<PlannerAvatar name={author.name}');
 		expect(page).toContain('<hr class="document-rule" />');
 		// Locality is said once, in row A; the meta line does not repeat it.
 		expect(page).not.toMatch(/document-meta[\s\S]{0,400}this device/);
+	});
+
+	test('the page title is editable in place while writing, and never saves an empty name', () => {
+		expect(page).toContain('class="document-title__input"');
+		expect(page).toContain('const canRename = $derived.by(() => { tick; return !!active && active.editable && mode === \'write\'; });');
+		expect(page).toContain("if (!active || !value.trim()) return;");
+		// Enter moves into the text; an emptied field is restored on blur.
+		expect(page).toContain('editor?.focus()');
+		expect(page).toContain('if (!event.currentTarget.value.trim()) event.currentTarget.value = title;');
 	});
 
 	test('errors are a notice at the top of the page, raw errors are logged, not shown', () => {

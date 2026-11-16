@@ -96,6 +96,34 @@
 	text-wrap: balance;
 	overflow-wrap: anywhere;
 }
+/* The same heading, editable in place: no box until hovered or focused. */
+.document-title__input {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	letter-spacing: inherit;
+	text-wrap: inherit;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	resize: none;
+}
+.document-title__input::placeholder {
+	color: var(--w-faint);
+}
+.document-title__input:hover {
+	background: color-mix(in srgb, var(--w-text) 4%, transparent);
+}
+.document-title__input:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--w-accent) 35%, transparent);
+	outline-offset: 4px;
+}
 .document-meta {
 	display: flex;
 	flex-wrap: wrap;

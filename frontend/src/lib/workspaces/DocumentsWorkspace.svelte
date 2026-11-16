@@ -21,7 +21,7 @@
 	import ArtifactLibrary from './ArtifactLibrary.svelte';
 	import CollaborativeText from './CollaborativeText.svelte';
 	import type { OfficeHeaderModes } from './OfficeEditorHeader.svelte';
-	import { ArtifactSession, createArtifact, openArtifact, listLocal, download, Y, from64 } from './session';
+	import { ArtifactSession, createArtifact, openArtifact, listLocal, download, editText, Y, from64 } from './session';
 	import { captureScope, targets, WorkspaceError, type Scope, type Target } from './bridge';
 	import { currentHeading, documentFacts, documentHeadings, documentOutline, startedLine } from './documentPage';
 	import { currentUser, serverMembers } from '$lib/presenceIdentity';
@@ -43,6 +43,21 @@
 
 	const text = $derived.by(() => { tick; return active ? active.body.toString() : ''; });
 	const title = $derived.by(() => { tick; return active ? active.title : ''; });
+	const canRename = $derived.by(() => { tick; return !!active && active.editable && mode === 'write'; });
+	/** The page title is the document's name: click it and type, like the heading of a Word page. */
+	function renameTitle(value: string) {
+		if (!active || !value.trim()) return;
+		editText(active.doc.getText('title'), value.replace(/\s*\n\s*/g, ' '), active.origin);
+	}
+	/** Grow with the text, so a long title wraps instead of scrolling inside a one-line box. */
+	function fitTitle(node: HTMLTextAreaElement) {
+		const fit = () => { node.style.height = 'auto'; node.style.height = `${node.scrollHeight}px`; };
+		fit();
+		node.addEventListener('input', fit);
+		const observer = new ResizeObserver(fit);
+		observer.observe(node);
+		return { destroy() { node.removeEventListener('input', fit); observer.disconnect(); } };
+	}
 	const format = $derived(active?.record.format ?? 'markdown');
 	const headings = $derived(documentHeadings(text, format));
 	const outline = $derived(documentOutline(headings));
@@ -267,7 +282,25 @@
 					{/if}
 					<article class="document-sheet" aria-label={title}>
 						<header class="document-head">
-							<h1 class="document-title">{title}</h1>
+							<h1 class="document-title">
+								{#if canRename}
+									<textarea
+										class="document-title__input"
+										rows="1"
+										maxlength="200"
+										spellcheck="true"
+										placeholder="Untitled"
+										aria-label="Document title"
+										value={title}
+										use:fitTitle
+										oninput={(event) => renameTitle(event.currentTarget.value)}
+										onkeydown={(event) => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); editor?.focus(); } }}
+										onblur={(event) => { if (!event.currentTarget.value.trim()) event.currentTarget.value = title; }}
+									></textarea>
+								{:else}
+									{title}
+								{/if}
+							</h1>
 							{#if author || started}
 								<p class="document-meta">
 									{#if author}<PlannerAvatar name={author.name} color={author.color} src={author.src} size="sm" /><span class="document-meta__who">{author.name}</span>{/if}
