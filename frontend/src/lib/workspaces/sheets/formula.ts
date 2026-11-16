@@ -11,7 +11,9 @@ export const cellKey=(row:string,column:string)=>`${row}|${column}`;
 export function columnName(index:number){let value=index+1,result='';while(value>0){value--;result=String.fromCharCode(65+value%26)+result;value=Math.floor(value/26);}return result;}
 export function columnIndex(name:string){let value=0;for(const c of name.toUpperCase())value=value*26+c.charCodeAt(0)-64;return value-1;}
 export function heads(versions:CellVersion[]){const superseded=new Set(versions.flatMap(v=>v.parents));return versions.filter(v=>!superseded.has(v.id)).sort((a,b)=>a.id.localeCompare(b.id));}
-const functions=new Set(['SUM','AVERAGE','MIN','MAX','COUNT','COUNTA','IF','AND','OR','ROUND','COUNTIF','SUMIF','ABS','NOT','CONCAT']);
+/** Every function the calculator knows. The autocomplete catalog is tested against this set. */
+export const FORMULA_FUNCTIONS=new Set(['SUM','AVERAGE','MIN','MAX','COUNT','COUNTA','IF','AND','OR','ROUND','COUNTIF','SUMIF','ABS','NOT','CONCAT']);
+const functions=FORMULA_FUNCTIONS;
 interface Token{kind:string;text:string;}
 function tokenize(input:string):Token[]{const result:Token[]=[];let at=0;while(at<input.length){const rest=input.slice(at);const space=/^\s+/.exec(rest);if(space){at+=space[0].length;continue;}let m:RegExpExecArray|null;
     if((m=/^"(?:[^"]|"")*"/.exec(rest)))result.push({kind:'string',text:m[0]});
