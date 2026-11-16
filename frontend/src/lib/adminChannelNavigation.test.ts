@@ -8,7 +8,7 @@ test('directory includes supported server channel kinds with human labels, never
 	const types = ['public', 'text', 'voice', 'forum', 'gallery', 'wiki', 'stage', 'lore', 'planning', 'reception', 'dm', 'group', 'thread', 'thread_public', 'thread_private', 'category', 'unknown', 'constructor'];
 	const directory = adminChannelDirectory(types.map(type => ({ id: type, name: type, type })));
 	expect(directory.map(channel => String(channel.type))).toEqual(types.slice(0, 10));
-	expect(directory.map(channel => channel.typeLabel)).toEqual(['Public', 'Text', 'Voice', 'Forum', 'Gallery', 'Wiki', 'Stage', 'Project', 'Planning', 'Reception']);
+	expect(directory.map(channel => channel.typeLabelKey)).toEqual(['channel_type.public', 'channel_type.text', 'channel_type.voice', 'channel_type.forum', 'channel_type.gallery', 'channel_type.wiki', 'channel_type.stage', 'channel_type.project', 'channel_type.planning', 'channel_type.reception']);
 	expect(adminChannelDirectory([{ id: 'missing-kind', name: 'Unknown' }])).toEqual([]);
 });
 

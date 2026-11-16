@@ -19,7 +19,7 @@
 	import { followedChannelSnapshots } from '$lib/followingSnapshots';
 	import { currentSavedServer, switchToSavedServerChannel } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
-	import { getChannelTypeLabel } from '$lib/channelTypes';
+	import { getChannelTypeLabelKey } from '$lib/channelTypes';
 	import Icon from '$lib/components/ui/Icon.svelte';
 
 	const MAX_FEED_ITEMS = 64;
@@ -80,11 +80,11 @@
 	}
 
 	function summarizeChannel(channel: Channel): string {
-		return getChannelTypeLabel(channel.type);
+		return $_(getChannelTypeLabelKey(channel.type));
 	}
 
 	function summarizeSnapshotChannel(channelType: Channel['type'] | undefined): string {
-		return getChannelTypeLabel(channelType);
+		return $_(getChannelTypeLabelKey(channelType));
 	}
 </script>
 

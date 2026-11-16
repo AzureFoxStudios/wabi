@@ -8409,5 +8409,20 @@
     "group_server": "Server",
     "group_people": "People",
     "group_safety": "Safety"
+  },
+  "channel_type": {
+    "dm": "DM",
+    "group": "Group",
+    "voice": "Voice",
+    "public": "Public",
+    "thread": "Thread",
+    "forum": "Forum",
+    "gallery": "Gallery",
+    "wiki": "Wiki",
+    "stage": "Stage",
+    "project": "Project",
+    "planning": "Planning",
+    "reception": "Reception",
+    "text": "Text"
   }
 }

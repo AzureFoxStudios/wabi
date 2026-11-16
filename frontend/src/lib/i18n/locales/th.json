@@ -8409,5 +8409,20 @@
     "group_server": "เซิร์ฟเวอร์",
     "group_people": "ผู้คน",
     "group_safety": "ความปลอดภัย"
+  },
+  "channel_type": {
+    "dm": "DM",
+    "group": "กลุ่ม",
+    "voice": "เสียง",
+    "public": "สาธารณะ",
+    "thread": "เธรด",
+    "forum": "ฟอรัม",
+    "gallery": "แกลเลอรี",
+    "wiki": "วิกิ",
+    "stage": "เวที",
+    "project": "โปรเจกต์",
+    "planning": "การวางแผน",
+    "reception": "ต้อนรับ",
+    "text": "ข้อความ"
   }
 }
