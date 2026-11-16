@@ -20,6 +20,7 @@
     import {FUNCTION_CATALOG,type FunctionInfo} from './functionCatalog';
     import {arrowAction,canPoint,liveSpan,pointInsert,refLabel,type EditMode,type PointSpan} from './pointMode';
     import {cycleAbsolute} from './refText';
+    import {MAX_CLIP_CELLS,WABI_CELLS_MIME,fillPlacements,parseClip,parseTsv,placeClip,valuesToTsv,type CellClip,type Placement} from './clipboard';
     let {session,onselection,onactivesheet,focusAnchor}:{session:ArtifactSession;onselection?:(anchor:string|null)=>void;onactivesheet?:(id:string)=>void;focusAnchor?:string|null}=$props();
     const sessionState=session.state;
     let sheetId=$state(''),selectedRow=$state(''),selectedColumn=$state(''),endRow=$state(''),endColumn=$state('');
@@ -254,20 +255,52 @@
         sheetId=target.sheet;selectedRow=target.row;selectedColumn=target.column;endRow='';endColumn='';filter='';sort='none';bufferId=id;
         editingTarget={sheet:target.sheet,row:target.row,column:target.column,parents:target.parents as string[]};draft=entry.text;editing=true;recoveryOpen=false;formulaInput?.focus();
     }
-    async function copy(){
-        if(!current)return;const rowIds=[...new Set(selection.map(cell=>cell.row))],columnIds=[...new Set(selection.map(cell=>cell.column))];
-        const escape=(text:string)=>/[\t\r\n"]/.test(text)?`"${text.replaceAll('"','""')}"`:text;
-        const text=rowIds.map(row=>columnIds.map(column=>{const output=value(row,column),raw=calculations.values[`${current!.id}/${cellKey(row,column)}`];return escape(typeof raw!=='number'&&/^[=+@-]/.test(output)?"'"+output:output);}).join('\t')).join('\n');
-        try{await navigator.clipboard.writeText(text);toast('Selected values copied as a text-safe snapshot. No hidden cells or formulas were included.',{tone:'info'});}catch{error='Clipboard access was denied. Use export instead.';}
+    // ---- clipboard: values for other apps, formulas for Wabi (see clipboard.ts) ----
+    let lastClip:{clip:CellClip;tsv:string;sheet:string;cells:CellTarget[]}|null=null;
+    let copied=$state<Set<string>>(new Set());
+    function cellInputText(row:string,column:string):string{
+        if(!current)return'';const versions=heads(current.cells[cellKey(row,column)]||[]);
+        return versions.length===1?inputOf(versions[0],book,current.id):'';
     }
-    function parseTsv(text:string){const result:string[][]=[[]];let field='',quoted=false;for(let index=0;index<text.length;index++){const c=text[index];if(c==='"'&&(quoted||field==='')){if(quoted&&text[index+1]==='"'){field+='"';index++;}else quoted=!quoted;}else if(!quoted&&(c==='\t'||c==='\n')){result.at(-1)!.push(field.replace(/\r$/,''));field='';if(c==='\n')result.push([]);}else field+=c;}result.at(-1)!.push(field.replace(/\r$/,''));if(result.length>1&&result.at(-1)!.length===1&&result.at(-1)![0]==='')result.pop();if(quoted)throw new Error('Pasted table has an unclosed quote.');return result;}
+    /** Copy and cut come from the browser's own events, so Ctrl+C, Ctrl+X and the Edit menu all land here. */
+    function copyEvent(event:ClipboardEvent,cut=false){
+        if(event.target instanceof HTMLInputElement||!current||!event.clipboardData)return;
+        event.preventDefault();
+        if(cut&&!allowSelected){error='This selection is read-only or protected, so it cannot be cut.';return;}
+        const rowIds=[...new Set(selection.map(cell=>cell.row))],columnIds=[...new Set(selection.map(cell=>cell.column))];
+        if(rowIds.length*columnIds.length>MAX_CLIP_CELLS){error=`Copy up to ${MAX_CLIP_CELLS.toLocaleString()} cells at once.`;return;}
+        error='';
+        const tsv=valuesToTsv(rowIds.map(row=>columnIds.map(column=>({text:value(row,column),numeric:typeof raw(row,column)==='number'}))));
+        const clip:CellClip={v:1,rows:rowIds.length,columns:columnIds.length,cells:rowIds.map(row=>columnIds.map(column=>cellInputText(row,column))),origin:{r:rowIndex.get(rowIds[0])??0,c:colIndex.get(columnIds[0])??0},cut};
+        event.clipboardData.setData('text/plain',tsv);event.clipboardData.setData(WABI_CELLS_MIME,JSON.stringify(clip));
+        lastClip={clip,tsv,sheet:current.id,cells:selection.map(cell=>({...cell}))};
+        copied=new Set(selection.map(cell=>cellKey(cell.row,cell.column)));
+    }
     function paste(event:ClipboardEvent){
-        if(!editable||!current||event.target===formulaInput)return;event.preventDefault();attempt(()=>{
-            if(!commit())throw new Error('Resolve the current cell edit before pasting.');const text=event.clipboardData?.getData('text/plain')||'';if(text.length>2*1024*1024)throw new Error('Paste exceeds 2 MB; use file import.');
-            const cells=parseTsv(text);if(cells.reduce((total,row)=>total+row.length,0)>2000)throw new Error('Paste up to 2,000 cells at once.');
-            const ri=rows.findIndex(row=>row.id===selectedRow),ci=current!.columns.findIndex(column=>column.id===selectedColumn);
-            if(ri<0||ci<0||ri+cells.length>rows.length||cells.some(row=>ci+row.length>current!.columns.length))throw new Error('Add rows or columns before pasting. Nothing was changed.');
-            const changes=cells.flatMap((row,r)=>row.map((input,c)=>({row:rows[ri+r].id,column:current!.columns[ci+c].id,input})));permitted(changes);setCells(session.data,current!.id,changes,session.origin);
+        if(!editable||!current||event.target instanceof HTMLInputElement)return;event.preventDefault();
+        attempt(()=>{
+            if(!commit())throw new Error('Resolve the current cell edit before pasting.');
+            const sheet=current!,columns=sheet.columns,plain=event.clipboardData?.getData('text/plain')||'';
+            if(plain.length>2*1024*1024)throw new Error('Paste exceeds 2 MB; use file import.');
+            const at={r:Math.max(0,rows.findIndex(row=>row.id===selectedRow)),c:Math.max(0,columns.findIndex(column=>column.id===selectedColumn))};
+            let clip=parseClip(event.clipboardData?.getData(WABI_CELLS_MIME));
+            // Some browsers drop custom clipboard types: our own last copy is recognised by its text.
+            if(!clip&&lastClip&&lastClip.tsv===plain)clip=lastClip.clip;
+            const placements:Placement[]=clip
+                ?placeClip(clip,at,selection.length>1?bounds:null,{rows:sheet.rows.length,columns:columns.length})
+                :parseTsv(plain).flatMap((cells,r)=>cells.map((input,c)=>({r:at.r+r,c:at.c+c,input})));
+            if(placements.length>MAX_CLIP_CELLS)throw new Error(`Paste up to ${MAX_CLIP_CELLS.toLocaleString()} cells at once.`);
+            if(placements.some(place=>place.r>=rows.length||place.c>=columns.length))throw new Error('Add rows or columns before pasting. Nothing was changed.');
+            const changes=new Map<string,CellTarget&{input:string}>();
+            // A cut moves the cells: clear where they were first, then write over any overlap.
+            const moving=!!clip&&!!lastClip&&lastClip.clip.cut&&lastClip.tsv===plain&&lastClip.sheet===sheet.id;
+            if(moving)for(const cell of lastClip!.cells)changes.set(cellKey(cell.row,cell.column),{...cell,input:''});
+            for(const place of placements){const row=rows[place.r].id,column=columns[place.c].id;changes.set(cellKey(row,column),{row,column,input:place.input});}
+            const list=[...changes.values()];permitted(list);setCells(session.data,sheet.id,list,session.origin);
+            if(moving)lastClip=null;
+            copied=new Set();
+            // The pasted block becomes the selection, as in Excel (one cell over a selection keeps that selection).
+            if(!(clip&&clip.rows===1&&clip.columns===1&&selection.length>1)&&placements.length>1){endRow=rows[Math.max(...placements.map(place=>place.r))].id;endColumn=columns[Math.max(...placements.map(place=>place.c))].id;}
         });
     }
     function clearSelection(){if(!current)return;attempt(()=>{permitted(selection);if(selection.length>2000)throw new Error('Clear up to 2,000 cells at once.');setCells(session.data,current!.id,selection.map(cell=>({...cell,input:''})),session.origin);});}
@@ -276,12 +309,21 @@
         if(event.target instanceof HTMLInputElement||event.isComposing)return;
         const mod=event.ctrlKey||event.metaKey,key=event.key,lower=key.toLowerCase();
         if(mod&&!event.altKey){
-            if(lower==='c'){event.preventDefault();void copy();return;}
             if(lower==='a'){event.preventDefault();selectAll();return;}
+            if((lower==='d'||lower==='r')&&!event.shiftKey){event.preventDefault();if(allowSelected)fillBlock(lower==='d'?'down':'right');return;}
+            // Excel's number formats: Ctrl+Shift+$ % ! # ~
+            if(event.shiftKey&&allowSelected){
+                const formats:Record<string,CellStyle>={'$':{format:'currency'},'%':{format:'percent'},'!':{format:'number',precision:2},'#':{format:'date'},'~':{format:'general'}};
+                // The produced character on most layouts; the physical key where the browser reports the unshifted digit.
+                const byCode:Record<string,string>={Digit4:'$',Digit5:'%',Digit1:'!',Digit3:'#',Backquote:'~'};
+                const symbol=Object.hasOwn(formats,key)?key:/^[0-9`]$/.test(key)?byCode[event.code]:undefined;
+                if(symbol&&formats[symbol]){event.preventDefault();style(formats[symbol]);return;}
+            }
             if(lower==='b'&&allowSelected){event.preventDefault();style({bold:!selectedStyle.bold});return;}
             if(lower==='i'&&allowSelected){event.preventDefault();style({italic:!selectedStyle.italic});return;}
         }
         if(!current)return;
+        if(key==='Escape'){if(copied.size)copied=new Set();return;}
         if(key==='F2'){event.preventDefault();startEdit();return;}
         if(key===' '&&mod){event.preventDefault();selectColumn(activePos().c);return;}
         if(key===' '&&event.shiftKey){event.preventDefault();selectRow(activePos().r);return;}
@@ -307,7 +349,26 @@
         if(remove&&$sessionState.meta?.role!=='owner'&&protections.some(range=>range.sheetId===current!.id&&(kind==='rows'?range.rows:range.columns).includes(id)))throw new Error('This axis contains protected cells.');
         if(remove)removeAxis(session.data,current!.id,kind,id,session.origin);else insertAxis(session.data,current!.id,kind,(kind==='rows'?current!.rows:current!.columns).findIndex(item=>item.id===id)+1,session.origin);
     });}
-    function fillDown(){if(!current)return;attempt(()=>{const row=current!.rows.findIndex(item=>item.id===selectedRow),column=current!.columns.findIndex(item=>item.id===selectedColumn);if(row>=current!.rows.length-1)throw new Error('Add a row before filling down.');permitted([{row:current!.rows[row+1].id,column:selectedColumn}]);fill(session.data,current!.id,{r:row,c:column},{r:row+1,c:column},session.origin);});}
+    /** Ctrl+D and Ctrl+R: copy the top row (or left column) of the selection across the rest; one cell copies from the cell above (or left). */
+    function fillBlock(direction:'down'|'right'){
+        if(!current||!bounds)return;
+        attempt(()=>{
+            const b=bounds,sheet=current!,limits={rows:sheet.rows.length,columns:sheet.columns.length},placements:Placement[]=[];
+            const input=(r:number,c:number)=>cellInputText(rows[r].id,sheet.columns[c].id);
+            if(direction==='down'){
+                const single=b.r1===b.r0,from=single?b.r0-1:b.r0;
+                if(from<0)throw new Error('There is no row above to fill from.');
+                for(let c=b.c0;c<=b.c1;c++){const targets:Pos[]=[];for(let r=single?b.r0:b.r0+1;r<=b.r1;r++)targets.push({r,c});placements.push(...fillPlacements({r:from,c,input:input(from,c)},targets,limits));}
+            }else{
+                const single=b.c1===b.c0,from=single?b.c0-1:b.c0;
+                if(from<0)throw new Error('There is no column to the left to fill from.');
+                for(let r=b.r0;r<=b.r1;r++){const targets:Pos[]=[];for(let c=single?b.c0:b.c0+1;c<=b.c1;c++)targets.push({r,c});placements.push(...fillPlacements({r,c:from,input:input(r,from)},targets,limits));}
+            }
+            if(!placements.length)return;
+            const changes=placements.map(place=>({row:rows[place.r].id,column:sheet.columns[place.c].id,input:place.input}));
+            permitted(changes);setCells(session.data,sheet.id,changes,session.origin);
+        });
+    }
     async function protect(removeId?:string){
         if(!current||!session.record.meta||session.record.meta.role!=='owner'||protectBusy)return;protectBusy=true;error='';
         try{
@@ -390,8 +451,10 @@
             {id:'wrap',label:'Wrap text',icon:'wrapText',role:'menuitemcheckbox',checked:!!selectedStyle.wrap,disabled:!allowSelected,onSelect:()=>style({wrap:!selectedStyle.wrap})},
             {id:'plain',label:'Clear formatting',icon:'x',disabled:!allowSelected,onSelect:()=>style({bold:false,italic:false,fill:'',border:false,wrap:false,format:'general'})},
             {id:'details',label:'Decimals and column width…',icon:'sliders',onSelect:()=>{formatOpen=true;}},
-            {id:'fill-down',label:'Fill down',icon:'arrowRight',disabled:!editable,onSelect:fillDown},
-            {id:'copy',label:'Copy range',icon:'copy',shortcut:'Ctrl C',onSelect:()=>void copy()},
+            {id:'fill-down',label:'Fill down',icon:'arrowRight',disabled:!editable,shortcut:'Ctrl D',onSelect:()=>fillBlock('down')},
+            {id:'fill-right',label:'Fill right',icon:'arrowRight',disabled:!editable,shortcut:'Ctrl R',onSelect:()=>fillBlock('right')},
+            {id:'copy',label:'Copy range',icon:'copy',shortcut:'Ctrl C',onSelect:()=>{grid?.focus();document.execCommand('copy');}},
+            {id:'cut',label:'Cut range',icon:'copy',shortcut:'Ctrl X',disabled:!allowSelected,onSelect:()=>{grid?.focus();document.execCommand('cut');}},
             {id:'sep-1',type:'separator',label:''},
             {id:'k-rows',type:'kicker',label:'Rows and columns'},
             {id:'delete-row',label:'Delete row',icon:'trash',disabled:!editable,onSelect:()=>axis('rows',true)},
@@ -520,10 +583,10 @@
         </section>
     {/if}
 
-    <div class="sheet-grid" class:freeze id={gridId} bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
+    <div class="sheet-grid" class:freeze id={gridId} bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} oncopy={copyEvent} oncut={event=>copyEvent(event,true)} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
         {#if current}<table role="grid" aria-label={current.name} aria-rowcount={rows.length+1} aria-colcount={current.columns.length+1} aria-multiselectable="true" style:--sheet-row={`${rowHeight}px`}><colgroup><col class="sheet-col-label"/>{#each current.columns as column(column.id)}<col style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}/>{/each}</colgroup><thead><tr><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label corner" scope="col" title="Select all" onclick={selectAll}><span class="sr-only">Row</span></th>{#each current.columns as column,index(column.id)}<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th scope="col" class:selected-head={selectedColumns.has(column.id)} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`} onclick={event=>selectColumn(index,event.shiftKey)}>{columnName(index)}</th>{/each}</tr></thead><tbody>
             {#if first>0}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${first*rowHeight}px`} class="spacer"></td></tr>{/if}
-            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row" onclick={event=>selectRow(ri,event.shiftKey)}>{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===selectedRow&&column.id===selectedColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`} style:max-width={`${ysheet?columnWidth(ysheet,column.id):140}px`} class:pointed={!!pointCells&&ri>=pointCells.r0&&ri<=pointCells.r1&&ci>=pointCells.c0&&ci<=pointCells.c1} title={value(row.id,column.id)} onpointerdown={event=>cellPointerDown(event,ri,ci,row.id,column.id)} onpointerenter={event=>cellEnter(event,ri,ci,row.id,column.id)} onclick={event=>cellClick(event,row.id,column.id)} ondblclick={()=>{if(choose(row.id,column.id))startEdit();}}>{#if editing&&editSurface==='cell'&&row.id===selectedRow&&column.id===selectedColumn}<input class="sheet-cell-editor" bind:this={cellEditor} role="combobox" aria-label={`Editing ${cellName}`} aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestId} aria-activedescendant={suggestions.length?`${suggestId}-${suggestIndex}`:undefined} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" oninput={cellInput} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} onblur={cellBlur} />{:else}<span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span>{/if}</td>{/each}</tr>{/each}
+            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row" onclick={event=>selectRow(ri,event.shiftKey)}>{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===selectedRow&&column.id===selectedColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`} style:max-width={`${ysheet?columnWidth(ysheet,column.id):140}px`} class:copied={copied.has(cellKey(row.id,column.id))} class:pointed={!!pointCells&&ri>=pointCells.r0&&ri<=pointCells.r1&&ci>=pointCells.c0&&ci<=pointCells.c1} title={value(row.id,column.id)} onpointerdown={event=>cellPointerDown(event,ri,ci,row.id,column.id)} onpointerenter={event=>cellEnter(event,ri,ci,row.id,column.id)} onclick={event=>cellClick(event,row.id,column.id)} ondblclick={()=>{if(choose(row.id,column.id))startEdit();}}>{#if editing&&editSurface==='cell'&&row.id===selectedRow&&column.id===selectedColumn}<input class="sheet-cell-editor" bind:this={cellEditor} role="combobox" aria-label={`Editing ${cellName}`} aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestId} aria-activedescendant={suggestions.length?`${suggestId}-${suggestIndex}`:undefined} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" oninput={cellInput} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} onblur={cellBlur} />{:else}<span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span>{/if}</td>{/each}</tr>{/each}
             {#if last<rows.length}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${(rows.length-last)*rowHeight}px`} class="spacer"></td></tr>{/if}
         </tbody></table>{/if}
     </div>

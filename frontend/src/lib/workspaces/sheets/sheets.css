@@ -734,3 +734,8 @@
 .sheet-suggest__hint strong {
 	color: var(--w-text);
 }
+/* The cells just copied or cut, until the next paste or Esc. */
+.sheet-grid td.copied {
+	outline: 1px dashed var(--w-text);
+	outline-offset: -2px;
+}
