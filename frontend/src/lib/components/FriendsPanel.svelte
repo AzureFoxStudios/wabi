@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { currentUser, serverMembers, users } from '$lib/socket';
@@ -86,7 +87,7 @@
 			await action();
 			actionNotice = success;
 		} catch (error) {
-			actionError = error instanceof Error ? error.message : 'Friend action failed.';
+			actionError = error instanceof Error ? error.message : $_('friends.action_failed');
 		} finally {
 			pendingAction = '';
 		}
@@ -97,35 +98,35 @@
 	}
 
 	function confirmRemove(person: FriendPerson) {
-		if (!window.confirm(`Remove ${person.username} from your friends?`)) return;
-		void runAction(`remove-${person.user_id}`, () => removeFriendship(person.user_id), 'Friend removed.');
+		if (!window.confirm($_('friends.confirm_remove', { values: { name: person.username } }))) return;
+		void runAction(`remove-${person.user_id}`, () => removeFriendship(person.user_id), $_('friends.removed'));
 	}
 </script>
 
 <div class="friends-panel">
-	<header class="friends-hero"><div><h2>Your people</h2><p>Keep in touch with friends and meet members of this server.</p></div><span>{$friendships.friends.length} friends</span></header>
-	{#if !canManageFriends}<p class="friends-empty">Sign in with a registered account to add friends.</p>{/if}
+	<header class="friends-hero"><div><h2>{$_('friends.heading')}</h2><p>{$_('friends.intro')}</p></div><span>{$friendships.friends.length === 1 ? $_('friends.count_one') : $_('friends.count_many', { values: { count: $friendships.friends.length } })}</span></header>
+	{#if !canManageFriends}<p class="friends-empty">{$_('friends.sign_in')}</p>{/if}
 
 	{#if $friendships.error}
 		<div class="friends-feedback error" role="alert">
 			<span>{$friendships.error}</span>
-			<button type="button" on:click={() => refreshFriendships()}>Retry</button>
+			<button type="button" on:click={() => refreshFriendships()}>{$_('friends.retry')}</button>
 		</div>
 	{/if}
 	{#if actionError}<p class="friends-feedback error" role="alert">{actionError}</p>{/if}
 	{#if actionNotice}<p class="friends-feedback" role="status">{actionNotice}</p>{/if}
-	{#if $friendships.loading && !$friendships.ready}<p class="friends-feedback" role="status">Loading friends…</p>{/if}
+	{#if $friendships.loading && !$friendships.ready}<p class="friends-feedback" role="status">{$_('friends.loading')}</p>{/if}
 
 	{#if $friendships.ready}
 		<div class="friends-request-overview" class:has-requests={$friendships.incoming.length > 0} role="status" aria-live="polite">
-			<strong>{$friendships.incoming.length > 0 ? `${$friendships.incoming.length} friend ${$friendships.incoming.length === 1 ? 'request' : 'requests'} waiting for you` : 'No requests to review'}</strong>
-			<span>{$friendships.outgoing.length > 0 ? `${$friendships.outgoing.length} sent ${$friendships.outgoing.length === 1 ? 'request' : 'requests'} awaiting a reply` : 'Find people on this server to send a request.'}</span>
+			<strong>{$friendships.incoming.length > 0 ? ($friendships.incoming.length === 1 ? $_('friends.incoming_one') : $_('friends.incoming_many', { values: { count: $friendships.incoming.length } })) : $_('friends.no_requests')}</strong>
+			<span>{$friendships.outgoing.length > 0 ? ($friendships.outgoing.length === 1 ? $_('friends.outgoing_one') : $_('friends.outgoing_many', { values: { count: $friendships.outgoing.length } })) : $_('friends.find_people')}</span>
 		</div>
 
 		<section class="friends-section friends-request-section" class:has-requests={$friendships.incoming.length > 0} aria-labelledby="incoming-friends-title">
-			<h3 id="incoming-friends-title">Requests to review <span>{$friendships.incoming.length}</span></h3>
+			<h3 id="incoming-friends-title">{$_('friends.requests_to_review')} <span>{$friendships.incoming.length}</span></h3>
 			{#if $friendships.incoming.length === 0}
-				<p class="friends-empty">No friend requests waiting for you.</p>
+				<p class="friends-empty">{$_('friends.no_incoming')}</p>
 			{:else}
 				{#each $friendships.incoming as request (request.id)}
 					{@const profile = rosterById.get(request.user_id)}
@@ -134,10 +135,10 @@
 						<div class="friend-avatar" style:background={request.color || 'var(--accent-primary)'}>
 							{#if avatar}<ProfileMedia src={mediaUrl(avatar)} decorative />{:else}{request.username[0]?.toUpperCase() || '?'}{/if}
 						</div>
-						<div class="friend-details"><strong><ProfileName username={request.username} font={profile?.usernameFont} color={profile?.color || request.color} /></strong><span>Wants to be friends</span></div>
+						<div class="friend-details"><strong><ProfileName username={request.username} font={profile?.usernameFont} color={profile?.color || request.color} /></strong><span>{$_('friends.wants_friends')}</span></div>
 						<div class="friend-actions">
-							<button type="button" class="friend-primary" disabled={Boolean(pendingAction)} on:click={() => runAction(`accept-${request.id}`, () => acceptFriendship(request.id), `You and ${request.username} are friends.`)}>{pendingAction === `accept-${request.id}` ? 'Accepting…' : 'Accept'}</button>
-							<button type="button" disabled={Boolean(pendingAction)} on:click={() => runAction(`decline-${request.id}`, () => dismissFriendship(request.id), 'Request declined.')}>{pendingAction === `decline-${request.id}` ? 'Declining…' : 'Decline'}</button>
+							<button type="button" class="friend-primary" disabled={Boolean(pendingAction)} on:click={() => runAction(`accept-${request.id}`, () => acceptFriendship(request.id), $_('friends.now_friends', { values: { name: request.username } }))}>{pendingAction === `accept-${request.id}` ? $_('friends.accepting') : $_('friends.accept')}</button>
+							<button type="button" disabled={Boolean(pendingAction)} on:click={() => runAction(`decline-${request.id}`, () => dismissFriendship(request.id), $_('friends.declined'))}>{pendingAction === `decline-${request.id}` ? $_('friends.declining') : $_('friends.decline')}</button>
 						</div>
 					</div>
 				{/each}
@@ -145,9 +146,9 @@
 		</section>
 
 		<section class="friends-section friends-request-section" aria-labelledby="outgoing-friends-title">
-			<h3 id="outgoing-friends-title">Sent requests <span>{$friendships.outgoing.length}</span></h3>
+			<h3 id="outgoing-friends-title">{$_('friends.sent_requests')} <span>{$friendships.outgoing.length}</span></h3>
 			{#if $friendships.outgoing.length === 0}
-				<p class="friends-empty">No requests awaiting a reply.</p>
+				<p class="friends-empty">{$_('friends.no_outgoing')}</p>
 			{:else}
 				{#each $friendships.outgoing as request (request.id)}
 					{@const profile = rosterById.get(request.user_id)}
@@ -156,9 +157,9 @@
 						<div class="friend-avatar" style:background={request.color || 'var(--accent-primary)'}>
 							{#if avatar}<ProfileMedia src={mediaUrl(avatar)} decorative />{:else}{request.username[0]?.toUpperCase() || '?'}{/if}
 						</div>
-						<div class="friend-details"><strong><ProfileName username={request.username} font={profile?.usernameFont} color={profile?.color || request.color} /></strong><span>Waiting for a reply</span></div>
+						<div class="friend-details"><strong><ProfileName username={request.username} font={profile?.usernameFont} color={profile?.color || request.color} /></strong><span>{$_('friends.waiting_reply')}</span></div>
 						<div class="friend-actions">
-							<button type="button" class="cancel-request" aria-label={`Cancel friend request to ${request.username}`} title="Cancel friend request" disabled={Boolean(pendingAction)} on:click={() => runAction(`cancel-${request.id}`, () => dismissFriendship(request.id), 'Request cancelled.')}>{pendingAction === `cancel-${request.id}` ? '…' : '×'}</button>
+							<button type="button" class="cancel-request" aria-label={$_('friends.cancel_label', { values: { name: request.username } })} title={$_('friends.cancel_title')} disabled={Boolean(pendingAction)} on:click={() => runAction(`cancel-${request.id}`, () => dismissFriendship(request.id), $_('friends.cancelled'))}>{pendingAction === `cancel-${request.id}` ? '…' : '×'}</button>
 						</div>
 					</div>
 				{/each}
@@ -167,15 +168,15 @@
 	{/if}
 
 	<div class="friends-search-wrap">
-		<label for="friends-search">Search friends and members</label>
-		<input id="friends-search" type="search" bind:value={search} placeholder="Search members" autocomplete="off" />
+		<label for="friends-search">{$_('friends.search_label')}</label>
+		<input id="friends-search" type="search" bind:value={search} placeholder={$_('friends.search_placeholder')} autocomplete="off" />
 	</div>
 
 	{#if $friendships.ready}
 		<section class="friends-section" aria-labelledby="friends-list-title">
-			<h3 id="friends-list-title">Friends <span>{$friendships.friends.length}</span></h3>
+			<h3 id="friends-list-title">{$_('friends.friends_heading')} <span>{$friendships.friends.length}</span></h3>
 			{#if visibleFriends.length === 0}
-				<p class="friends-empty">{$friendships.friends.length ? 'No friends match your search.' : 'No friends yet. Find someone below to send a request.'}</p>
+				<p class="friends-empty">{$friendships.friends.length ? $_('friends.no_match') : $_('friends.none_yet')}</p>
 			{:else}
 				{#each visibleFriends as person (person.user_id)}
 					{@const profile = rosterById.get(person.user_id)}
@@ -188,8 +189,8 @@
 						</div>
 						<div class="friend-details"><strong><ProfileName username={person.username} font={profile?.usernameFont} color={profile?.color || person.color} /></strong><span>{status}</span></div>
 						<div class="friend-actions">
-							<button type="button" class="friend-primary" disabled={Boolean(pendingAction)} on:click={() => message(person)}>Message</button>
-							<button type="button" disabled={Boolean(pendingAction)} on:click={() => confirmRemove(person)} aria-label={`Remove ${person.username} from friends`}>{pendingAction === `remove-${person.user_id}` ? 'Removing…' : 'Remove'}</button>
+							<button type="button" class="friend-primary" disabled={Boolean(pendingAction)} on:click={() => message(person)}>{$_('friends.message')}</button>
+							<button type="button" disabled={Boolean(pendingAction)} on:click={() => confirmRemove(person)} aria-label={$_('friends.remove_label', { values: { name: person.username } })}>{pendingAction === `remove-${person.user_id}` ? $_('friends.removing') : $_('friends.remove')}</button>
 						</div>
 					</div>
 				{/each}
@@ -199,9 +200,9 @@
 	{/if}
 
 	<section class="friends-section" aria-labelledby="find-friends-title">
-		<h3 id="find-friends-title">People on this server</h3>
+		<h3 id="find-friends-title">{$_('friends.people_heading')}</h3>
 		{#if discoverable.length === 0}
-			<p class="friends-empty">{!canManageFriends ? 'Friend requests need a registered account.' : search ? 'No people match your search.' : 'Everyone here is already a friend or has a pending request.'}</p>
+			<p class="friends-empty">{!canManageFriends ? $_('friends.need_account') : search ? $_('friends.no_people_match') : $_('friends.all_here')}</p>
 		{:else}
 			{#each discoverable as person (person.dbUserId)}
 				{@const relation = friendshipRelation($friendships, person.dbUserId)}
@@ -210,14 +211,14 @@
 						{#if person.profilePicture}<ProfileMedia src={mediaUrl(person.profilePicture)} decorative />{:else}{person.username[0]?.toUpperCase() || '?'}{/if}
 						<span class="friend-status" style:background={statusColor(person.status)} aria-label={person.status}></span>
 					</div>
-					<div class="friend-details"><strong><ProfileName username={person.username} font={person.usernameFont} color={person.color} /></strong><span>{relation.kind === 'outgoing' ? 'Request sent · waiting for a reply' : person.handle ? `@${person.handle}` : person.status}</span></div>
+					<div class="friend-details"><strong><ProfileName username={person.username} font={person.usernameFont} color={person.color} /></strong><span>{relation.kind === 'outgoing' ? $_('friends.request_sent_status') : person.handle ? `@${person.handle}` : person.status}</span></div>
 					<div class="friend-actions">
 						{#if relation.kind === 'outgoing'}
-							<span class="friend-pending-label" aria-label={`Friend request sent to ${person.username}`}>Request sent</span>
+							<span class="friend-pending-label" aria-label={$_('friends.request_sent_label', { values: { name: person.username } })}>{$_('friends.request_sent')}</span>
 						{:else}
-							<button type="button" class="friend-primary" disabled={Boolean(pendingAction) || !$friendships.ready} on:click={() => runAction(`add-${person.dbUserId}`, () => requestFriendship(person.dbUserId!), `Request sent to ${person.username}.`)}>{pendingAction === `add-${person.dbUserId}` ? 'Sending…' : 'Add friend'}</button>
+							<button type="button" class="friend-primary" disabled={Boolean(pendingAction) || !$friendships.ready} on:click={() => runAction(`add-${person.dbUserId}`, () => requestFriendship(person.dbUserId!), $_('friends.sent_to', { values: { name: person.username } }))}>{pendingAction === `add-${person.dbUserId}` ? $_('friends.sending') : $_('friends.add')}</button>
 						{/if}
-						<button type="button" disabled={Boolean(pendingAction)} on:click={() => dispatch('message', person)}>Message</button>
+						<button type="button" disabled={Boolean(pendingAction)} on:click={() => dispatch('message', person)}>{$_('friends.message')}</button>
 					</div>
 				</div>
 			{/each}

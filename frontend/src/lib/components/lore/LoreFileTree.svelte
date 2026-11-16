@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { LoreFileInfo } from '$lib/api/lore';
 	import { buildLoreFileTree } from '$lib/lore/fileTree';
 	import TreeNode from './LoreTreeNode.svelte';
@@ -28,8 +29,8 @@
 		type="text"
 		class="tree-search"
 		bind:value={searchQuery}
-		placeholder="Search files..."
-		aria-label="Search files"
+		placeholder={$_('lore_tree.search_placeholder')}
+		aria-label={$_('lore_tree.search_label')}
 	/>
 
 	{#if loading}
@@ -39,7 +40,7 @@
 			{/each}
 		</div>
 	{:else}
-		<ul class="tree-root" role="tree" aria-label="File tree">
+		<ul class="tree-root" role="tree" aria-label={$_('lore_tree.tree_label')}>
 			<!-- Keyed by path: without keys, filtering/rebuilding the tree
 			     scrambles per-node expansion state across unrelated folders. -->
 			{#each tree as node (node.path)}

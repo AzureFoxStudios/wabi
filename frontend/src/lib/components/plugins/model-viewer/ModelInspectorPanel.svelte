@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { formatLength, isModelUnit, type InspectorSnapshot, type ModelUnit, type ModelView, type SectionAxis } from '../modelInspector';
   import type { ModelInspectorRuntime } from '../modelInspectorRuntime';
   let { snapshot, runtime, fileName, sourceUnit = $bindable<ModelUnit>('model'), displayUnit = $bindable<ModelUnit>('model') }: { snapshot: InspectorSnapshot; runtime: ModelInspectorRuntime; fileName: string; sourceUnit?: ModelUnit; displayUnit?: ModelUnit } = $props();
@@ -20,66 +21,66 @@
   }
 </script>
 
-<div class="mv-panel-title"><h4>Inspect model</h4><span class="mv-muted">Mesh tools</span></div>
-<p class="mv-panel-summary">{snapshot.meshes.length.toLocaleString('en-US')} meshes · ~{triangleCount.toLocaleString('en-US')} triangles</p>
+<div class="mv-panel-title"><h4>{$_('model_inspect.heading')}</h4><span class="mv-muted">{$_('model_inspect.mesh_tools')}</span></div>
+<p class="mv-panel-summary">{$_('model_inspect.summary', { values: { meshes: snapshot.meshes.length.toLocaleString('en-US'), triangles: triangleCount.toLocaleString('en-US') } })}</p>
 <section class="mv-panel-section">
-  <div class="mv-section-heading"><h5>Dimensions</h5><button type="button" class="mv-text-button" onclick={() => runtime.refresh()}>Refresh pose</button></div>
-  <p class="mv-muted mv-truncate" title={selected?.name || 'Whole model'}>{selected?.name || 'Whole model'} · bounding box</p>
+  <div class="mv-section-heading"><h5>{$_('model_inspect.dimensions')}</h5><button type="button" class="mv-text-button" onclick={() => runtime.refresh()}>{$_('model_inspect.refresh_pose')}</button></div>
+  <p class="mv-muted mv-truncate" title={selected?.name || $_('model_inspect.whole')}>{selected?.name || $_('model_inspect.whole')} · {$_('model_inspect.bounding_box')}</p>
   <div class="mv-dimensions">
     {#each ['x', 'y', 'z'] as axis}
       <div><span>{axis.toUpperCase()}</span><strong>{length(snapshot.dimensions?.[axis as 'x' | 'y' | 'z'] ?? null)}</strong></div>
     {/each}
   </div>
   <div class="mv-field-grid">
-    <label>Source units<select value={sourceUnit} onchange={changeSource}><option value="model">Unspecified</option>{#each units as unit}<option value={unit}>{unit}</option>{/each}</select></label>
-    <label>Display units<select bind:value={displayUnit} disabled={sourceUnit === 'model'}>{#if sourceUnit === 'model'}<option value="model">Model units</option>{:else}{#each units as unit}<option value={unit}>{unit}</option>{/each}{/if}</select></label>
+    <label>{$_('model_inspect.source_units')}<select value={sourceUnit} onchange={changeSource}><option value="model">{$_('model_inspect.unspecified')}</option>{#each units as unit}<option value={unit}>{unit}</option>{/each}</select></label>
+    <label>{$_('model_inspect.display_units')}<select bind:value={displayUnit} disabled={sourceUnit === 'model'}>{#if sourceUnit === 'model'}<option value="model">{$_('model_inspect.model_units')}</option>{:else}{#each units as unit}<option value={unit}>{unit}</option>{/each}{/if}</select></label>
   </div>
-  <p class="mv-note">{sourceUnit === 'model' ? 'Source scale is unspecified. Set it only when you know the file’s units.' : 'Source units are your assumption; changing this field does not rescale the model.'} Dimensions and measurements describe the display mesh, not CAD tolerances.</p>
+  <p class="mv-note">{$_('model_inspect.units_note', { values: { note: sourceUnit === 'model' ? $_('model_inspect.scale_unspecified') : $_('model_inspect.scale_assumption') } })}</p>
 </section>
 <section class="mv-panel-section">
-  <div class="mv-section-heading"><h5>Measure</h5><span class="mv-small-badge">Approximate</span></div>
+  <div class="mv-section-heading"><h5>{$_('model_inspect.measure')}</h5><span class="mv-small-badge">{$_('model_inspect.approximate')}</span></div>
   <div class="mv-inline-actions">
-    <button type="button" class="mv-button" aria-pressed={snapshot.measuring} onclick={() => runtime.setMeasuring(!snapshot.measuring)}>{snapshot.measuring ? 'Stop measuring' : 'Pick two points'}</button>
-    <button type="button" class="mv-button" disabled={snapshot.measurePoints === 0} onclick={() => runtime.clearMeasurement()}>Clear</button>
+    <button type="button" class="mv-button" aria-pressed={snapshot.measuring} onclick={() => runtime.setMeasuring(!snapshot.measuring)}>{snapshot.measuring ? $_('model_inspect.stop_measuring') : $_('model_inspect.pick_two')}</button>
+    <button type="button" class="mv-button" disabled={snapshot.measurePoints === 0} onclick={() => runtime.clearMeasurement()}>{$_('model_inspect.clear')}</button>
   </div>
-  <output class="mv-distance" aria-live="polite">{snapshot.distance === null ? snapshot.measuring ? snapshot.measurePoints ? 'Pick the second surface point' : 'Pick the first surface point' : 'No measurement' : length(snapshot.distance)}</output>
-  <p class="mv-note">Surface picks are mesh approximations. Inspection pauses animation; picks stay on that pose. A third pick starts a new measurement.</p>
+  <output class="mv-distance" aria-live="polite">{snapshot.distance === null ? snapshot.measuring ? snapshot.measurePoints ? $_('model_inspect.pick_second') : $_('model_inspect.pick_first') : $_('model_inspect.no_measurement') : length(snapshot.distance)}</output>
+  <p class="mv-note">{$_('model_inspect.measure_note')}</p>
 </section>
 <section class="mv-panel-section">
-  <div class="mv-section-heading"><h5>Section plane</h5><span class="mv-small-badge">View only</span></div>
-  <label class="mv-field">Axis<select value={snapshot.sectionAxis} onchange={(e) => section(e.currentTarget.value as SectionAxis)}><option value="off">Off</option><option value="x">X axis</option><option value="y">Y axis</option><option value="z">Z axis</option></select></label>
+  <div class="mv-section-heading"><h5>{$_('model_inspect.section_plane')}</h5><span class="mv-small-badge">{$_('model_inspect.view_only')}</span></div>
+  <label class="mv-field">{$_('model_inspect.axis')}<select value={snapshot.sectionAxis} onchange={(e) => section(e.currentTarget.value as SectionAxis)}><option value="off">{$_('model_inspect.off')}</option><option value="x">X {$_('model_inspect.axis')}</option><option value="y">Y {$_('model_inspect.axis')}</option><option value="z">Z {$_('model_inspect.axis')}</option></select></label>
   {#if snapshot.sectionAxis !== 'off'}
-    <label class="mv-range-label">Position <span>{Math.round(snapshot.sectionPercent)}%</span><input type="range" min="0" max="100" step="1" value={snapshot.sectionPercent} oninput={(e) => section(snapshot.sectionAxis, Number(e.currentTarget.value))} /></label>
-    <button type="button" class="mv-button" aria-pressed={snapshot.sectionFlipped} onclick={() => section(snapshot.sectionAxis, snapshot.sectionPercent, !snapshot.sectionFlipped)}>Flip cut side</button>
+    <label class="mv-range-label">{$_('model_inspect.position')} <span>{Math.round(snapshot.sectionPercent)}%</span><input type="range" min="0" max="100" step="1" value={snapshot.sectionPercent} oninput={(e) => section(snapshot.sectionAxis, Number(e.currentTarget.value))} /></label>
+    <button type="button" class="mv-button" aria-pressed={snapshot.sectionFlipped} onclick={() => section(snapshot.sectionAxis, snapshot.sectionPercent, !snapshot.sectionFlipped)}>{$_('model_inspect.flip')}</button>
   {/if}
-  <p class="mv-note">Clips the preview without editing geometry. Cut faces are open, not filled or capped.</p>
+  <p class="mv-note">{$_('model_inspect.section_note')}</p>
 </section>
 <section class="mv-panel-section">
-  <div class="mv-section-heading"><h5>Parts</h5><button type="button" class="mv-text-button" onclick={() => runtime.restoreVisibility()}>Restore visibility</button></div>
-  <input class="mv-search" type="search" placeholder="Find a mesh…" aria-label="Find a mesh" bind:value={query} />
+  <div class="mv-section-heading"><h5>{$_('model_inspect.parts')}</h5><button type="button" class="mv-text-button" onclick={() => runtime.restoreVisibility()}>{$_('model_inspect.restore_visibility')}</button></div>
+  <input class="mv-search" type="search" placeholder={$_('model_inspect.find_mesh')} aria-label={$_('model_inspect.find_mesh_label')} bind:value={query} />
   <div class="mv-inline-actions">
-    <button type="button" class="mv-button" disabled={snapshot.selectedId === null} onclick={() => runtime.isolate()}>Isolate selected</button>
-    <button type="button" class="mv-button" disabled={snapshot.selectedId === null} onclick={() => runtime.select(null)}>Deselect</button>
+    <button type="button" class="mv-button" disabled={snapshot.selectedId === null} onclick={() => runtime.isolate()}>{$_('model_inspect.isolate')}</button>
+    <button type="button" class="mv-button" disabled={snapshot.selectedId === null} onclick={() => runtime.select(null)}>{$_('model_inspect.deselect')}</button>
   </div>
-  <ul class="mv-mesh-list" aria-label="Model meshes">
+  <ul class="mv-mesh-list" aria-label={$_('model_inspect.meshes_list')}>
     {#each displayed as mesh (mesh.id)}
       <li class:mv-mesh-selected={snapshot.selectedId === mesh.id}>
         <button class="mv-mesh-name" type="button" aria-pressed={snapshot.selectedId === mesh.id} title={mesh.name} onclick={() => runtime.select(mesh.id)}>{mesh.name}</button>
-        <button class="mv-mesh-visibility" type="button" aria-label={`${mesh.visible ? 'Hide' : 'Show'} ${mesh.name}`} aria-pressed={mesh.visible} onclick={() => runtime.toggleVisibility(mesh.id)}>{mesh.visible ? 'Visible' : 'Hidden'}</button>
+        <button class="mv-mesh-visibility" type="button" aria-label={`${mesh.visible ? $_('model_inspect.hide') : $_('model_inspect.show')} ${mesh.name}`} aria-pressed={mesh.visible} onclick={() => runtime.toggleVisibility(mesh.id)}>{mesh.visible ? $_('model_inspect.visible') : $_('model_inspect.hidden')}</button>
       </li>
     {/each}
   </ul>
-  {#if !matching.length}<p class="mv-note">No mesh matches this search.</p>{/if}
-  {#if matching.length > displayed.length}<p class="mv-note">Showing {displayed.length} of {matching.length}. Narrow the search to find another mesh.</p>{/if}
-  <p class="mv-note">These are imported meshes, not a parametric CAD feature tree.</p>
+  {#if !matching.length}<p class="mv-note">{$_('model_inspect.no_match')}</p>{/if}
+  {#if matching.length > displayed.length}<p class="mv-note">{$_('model_inspect.showing_of', { values: { shown: displayed.length, total: matching.length } })}</p>{/if}
+  <p class="mv-note">{$_('model_inspect.imported_note')}</p>
 </section>
 <section class="mv-panel-section">
-  <h5>Standard views</h5>
-  <div class="mv-view-grid" role="group" aria-label="Additional camera views">
-    {#each [['iso', 'Iso'], ['front', 'Front'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'], ['top', 'Top'], ['bottom', 'Bottom']] as [view, label]}
+  <h5>{$_('model_inspect.standard_views')}</h5>
+  <div class="mv-view-grid" role="group" aria-label={$_('model_inspect.views_label')}>
+    {#each [['iso', $_('model_inspect.view_iso')], ['front', $_('model_inspect.view_front')], ['back', $_('model_inspect.view_back')], ['left', $_('model_inspect.view_left')], ['right', $_('model_inspect.view_right')], ['top', $_('model_inspect.view_top')], ['bottom', $_('model_inspect.view_bottom')]] as [view, label]}
       <button type="button" class="mv-button" onclick={() => runtime.setView(view as ModelView)}>{label}</button>
     {/each}
   </div>
-  <button type="button" class="mv-button mv-reset" onclick={() => runtime.reset()}>Reset inspection</button>
-  <p class="mv-note">Standard views use the existing perspective camera. Inspection is session-only; nothing is written to the source file.</p>
+  <button type="button" class="mv-button mv-reset" onclick={() => runtime.reset()}>{$_('model_inspect.reset')}</button>
+  <p class="mv-note">{$_('model_inspect.views_note')}</p>
 </section>

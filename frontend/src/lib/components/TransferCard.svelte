@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 	import type { FileTransfer } from '$lib/p2pFileTransfer';
 
@@ -26,18 +27,18 @@
 
 	function statusLabel(status: string): string {
 		const labels: Record<string, string> = {
-			pending: 'Pending',
-			connecting: 'Connecting',
-			preparing: 'Preparing',
-			hashing: 'Hashing',
-			requesting: 'Requesting',
-			transferring: 'Transferring',
-			paused: 'Paused',
-			resuming: 'Resuming',
-			verifying: 'Verifying',
-			complete: 'Complete',
-			failed: 'Failed',
-			cancelled: 'Cancelled'
+			pending: $_('transfer.status_pending'),
+			connecting: $_('transfer.status_connecting'),
+			preparing: $_('transfer.status_preparing'),
+			hashing: $_('transfer.status_hashing'),
+			requesting: $_('transfer.status_requesting'),
+			transferring: $_('transfer.status_transferring'),
+			paused: $_('transfer.status_paused'),
+			resuming: $_('transfer.status_resuming'),
+			verifying: $_('transfer.status_verifying'),
+			complete: $_('transfer.status_complete'),
+			failed: $_('transfer.status_failed'),
+			cancelled: $_('transfer.status_cancelled')
 		};
 		return labels[status] || status;
 	}
@@ -45,7 +46,7 @@
 
 <div class="transfer-card" class:failed={transfer.status === 'failed'} class:paused={transfer.status === 'paused'} class:complete={transfer.status === 'complete'}>
 	<div class="card-header">
-		<span class="card-direction" title={transfer.direction === 'send' ? 'Outgoing' : 'Incoming'}>
+		<span class="card-direction" title={transfer.direction === 'send' ? $_('transfer.outgoing') : $_('transfer.incoming')}>
 			{#if transfer.direction === 'send'}
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
 			{:else}
@@ -64,26 +65,26 @@
 
 	<div class="card-stats">
 		<div class="stat-row">
-			<span class="stat-label">Size</span>
+			<span class="stat-label">{$_('transfer.size')}</span>
 			<span class="stat-value">{formatBytes(transfer.transferredBytes)} / {formatBytes(transfer.fileSize)}</span>
 		</div>
 		<div class="stat-row">
-			<span class="stat-label">Chunks</span>
+			<span class="stat-label">{$_('transfer.chunks')}</span>
 			<span class="stat-value">{transfer.completedChunks} / {transfer.totalChunks}</span>
 		</div>
 		<div class="stat-row">
-			<span class="stat-label">Progress</span>
+			<span class="stat-label">{$_('transfer.progress')}</span>
 			<span class="stat-value">{Math.round(transfer.progress * 100)}%</span>
 		</div>
 		{#if transfer.speedBytesPerSec != null && transfer.speedBytesPerSec > 0}
 			<div class="stat-row">
-				<span class="stat-label">Speed</span>
+				<span class="stat-label">{$_('transfer.speed')}</span>
 				<span class="stat-value">{formatSpeed(transfer.speedBytesPerSec)}</span>
 			</div>
 		{/if}
 		{#if transfer.errorMessage}
 			<div class="stat-row error-row">
-				<span class="stat-label">Error</span>
+				<span class="stat-label">{$_('transfer.error')}</span>
 				<span class="stat-value error-text">{transfer.errorMessage}</span>
 			</div>
 		{/if}
@@ -91,27 +92,27 @@
 
 	<div class="card-actions">
 		{#if transfer.status === 'transferring' || transfer.status === 'connecting' || transfer.status === 'requesting' || transfer.status === 'resuming'}
-			<button type="button" class="card-action-btn" on:click={() => dispatch('pause')} title="Pause transfer">
+			<button type="button" class="card-action-btn" on:click={() => dispatch('pause')} title={$_('transfer.pause_title')}>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-				<span>Pause</span>
+				<span>{$_('transfer.pause')}</span>
 			</button>
 		{/if}
 		{#if transfer.status === 'paused'}
-			<button type="button" class="card-action-btn" on:click={() => dispatch('resume')} title="Resume transfer">
+			<button type="button" class="card-action-btn" on:click={() => dispatch('resume')} title={$_('transfer.resume_title')}>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-				<span>Resume</span>
+				<span>{$_('transfer.resume')}</span>
 			</button>
 		{/if}
 		{#if !['complete', 'cancelled'].includes(transfer.status)}
-			<button type="button" class="card-action-btn danger" on:click={() => dispatch('cancel')} title="Cancel transfer">
+			<button type="button" class="card-action-btn danger" on:click={() => dispatch('cancel')} title={$_('transfer.cancel_title')}>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-				<span>Cancel</span>
+				<span>{$_('transfer.cancel')}</span>
 			</button>
 		{/if}
 		{#if transfer.status === 'failed' || transfer.status === 'cancelled'}
-			<button type="button" class="card-action-btn" on:click={() => dispatch('restart')} title="Retry transfer">
+			<button type="button" class="card-action-btn" on:click={() => dispatch('restart')} title={$_('transfer.retry_title')}>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-				<span>Retry</span>
+				<span>{$_('transfer.retry')}</span>
 			</button>
 		{/if}
 	</div>

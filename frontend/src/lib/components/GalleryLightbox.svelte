@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount, onDestroy } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import type { GalleryItem, GalleryCreator } from '$lib/galleryStore';
@@ -221,7 +222,7 @@
 		on:click|self={close}
 		transition:fade
 	>
-		<button class="lightbox-close" on:click={close} aria-label="Close lightbox">
+		<button class="lightbox-close" on:click={close} aria-label={$_('gallery.close_lightbox')}>
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
 				<line x1="18" y1="6" x2="6" y2="18"/>
 				<line x1="6" y1="6" x2="18" y2="18"/>
@@ -229,12 +230,12 @@
 		</button>
 
 		{#if items.length > 1}
-			<button class="lightbox-nav lightbox-prev" on:click={() => navigate(-1)} aria-label="Previous">
+			<button class="lightbox-nav lightbox-prev" on:click={() => navigate(-1)} aria-label={$_('gallery.previous')}>
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<polyline points="15 18 9 12 15 6"/>
 				</svg>
 			</button>
-			<button class="lightbox-nav lightbox-next" on:click={() => navigate(1)} aria-label="Next">
+			<button class="lightbox-nav lightbox-next" on:click={() => navigate(1)} aria-label={$_('gallery.next')}>
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<polyline points="9 18 15 12 9 6"/>
 				</svg>
@@ -248,7 +249,7 @@
 						class="lightbox-media"
 						role="button"
 						tabindex="0"
-						aria-label="Place feedback marker on media"
+						aria-label={$_('gallery.place_marker_on_media')}
 						on:click={handleMediaClick}
 						on:keydown={(e) => onActivateKey(e, () => handleMediaClick(e as unknown as MouseEvent))}
 					>
@@ -278,7 +279,7 @@
 									class:active={activeMarkerId === fb.feedbackId}
 									style="left: {fb.xPercent}%; top: {fb.yPercent}%"
 									on:click|stopPropagation={() => handleMarkerClick(fb)}
-									aria-label="Feedback marker {idx + 1}"
+									aria-label={$_('gallery.feedback_marker', { values: { n: idx + 1 } })}
 								>
 									{idx + 1}
 								</button>
@@ -294,9 +295,9 @@
 				</div>
 				<div class="lightbox-feedback-sidebar" bind:this={feedbackEl}>
 					<div class="lightbox-feedback-header">
-						<span>Feedback ({feedbackList.length})</span>
+						<span>{$_('gallery.feedback_count', { values: { count: feedbackList.length } })}</span>
 						<span class="lightbox-feedback-header-hint">
-							{pendingMarker ? 'Type and send' : 'Click image to place marker'}
+							{pendingMarker ? $_('gallery.hint_type_send') : $_('gallery.hint_click_marker')}
 						</span>
 					</div>
 					{#if feedbackError}
@@ -304,12 +305,12 @@
 					{/if}
 					<div class="lightbox-feedback-list">
 						{#if feedbackLoading && feedbackList.length === 0}
-							<div class="lightbox-feedback-loading">Loading feedback...</div>
+							<div class="lightbox-feedback-loading">{$_('gallery.loading_feedback')}</div>
 						{:else if feedbackList.length === 0}
 							<div class="lightbox-feedback-empty">
 								{pendingMarker
-									? 'Type your comment and press Send.'
-									: 'Click on the image to place a numbered marker, then add a comment.'}
+									? $_('gallery.empty_type_comment')
+									: $_('gallery.empty_click_marker')}
 							</div>
 						{:else}
 							{#each feedbackList as fb, idx (fb.feedbackId)}
@@ -321,7 +322,7 @@
 									data-feedback-id={fb.feedbackId}
 									role="button"
 									tabindex="0"
-									aria-label="Feedback {idx + 1}"
+									aria-label={$_('gallery.feedback_item', { values: { n: idx + 1 } })}
 									on:click={() => handleSidebarItemClick(fb)}
 									on:keydown={(e) => onActivateKey(e, () => handleSidebarItemClick(fb))}
 								>
@@ -334,7 +335,7 @@
 													{author.username}
 												</span>
 											{:else}
-												<span class="lightbox-feedback-author">User #{fb.authorUserId}</span>
+												<span class="lightbox-feedback-author">{$_('gallery.user_number', { values: { id: fb.authorUserId } })}</span>
 											{/if}
 											<span>{timeStr}</span>
 										</div>
@@ -347,7 +348,7 @@
 						<textarea
 							bind:this={composerEl}
 							class="lightbox-feedback-input"
-							placeholder={pendingMarker ? 'Add a comment...' : 'Click image to place marker, then type...'}
+							placeholder={pendingMarker ? $_('gallery.placeholder_add_comment') : $_('gallery.placeholder_click_then_type')}
 							bind:value={composerText}
 							on:keydown={handleComposerKeydown}
 							disabled={!pendingMarker}
@@ -357,7 +358,7 @@
 							class="lightbox-feedback-send"
 							on:click={handleSend}
 							disabled={!composerText.trim() || !pendingMarker}
-							aria-label="Send feedback"
+							aria-label={$_('gallery.send_feedback')}
 						>
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
 								<line x1="22" y1="2" x2="11" y2="13"/>
@@ -372,7 +373,7 @@
 				class="lightbox-media"
 				role="button"
 				tabindex="0"
-				aria-label="Close lightbox"
+				aria-label={$_('gallery.close_lightbox')}
 				on:click={close}
 				on:keydown={(e) => onActivateKey(e, close)}
 			>
@@ -415,7 +416,7 @@
 						<div class="lightbox-creator">
 							<div class="lightbox-avatar">?</div>
 							<div class="lightbox-creator-text">
-								<span class="lightbox-creator-name">Unknown</span>
+								<span class="lightbox-creator-name">{$_('gallery.unknown_creator')}</span>
 								<span class="lightbox-time">{formatGalleryTime(currentItem.uploadedAt)}</span>
 							</div>
 						</div>
@@ -437,7 +438,7 @@
 
 			{#if currentCreator}
 				<button class="lightbox-more-by" on:click={handleFilterByCreator}>
-					More by {currentCreator.username}
+					{$_('gallery.more_by', { values: { name: currentCreator.username } })}
 				</button>
 			{/if}
 		</div>

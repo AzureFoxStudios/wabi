@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { fade } from 'svelte/transition';
 	import { socket, getSocket, users, currentUser, currentChannel, channels, voiceChannelMembers } from '$lib/socket';
 	import { brandName } from '$lib/branding';
@@ -241,14 +242,14 @@
 	// Header (§8.5): the room's name, how many people, and connection trouble in plain words.
 	$: stageChannelId = hasChannelStage && stageSession ? (stageSession.channelId ?? stageSession.id) : null;
 	$: callTitle = stageChannelId && stageSession
-		? ($channels.find((channel) => channel.id === stageChannelId)?.name ?? stageSession.name ?? 'Voice room')
+		? ($channels.find((channel) => channel.id === stageChannelId)?.name ?? stageSession.name ?? $_('call_modal.voice_room'))
 		: $callMode === 'group'
-			? ($activeGroupCall?.name || 'Group call')
+			? ($activeGroupCall?.name || $_('call_modal.group_call'))
 			: $activeCalls[0]?.username
-				? `Call with ${$activeCalls[0].username}`
+				? $_('call_modal.call_with', { values: { name: $activeCalls[0].username } })
 				: $callMode === 'channel' && activeVoiceChannelName
 					? activeVoiceChannelName
-					: 'Call';
+					: $_('call_modal.call');
 	$: callPeopleCount = stageChannelId && stageSession
 		? (($voiceChannelMembers[stageChannelId] ?? []).length || stageSession.participants.length)
 		: $callMode === 'channel' && $activeVoiceChannel?.id
@@ -265,15 +266,15 @@
 	$: callOptionsItems = [
 		{
 			id: 'spatial',
-			label: 'Spatial hearing',
+			label: $_('call_modal.opt_spatial'),
 			role: 'menuitemcheckbox',
 			checked: spatialAudioActive,
-			hint: 'Places voices around you',
+			hint: $_('call_modal.opt_spatial_hint'),
 			onSelect: toggleSpatialAudioEnabled
 		},
 		{
 			id: 'seats',
-			label: 'Arrange seats',
+			label: $_('call_modal.opt_arrange_seats'),
 			icon: 'users',
 			hidden: !(hasChannelStage && spatialAudioActive),
 			onSelect: () => {
@@ -283,7 +284,7 @@
 		{ id: 'sep-settings', type: 'separator' },
 		{
 			id: 'audio-settings',
-			label: 'Audio settings',
+			label: $_('call_modal.opt_audio_settings'),
 			icon: 'gear',
 			onSelect: () => {
 				window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'audio' } }));
@@ -293,14 +294,14 @@
 			// Route, latency and packet loss live on the Calls page (one surface, §8.5, §9.5); opening
 			// them docks the call so that page is what center stage shows.
 			id: 'connection-details',
-			label: 'Connection details',
+			label: $_('call_modal.opt_connection_details'),
 			icon: 'signal',
 			onSelect: openConnectionDetails
 		},
-		{ id: 'dev', type: 'kicker', label: 'Developer', hidden: !isDevBuild },
+		{ id: 'dev', type: 'kicker', label: $_('call_modal.opt_developer'), hidden: !isDevBuild },
 		{
 			id: 'spatial-debug',
-			label: 'Spatial debug overlay',
+			label: $_('call_modal.opt_spatial_debug'),
 			role: 'menuitemcheckbox',
 			checked: showSpatialDebugOverlay,
 			hidden: !isDevBuild,
@@ -462,20 +463,20 @@
 		Boolean(activePresenterOverlayTileId) &&
 		(presenterOverlayRedoByTile[activePresenterOverlayTileId]?.length || 0) > 0;
 	$: presenterOverlayActiveLabel =
-		(activePresenterOverlayTileId && tileById.get(activePresenterOverlayTileId)?.label) || 'Screen';
+		(activePresenterOverlayTileId && tileById.get(activePresenterOverlayTileId)?.label) || $_('call_modal.screen');
 	// Transport and route details are developer diagnostics (dev builds only, §9.4).
 	$: devRouteText = !isDevBuild
 		? ''
 		: $callMode === 'direct' && $isInCall
 			? $callTransportState.reason === 'direct_call_turn_unconfigured'
-				? 'Direct call: STUN only, no TURN relay configured on this server'
-				: 'Direct call: peer-to-peer with TURN fallback'
+				? $_('call_modal.dev_route_stun_only')
+				: $_('call_modal.dev_route_p2p')
 			: '';
 	$: ringingMenuItems = ringingMenuTarget
 		? ([
 			{
 				id: 'stop-ringing',
-				label: 'Stop ringing',
+				label: $_('call_modal.stop_ringing'),
 				icon: 'phone',
 				onSelect: () => handleStopRinging(ringingMenuTarget)
 			}
@@ -688,12 +689,12 @@
 	function openWhiteboardFromCall(): void {
 		const channelId = resolveWhiteboardCaptureChannelId();
 		if (!channelId) {
-			setCaptureFeedback('Open or join a channel before using the whiteboard.');
+			setCaptureFeedback($_('call_modal.open_channel_wb'));
 			return;
 		}
 		currentChannel.set(channelId);
 		openWhiteboardSurface(channelId);
-		setCaptureFeedback('Whiteboard opened for this call.');
+		setCaptureFeedback($_('call_modal.wb_opened'));
 	}
 
 	function clearCaptureFeedbackTimer(): void {
@@ -870,13 +871,13 @@
 		if (captureBusy) return;
 		const channelId = resolveWhiteboardCaptureChannelId();
 		if (!channelId) {
-			setCaptureFeedback('Open a channel before capturing to the whiteboard.');
+			setCaptureFeedback($_('call_modal.open_channel_capture'));
 			return;
 		}
 
 		const video = findScreenCaptureVideo();
 		if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
-			setCaptureFeedback('No active screen frame is ready to capture.');
+			setCaptureFeedback($_('call_modal.no_frame'));
 			return;
 		}
 
@@ -907,7 +908,7 @@
 				new File([blob], `whiteboard-capture-${Date.now()}.png`, { type: 'image/png' }),
 				'capture'
 			);
-			setCaptureFeedback('Captured frame queued for the whiteboard.');
+			setCaptureFeedback($_('call_modal.capture_queued'));
 		} catch (error) {
 			console.warn('[CallModal] capture to whiteboard failed:', error);
 			setCaptureFeedback(CAPTURE_FAILED_WORDS);
@@ -1169,8 +1170,8 @@
 				type="button"
 				class="w-ibtn w-ibtn--sm"
 				on:click={() => callOfflineNotice.set(null)}
-				title="Dismiss"
-				aria-label="Dismiss call notice"
+				title={$_('call_modal.dismiss')}
+				aria-label={$_('call_modal.dismiss_notice')}
 			><Icon name="x" size={16} /></button>
 		</div>
 	</div>
@@ -1215,25 +1216,25 @@
 			{/if}
 		</div>
 		<div class="docked-actions">
-			<button type="button" class="w-btn w-btn--sm" on:click={() => setViewportMode('embedded')}>Open</button>
+			<button type="button" class="w-btn w-btn--sm" on:click={() => setViewportMode('embedded')}>{$_('call_modal.open')}</button>
 			<button
 				type="button"
 				class="w-ibtn docked-mic"
-				aria-label="Mute microphone"
+				aria-label={$_('call_modal.mute_mic')}
 				aria-pressed={$isMuted}
-				title={$isMuted ? 'Unmute microphone' : 'Mute microphone'}
+				title={$isMuted ? $_('call_modal.unmute_mic') : $_('call_modal.mute_mic')}
 				on:click={handleToggleMute}
 			><Icon name={$isMuted ? 'micOff' : 'mic'} /></button>
 			<button
 				type="button"
 				class="w-ibtn docked-sound"
-				aria-label="Deafen"
+				aria-label={$_('call_modal.deafen')}
 				aria-pressed={$isDeafened}
-				title={$isDeafened ? 'Turn sound back on' : 'Deafen'}
+				title={$isDeafened ? $_('call_modal.sound_on') : $_('call_modal.deafen')}
 				on:click={handleToggleDeafen}
 			><Icon name={$isDeafened ? 'headphonesOff' : 'headphones'} /></button>
 			<button type="button" class="w-btn w-btn--danger w-btn--sm docked-leave" on:click={handleEndCall}>
-				<Icon name="phoneOff" />Leave
+				<Icon name="phoneOff" />{$_('call_modal.leave')}
 			</button>
 		</div>
 	</div>
@@ -1255,7 +1256,7 @@
 				type="button"
 				class="hatch-scrim"
 				on:click={closeHatch}
-				aria-label="Close hatch"
+				aria-label={$_('call_modal.close_hatch')}
 			></button>
 		{/if}
 
@@ -1278,24 +1279,24 @@
 					{/if}
 				</div>
 				<div class="call-head__actions">
-					<Tooltip text="Call options" placement="bottom">
-						<Menu items={callOptionsItems} label="Call options" triggerLabel="Call options" class="w-ibtn" align="end">
+					<Tooltip text={$_('call_modal.call_options')} placement="bottom">
+						<Menu items={callOptionsItems} label={$_('call_modal.call_options')} triggerLabel={$_('call_modal.call_options')} class="w-ibtn" align="end">
 							<Icon name="more" />
 						</Menu>
 					</Tooltip>
-					<Tooltip text="Minimize call" placement="bottom">
+					<Tooltip text={$_('call_modal.minimize')} placement="bottom">
 						<button
 							type="button"
 							class="w-ibtn"
-							aria-label="Minimize call"
+							aria-label={$_('call_modal.minimize')}
 							on:click={minimizeToDocked}
 						><Icon name="chevDown" /></button>
 					</Tooltip>
-					<Tooltip text={callViewportMode === 'focus' ? 'Back to the stage' : 'Fill the window'} placement="bottom">
+					<Tooltip text={callViewportMode === 'focus' ? $_('call_modal.back_to_stage') : $_('call_modal.fill_window')} placement="bottom">
 						<button
 							type="button"
 							class="w-ibtn"
-							aria-label="Full window"
+							aria-label={$_('call_modal.full_window')}
 							aria-pressed={callViewportMode === 'focus'}
 							on:click={toggleFullWindow}
 						><Icon name={callViewportMode === 'focus' ? 'collapse' : 'expand'} /></button>
@@ -1309,19 +1310,19 @@
 
 			{#if $callMode === 'group' && $groupCallRingingTargets.length > 0}
 				<div class="ringing-targets-panel">
-					<span class="ringing-targets-label w-kicker">Still ringing</span>
+					<span class="ringing-targets-label w-kicker">{$_('call_modal.still_ringing')}</span>
 					<div class="ringing-targets-list">
 						{#each $groupCallRingingTargets as target (target.stableUserId)}
 							<button
 								type="button"
 								class="ringing-target-chip"
-								title={`Manage ringing for ${target.username}`}
+								title={$_('call_modal.manage_ringing', { values: { name: target.username } })}
 								aria-haspopup="menu"
 								on:click={(event) => openRingingMenu(event, target)}
 								on:contextmenu={(event) => openRingingMenu(event, target)}
 							>
 								<span class="ringing-target-name">{target.username}</span>
-								<span class="ringing-target-state">Ringing</span>
+								<span class="ringing-target-state">{$_('call_modal.ringing')}</span>
 							</button>
 						{/each}
 					</div>
@@ -1362,8 +1363,8 @@
 					<!-- Developer instrument (dev builds only, §9.4): seats, transport and relay counters. -->
 					<div class="spatial-debug-overlay" transition:fade={{ duration: 140 }}>
 						<div class="spatial-debug-header">
-							<span class="w-kicker">Spatial seats</span>
-							<span>{$spatialSeatDebugState.entries.length} sources</span>
+							<span class="w-kicker">{$_('call_modal.dev_spatial_seats')}</span>
+							<span>{$_('call_modal.dev_sources', { values: { count: $spatialSeatDebugState.entries.length } })}</span>
 						</div>
 						<div class="spatial-debug-map">
 							<div class="spatial-debug-center" aria-hidden="true"></div>
@@ -1373,7 +1374,7 @@
 									class:share={seat.sourceType === 'share'}
 									class:speaking={seat.isSpeaking}
 									style={debugSeatStyle(seat.position)}
-									title={`${seat.username} (${seat.sourceType}) seat ${seat.seatIndex + 1}/${seat.slotCount}`}
+									title={$_('call_modal.dev_seat_title', { values: { name: seat.username, type: seat.sourceType, index: seat.seatIndex + 1, total: seat.slotCount } })}
 								>
 									{seat.username.charAt(0).toUpperCase()}
 								</div>
@@ -1384,25 +1385,25 @@
 								<div class="spatial-debug-row">
 									<span class="spatial-debug-type">{seat.sourceType}</span>
 									<span>{seat.username}</span>
-									<span>{seat.seatIndex + 1} of {seat.slotCount}</span>
+									<span>{$_('call_modal.dev_seat_of', { values: { index: seat.seatIndex + 1, total: seat.slotCount } })}</span>
 								</div>
 							{/each}
 						</div>
 						<dl class="spatial-debug-facts">
-							<dt>Transport</dt>
-							<dd>{$callTransportState.activeTransport}{$callTransportState.isFallback ? ' (fallback)' : ''}</dd>
-							<dt>Spatial</dt>
-							<dd>{$spatialAudioRuntimeStatus.effectiveMode}, {$spatialAudioDiagnostics.totalSources} sources</dd>
+							<dt>{$_('call_modal.dev_transport')}</dt>
+							<dd>{$callTransportState.activeTransport}{$callTransportState.isFallback ? ` (${$_('call_modal.dev_fallback')})` : ''}</dd>
+							<dt>{$_('call_modal.dev_spatial')}</dt>
+							<dd>{$spatialAudioRuntimeStatus.effectiveMode}, {$_('call_modal.dev_sources', { values: { count: $spatialAudioDiagnostics.totalSources } })}</dd>
 							{#if devRouteText}
-								<dt>Route</dt>
+								<dt>{$_('call_modal.dev_route')}</dt>
 								<dd>{devRouteText}</dd>
 							{/if}
 							{#if relayAudioDiag}
-								<dt>Audio relay</dt>
+								<dt>{$_('call_modal.dev_audio_relay')}</dt>
 								<dd>{relayAudioDiag}</dd>
 							{/if}
 							{#if relayVideoDiag}
-								<dt>Video relay</dt>
+								<dt>{$_('call_modal.dev_video_relay')}</dt>
 								<dd>{relayVideoDiag}</dd>
 							{/if}
 						</dl>
@@ -1471,9 +1472,9 @@
 	x={ringingMenuX}
 	y={ringingMenuY}
 	items={ringingMenuItems}
-	ariaLabel="Ringing participant actions"
+	ariaLabel={$_('call_modal.ringing_actions')}
 	headerLabel={ringingMenuTarget?.username || null}
-	headerSubLabel="Group call invite"
+	headerSubLabel={$_('call_modal.group_invite')}
 	on:close={closeRingingMenu}
 	on:select={closeRingingMenu}
 />

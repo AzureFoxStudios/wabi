@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	interface Revision {
 		hash: string;
 		message: string;
@@ -38,10 +39,10 @@
 
 	function timeAgo(ts: number): string {
 		const diff = Date.now() / 1000 - ts;
-		if (diff < 60) return `${Math.floor(diff)}s ago`;
-		if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-		if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-		return `${Math.floor(diff / 86400)}d ago`;
+		if (diff < 60) return $_('lore_history.s_ago', { values: { n: Math.floor(diff) } });
+		if (diff < 3600) return $_('lore_history.m_ago', { values: { n: Math.floor(diff / 60) } });
+		if (diff < 86400) return $_('lore_history.h_ago', { values: { n: Math.floor(diff / 3600) } });
+		return $_('lore_history.d_ago', { values: { n: Math.floor(diff / 86400) } });
 	}
 
 	function selectRevision(hash: string) {
@@ -58,20 +59,20 @@
 
 <div class="lore-history">
 	<div class="history-filters">
-		<input type="text" bind:value={filterAuthor} placeholder="Filter by author..." aria-label="Filter by author" />
-		<select bind:value={filterBranch} aria-label="Filter by branch">
-			<option value="">All branches</option>
+		<input type="text" bind:value={filterAuthor} placeholder={$_('lore_history.filter_author_placeholder')} aria-label={$_('lore_history.filter_author')} />
+		<select bind:value={filterBranch} aria-label={$_('lore_history.filter_branch')}>
+			<option value="">{$_('lore_history.all_branches')}</option>
 			{#each branches as b}
 				<option value={b.name}>{b.name}</option>
 			{/each}
 		</select>
 		{#if selectedHash}
-			<span class="compare-mode">Select another to compare (1/2)</span>
+			<span class="compare-mode">{$_('lore_history.compare_mode')}</span>
 		{/if}
 	</div>
 
 	{#if loading}
-		<div class="history-loading">Loading history...</div>
+		<div class="history-loading">{$_('lore_history.loading')}</div>
 	{:else}
 		<ul class="history-list">
 			{#each filtered.slice(0, 50) as rev}
@@ -90,7 +91,7 @@
 						<span class="rev-author">{rev.author}</span>
 						<span class="rev-time">{timeAgo(rev.timestamp)}</span>
 						{#if rev.filesChanged}
-							<span class="rev-files">{rev.filesChanged} file{rev.filesChanged !== 1 ? 's' : ''}</span>
+							<span class="rev-files">{rev.filesChanged === 1 ? $_('lore_history.files_one') : $_('lore_history.files_many', { values: { count: rev.filesChanged } })}</span>
 						{/if}
 					</div>
 				</li>
@@ -98,11 +99,11 @@
 		</ul>
 
 		{#if filtered.length > 50}
-			<button class="load-more">Load more ({filtered.length - 50} remaining)</button>
+			<button class="load-more">{$_('lore_history.load_more', { values: { remaining: filtered.length - 50 } })}</button>
 		{/if}
 
 		{#if filtered.length === 0}
-			<div class="history-empty">No revisions match your filters</div>
+			<div class="history-empty">{$_('lore_history.no_match_filters')}</div>
 		{/if}
 	{/if}
 </div>

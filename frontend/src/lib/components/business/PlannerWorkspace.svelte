@@ -4,6 +4,7 @@
 	"Saved 09:41"), not in a strip here, and the locality is said once there.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import PlannerWorkspaceContent from './PlannerWorkspaceContent.svelte';
 	import Notice from '$lib/components/ui/Notice.svelte';
@@ -38,36 +39,36 @@
 	});
 </script>
 
-<section class="planner-account" aria-label="My Planner">
+<section class="planner-account" aria-label={$_('planner.label')}>
 	{#if $plannerStorage.error}
 		<div class="planner-notices">
 			{#if $plannerStorage.loaded}
-				<Notice title="Changes could not be saved on this device" text="Your draft stays open here. Export it, or retry saving.">
+				<Notice title={$_('planner.cannot_save_title')} text={$_('planner.cannot_save_text')}>
 					{#snippet actions()}
-						<button type="button" class="w-btn w-btn--sm" onclick={() => run(flushBusinessStorage, 'Saving failed again. Your draft is still open.')}>Retry save</button>
-						<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => run(exportDraft, 'Could not export the draft. It is still open here.')}>Export draft</button>
-						<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => run(keepDraftAndReload, 'Could not load the saved version. Your draft is still open.')}>Download draft and load saved version</button>
+						<button type="button" class="w-btn w-btn--sm" onclick={() => run(flushBusinessStorage, $_('planner.save_failed_again'))}>{$_('planner.retry_save')}</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => run(exportDraft, $_('planner.export_failed'))}>{$_('planner.export_draft')}</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={() => run(keepDraftAndReload, $_('planner.load_saved_failed'))}>{$_('planner.download_and_load')}</button>
 					{/snippet}
 				</Notice>
 			{:else}
-				<Notice title="Your Planner could not be opened" text="Nothing was changed. Sign in, or retry opening it." onretry={reloadFromStorage} />
+				<Notice title={$_('planner.not_opened_title')} text={$_('planner.not_opened_text')} onretry={reloadFromStorage} />
 			{/if}
 		</div>
 	{/if}
 	{#if $plannerStorage.legacy}
 		<div class="planner-notices">
-			<Notice tone="info" title="Older Planner data is available to recover" text="It has no account owner. Download the original, then import it into the account it belongs to. The original stays intact.">
+			<Notice tone="info" title={$_('planner.legacy_title')} text={$_('planner.legacy_text')}>
 				{#snippet actions()}
-					<button type="button" class="w-btn w-btn--sm" onclick={() => run(downloadLegacyPlanner, 'Could not download the older data. It is unchanged.')}>Download older data</button>
+					<button type="button" class="w-btn w-btn--sm" onclick={() => run(downloadLegacyPlanner, $_('planner.older_failed'))}>{$_('planner.download_older')}</button>
 				{/snippet}
 			</Notice>
 		</div>
 	{/if}
 	{#if $plannerStorage.recoveryCount > 0}
 		<div class="planner-notices">
-			<Notice tone="warn" title="Drafts from competing edits are available" text="They were kept when two windows changed this Planner at once.">
+			<Notice tone="warn" title={$_('planner.recovery_title')} text={$_('planner.recovery_text')}>
 				{#snippet actions()}
-					<button type="button" class="w-btn w-btn--sm" onclick={() => run(downloadPlannerRecovery, 'Could not download the recovery copies. They are unchanged.')}>Download recovery copies</button>
+					<button type="button" class="w-btn w-btn--sm" onclick={() => run(downloadPlannerRecovery, $_('planner.recovery_failed'))}>{$_('planner.download_recovery')}</button>
 				{/snippet}
 			</Notice>
 		</div>
@@ -78,8 +79,8 @@
 		{/key}
 	{:else if !$plannerStorage.error}
 		<div class="planner-opening">
-			<LoadLine label="Opening your Planner" />
-			<Skeleton rows={4} label="Opening your Planner" />
+			<LoadLine label={$_('planner.opening')} />
+			<Skeleton rows={4} label={$_('planner.opening')} />
 		</div>
 	{/if}
 </section>

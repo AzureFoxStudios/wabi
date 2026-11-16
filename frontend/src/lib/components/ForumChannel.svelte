@@ -51,7 +51,7 @@
 
 	$: activeChannel = $channels.find((ch) => ch.id === effectiveChannel) || null;
 	// The forum is named the way the masthead and the sidebar name it: no "#" (that is a chat room).
-	$: channelName = activeChannel?.name || 'this forum';
+	$: channelName = activeChannel?.name || $_('forum_channel.this_forum');
 	$: allThreads = $forumThreadsStore;
 	$: postsByThread = $forumPostsByThreadStore;
 	$: isLoading = $forumLoadingStore;
@@ -85,7 +85,7 @@
 			const result = await run();
 			let failure: string | null = null;
 			if (!succeeded(result) && channel === effectiveChannel) {
-				failure = get(forumErrorStore) || 'The server did not confirm the change.';
+				failure = get(forumErrorStore) || $_('forum_channel.server_no_confirm');
 				forumErrorStore.set(before);
 			}
 			return { result, failure };
@@ -114,8 +114,8 @@
 		if (deletingPostId || !effectiveChannel || !canManageForumPost($currentUser, post.author_user_id)) return;
 		const reply = !post.is_thread_starter;
 		const confirmed = await confirmAction(reply
-			? { title: 'Delete this reply?', body: 'It is removed from the thread for everyone.', confirm: 'Delete reply', danger: true }
-			: { title: 'Remove this thread?', body: 'It leaves the thread list for everyone. Its replies stay stored.', confirm: 'Remove thread', danger: true });
+			? { title: $_('forum_channel.delete_reply_title'), body: $_('forum_channel.delete_reply_body'), confirm: $_('forum_channel.delete_reply'), danger: true }
+			: { title: $_('forum_channel.remove_thread_title'), body: $_('forum_channel.remove_thread_body'), confirm: $_('forum_channel.remove_thread'), danger: true });
 		if (!confirmed || !effectiveChannel) return;
 		const channel = effectiveChannel;
 		if (postNotice?.postId === post.post_id) postNotice = null;
@@ -311,13 +311,13 @@
 	// applied one. Unused defaults stay suggestions in the new-thread form.
 	$: filterCategories = forumFilterCategories(categories, categoryCounts, customCategories, activeCategory);
 	$: categoryItems = [
-		{ id: 'all', label: 'All threads', role: 'menuitemradio', checked: !activeCategory, hint: String(allThreads.length), onSelect: () => void chooseCategory(null) },
+		{ id: 'all', label: $_('forum_channel.all_threads'), role: 'menuitemradio', checked: !activeCategory, hint: String(allThreads.length), onSelect: () => void chooseCategory(null) },
 		...filterCategories.map((cat, index): MenuEntry => ({ id: `category-${index}`, label: cat, keepCase: true, role: 'menuitemradio', checked: activeCategory === cat, hint: String(categoryCounts.get(cat) || 0), onSelect: () => void chooseCategory(cat) })),
 		...(canCurrentUserPost
 			? [
 				{ id: 'manage', type: 'separator' },
-				...(activeCategory ? [{ id: 'rename', label: `Rename ${activeCategory}…`, keepCase: true, icon: 'pencil', onSelect: () => void openCategoryEditor({ mode: 'rename', from: activeCategory as string }) }] : []),
-				{ id: 'add', label: 'Add a category…', icon: 'plus', onSelect: () => void openCategoryEditor({ mode: 'add' }) },
+				...(activeCategory ? [{ id: 'rename', label: $_('forum_channel.rename_category_label', { values: { name: activeCategory } }), keepCase: true, icon: 'pencil', onSelect: () => void openCategoryEditor({ mode: 'rename', from: activeCategory as string }) }] : []),
+				{ id: 'add', label: $_('forum_channel.add_category'), icon: 'plus', onSelect: () => void openCategoryEditor({ mode: 'add' }) },
 			]
 			: []),
 	] as MenuEntry[];
@@ -341,12 +341,12 @@
 	$: canPickSolution = Boolean(threadStarter && canCurrentUserPost && canManageForumPost($currentUser, threadStarter.author_user_id));
 
 	$: threadStarterAuthor = threadStarter ? $forumAuthors.get(threadStarter.author_user_id) : undefined;
-	$: starterName = threadStarterAuthor?.username ?? (threadStarter ? `Member #${threadStarter.author_user_id}` : '');
+	$: starterName = threadStarterAuthor?.username ?? (threadStarter ? $_('forum_channel.member_number', { values: { id: threadStarter.author_user_id } }) : '');
 	$: threadMenuItems = threadStarter
 		? forumShareItems(
 			{ kind: 'forum_post', id: threadStarter.post_id, slug: slugify(threadStarter.title), title: threadStarter.title, channelId: effectiveChannel, subtitle: threadStarterAuthor?.username },
 			canManageForumPost($currentUser, threadStarter.author_user_id)
-				? [{ id: 'remove-thread', label: 'Remove thread', icon: 'trash', danger: true, disabled: Boolean(deletingPostId), onSelect: () => void handleDeletePost(threadStarter as ForumPost) }]
+				? [{ id: 'remove-thread', label: $_('forum_channel.remove_thread'), icon: 'trash', danger: true, disabled: Boolean(deletingPostId), onSelect: () => void handleDeletePost(threadStarter as ForumPost) }]
 				: [],
 		)
 		: [];
@@ -544,24 +544,24 @@
 		{#if selectedThread || showNewThread}
 			<button type="button" class="w-btn w-btn--quiet forum-back" on:click={() => void returnToThreads()}>
 				<Icon name="chevLeft" size={16} />
-				Threads
+				{$_('forum_channel.threads')}
 			</button>
 		{/if}
 		<div class="forum-filters">
 			<Menu
 				class={`w-select forum-category-select${activeCategory ? ' w-select--applied' : ''}`}
-				label="Category"
-				heading="Category"
-				triggerLabel={`Category: ${activeCategory ?? 'All threads'}`}
+				label={$_('forum_channel.category')}
+				heading={$_('forum_channel.category')}
+				triggerLabel={$_('forum_channel.category_trigger', { values: { name: activeCategory ?? $_('forum_channel.all_threads') } })}
 				items={categoryItems}
 			>
 				<span class="w-select__label">{$_('forum.category')}</span>
-				<span class="w-select__value">{activeCategory ?? 'All'}</span>
+				<span class="w-select__value">{activeCategory ?? $_('forum_channel.all_short')}</span>
 				<Icon name="chevDown" size={16} />
 			</Menu>
 			<!-- Sort stays at every width: under 36em of forum it folds to its glyph, named by the tooltip. -->
-			<Tooltip text={`Sort: ${sortLabel}`} disabled={!sortIconOnly}>
-				<Menu class="w-select forum-sort" label="Sort threads" heading="Sort threads" triggerLabel={`Sort: ${sortLabel}`} items={sortItems}>
+			<Tooltip text={$_('forum_channel.sort_trigger', { values: { label: sortLabel } })} disabled={!sortIconOnly}>
+				<Menu class="w-select forum-sort" label={$_('forum_channel.sort_threads')} heading={$_('forum_channel.sort_threads')} triggerLabel={$_('forum_channel.sort_trigger', { values: { label: sortLabel } })} items={sortItems}>
 					<Icon name="chevUpDown" size={16} class="forum-sort-glyph" />
 					<span class="w-select__label">{$_('forum.sort')}</span>
 					<span class="w-select__value" use:watchHidden={(hidden) => (sortIconOnly = hidden)}>{sortLabel}</span>
@@ -574,7 +574,7 @@
 			</label>
 		</div>
 		{#if canCurrentUserPost && !showNewThread}
-			<Tooltip text="New thread" disabled={!newIconOnly}>
+			<Tooltip text={$_('forum_channel.new_thread')} disabled={!newIconOnly}>
 				<button
 					type="button"
 					class="w-btn forum-new"
@@ -587,13 +587,13 @@
 				</button>
 			</Tooltip>
 		{/if}
-		<LoadLine class="forum-loadline" active={isLoading} label="Loading threads" />
+		<LoadLine class="forum-loadline" active={isLoading} label={$_('forum_channel.loading_threads')} />
 	</div>
 
 	{#if categoryEditor}
 		<form class="forum-category-editor" on:submit|preventDefault={() => void commitCategoryEditor()}>
 			<label class="forum-category-editor-label" for="forum-category-editor-{draftSurface}">
-				{categoryEditor.mode === 'rename' ? `Rename ${categoryEditor.from}` : 'New category'}
+				{categoryEditor.mode === 'rename' ? $_('forum_channel.rename_category', { values: { name: categoryEditor.from } }) : $_('forum_channel.new_category')}
 			</label>
 			<input
 				id="forum-category-editor-{draftSurface}"
@@ -603,10 +603,10 @@
 				placeholder={$_('forum.category_name_placeholder')}
 				on:keydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); closeCategoryEditor(true); } }}
 			/>
-			<button type="submit" class="w-btn w-btn--sm" disabled={!categoryDraft.trim()}>{categoryEditor.mode === 'rename' ? 'Rename' : 'Add'}</button>
+			<button type="submit" class="w-btn w-btn--sm" disabled={!categoryDraft.trim()}>{categoryEditor.mode === 'rename' ? $_('forum_channel.rename_btn') : $_('forum_channel.add_btn')}</button>
 			<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={() => closeCategoryEditor(true)}>{$_('common.cancel')}</button>
 			<span class="forum-category-editor-hint">
-				{categoryEditor.mode === 'rename' ? 'Every thread in this category moves to the new name.' : 'Kept on this device until a thread uses it.'}
+				{categoryEditor.mode === 'rename' ? $_('forum_channel.category_moves_hint') : $_('forum_channel.category_device_hint')}
 			</span>
 		</form>
 	{:else if categoryNotice}
@@ -619,7 +619,7 @@
 	<div class="forum-panes">
 		{#if isLoading && allThreads.length === 0}
 			<div class="forum-post-list">
-				<Skeleton class="forum-skeleton" variant="text" rows={3} label="Loading threads" />
+				<Skeleton class="forum-skeleton" variant="text" rows={3} label={$_('forum_channel.loading_threads')} />
 			</div>
 			<div class="forum-reading-pane"></div>
 		{:else if loadCopy && allThreads.length === 0 && !showNewThread}
@@ -632,7 +632,7 @@
 		{:else}
 			<section class="forum-post-list" aria-labelledby="forum-list-head-{draftSurface}">
 				<h2 class="forum-list-head" id="forum-list-head-{draftSurface}">
-					<span class="w-kicker">{activeCategory ?? 'Threads'}</span>
+					<span class="w-kicker">{activeCategory ?? $_('forum_channel.threads')}</span>
 					<span class="w-count">{categorizedThreads.length}</span>
 				</h2>
 				{#if loadCopy && !selectedThread && !showNewThread}
@@ -646,8 +646,8 @@
 						class="forum-empty"
 						icon="forum"
 						as="p"
-						title={`No threads in ${channelName} yet`}
-						text="Longer conversations live here, so they don't scroll away."
+						title={$_('forum_channel.no_threads_in', { values: { channel: channelName } })}
+						text={$_('forum_channel.longer_text')}
 					/>
 				{:else if categorizedThreads.length === 0}
 					<EmptyState class="forum-empty" icon="search" as="p" title={$_('forum.empty_match_title')} text={$_('forum.empty_match_text')} />
@@ -714,7 +714,7 @@
 										<span class="forum-av forum-av--24" aria-hidden="true">
 											{#if threadStarterAuthor?.profilePicture}<ProfileMedia src={mediaUrl(threadStarterAuthor.profilePicture)} alt="" />{:else}{avatarInitial(starterName)}{/if}
 										</span>
-										<span class="forum-byline-name" title={threadStarterAuthor ? undefined : 'This author is not in the server member directory.'}>{starterName}</span>
+										<span class="forum-byline-name" title={threadStarterAuthor ? undefined : $_('forum_channel.author_not_in_directory')}>{starterName}</span>
 										<span class="forum-byline-sep" aria-hidden="true">·</span>
 										<time class="forum-byline-time" datetime={new Date(forumMillis(threadStarter.created_at_micros)).toISOString()} title={fullDate(threadStarter.created_at_micros)}>{formatForumTime(threadStarter.created_at_micros)}</time>
 										<span class="forum-byline-sep" aria-hidden="true">·</span>
@@ -780,7 +780,7 @@
 										><Icon name="chevDown" size={16} /></button>
 										{#if starterVote}<span id="forum-vote-note-{draftSurface}" hidden>{$_('forum.vote_locked')}</span>{/if}
 									</div>
-									<Menu class="w-ibtn forum-more" label="Thread actions" triggerLabel="Thread actions" align="end" items={threadMenuItems}>
+									<Menu class="w-ibtn forum-more" label={$_('forum_channel.thread_actions')} triggerLabel={$_('forum_channel.thread_actions')} align="end" items={threadMenuItems}>
 										<Icon name="more" />
 									</Menu>
 								</div>
@@ -795,7 +795,7 @@
 						{#if threadReplies.length > 0}
 							<section class="forum-replies" aria-labelledby="forum-replies-head-{draftSurface}">
 								<h2 class="forum-replies-head" id="forum-replies-head-{draftSurface}">
-									<span class="w-kicker">{threadReplies.length} {threadReplies.length === 1 ? 'reply' : 'replies'}</span>
+									<span class="w-kicker">{threadReplies.length} {threadReplies.length === 1 ? $_('forum_channel.reply_singular') : $_('forum_channel.reply_plural')}</span>
 								</h2>
 								{#each threadReplies as reply (reply.post_id)}
 									<ForumReply

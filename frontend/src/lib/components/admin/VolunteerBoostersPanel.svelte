@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
     import { onMount } from 'svelte';
     import { activeServerUrl } from '$lib/serverUrl';
     import { getAuthToken } from '$lib/authSession';
@@ -12,23 +13,23 @@
     $effect(() => { if (scope !== $activeServerUrl) { scope = $activeServerUrl; data = null; epoch++; void refresh(); } });
     onMount(() => { void refresh(); const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 5000); return () => { epoch++; clearInterval(timer); }; });
 </script>
-<section class="boosters" aria-label="Volunteer boosters">
-    <header><div><h3>Volunteer boosters</h3><p>Optional file delivery. The Authority keeps the community and the original files.</p></div><button disabled={busy} onclick={refresh}>Refresh</button></header>
-    {#if error}<p class="error" role="alert">{error}. {data ? 'Showing the last known sample.' : ''}</p>{/if}
+<section class="boosters" aria-label={$_('boosters.label')}>
+    <header><div><h3>{$_('boosters.title')}</h3><p>{$_('boosters.intro')}</p></div><button disabled={busy} onclick={refresh}>{$_('boosters.refresh')}</button></header>
+    {#if error}<p class="error" role="alert">{error}. {data ? $_('boosters.last_sample') : ''}</p>{/if}
     {#if data}
-        <button disabled={busy || !!error} onclick={() => change('/api/boosters/policy', 'PUT', { enabled: !data?.enabled })}>{data.enabled ? 'Disable volunteer boosting' : 'Allow members to volunteer'}</button>
-        <p>{data.enabled ? 'Members can opt in from Settings → Server. No one contributes automatically.' : 'Volunteer boosting is disabled.'}</p>
-        <dl><div><dt>Available volunteers</dt><dd>{data.sessions.length}</dd></div><div><dt>Recipient-confirmed file bytes</dt><dd>{mib(data.recipientConfirmedBytes)}</dd></div><div><dt>Completed transfers</dt><dd>{data.completedTransfers}</dd></div></dl>
-        <p>Updated {new Date(at).toLocaleTimeString()}. Confirmation comes from signed-in recipients after a hash check. These are payload bytes, not an independent measurement of bandwidth saved. Counters reset when the server restarts.</p>
+        <button disabled={busy || !!error} onclick={() => change('/api/boosters/policy', 'PUT', { enabled: !data?.enabled })}>{data.enabled ? $_('boosters.disable') : $_('boosters.allow')}</button>
+        <p>{data.enabled ? $_('boosters.opt_in_note') : $_('boosters.disabled_note')}</p>
+        <dl><div><dt>{$_('boosters.available')}</dt><dd>{data.sessions.length}</dd></div><div><dt>{$_('boosters.confirmed_bytes')}</dt><dd>{mib(data.recipientConfirmedBytes)}</dd></div><div><dt>{$_('boosters.completed')}</dt><dd>{data.completedTransfers}</dd></div></dl>
+        <p>{$_('boosters.updated', { values: { time: new Date(at).toLocaleTimeString() } })}</p>
         {#each data.sessions as s (s.id)}
-            <article><header><strong>{s.name}</strong><span>{s.verifiedBytes > 0 ? 'Has delivered files' : s.cachedFiles > 0 ? 'Available · waiting for a request' : 'Ready · no cached files'}</span></header>
-                <p>Member {s.owner} · heartbeat {Math.max(0, Math.round((at-s.heartbeatAt)/1000))}s ago</p>
-                <p>{s.cachedFiles} cached files ({mib(s.cachedBytes)}). Reported sent: {mib(s.sentBytes)}. Recipient confirmed: {mib(s.verifiedBytes)}.</p>
-                <p>Volunteer limits: {s.uploadKiBPerSecond} KiB/s upload, {s.cacheMiB} MiB memory, {s.sessionMiB} MiB per session.</p>
-                <button disabled={busy} onclick={() => change(`/api/boosters/sessions/${s.id}`, 'DELETE')}>Stop this session</button>
+            <article><header><strong>{s.name}</strong><span>{s.verifiedBytes > 0 ? $_('boosters.status_delivered') : s.cachedFiles > 0 ? $_('boosters.status_waiting') : $_('boosters.status_ready')}</span></header>
+                <p>{$_('boosters.member_heartbeat', { values: { owner: s.owner, seconds: Math.max(0, Math.round((at-s.heartbeatAt)/1000)) } })}</p>
+                <p>{$_('boosters.session_stats', { values: { cached: s.cachedFiles, cachedBytes: mib(s.cachedBytes), sent: mib(s.sentBytes), verified: mib(s.verifiedBytes) } })}</p>
+                <p>{$_('boosters.limits', { values: { upload: s.uploadKiBPerSecond, cacheMiB: s.cacheMiB, sessionMiB: s.sessionMiB } })}</p>
+                <button disabled={busy} onclick={() => change(`/api/boosters/sessions/${s.id}`, 'DELETE')}>{$_('boosters.stop_session')}</button>
             </article>
-        {:else}<p>No volunteers currently available. Normal server downloads continue.</p>{/each}
-    {:else if !error}<p>Loading volunteer status…</p>{/if}
+        {:else}<p>{$_('boosters.none')}</p>{/each}
+    {:else if !error}<p>{$_('boosters.loading')}</p>{/if}
 </section>
 <style>
 .boosters{padding:var(--space-5);border:1px solid var(--w-line-strong);border-radius:calc(14px * var(--w-rs, 1));background:var(--w-bg2);display:grid;gap:var(--space-3)}header{display:flex;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}h3,p,dl{margin:0}p,dt,header span{color:var(--w-mute)}dl{display:flex;gap:var(--space-5);flex-wrap:wrap}dd{margin:var(--space-2) 0;font-weight:600}article{padding:var(--space-3);border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));display:grid;gap:var(--space-2)}button{justify-self:start;align-self:start;padding:var(--space-2) var(--space-3);background:var(--w-raise);color:var(--w-text);border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));cursor:pointer}.error{color:var(--w-danger)}

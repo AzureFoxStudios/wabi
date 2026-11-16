@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
  import { canPreviewLoreText, loreTextExcerpt } from '$lib/forumPreview';
  import { get } from 'svelte/store';
  import { getAuthToken, authSessionGeneration } from '$lib/authSession';
@@ -10,26 +11,26 @@
  import { openGlance } from '$lib/glance';
  import { navigateToRef } from '$lib/navigateToRef';
  let { channelId, filePath, lines = undefined }: { channelId:string; filePath:string; lines?: { start:number; end:number } } = $props();
- let content = $state(''), status = $state('Loading file preview…'), size = $state<number | null>(null);
+ let content = $state(''), status = $state($_('forum_lore.loading')), size = $state<number | null>(null);
  let firstLine = $state(1), totalLines = $state(0), shownCount = $state(0);
  const filename = $derived(filePath.split('/').pop() || filePath);
- const project = $derived($channels.find(channel => channel.id === channelId)?.name || 'Lore');
+ const project = $derived($channels.find(channel => channel.id === channelId)?.name || $_('forum_lore.project_fallback'));
  $effect(() => {
   const server = $activeServerUrl || getServerUrl(), owner = $currentUser?.dbUserId;
   const generation = authSessionGeneration(server), token = getAuthToken(server), id = parseLoreChannelId(channelId), path = filePath;
   const available = $channels.some(channel=>channel.id===channelId && channel.type==='lore'), access = captureGroupAccess(channelId);
   let active = true;
   const current = () => active && access() && get(channels).some(channel=>channel.id===channelId && channel.type==='lore') && getServerUrl() === server && get(currentUser)?.dbUserId === owner && authSessionGeneration(server) === generation;
-  content=''; size=null; totalLines=0; shownCount=0; status='Loading file preview…';
-  if (!available) {status='This project is unavailable.';return;}
-  if (!token || id === null) { status='Open the project to view this file.'; return; }
+  content=''; size=null; totalLines=0; shownCount=0; status=$_('forum_lore.loading');
+  if (!available) {status=$_('forum_lore.unavailable_project');return;}
+  if (!token || id === null) { status=$_('forum_lore.open_to_view'); return; }
   void (async () => {
    try {
     const files = await listLoreFiles(token,id), file=files.find(file=>file.path===path);
     if (!current()) return;
-    if (!file) {status='File unavailable or access changed.';return;}
+    if (!file) {status=$_('forum_lore.file_unavailable');return;}
     size=file.size;
-    if (!canPreviewLoreText(path,file.size)) {status='Open file to view its contents.';return;}
+    if (!canPreviewLoreText(path,file.size)) {status=$_('forum_lore.open_file_for_contents');return;}
     const result=await downloadLoreFileText(token,id,path);
     if (!current()) return;
     const all = result.content.split('\n');
@@ -42,22 +43,22 @@
      firstLine = 1; content = loreTextExcerpt(result.content); shownCount = Math.min(12, all.length);
     }
     status='';
-   } catch {if(current()) status='Preview unavailable. Open the project to try again.';}
+   } catch {if(current()) status=$_('forum_lore.preview_unavailable');}
   })();
   return () => {active=false;};
  });
- async function open(event: MouseEvent) {if (event.altKey) {openGlance({kind:'lore_file',channelId,filePath});return;} try {await navigateToRef({kind:'lore_file',channelId,filePath});} catch {status='Could not open this file.';}}
+ async function open(event: MouseEvent) {if (event.altKey) {openGlance({kind:'lore_file',channelId,filePath});return;} try {await navigateToRef({kind:'lore_file',channelId,filePath});} catch {status=$_('forum_lore.could_not_open');}}
 </script>
 <article class="lore-preview">
- <button type="button" onclick={open} title="Alt-click to preview"><strong>{filename}</strong><span>{project} · {filePath}{#if size !== null} · {size.toLocaleString()} bytes{/if}</span></button>
+ <button type="button" onclick={open} title={$_('forum_lore.alt_click')}><strong>{filename}</strong><span>{project} · {filePath}{#if size !== null} · {size.toLocaleString()} bytes{/if}</span></button>
  {#if content}
   <div class="code-frame">
    <ol class="gutter" aria-hidden="true">{#each content.split('\n') as _line, index}<li>{firstLine + index}</li>{/each}</ol>
    <pre><code>{content}</code></pre>
   </div>
   <footer>
-   <span>{#if lines}Lines {firstLine}–{firstLine + shownCount - 1} of {totalLines.toLocaleString()}{:else if totalLines > shownCount}First {shownCount} of {totalLines.toLocaleString()} lines · add <code>&amp;lines=40-72</code> to the link to point at a section{:else}{totalLines.toLocaleString()} lines{/if}</span>
-   <button type="button" onclick={open}>Jump to file →</button>
+   <span>{#if lines}{$_('forum_lore.lines_range', { values: { first: firstLine, last: firstLine + shownCount - 1, total: totalLines.toLocaleString() } })}{:else if totalLines > shownCount}{$_('forum_lore.footer_lines', { values: { first: shownCount, total: totalLines.toLocaleString() } })} <code>&amp;lines=40-72</code> {$_('forum_lore.footer_lines_hint')}{:else}{$_('forum_lore.total_lines', { values: { total: totalLines.toLocaleString() } })}{/if}</span>
+   <button type="button" onclick={open}>{$_('forum_lore.jump')} →</button>
   </footer>
  {:else}<p role="status">{status}</p>{/if}
 </article>

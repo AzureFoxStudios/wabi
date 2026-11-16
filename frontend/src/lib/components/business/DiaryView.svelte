@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * My Planner — Journal (design contract §8.6, §8.7). One 680px column on the page, set in the
 	 * prose style: a short intro, then the entries newest first, each under its date kicker. A day
@@ -38,7 +39,7 @@
 	// Props
 	// The empty states point at the masthead's New entry. On the phone that control is a bare +
 	// glyph, so the sentence names what the person can actually see.
-	$: newEntryWords = $isMobile ? '+' : 'New entry';
+	$: newEntryWords = $isMobile ? '+' : $_('diary.new_entry');
 
 	export let isReadOnly = false;
 	export let embedded = false;
@@ -76,8 +77,8 @@
 	let editorGeneration = 0;
 
 	const editorModes = [
-		{ value: 'write' as const, label: 'Write' },
-		{ value: 'preview' as const, label: 'Preview' }
+		{ value: 'write' as const, label: $_('diary.write') },
+		{ value: 'preview' as const, label: $_('diary.preview') }
 	];
 
 	// ── words ──
@@ -91,8 +92,8 @@
 		const today = startOfDay(Date.now());
 		const day = startOfDay(date);
 		const diff = Math.round((day.getTime() - today.getTime()) / DAY_MS);
-		if (diff === 0) return 'Today';
-		if (diff === -1) return 'Yesterday';
+		if (diff === 0) return $_('diary.today');
+		if (diff === -1) return $_('diary.yesterday');
 		return null;
 	}
 
@@ -100,7 +101,7 @@
 		const at = new Date(entry.createdAt);
 		const onDay = sameDay(at, new Date(entry.date));
 		const when = onDay ? clockFormat.format(at) : `${shortDate.format(at)}, ${clockFormat.format(at)}`;
-		return entry.updatedAt !== entry.createdAt ? `Written ${when} · edited ${shortDate.format(new Date(entry.updatedAt))}` : `Written ${when}`;
+		return entry.updatedAt !== entry.createdAt ? $_('diary.written_edited', { values: { when, edited: shortDate.format(new Date(entry.updatedAt)) } }) : $_('diary.written', { values: { when } });
 	}
 
 	// ── editor helpers ──
@@ -122,21 +123,21 @@
 		input.value = '';
 		if (!file) return;
 		if (file.size > 1024 * 1024) {
-			attachmentError = 'Choose a text or code file smaller than 1 MB.';
+			attachmentError = $_('diary.err_file_size');
 			return;
 		}
 		try {
 			const content = await file.text();
 			if (generation !== editorGeneration) return;
 			if (content.includes('\0')) {
-				attachmentError = 'This looks like a binary file. Add a link to it instead.';
+				attachmentError = $_('diary.err_binary');
 				return;
 			}
 			formContent += `\n\n${journalCodeBlock(content, file.name.split('.').pop() || '')}\n`;
 			attachmentError = '';
 			editorMode = 'write';
 		} catch {
-			attachmentError = 'Could not read that file. Please try again.';
+			attachmentError = $_('diary.err_read_file');
 		}
 	}
 
@@ -153,14 +154,14 @@
 		for (const file of files) {
 			if (!file.type.startsWith('image/')) continue;
 			if (file.size > 5 * 1024 * 1024) {
-				attachmentError = 'Choose images smaller than 5 MB each.';
+				attachmentError = $_('diary.err_image_size');
 				continue;
 			}
 			const reader = new FileReader();
 			reader.onload = () => {
 				if (generation === editorGeneration && typeof reader.result === 'string') formImages = [...formImages, reader.result];
 			};
-			reader.onerror = () => (attachmentError = 'Could not read that image. Please try again.');
+			reader.onerror = () => (attachmentError = $_('diary.err_read_image'));
 			reader.readAsDataURL(file);
 		}
 	}
@@ -297,9 +298,9 @@
 	async function handleDelete() {
 		if (!currentEntry || !selectedDate) return;
 		const confirmed = await confirmAction({
-			title: 'Delete this entry?',
-			body: `The entry for ${kickerDate.format(selectedDate)} will be removed from your Journal.`,
-			confirm: 'Delete entry',
+			title: $_('diary.delete_title'),
+			body: $_('diary.delete_body', { values: { date: kickerDate.format(selectedDate) } }),
+			confirm: $_('diary.delete_entry'),
 			danger: true
 		});
 		if (!confirmed || !currentEntry) return;
@@ -350,11 +351,11 @@
 	{@const names = entry.signatures?.length ? entry.signatures.map((s) => s.name).join(', ') : entry.signedBy}
 	<p class="jr-meta">
 		<span>{written(entry)}</span>
-		{#if entry.isPrivate}<span class="w-tag jr-personal" title="A marker for you; it does not change who can read this entry">Personal</span>{/if}
-		{#if names}<span class="jr-names">Names attached: {names}</span>{/if}
+		{#if entry.isPrivate}<span class="w-tag jr-personal" title={$_('diary.personal_title')}>{$_('diary.personal')}</span>{/if}
+		{#if names}<span class="jr-names">{$_('diary.names_value', { values: { names } })}</span>{/if}
 	</p>
 	{#if entry.tags?.length}
-		<ul class="jr-tags" aria-label="Tags">
+		<ul class="jr-tags" aria-label={$_('diary.tags')}>
 			{#each entry.tags as tag}<li class="w-tag">{tag}</li>{/each}
 		</ul>
 	{/if}
@@ -365,16 +366,16 @@
 		<!-- The Journal: an intro and the entries, newest first. -->
 		<div class="jr-column">
 			<header class="jr-intro">
-				<h2 class="jr-title" id={`journal-${uid}-title`} tabindex="-1">Journal</h2>
-				<p class="jr-lede">One page a day for sketches, decisions and small discoveries.</p>
+				<h2 class="jr-title" id={`journal-${uid}-title`} tabindex="-1">{$_('diary.journal')}</h2>
+				<p class="jr-lede">{$_('diary.lede')}</p>
 				<!-- In My Planner the masthead's "New entry" is this view's one primary and writes today's
 				     entry, so the page offers no second copy of it (§7.1). -->
 				{#if !isReadOnly && sortedEntries.length > 0 && (todayEntry || !embedded)}
 					<div class="jr-intro__actions">
 						{#if todayEntry}
-							<button type="button" class="w-btn" on:click={() => todayEntry && selectEntry(todayEntry)}>Open today’s entry</button>
+							<button type="button" class="w-btn" on:click={() => todayEntry && selectEntry(todayEntry)}>{$_('diary.open_today')}</button>
 						{:else}
-							<button type="button" class="w-btn w-btn--primary" on:click={writeToday}><Icon name="pencil" size={16} />Write today’s entry</button>
+							<button type="button" class="w-btn w-btn--primary" on:click={writeToday}><Icon name="pencil" size={16} />{$_('diary.write_today')}</button>
 						{/if}
 					</div>
 				{/if}
@@ -384,11 +385,11 @@
 				<EmptyState
 					icon="book"
 					as="h3"
-					title="No journal entries yet"
+					title={$_('diary.empty_title')}
 					text={embedded && !isReadOnly
-						? `Use ${newEntryWords} to write a few lines for today. Photos and sketches are welcome.`
-						: 'Write a few lines for today. Photos and sketches are welcome.'}
-					action={isReadOnly || embedded ? undefined : 'Write today’s entry'}
+						? $_('diary.empty_embedded', { values: { words: newEntryWords } })
+						: $_('diary.empty_text')}
+					action={isReadOnly || embedded ? undefined : $_('diary.write_today')}
 					onaction={writeToday}
 					class="jr-empty"
 				/>
@@ -407,7 +408,7 @@
 										</button>
 									</h4>
 									{#if !isReadOnly}
-										<button type="button" class="w-btn w-btn--sm w-btn--quiet jr-entry__edit" on:click={() => selectEntry(entry, true)} aria-label={`Edit the entry for ${kickerDate.format(day)}`}>Edit</button>
+										<button type="button" class="w-btn w-btn--sm w-btn--quiet jr-entry__edit" on:click={() => selectEntry(entry, true)} aria-label={$_('diary.edit_for', { values: { date: kickerDate.format(day) } })}>{$_('diary.edit')}</button>
 									{/if}
 								</div>
 								{#if entry.content.trim()}
@@ -416,7 +417,7 @@
 								{#if entry.images?.length}
 									<div class="jr-gallery">
 										{#each entry.images.slice(0, 4) as image, i}
-											<button type="button" class="jr-thumb" on:click={() => (viewingImage = image)} aria-label={`View picture ${i + 1} of ${entry.images.length}`}>
+											<button type="button" class="jr-thumb" on:click={() => (viewingImage = image)} aria-label={$_('diary.view_picture', { values: { n: i + 1, total: entry.images.length } })}>
 												<img src={image} alt="" />
 											</button>
 										{/each}
@@ -435,16 +436,16 @@
 	{:else}
 		<!-- One day as a page: crumb, day steppers, the entry or the editor inline. -->
 		<div class="jr-column">
-			<nav class="jr-crumb" aria-label="Journal">
-				<button type="button" class="jr-crumb__back" on:click={clearSelection}><Icon name="chevLeft" size={16} />Journal</button>
+			<nav class="jr-crumb" aria-label={$_('diary.journal')}>
+				<button type="button" class="jr-crumb__back" on:click={clearSelection}><Icon name="chevLeft" size={16} />{$_('diary.journal')}</button>
 				<span class="jr-crumb__steps">
-					<Tooltip text="Previous day">
-						<button type="button" class="w-ibtn" aria-label="Previous day" on:click={prevDay}><Icon name="chevLeft" /></button>
+					<Tooltip text={$_('diary.prev_day')}>
+						<button type="button" class="w-ibtn" aria-label={$_('diary.prev_day')} on:click={prevDay}><Icon name="chevLeft" /></button>
 					</Tooltip>
-					<Tooltip text={canGoNext ? 'Next day' : 'Today is the latest day'}>
-						<button type="button" class="w-ibtn" aria-label="Next day" on:click={nextDay} disabled={!canGoNext}><Icon name="chevRight" /></button>
+					<Tooltip text={canGoNext ? $_('diary.next_day') : $_('diary.latest_day')}>
+						<button type="button" class="w-ibtn" aria-label={$_('diary.next_day')} on:click={nextDay} disabled={!canGoNext}><Icon name="chevRight" /></button>
 					</Tooltip>
-					<button type="button" class="w-btn w-btn--sm" on:click={goToToday} disabled={onToday}>Today</button>
+					<button type="button" class="w-btn w-btn--sm" on:click={goToToday} disabled={onToday}>{$_('diary.today')}</button>
 				</span>
 			</nav>
 
@@ -457,15 +458,15 @@
 				<!-- The editor, inline on the page. -->
 				<form class="jr-editor" on:submit|preventDefault={handleSave}>
 					<div class="jr-toolbar" role="toolbar" aria-label="Formatting">
-						<Tooltip text="Bold"><button type="button" class="w-ibtn" aria-label="Bold" on:click={() => insertFormatting('**', '**')}><Icon name="bold" /></button></Tooltip>
-						<Tooltip text="Heading"><button type="button" class="w-ibtn" aria-label="Heading" on:click={() => insertFormatting('## ')}><Icon name="heading" /></button></Tooltip>
-						<Tooltip text="Link"><button type="button" class="w-ibtn" aria-label="Link" on:click={() => insertFormatting('[', '](https://)')}><Icon name="link" /></button></Tooltip>
-						<Tooltip text="List"><button type="button" class="w-ibtn" aria-label="List" on:click={() => insertFormatting('\n- ')}><Icon name="list" /></button></Tooltip>
-						<Tooltip text="Code block"><button type="button" class="w-ibtn" aria-label="Code block" on:click={() => insertFormatting('\n```\n', '\n```\n')}><Icon name="code" /></button></Tooltip>
+						<Tooltip text={$_('diary.bold')}><button type="button" class="w-ibtn" aria-label={$_('diary.bold')} on:click={() => insertFormatting('**', '**')}><Icon name="bold" /></button></Tooltip>
+						<Tooltip text={$_('diary.heading')}><button type="button" class="w-ibtn" aria-label={$_('diary.heading')} on:click={() => insertFormatting('## ')}><Icon name="heading" /></button></Tooltip>
+						<Tooltip text={$_('diary.link')}><button type="button" class="w-ibtn" aria-label={$_('diary.link')} on:click={() => insertFormatting('[', '](https://)')}><Icon name="link" /></button></Tooltip>
+						<Tooltip text={$_('diary.list')}><button type="button" class="w-ibtn" aria-label={$_('diary.list')} on:click={() => insertFormatting('\n- ')}><Icon name="list" /></button></Tooltip>
+						<Tooltip text={$_('diary.code_block')}><button type="button" class="w-ibtn" aria-label={$_('diary.code_block')} on:click={() => insertFormatting('\n```\n', '\n```\n')}><Icon name="code" /></button></Tooltip>
 						<span class="jr-toolbar__sep" aria-hidden="true"></span>
-						<Tooltip text="Add pictures"><button type="button" class="w-ibtn" aria-label="Add pictures" on:click={() => fileInput.click()}><Icon name="image" /></button></Tooltip>
-						<Tooltip text="Add a text or code file (kept as text)"><button type="button" class="w-ibtn" aria-label="Add a text or code file" on:click={() => codeInput.click()}><Icon name="file" /></button></Tooltip>
-						<Segmented label="Editor mode" options={editorModes} bind:value={editorMode} class="jr-mode" />
+						<Tooltip text={$_('diary.add_pictures')}><button type="button" class="w-ibtn" aria-label={$_('diary.add_pictures')} on:click={() => fileInput.click()}><Icon name="image" /></button></Tooltip>
+						<Tooltip text={$_('diary.add_file_tip')}><button type="button" class="w-ibtn" aria-label={$_('diary.add_file')} on:click={() => codeInput.click()}><Icon name="file" /></button></Tooltip>
+						<Segmented label={$_('diary.editor_mode')} options={editorModes} bind:value={editorMode} class="jr-mode" />
 					</div>
 					<input bind:this={fileInput} type="file" accept="image/*" multiple on:change={handleImageUpload} hidden />
 					<input bind:this={codeInput} type="file" accept=".txt,.md,.js,.ts,.json,.py,.rs,.sh,.css,.html,.yaml,.yml,.toml,.sql,.c,.cpp,.h,.go,.java,.xml,.csv" on:change={importCode} hidden />
@@ -473,16 +474,16 @@
 					{#if attachmentError}
 						<div class="w-notice jr-notice" role="alert">
 							<Icon name="alert" size={16} />
-							<div class="w-notice__text"><p class="w-notice__title">{attachmentError}</p><p>The entry is unchanged.</p></div>
+							<div class="w-notice__text"><p class="w-notice__title">{attachmentError}</p><p>{$_('diary.unchanged')}</p></div>
 						</div>
 					{/if}
 
 					{#if editorMode === 'preview'}
-						<div class="w-prose jr-prose jr-preview" aria-label="Preview">
+						<div class="w-prose jr-prose jr-preview" aria-label={$_('diary.preview')}>
 							{#if formContent.trim()}
 								{@html parseMessage(formContent, [], { allowTables: true })}
 							{:else}
-								<p class="jr-preview__empty">Nothing written yet.</p>
+								<p class="jr-preview__empty">{$_('diary.nothing_yet')}</p>
 							{/if}
 						</div>
 					{/if}
@@ -490,11 +491,11 @@
 						class="jr-text"
 						bind:this={contentEditor}
 						use:autogrow={formContent}
-						aria-label={`Journal entry for ${kickerDate.format(selectedDate)}`}
+						aria-label={$_('diary.entry_for', { values: { date: kickerDate.format(selectedDate) } })}
 						on:paste={pasteImages}
 						hidden={editorMode === 'preview'}
 						bind:value={formContent}
-						placeholder="What happened today? Notes, lists, links and pasted pictures all work."
+						placeholder={$_('diary.placeholder')}
 						rows="10"
 					></textarea>
 
@@ -502,8 +503,8 @@
 						<div class="jr-gallery jr-gallery--edit">
 							{#each formImages as image, i}
 								<figure class="jr-thumb">
-									<img src={image} alt={`Picture ${i + 1}`} />
-									<button type="button" class="w-ibtn w-ibtn--sm jr-thumb__remove" on:click={() => removeImage(i)} aria-label={`Remove picture ${i + 1}`}><Icon name="x" size={14} /></button>
+									<img src={image} alt={$_('diary.picture_n', { values: { n: i + 1 } })} />
+									<button type="button" class="w-ibtn w-ibtn--sm jr-thumb__remove" on:click={() => removeImage(i)} aria-label={$_('diary.remove_picture', { values: { n: i + 1 } })}><Icon name="x" size={14} /></button>
 								</figure>
 							{/each}
 						</div>
@@ -511,25 +512,25 @@
 
 					<div class="jr-fields">
 						<div class="jr-field">
-							<label class="w-label" for={`journal-${uid}-tags`}>Tags</label>
+							<label class="w-label" for={`journal-${uid}-tags`}>{$_('diary.tags')}</label>
 							<!-- Enter here only ends a tag list; it never saves and closes the editor. -->
-							<input id={`journal-${uid}-tags`} class="w-field" type="text" bind:value={formTags} placeholder="Separate tags with commas" enterkeyhint="done" on:keydown={keepEditingOnEnter} />
+							<input id={`journal-${uid}-tags`} class="w-field" type="text" bind:value={formTags} placeholder={$_('diary.tags_placeholder')} enterkeyhint="done" on:keydown={keepEditingOnEnter} />
 						</div>
 						<div class="w-srow jr-srow">
 							<div class="w-srow__text">
-								<span class="w-srow__label" id={`journal-${uid}-personal`}>Personal entry</span>
-								<span class="w-srow__hint" id={`journal-${uid}-personal-hint`}>A marker for you. It does not change who can read this entry.</span>
+								<span class="w-srow__label" id={`journal-${uid}-personal`}>{$_('diary.personal_entry')}</span>
+								<span class="w-srow__hint" id={`journal-${uid}-personal-hint`}>{$_('diary.personal_hint')}</span>
 							</div>
 							<Switch labelledby={`journal-${uid}-personal`} describedby={`journal-${uid}-personal-hint`} bind:checked={formIsPrivate} />
 						</div>
 						<div class="jr-names-row">
-							<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" />
+							<SignatureRow bind:draftSignatures {legacySignedBy} label={$_('diary.names_attached')} />
 						</div>
 					</div>
 
 					<div class="jr-actions">
-						<button type="button" class="w-btn w-btn--quiet" on:click={cancelEditing}>Cancel</button>
-						<button type="submit" class="w-btn w-btn--primary" disabled={!canSave}>{currentEntry ? 'Save changes' : 'Save entry'}</button>
+						<button type="button" class="w-btn w-btn--quiet" on:click={cancelEditing}>{$_('diary.cancel')}</button>
+						<button type="submit" class="w-btn w-btn--primary" disabled={!canSave}>{currentEntry ? $_('diary.save_changes') : $_('diary.save_entry')}</button>
 					</div>
 				</form>
 			{:else if currentEntry}
@@ -549,28 +550,28 @@
 					{@render entryFooter(currentEntry)}
 					{#if !isReadOnly}
 						<div class="jr-actions jr-actions--page">
-							<button type="button" class="w-btn" on:click={startEditing}><Icon name="pencil" size={16} />Edit entry</button>
-							<button type="button" class="w-btn w-btn--danger" on:click={handleDelete}>Delete entry</button>
+							<button type="button" class="w-btn" on:click={startEditing}><Icon name="pencil" size={16} />{$_('diary.edit_entry')}</button>
+							<button type="button" class="w-btn w-btn--danger" on:click={handleDelete}>{$_('diary.delete_entry')}</button>
 						</div>
 					{/if}
 				</article>
 			{:else if embedded && !onToday && !isReadOnly}
 				<!-- A past day in My Planner: the masthead's ink New entry stays the view's one primary
 				     (it writes today), so this day's own action is a default button (§7.1). -->
-				<EmptyState icon="book" as="h3" title={`Nothing written for ${kickerDate.format(selectedDate)}`} text="Write a few lines while the day is fresh." class="jr-empty">
+				<EmptyState icon="book" as="h3" title={$_('diary.nothing_for', { values: { date: kickerDate.format(selectedDate) } })} text={$_('diary.empty_day_text')} class="jr-empty">
 					{#snippet actions()}
-						<button type="button" class="w-btn" on:click={startEditing}>Write this entry</button>
+						<button type="button" class="w-btn" on:click={startEditing}>{$_('diary.write_entry')}</button>
 					{/snippet}
 				</EmptyState>
 			{:else}
 				<EmptyState
 					icon="book"
 					as="h3"
-					title={`Nothing written for ${onToday ? 'today' : kickerDate.format(selectedDate)}`}
+					title={$_('diary.nothing_for', { values: { date: onToday ? $_('diary.today_lc') : kickerDate.format(selectedDate) } })}
 					text={embedded && onToday && !isReadOnly
-						? `Use ${newEntryWords} to write a few lines while the day is fresh.`
-						: 'Write a few lines while the day is fresh.'}
-					action={isReadOnly || (embedded && onToday) ? undefined : 'Write this entry'}
+						? $_('diary.empty_day_embedded', { values: { words: newEntryWords } })
+						: $_('diary.empty_day_text')}
+					action={isReadOnly || (embedded && onToday) ? undefined : $_('diary.write_entry')}
 					onaction={startEditing}
 					class="jr-empty"
 				/>
@@ -579,4 +580,4 @@
 	{/if}
 </div>
 
-<ImageViewer src={viewingImage || ''} alt="Journal picture" onClose={() => (viewingImage = null)} />
+<ImageViewer src={viewingImage || ''} alt={$_('diary.journal_picture')} onClose={() => (viewingImage = null)} />

@@ -145,12 +145,12 @@
     if (batchBusy || selectedGroups.length === 0) return;
     const names = selectedGroups.map((channel) => conversationLabel(channel));
     const shown = names.slice(0, 5).join(', ');
-    const more = names.length > 5 ? ` and ${names.length - 5} more` : '';
+    const more = names.length > 5 ? $_('dm_hub.and_more', { values: { count: names.length - 5 } }) : '';
     const count = selectedGroups.length;
     const leave = await confirmAction({
-      title: `Leave ${count} group ${count === 1 ? 'conversation' : 'conversations'}?`,
-      body: `${shown}${more}. You may lose access to ${count === 1 ? 'it' : 'them'} on this server; other servers are not affected.`,
-      confirm: count === 1 ? 'Leave group' : 'Leave groups',
+      title: $_('dm_hub.leave_title', { values: { count, noun: count === 1 ? $_('dm_hub.noun_group_one') : $_('dm_hub.noun_group_many') } }),
+      body: $_('dm_hub.leave_body', { values: { shown, more, target: count === 1 ? $_('dm_hub.target_one') : $_('dm_hub.target_many') } }),
+      confirm: count === 1 ? $_('dm_hub.confirm_leave_one') : $_('dm_hub.confirm_leave_many'),
       danger: true
     });
     if (leave) await leaveSelectedGroups();
@@ -164,11 +164,11 @@
     const result = await leaveSelectedGroupChannels($channels, targetIds, leaveGroup);
     batchBusy = false;
     if (result.failedIds.length === 0) {
-      batchStatus = `Left ${result.leftIds.length} group ${result.leftIds.length === 1 ? 'conversation' : 'conversations'}.`;
+      batchStatus = $_('dm_hub.left_status', { values: { count: result.leftIds.length, noun: result.leftIds.length === 1 ? $_('dm_hub.noun_group_one') : $_('dm_hub.noun_group_many') } });
       exitBatchMode();
     } else {
       selectedGroupIds = result.failedIds;
-      batchStatus = `Left ${result.leftIds.length} of ${result.attempted} groups. ${result.failedIds.length} could not be confirmed; review and retry them.`;
+      batchStatus = $_('dm_hub.left_partial', { values: { left: result.leftIds.length, attempted: result.attempted, failed: result.failedIds.length } });
     }
   }
 
@@ -185,19 +185,19 @@
       return channel.name || channel.id;
     }
     const other = otherUserFor(channel);
-    return other?.handle || other?.username || 'Recipient unavailable';
+    return other?.handle || other?.username || $_('dm_hub.recipient_unavailable');
   }
 
   function lastMessagePreview(msgs: Message[] | undefined): string {
-    if (!msgs) return 'Open to load the conversation';
-    if (msgs.length === 0) return 'No messages yet';
+    if (!msgs) return $_('dm_hub.open_to_load');
+    if (msgs.length === 0) return $_('dm_hub.no_messages');
     const last = msgs[msgs.length - 1];
     // An envelope this device has not opened yet: say what to do, never a privacy claim.
-    if (last.encrypted || last.text?.startsWith(E2EE_MESSAGE_PREFIX)) return 'Open to read the latest message';
-    if (last.type === 'file') return last.fileName || '[File]';
+    if (last.encrypted || last.text?.startsWith(E2EE_MESSAGE_PREFIX)) return $_('dm_hub.open_to_read');
+    if (last.type === 'file') return last.fileName || $_('dm_hub.file_placeholder');
     if (last.type === 'gif') return '[GIF]';
-    if (last.type === 'emoji') return '[Emoji]';
-    return last.text || 'Message';
+    if (last.type === 'emoji') return $_('dm_hub.emoji_placeholder');
+    return last.text || $_('dm_hub.message_fallback');
   }
 
   function lastMessageTime(msgs: Message[] | undefined): string {
@@ -262,18 +262,18 @@
   let contextMenuItems: MenuEntry[] = [];
   $: contextMenuItems = contextMenuChannel
     ? [
-        { id: 'open-center', label: 'Open in center stage', icon: 'expand', onSelect: () => openInCenter(contextMenuChannel!) },
-        { id: 'open-side', label: 'Open in side panel', icon: 'sidebarRight', onSelect: () => openInSidePanel(contextMenuChannel!) },
-        { id: 'open-window', label: 'Open in a new window', icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: contextMenuChannel!.id, channelName: conversationLabel(contextMenuChannel!) }) }
+        { id: 'open-center', label: $_('dm_hub.open_center'), icon: 'expand', onSelect: () => openInCenter(contextMenuChannel!) },
+        { id: 'open-side', label: $_('dm_hub.open_side'), icon: 'sidebarRight', onSelect: () => openInSidePanel(contextMenuChannel!) },
+        { id: 'open-window', label: $_('dm_hub.open_window'), icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: contextMenuChannel!.id, channelName: conversationLabel(contextMenuChannel!) }) }
       ]
     : [];
 
   // The split "New message ▾" menu: the other ways to start, and the group batch tool.
   let newMenuItems: MenuEntry[] = [];
   $: newMenuItems = [
-    { id: 'new-group', label: 'New group', icon: 'users', onSelect: () => { showCreateGroup = true; } },
+    { id: 'new-group', label: $_('dm_hub.new_group'), icon: 'users', onSelect: () => { showCreateGroup = true; } },
     ...(groupChannels.length
-      ? [{ id: 'manage-groups', label: 'Leave several groups…', icon: 'logout', onSelect: () => { batchMode = true; batchStatus = ''; selectTab('messages'); } } as MenuEntry]
+      ? [{ id: 'manage-groups', label: $_('dm_hub.manage_groups'), icon: 'logout', onSelect: () => { batchMode = true; batchStatus = ''; selectTab('messages'); } } as MenuEntry]
       : [])
   ];
 
@@ -293,10 +293,10 @@
    */
   function rowExtras(channel: Channel, unread: number, presence: string): string {
     const parts: string[] = [];
-    if (channel.type === 'group') parts.push('group');
-    if (presence === 'active') parts.push('online');
+    if (channel.type === 'group') parts.push($_('dm_hub.a11y_group'));
+    if (presence === 'active') parts.push($_('dm_hub.a11y_online'));
     else if (presence === 'away' || presence === 'busy') parts.push(presence);
-    if (unread > 0) parts.push(`${unread} unread`);
+    if (unread > 0) parts.push($_('dm_hub.a11y_unread', { values: { count: unread } }));
     return parts.length ? `, ${parts.join(', ')},` : ',';
   }
 
@@ -348,8 +348,8 @@
     // Plain words; the server's own text goes to the log, never the screen.
     if (!result.ok) console.warn('[DMs] Could not start a conversation:', (result as { ok: false; error: string }).error);
     pendingDmError = result.ok
-      ? 'The conversation was created but has not arrived yet. It appears in the list in a moment.'
-      : 'Couldn’t start the conversation. Nothing was sent. Try again in a moment.';
+      ? $_('dm_hub.pending_created')
+      : $_('dm_hub.pending_failed');
     showPeoplePicker = true;
   }
 
@@ -434,13 +434,13 @@
   <header class="dm-hub-mast">
     <div class="dm-hub-a">
       <h2 class="dm-hub-title">{$_('places.dms')}</h2>
-      <div class="w-seg dm-hub-seg" role="group" aria-label="Show">
+      <div class="w-seg dm-hub-seg" role="group" aria-label={$_('dm_hub.show')}>
         <button type="button" class="dm-hub-tab" aria-pressed={activeTab === 'messages'} on:click={() => selectTab('messages')}>{$_('places.conversations')}</button>
         <button
           type="button"
           class="dm-hub-tab"
           aria-pressed={activeTab === 'friends'}
-          aria-label={$friendships.incoming.length > 0 ? `${$_('places.friends')}, ${$friendships.incoming.length} friend ${$friendships.incoming.length === 1 ? 'request' : 'requests'}` : undefined}
+          aria-label={$friendships.incoming.length > 0 ? $_('dm_hub.friends_requests_label', { values: { label: $_('places.friends'), count: $friendships.incoming.length, noun: $friendships.incoming.length === 1 ? $_('dm_hub.noun_request_one') : $_('dm_hub.noun_request_many') } }) : undefined}
           on:click={() => selectTab('friends')}
         >
           {$_('places.friends')}{#if $friendships.incoming.length > 0}<span class="w-badge w-badge--sm dm-hub-request-badge" aria-hidden="true">{$friendships.incoming.length > 99 ? '99+' : $friendships.incoming.length}</span>{/if}
@@ -455,8 +455,8 @@
             type="search"
             bind:this={searchInput}
             bind:value={hubQuery}
-            placeholder="Search DMs"
-            aria-label="Search DMs"
+            placeholder={$_('dm_hub.search')}
+            aria-label={$_('dm_hub.search')}
             autocomplete="off"
             spellcheck="false"
             on:keydown={(event) => { if (event.key === 'Escape' && hubQuery) { event.preventDefault(); hubQuery = ''; } }}
@@ -468,30 +468,30 @@
             class="w-btn w-btn--primary dm-hub-new-btn"
             aria-expanded={showPeoplePicker}
             on:click={() => (showPeoplePicker = !showPeoplePicker)}
-          >New message</button>
+          >{$_('dm_hub.new_message')}</button>
           <Menu
             items={newMenuItems}
-            label="More ways to start"
-            triggerLabel="More ways to start a conversation"
+            label={$_('dm_hub.more_ways')}
+            triggerLabel={$_('dm_hub.more_ways_trigger')}
             class="w-btn w-btn--primary w-split__menu"
             align="end"
-            heading="New conversation"
+            heading={$_('dm_hub.new_conversation')}
           >
             <Icon name="chevDown" size={16} />
           </Menu>
         </div>
       {:else}
-        <p class="dm-hub-b-note">People on this server{#if $friendships.outgoing.length > 0}<span class="w-count">{$friendships.outgoing.length} sent</span>{/if}</p>
+        <p class="dm-hub-b-note">{$_('dm_hub.people_on_server')}{#if $friendships.outgoing.length > 0}<span class="w-count">{$_('dm_hub.sent_count', { values: { count: $friendships.outgoing.length } })}</span>{/if}</p>
       {/if}
     </div>
   </header>
 
   {#if activeTab === 'messages'}
     {#if showPeoplePicker}
-      <section class="dm-hub-picker" aria-label="New message">
+      <section class="dm-hub-picker" aria-label={$_('dm_hub.new_message')}>
         <div class="dm-hub-picker-head">
-          <span class="w-kicker">New message</span>
-          <button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close new message" on:click={() => { showPeoplePicker = false; pendingDmError = ''; }}>
+          <span class="w-kicker">{$_('dm_hub.new_message')}</span>
+          <button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('dm_hub.close_new_message')} on:click={() => { showPeoplePicker = false; pendingDmError = ''; }}>
             <Icon name="x" size={16} />
           </button>
         </div>
@@ -499,7 +499,7 @@
         {#if pendingDmError}
           <div class="w-notice dm-hub-notice" role="alert">
             <Icon name="alert" size={16} />
-            <p class="w-notice__title">Couldn’t open the conversation</p>
+            <p class="w-notice__title">{$_('dm_hub.open_failed_title')}</p>
             <p class="w-notice__text">{pendingDmError}</p>
           </div>
         {/if}
@@ -507,16 +507,16 @@
     {/if}
 
     {#if pendingDmUser}
-      <p class="dm-hub-status" role="status">Opening the conversation with {pendingDmUser.username}…</p>
+      <p class="dm-hub-status" role="status">{$_('dm_hub.opening', { values: { name: pendingDmUser.username } })}</p>
     {/if}
     {#if batchStatus}<p class="dm-hub-status" role="status">{batchStatus}</p>{/if}
     {#if batchMode}
-      <div class="dm-hub-batch" role="group" aria-label="Leave several groups">
-        <p class="dm-hub-batch-text">Choose the groups to leave. Unread and pinned groups start unselected; activity shows only when it is loaded on this device.</p>
+      <div class="dm-hub-batch" role="group" aria-label={$_('dm_hub.batch_group_label')}>
+        <p class="dm-hub-batch-text">{$_('dm_hub.batch_text')}</p>
         <div class="dm-hub-batch-actions">
-          <button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={exitBatchMode} disabled={batchBusy}>Cancel</button>
+          <button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={exitBatchMode} disabled={batchBusy}>{$_('common.cancel')}</button>
           <button type="button" class="w-btn w-btn--danger w-btn--sm" aria-busy={batchBusy} on:click={() => void reviewLeaveSelectedGroups()} disabled={selectedGroups.length === 0 || batchBusy}>
-            {batchBusy ? 'Leaving…' : selectedGroups.length ? `Leave ${selectedGroups.length} selected` : 'Leave selected'}
+            {batchBusy ? $_('dm_hub.leaving') : selectedGroups.length ? $_('dm_hub.leave_selected_n', { values: { count: selectedGroups.length } }) : $_('dm_hub.leave_selected')}
           </button>
         </div>
       </div>
@@ -529,11 +529,11 @@
           class="dm-hub-empty"
           as="p"
           icon="dm"
-          title={batchMode ? 'No groups to leave' : 'No conversations yet'}
-          text={batchMode ? 'You are not in any group conversations on this server.' : 'Start one with anyone in this community. It appears here.'}
+          title={batchMode ? $_('dm_hub.no_groups_leave') : $_('dm_hub.no_conversations')}
+          text={batchMode ? $_('dm_hub.no_groups_text') : $_('dm_hub.start_text')}
         >
           {#snippet actions()}
-            <button type="button" class="w-btn" on:click={() => { if (batchMode) exitBatchMode(); else showPeoplePicker = true; }}>{batchMode ? 'Done' : 'New message'}</button>
+            <button type="button" class="w-btn" on:click={() => { if (batchMode) exitBatchMode(); else showPeoplePicker = true; }}>{batchMode ? $_('dm_hub.done') : $_('dm_hub.new_message')}</button>
           {/snippet}
         </EmptyState>
       {:else if shownChannels.length === 0}
@@ -541,11 +541,11 @@
           class="dm-hub-empty"
           as="p"
           icon="search"
-          title="No conversations match"
-          text={`Nothing here is called “${hubQuery.trim()}”. Try another name.`}
+          title={$_('dm_hub.no_match')}
+          text={$_('dm_hub.no_match_text', { values: { query: hubQuery.trim() } })}
         >
           {#snippet actions()}
-            <button type="button" class="w-btn" on:click={() => { hubQuery = ''; searchInput?.focus(); }}>Clear search</button>
+            <button type="button" class="w-btn" on:click={() => { hubQuery = ''; searchInput?.focus(); }}>{$_('dm_hub.clear_search')}</button>
           {/snippet}
         </EmptyState>
       {:else}
@@ -609,7 +609,7 @@
   x={contextMenuPos.x}
   y={contextMenuPos.y}
   items={contextMenuItems}
-  ariaLabel="Conversation actions"
+  ariaLabel={$_('dm_hub.conversation_actions')}
   headerLabel={contextMenuChannel ? conversationLabel(contextMenuChannel) : null}
   on:close={() => (contextMenuOpen = false)}
 />

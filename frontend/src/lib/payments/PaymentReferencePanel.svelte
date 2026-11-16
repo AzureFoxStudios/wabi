@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { PaymentAccountLink } from '$lib/api';
 	import { brandName } from '$lib/branding';
 	import { maskReference } from '$lib/payments/paymentSheetHelpers';
@@ -11,8 +12,8 @@
 		isThaiPromptPayDraft = false,
 		showCustomCustomerRef = $bindable(false),
 		customerRef = $bindable(''),
-		directReferenceTitle = 'Payment reference',
-		directReferencePlaceholder = 'Payment reference',
+		directReferenceTitle = $_('payment_ref.title'),
+		directReferencePlaceholder = $_('payment_ref.title'),
 		onManageConnections
 	}: {
 		selectedAccountLink?: PaymentAccountLink | null;
@@ -32,15 +33,15 @@
 	<div class="intent-card">
 		<h3>{directReferenceTitle}</h3>
 		{#if accountLinksLoading}
-			<p class="hint">Loading your saved {directReferenceTitle.toLowerCase()}...</p>
+			<p class="hint">{$_('payment_ref.loading_saved', { values: { title: directReferenceTitle.toLowerCase() } })}</p>
 		{:else if selectedAccountLink && !showCustomCustomerRef}
-			<p class="hint">Using {maskReference(selectedAccountLink.providerAccountRef)} for this QR request.</p>
+			<p class="hint">{$_('payment_ref.using', { values: { ref: maskReference(selectedAccountLink.providerAccountRef) } })}</p>
 		{:else}
 			<p class="hint">
 				{#if isThaiPromptPayDraft}
-					Enter your own PromptPay number (Thai mobile or ID) for this request.
+					{$_('payment_ref.enter_promptpay')}
 				{:else}
-					Enter your own payment reference for this request.
+					{$_('payment_ref.enter_reference')}
 				{/if}
 			</p>
 		{/if}
@@ -58,33 +59,33 @@
 		<div class="actions">
 			{#if selectedAccountLink}
 				<button class="action" onclick={() => (showCustomCustomerRef = !showCustomCustomerRef)}>
-					{showCustomCustomerRef ? 'Use saved PromptPay number' : 'Use different number'}
+					{showCustomCustomerRef ? $_('payment_ref.use_saved_promptpay') : $_('payment_ref.use_different')}
 				</button>
 			{/if}
 			<button class="action" onclick={() => onManageConnections?.()}>
-				{selectedAccountLink ? 'Edit in Saved References' : `Add ${directReferenceTitle}`}
+				{selectedAccountLink ? $_('payment_ref.edit_saved') : $_('payment_ref.add', { values: { title: directReferenceTitle } })}
 			</button>
 		</div>
 	</div>
 {:else}
 	<div class="intent-card">
-		<h3>Saved payment reference</h3>
+		<h3>{$_('payment_ref.saved_heading')}</h3>
 		{#if accountLinksLoading}
-			<p class="hint">Loading your saved payment references...</p>
+			<p class="hint">{$_('payment_ref.loading_refs')}</p>
 		{:else if selectedAccountLink}
 			<p class="hint">
-				{brandName} will reuse
+				{$_('payment_ref.reuse_intro', { values: { brand: brandName } })}
 				<code>{selectedAccountLink.displayLabel || selectedAccountLink.providerAccountRef}</code>
-				for this provider unless you turn on the one-off override below.
+				{$_('payment_ref.reuse_rest')}
 			</p>
 		{:else}
 			<p class="hint">
-				No saved reference is attached to this provider yet. Add one in Settings only if this provider needs a reusable destination reference.
+				{$_('payment_ref.none_attached')}
 			</p>
 		{/if}
 		<div class="actions">
 			<button class="action" onclick={() => onManageConnections?.()}>
-				{selectedAccountLink ? 'Manage Saved References' : 'Add Reference in Settings'}
+				{selectedAccountLink ? $_('payment_ref.manage_saved') : $_('payment_ref.add_in_settings')}
 			</button>
 		</div>
 	</div>
@@ -92,16 +93,16 @@
 	<div class="intent-card">
 		<label class="checkbox-row">
 			<input type="checkbox" bind:checked={showCustomCustomerRef} />
-			<span>Use a one-off payment reference</span>
+			<span>{$_('payment_ref.one_off_toggle')}</span>
 		</label>
 		{#if showCustomCustomerRef}
 			<label class="wide-field">
-				<span>One-off payment reference</span>
+				<span>{$_('payment_ref.one_off_label')}</span>
 				<input
 					type="text"
 					bind:value={customerRef}
 					maxlength="120"
-					placeholder="PromptPay number / wallet handle / PSP customer id"
+					placeholder={$_('payment_ref.one_off_placeholder')}
 				/>
 			</label>
 		{/if}

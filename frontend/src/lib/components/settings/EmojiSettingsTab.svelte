@@ -19,11 +19,11 @@
 	let bulkNote: Note = null;
 	let libraryNote: Note = null;
 	const TYPE_OPTIONS = [
-		{ value: 'emoji', label: 'Emoji' },
-		{ value: 'sticker', label: 'Sticker' }
+		{ value: 'emoji', label: $t('emoji_tab.type_emoji') },
+		{ value: 'sticker', label: $t('emoji_tab.type_sticker') }
 	];
-	$: communityName = $currentSavedServer?.effectiveName?.trim() || 'this server';
-	$: folderOptions = [{ value: 'all', label: 'All folders' }, ...existingFolders.map((folder) => ({ value: folder, label: folder }))];
+	$: communityName = $currentSavedServer?.effectiveName?.trim() || $t('emoji_tab.this_server');
+	$: folderOptions = [{ value: 'all', label: $t('emoji_tab.all_folders') }, ...existingFolders.map((folder) => ({ value: folder, label: folder }))];
 
 	let emojiFileInput: HTMLInputElement;
 	let emojiName = '';
@@ -84,8 +84,8 @@
 	const SUPPORTED_IMAGE_TYPES = new Set(['image/png', 'image/gif', 'image/jpeg', 'image/webp']);
 
 	function validateImage(file: File): string | null {
-		if (!SUPPORTED_IMAGE_TYPES.has(file.type)) return 'Please select a PNG, GIF, JPG, or WebP image.';
-		if (file.size > 2 * 1024 * 1024) return `"${file.name}" is too large. Maximum size is 2MB.`;
+		if (!SUPPORTED_IMAGE_TYPES.has(file.type)) return $t('emoji_tab.bad_type');
+		if (file.size > 2 * 1024 * 1024) return $t('emoji_tab.too_large', { values: { name: file.name } });
 		return null;
 	}
 
@@ -130,7 +130,7 @@
 
 	async function uploadEmoji() {
 		if (!selectedEmojiFile || !emojiName.trim()) {
-			singleNote = { text: 'Choose an image and give it a shortcode first.', error: true };
+			singleNote = { text: $t('emoji_tab.need_shortcode'), error: true };
 			return;
 		}
 		singleNote = null;
@@ -160,7 +160,7 @@
 			selectedEmojiFile = null;
 			emojiPreview = null;
 			if (emojiFileInput) emojiFileInput.value = '';
-			singleNote = { text: `Added ${uploadedType === 'sticker' ? 'sticker' : 'emoji'} “${result.emoji.displayName || result.emoji.name}” to ${normalizeFolder(emojiFolder)}.`, error: false };
+			singleNote = { text: $t('emoji_tab.added_single', { values: { kind: uploadedType === 'sticker' ? $t('emoji_tab.kind_sticker') : $t('emoji_tab.kind_emoji'), name: result.emoji.displayName || result.emoji.name, folder: normalizeFolder(emojiFolder) } }), error: false };
 		} catch (error) {
 			console.error('Emoji upload error:', error);
 			singleNote = { text: emojiUploadFailureMessage(error), error: true };
@@ -170,17 +170,17 @@
 	}
 
 	async function deleteEmoji(target: Emoji) {
-		const kind = target.type === 'sticker' ? 'sticker' : 'emoji';
+		const kind = target.type === 'sticker' ? $t('emoji_tab.kind_sticker') : $t('emoji_tab.kind_emoji');
 		const confirmed = await confirmAction({
-			title: `Delete :${target.name}:?`,
-			body: `Members of ${communityName} can no longer use this ${kind}. Messages that used it show its shortcode.`,
-			confirm: `Delete ${kind}`,
+			title: $t('emoji_tab.delete_title', { values: { name: target.name } }),
+			body: $t('emoji_tab.delete_body', { values: { community: communityName, kind } }),
+			confirm: $t('emoji_tab.delete_btn', { values: { kind } }),
 			danger: true
 		});
 		if (!confirmed) return;
 		const sock = getSocket();
 		if (!sock) {
-			libraryNote = { text: `Not connected, so :${target.name}: was not deleted.`, error: true };
+			libraryNote = { text: $t('emoji_tab.not_connected', { values: { name: target.name } }), error: true };
 			return;
 		}
 		const db = getWabiDB();
@@ -200,7 +200,7 @@
 		const imageFiles = files.filter((file) => SUPPORTED_IMAGE_TYPES.has(file.type));
 		bulkNote = null;
 		if (imageFiles.length === 0) {
-			bulkNote = { text: 'None of those files is a PNG, GIF, JPG or WebP image.', error: true };
+			bulkNote = { text: $t('emoji_tab.none_image'), error: true };
 			return;
 		}
 
@@ -222,11 +222,11 @@
 
 	async function uploadBulkEmojis() {
 		if (bulkEmojiFiles.length === 0) {
-			bulkNote = { text: 'Choose some images first.', error: true };
+			bulkNote = { text: $t('emoji_tab.choose_some'), error: true };
 			return;
 		}
 		if (bulkEmojiFiles.some((item) => !item.name.trim())) {
-			bulkNote = { text: 'Give every image a shortcode before adding them.', error: true };
+			bulkNote = { text: $t('emoji_tab.give_codes'), error: true };
 			return;
 		}
 		bulkNote = null;
@@ -273,9 +273,9 @@
 				if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
 			}
 			bulkNote = failCount === 0
-				? { text: `Added ${successCount} to ${normalizeFolder(bulkEmojiFolder)}.`, error: false }
+				? { text: $t('emoji_tab.added_bulk', { values: { count: successCount, folder: normalizeFolder(bulkEmojiFolder) } }), error: false }
 				: {
-					text: `Added ${successCount} of ${successCount + failCount} to ${normalizeFolder(bulkEmojiFolder)}. The rest stay below so you can fix them and try again.`,
+					text: $t('emoji_tab.added_partial', { values: { count: successCount, total: successCount + failCount, folder: normalizeFolder(bulkEmojiFolder) } }),
 					error: true,
 					lines: failures
 				};
@@ -303,51 +303,51 @@
 	</datalist>
 
 	<section class="settings-block" aria-labelledby="emoji-add-title">
-		<h3 class="settings-block__title" id="emoji-add-title">Custom emojis</h3>
-		<p class="settings-block__hint">Add one at a time with its shortcode, name, credit and folder.</p>
+		<h3 class="settings-block__title" id="emoji-add-title">{$t('emoji_tab.custom_title')}</h3>
+		<p class="settings-block__hint">{$t('emoji_tab.add_hint')}</p>
 		<input type="file" bind:this={emojiFileInput} on:change={handleEmojiFileSelect} accept="image/png,image/gif,image/jpeg,image/webp" class="hidden-file-input" tabindex="-1" aria-hidden="true" />
 		<div class="emoji-single">
-			<button type="button" class="emoji-drop" on:click={() => emojiFileInput?.click()} aria-label={emojiPreview ? 'Change image' : 'Choose image'}>
+			<button type="button" class="emoji-drop" on:click={() => emojiFileInput?.click()} aria-label={emojiPreview ? $t('emoji_tab.change_image') : $t('emoji_tab.choose_image')}>
 				{#if emojiPreview}<img src={emojiPreview} alt="" />{:else}<Icon name="image" size={28} />{/if}
-				<span class="emoji-drop__label">{emojiPreview ? 'Change image' : 'Choose image'}</span>
-				<span class="emoji-drop__hint">PNG, GIF, JPG or WebP, up to 2 MB</span>
+				<span class="emoji-drop__label">{emojiPreview ? $t('emoji_tab.change_image') : $t('emoji_tab.choose_image')}</span>
+				<span class="emoji-drop__hint">{$t('emoji_tab.drop_hint')}</span>
 			</button>
 			<div class="emoji-fields">
-				<label class="emoji-field"><span class="w-label">Shortcode</span><input class="w-field" type="text" bind:value={emojiName} placeholder="tabi_wave" maxlength="30" /></label>
-				<label class="emoji-field"><span class="w-label">Name</span><input class="w-field" type="text" bind:value={emojiDisplayName} placeholder="Tabi wave" maxlength="60" /></label>
-				<label class="emoji-field"><span class="w-label">Artist</span><input class="w-field" type="text" bind:value={emojiArtist} placeholder="Optional credit" maxlength="60" /></label>
-				<label class="emoji-field"><span class="w-label">Folder</span><input class="w-field" type="text" list="emoji-folder-options" bind:value={emojiFolder} placeholder="Reactions" maxlength="48" /></label>
-				<div class="emoji-field"><span class="w-label" id="emoji-single-type">Kind</span><Segmented labelledby="emoji-single-type" options={TYPE_OPTIONS} value={emojiType} onchange={(value) => (emojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></div>
+				<label class="emoji-field"><span class="w-label">{$t('emoji_tab.shortcode')}</span><input class="w-field" type="text" bind:value={emojiName} placeholder="tabi_wave" maxlength="30" /></label>
+				<label class="emoji-field"><span class="w-label">{$t('emoji_tab.name')}</span><input class="w-field" type="text" bind:value={emojiDisplayName} placeholder={$t('emoji_tab.tabi_name')} maxlength="60" /></label>
+				<label class="emoji-field"><span class="w-label">{$t('emoji_tab.artist')}</span><input class="w-field" type="text" bind:value={emojiArtist} placeholder={$t('emoji_tab.optional_credit')} maxlength="60" /></label>
+				<label class="emoji-field"><span class="w-label">{$t('emoji_tab.folder')}</span><input class="w-field" type="text" list="emoji-folder-options" bind:value={emojiFolder} placeholder="Reactions" maxlength="48" /></label>
+				<div class="emoji-field"><span class="w-label" id="emoji-single-type">{$t('emoji_tab.kind')}</span><Segmented labelledby="emoji-single-type" options={TYPE_OPTIONS} value={emojiType} onchange={(value) => (emojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></div>
 			</div>
 		</div>
 		<div class="emoji-actions">
 			{#if singleNote}<p class="emoji-note" class:is-error={singleNote.error} role={singleNote.error ? 'alert' : 'status'}>{#if singleNote.error}<Icon name="alert" size={14} />{/if}{singleNote.text}</p>{/if}
 			<!-- One primary per view (§2.4): once several images are chosen, their Add is the primary. -->
 			<button type="button" class="w-btn" class:w-btn--primary={bulkEmojiFiles.length === 0} on:click={uploadEmoji} disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()} aria-busy={uploadingEmoji}>
-				{uploadingEmoji ? 'Adding…' : `Add ${emojiType === 'sticker' ? 'sticker' : 'emoji'}`}
+				{uploadingEmoji ? $t('emoji_tab.adding') : $t('emoji_tab.add_kind', { values: { kind: emojiType === 'sticker' ? $t('emoji_tab.kind_sticker') : $t('emoji_tab.kind_emoji') } })}
 			</button>
 		</div>
 	</section>
 
 	<section class="settings-block" aria-labelledby="emoji-bulk-title">
-		<h3 class="settings-block__title" id="emoji-bulk-title">Add several at once</h3>
-		<p class="settings-block__hint">File names become shortcodes. Check them before adding.</p>
+		<h3 class="settings-block__title" id="emoji-bulk-title">{$t('emoji_tab.bulk_title')}</h3>
+		<p class="settings-block__hint">{$t('emoji_tab.bulk_hint')}</p>
 		<input type="file" bind:this={bulkEmojiFileInput} on:change={handleBulkEmojiFileSelect} accept="image/png,image/gif,image/jpeg,image/webp" multiple class="hidden-file-input" tabindex="-1" aria-hidden="true" />
 		<div class="emoji-bulk-bar">
-			<span class="emoji-bulk-bar__pick"><button type="button" class="w-btn" on:click={() => bulkEmojiFileInput?.click()}><Icon name="upload" size={16} />Choose images…</button></span>
-			<label class="emoji-field"><span class="w-label">Folder</span><input class="w-field" type="text" list="emoji-folder-options" bind:value={bulkEmojiFolder} placeholder="Reactions" maxlength="48" /></label>
-			<label class="emoji-field"><span class="w-label">Artist</span><input class="w-field" type="text" bind:value={bulkEmojiArtist} placeholder="Optional credit" maxlength="60" /></label>
-			<div class="emoji-field"><span class="w-label" id="emoji-bulk-type">Kind</span><span class="emoji-field__seg"><Segmented labelledby="emoji-bulk-type" options={TYPE_OPTIONS} value={bulkEmojiType} onchange={(value) => (bulkEmojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></span></div>
+			<span class="emoji-bulk-bar__pick"><button type="button" class="w-btn" on:click={() => bulkEmojiFileInput?.click()}><Icon name="upload" size={16} />{$t('emoji_tab.choose_images')}</button></span>
+			<label class="emoji-field"><span class="w-label">{$t('emoji_tab.folder')}</span><input class="w-field" type="text" list="emoji-folder-options" bind:value={bulkEmojiFolder} placeholder="Reactions" maxlength="48" /></label>
+			<label class="emoji-field"><span class="w-label">{$t('emoji_tab.artist')}</span><input class="w-field" type="text" bind:value={bulkEmojiArtist} placeholder={$t('emoji_tab.optional_credit')} maxlength="60" /></label>
+			<div class="emoji-field"><span class="w-label" id="emoji-bulk-type">{$t('emoji_tab.kind')}</span><span class="emoji-field__seg"><Segmented labelledby="emoji-bulk-type" options={TYPE_OPTIONS} value={bulkEmojiType} onchange={(value) => (bulkEmojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></span></div>
 		</div>
 
 		{#if bulkEmojiFiles.length > 0}
-			<ul class="emoji-sheet" aria-label="Images to add">
+			<ul class="emoji-sheet" aria-label={$t('emoji_tab.images_to_add')}>
 				{#each bulkEmojiFiles as item, index (item.preview ?? index)}
 					<li class="emoji-sheet__item">
 						<img src={item.preview} alt="" />
-						<label class="emoji-field"><span class="w-label">Shortcode</span><input class="w-field" type="text" bind:value={item.name} placeholder="emoji_name" maxlength="30" /></label>
-						<label class="emoji-field"><span class="w-label">Name</span><input class="w-field" type="text" bind:value={item.displayName} placeholder="Display name" maxlength="60" /></label>
-						<button type="button" class="w-ibtn w-ibtn--sm emoji-sheet__remove" on:click={() => removeBulkEmoji(index)} aria-label={`Leave out ${item.displayName || item.name}`}><Icon name="x" /></button>
+						<label class="emoji-field"><span class="w-label">{$t('emoji_tab.shortcode')}</span><input class="w-field" type="text" bind:value={item.name} placeholder="emoji_name" maxlength="30" /></label>
+						<label class="emoji-field"><span class="w-label">{$t('emoji_tab.name')}</span><input class="w-field" type="text" bind:value={item.displayName} placeholder={$t('emoji_tab.display_name')} maxlength="60" /></label>
+						<button type="button" class="w-ibtn w-ibtn--sm emoji-sheet__remove" on:click={() => removeBulkEmoji(index)} aria-label={$t('emoji_tab.leave_out', { values: { name: item.displayName || item.name } })}><Icon name="x" /></button>
 					</li>
 				{/each}
 			</ul>
@@ -361,27 +361,27 @@
 			{/if}
 			{#if bulkEmojiFiles.length > 0}
 				<button type="button" class="w-btn w-btn--primary" on:click={uploadBulkEmojis} disabled={uploadingBulk} aria-busy={uploadingBulk}>
-					{uploadingBulk ? 'Adding…' : `Add ${bulkEmojiFiles.length} ${bulkEmojiType === 'sticker' ? (bulkEmojiFiles.length === 1 ? 'sticker' : 'stickers') : 'emoji'}`}
+					{uploadingBulk ? $t('emoji_tab.adding') : $t('emoji_tab.add_count', { values: { count: bulkEmojiFiles.length, kind: bulkEmojiType === 'sticker' ? (bulkEmojiFiles.length === 1 ? $t('emoji_tab.kind_sticker') : $t('emoji_tab.kind_stickers')) : $t('emoji_tab.kind_emoji') } })}
 				</button>
 			{/if}
 		</div>
 	</section>
 
 	<section class="settings-block" aria-labelledby="emoji-library-title">
-		<h3 class="settings-block__title" id="emoji-library-title">Library</h3>
-		<p class="settings-block__hint">What every member sees in the picker, grouped by folder. Other servers keep their own.</p>
+		<h3 class="settings-block__title" id="emoji-library-title">{$t('emoji_tab.library_title')}</h3>
+		<p class="settings-block__hint">{$t('emoji_tab.library_hint')}</p>
 		<div class="emoji-filters">
-			<Select ariaLabel="Folder" label="Folder" options={folderOptions} value={libraryFolder} applied={libraryFolder !== 'all'} onchange={(value) => (libraryFolder = value)} />
-			<Segmented label="Kind" options={[{ value: 'all', label: 'All' }, { value: 'emoji', label: 'Emoji' }, { value: 'sticker', label: 'Stickers' }]} value={libraryType} onchange={(value) => (libraryType = value === 'emoji' || value === 'sticker' ? value : 'all')} />
-			<span class="w-count emoji-filters__count">{filteredCustomEntries.length === customEntries.length ? `${customEntries.length} in the library` : `${filteredCustomEntries.length} of ${customEntries.length} shown`}</span>
+			<Select ariaLabel={$t('emoji_tab.folder')} label={$t('emoji_tab.folder')} options={folderOptions} value={libraryFolder} applied={libraryFolder !== 'all'} onchange={(value) => (libraryFolder = value)} />
+			<Segmented label={$t('emoji_tab.kind')} options={[{ value: 'all', label: $t('emoji_tab.all') }, { value: 'emoji', label: $t('emoji_tab.type_emoji') }, { value: 'sticker', label: $t('emoji_tab.sticker_plural') }]} value={libraryType} onchange={(value) => (libraryType = value === 'emoji' || value === 'sticker' ? value : 'all')} />
+			<span class="w-count emoji-filters__count">{filteredCustomEntries.length === customEntries.length ? $t('emoji_tab.in_library', { values: { count: customEntries.length } }) : $t('emoji_tab.shown', { values: { shown: filteredCustomEntries.length, total: customEntries.length } })}</span>
 		</div>
 		{#if libraryNote}<p class="emoji-note" class:is-error={libraryNote.error} role={libraryNote.error ? 'alert' : 'status'}>{libraryNote.text}</p>{/if}
 
 		{#if groupedEntries.length === 0}
 			<div class="emoji-empty">
 				<Icon name="smile" size={28} />
-				<p class="emoji-empty__title">{customEntries.length === 0 ? 'No custom emoji yet' : 'Nothing in this folder'}</p>
-				<p class="emoji-empty__text">{customEntries.length === 0 ? 'Add one above and every member can use it.' : 'Choose another folder or kind.'}</p>
+				<p class="emoji-empty__title">{customEntries.length === 0 ? $t('emoji_tab.no_custom') : $t('emoji_tab.nothing_folder')}</p>
+				<p class="emoji-empty__text">{customEntries.length === 0 ? $t('emoji_tab.add_above') : $t('emoji_tab.choose_other')}</p>
 			</div>
 		{:else}
 			{#each groupedEntries as group (group.folder)}
@@ -393,9 +393,9 @@
 								<img src={emoji.url} alt="" class="emoji-item__img" />
 								<span class="emoji-item__text">
 									<span class="emoji-item__code">:{emoji.name}:</span>
-									<span class="emoji-item__meta">{labelFor(emoji)} · {(emoji.type || 'emoji') === 'sticker' ? 'Sticker' : 'Emoji'}{#if emoji.artist} · by {emoji.artist}{/if}</span>
+									<span class="emoji-item__meta">{labelFor(emoji)} · {(emoji.type || 'emoji') === 'sticker' ? 'Sticker' : 'Emoji'}{#if emoji.artist} · {$t('emoji_tab.by', { values: { artist: emoji.artist } })}{/if}</span>
 								</span>
-								<button type="button" class="w-ibtn w-ibtn--sm emoji-item__delete" on:click={() => deleteEmoji(emoji)} aria-label={`Delete :${emoji.name}:`}><Icon name="trash" /></button>
+								<button type="button" class="w-ibtn w-ibtn--sm emoji-item__delete" on:click={() => deleteEmoji(emoji)} aria-label={$t('emoji_tab.delete_label', { values: { name: emoji.name } })}><Icon name="trash" /></button>
 							</li>
 						{/each}
 					</ul>

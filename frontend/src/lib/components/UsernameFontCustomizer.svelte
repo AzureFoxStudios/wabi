@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { tick } from 'svelte';
 	import { currentUser } from '$lib/socket';
 	import { getServerUrl } from '$lib/serverUrl';
@@ -10,8 +11,8 @@
 	import ProfileName from '$lib/components/ProfileName.svelte';
 
 	const families = ['Arial', 'Georgia', 'Times New Roman', 'Comic Sans MS', 'Courier New', 'Trebuchet MS', 'Verdana', 'Impact', 'Palatino', 'Helvetica'];
-	const sizes = [{ value: '0.9em', label: 'Small' }, { value: '1em', label: 'Medium' }, { value: '1.2em', label: 'Large' }, { value: '1.4em', label: 'Extra large' }];
-	let title = $state('My profile design');
+	const sizes = [{ value: '0.9em', label: $_('upf.size_small') }, { value: '1em', label: $_('upf.size_medium') }, { value: '1.2em', label: $_('upf.size_large') }, { value: '1.4em', label: $_('upf.size_xl') }];
+	let title = $state($_('upf.default_title'));
 	let family = $state('inherit');
 	let size = $state('1em');
 	let weight = $state('600');
@@ -26,7 +27,7 @@
 	let importInput: HTMLInputElement;
 	let studioHeading: HTMLHeadingElement;
 	const font = $derived<EditableUsernameFont>({ family, size, weight, style: fontStyle, preset: legacyPreset, ...(designEnabled ? { design: { ...design } } : {}) });
-	const previewName = $derived($currentUser?.username || 'Your name');
+	const previewName = $derived($currentUser?.username || $_('upf.your_name'));
 
 	function loadFont(value?: EditableUsernameFont | null) {
 		family = value?.family || 'inherit'; size = value?.size || '1em';
@@ -37,7 +38,7 @@
 	}
 	export function loadExampleDraft(example: { title: string; usernameFont: EditableUsernameFont }): void {
 		loadFont(example.usernameFont); title = example.title;
-		feedback = 'Example loaded into your draft. Edit it, then publish when ready.'; error = '';
+		feedback = $_('upf.example_loaded'); error = '';
 		void tick().then(() => {
 			studioHeading?.focus({ preventScroll: true });
 			studioHeading?.scrollIntoView({ block: 'start' });
@@ -55,97 +56,97 @@
 		design = { ...DEFAULT_NAME_DESIGN, ...preset.design };
 		legacyPreset = 'none'; designEnabled = true;
 		title = preset.label;
-		feedback = 'Preset loaded into your draft. Save when you are ready.';
+		feedback = $_('upf.preset_loaded');
 		error = '';
 	}
 	function isPresetSelected(preset: typeof CREATOR_PRESETS[number]) { return designEnabled && JSON.stringify(design) === JSON.stringify(preset.design); }
-	function changed() { feedback = 'Unsaved design'; error = ''; legacyPreset = 'none'; designEnabled = true; }
-	function typographyChanged() { feedback = 'Unsaved design'; error = ''; }
+	function changed() { feedback = $_('upf.unsaved'); error = ''; legacyPreset = 'none'; designEnabled = true; }
+	function typographyChanged() { feedback = $_('upf.unsaved'); error = ''; }
 	async function saveDesign() {
 		if (saving) return;
-		saving = true; error = ''; feedback = 'Saving design…';
+		saving = true; error = ''; feedback = $_('upf.saving');
 		try {
 			const submitted = JSON.stringify(font);
 			await saveProfilePatch({ usernameFont: JSON.parse(submitted) });
-			feedback = submitted === JSON.stringify(font) ? 'Design saved. Your profile now uses this look.' : 'Earlier design saved. Your newer changes are still a draft.';
+			feedback = submitted === JSON.stringify(font) ? $_('upf.saved') : $_('upf.saved_earlier');
 		} catch (reason) {
-			feedback = ''; error = reason instanceof Error ? reason.message : 'Could not save your design. Your draft is still here.';
+			feedback = ''; error = reason instanceof Error ? reason.message : $_('upf.save_failed');
 		} finally { saving = false; }
 	}
 	function resetDraft() {
-		loadFont(); title = 'My profile design'; feedback = 'Plain design loaded. Save to apply it.'; error = '';
+		loadFont(); title = $_('upf.default_title'); feedback = $_('upf.plain_loaded'); error = '';
 	}
 	function downloadDesign() {
 		try {
-			const data = serializeProfileDesignFile(title.trim() || 'My profile design', font);
+			const data = serializeProfileDesignFile(title.trim() || $_('upf.default_title'), font);
 			const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
 			const link = document.createElement('a'); link.href = url;
 			link.download = `${(title.trim() || 'wabi-profile').replace(/[^a-z0-9_-]+/gi, '-').slice(0, 64)}.wabi-profile.json`;
 			link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-			feedback = 'Design exported. Share the file so others can import and edit it.'; error = '';
-		} catch (reason) { error = reason instanceof Error ? reason.message : 'Could not export this design.'; }
+			feedback = $_('upf.exported'); error = '';
+		} catch (reason) { error = reason instanceof Error ? reason.message : $_('upf.export_failed'); }
 	}
 	async function importDesign(event: Event) {
 		const input = event.currentTarget as HTMLInputElement; const file = input.files?.[0];
 		if (!file) return;
 		try {
-			if (file.size > 16 * 1024) throw new Error('Choose a profile design file of 16 KiB or smaller.');
+			if (file.size > 16 * 1024) throw new Error($_('upf.file_too_large'));
 			const imported = parseProfileDesignFile(await file.text());
 			loadFont(imported.usernameFont); title = imported.title;
-			feedback = 'Design imported into your draft. Edit it or save to apply.'; error = '';
-		} catch (reason) { error = reason instanceof Error ? reason.message : 'This file is not a valid Wabi profile design.'; feedback = ''; }
+			feedback = $_('upf.imported'); error = '';
+		} catch (reason) { error = reason instanceof Error ? reason.message : $_('upf.invalid_file'); feedback = ''; }
 		finally { input.value = ''; }
 	}
 </script>
 
 <section class="profile-design-studio" aria-labelledby="profile-design-heading">
 	<div class="studio-heading">
-		<div><p class="studio-kicker">Make it yours</p><h3 id="profile-design-heading" bind:this={studioHeading} tabindex="-1">Name style</h3><p class="studio-hint">Pick a preset, see it below, then save. Open customization to adjust every detail.</p></div>
-		<span class="studio-free-label">Free to create & share</span>
+		<div><p class="studio-kicker">{$_('upf.kicker')}</p><h3 id="profile-design-heading" bind:this={studioHeading} tabindex="-1">{$_('upf.heading')}</h3><p class="studio-hint">{$_('upf.intro')}</p></div>
+		<span class="studio-free-label">{$_('upf.free')}</span>
 	</div>
-	<div class="studio-presets" aria-label="Starting designs">
+	<div class="studio-presets" aria-label={$_('upf.starting_designs')}>
 		{#each CREATOR_PRESETS as preset (preset.id)}
-			<button type="button" class="studio-preset" class:selected={isPresetSelected(preset)} aria-pressed={isPresetSelected(preset)} onclick={() => applyPreset(preset)} aria-label={`Use ${preset.label} design`} title={preset.description}>
+			<button type="button" class="studio-preset" class:selected={isPresetSelected(preset)} aria-pressed={isPresetSelected(preset)} onclick={() => applyPreset(preset)} aria-label={$_('upf.use_preset', { values: { label: preset.label } })} title={preset.description}>
 				<ProfileName username={previewName} font={{ family: 'inherit', size: '1em', weight: '600', style: 'normal', preset: 'none', design: preset.design }} color={$currentUser?.color} preview={true} />
-				<span>{preset.label}{#if isPresetSelected(preset)} · in use{/if}</span>
+				<span>{preset.label}{#if isPresetSelected(preset)} · {$_('upf.in_use')}{/if}</span>
 			</button>
 		{/each}
 	</div>
 	<div class="studio-workbench">
 
-		<div class="studio-preview-stack" aria-label="Live design previews">
-			<p class="studio-kicker">Your draft in context</p>
-			<div class="studio-preview studio-chat"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><div class="studio-preview-name"><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-timestamp">12:34</span></div><p>A little personality, wherever you show up.</p><span class="studio-context">Messages</span></div></div>
-			<div class="studio-preview studio-person"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">People · Online</span></div></div>
-			<div class="studio-preview studio-profile"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">Profile card</span></div>
-			<p class="studio-hint">These previews show your design. Each viewer can show plain names, hide plates or pause motion. Your system’s reduced motion preference also pauses shimmer.</p>
+		<div class="studio-preview-stack" aria-label={$_('upf.live_previews')}>
+			<p class="studio-kicker">{$_('upf.in_context')}</p>
+			<div class="studio-preview studio-chat"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><div class="studio-preview-name"><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-timestamp">12:34</span></div><p>{$_('upf.sample_message')}</p><span class="studio-context">{$_('upf.ctx_messages')}</span></div></div>
+			<div class="studio-preview studio-person"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">{$_('upf.ctx_people')}</span></div></div>
+			<div class="studio-preview studio-profile"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">{$_('upf.ctx_profile')}</span></div>
+			<p class="studio-hint">{$_('upf.previews_note')}</p>
 		</div>
 	</div>
-	<details class="studio-advanced"><summary>Customize design</summary>
+	<details class="studio-advanced"><summary>{$_('upf.customize')}</summary>
 		<div class="studio-controls">
-			<label class="studio-wide">Design title<input maxlength="80" bind:value={title} aria-label="Design title" /></label>
-			<label>Font<select bind:value={family} onchange={typographyChanged}><option value="inherit">App default</option>{#each families as item}<option value={item}>{item}</option>{/each}</select></label>
-			<label>Size<select bind:value={size} onchange={typographyChanged}>{#each sizes as item}<option value={item.value}>{item.label}</option>{/each}</select></label>
-			<label>Weight<select bind:value={weight} onchange={typographyChanged}><option value="400">Regular</option><option value="500">Medium</option><option value="600">Semibold</option><option value="700">Bold</option></select></label>
-			<label>Style<select bind:value={fontStyle} onchange={typographyChanged}><option value="normal">Normal</option><option value="italic">Italic</option></select></label>
-			<label class="studio-wide studio-check"><input type="checkbox" checked={designEnabled} onchange={(event) => { designEnabled = event.currentTarget.checked; typographyChanged(); }} /> Use an editable name design</label>
-			{#if !designEnabled}<p class="studio-hint studio-wide">Your existing font and name style are kept. Choose a preset or edit an effect to start a custom design.</p>{/if}
-			<label class="studio-wide">Name effect<select bind:value={design.effect} onchange={changed}><option value="solid">Solid color</option><option value="gradient">Gradient</option><option value="glow">Glow</option><option value="shimmer">Slow shimmer</option></select></label>
-			<label>Name color<input type="color" bind:value={design.color} oninput={changed} /></label>
-			<label>Second color<input type="color" bind:value={design.color2} oninput={changed} /></label>
-			<label class="studio-wide">Gradient angle <span>{Math.round(design.angle)}°</span><input type="range" min="0" max="360" step="1" bind:value={design.angle} oninput={changed} /></label>
-			<label class="studio-wide">Glow strength <span>{design.glow} px</span><input type="range" min="0" max="12" step="1" bind:value={design.glow} oninput={changed} /></label>
-			{#if design.effect === 'shimmer'}<label class="studio-wide">Animation cycle <span>{design.animationSeconds} seconds</span><input type="range" min="4" max="20" step="1" bind:value={design.animationSeconds} oninput={changed} /></label>{/if}
-			<label class="studio-wide">Nameplate<select bind:value={design.plate} onchange={changed}><option value="none">None</option><option value="solid">Solid</option><option value="gradient">Gradient</option><option value="outline">Outline</option></select></label>
+			<label class="studio-wide">{$_('upf.design_title')}<input maxlength="80" bind:value={title} aria-label={$_('upf.design_title')} /></label>
+			<label>{$_('upf.font')}<select bind:value={family} onchange={typographyChanged}><option value="inherit">{$_('upf.app_default')}</option>{#each families as item}<option value={item}>{item}</option>{/each}</select></label>
+			<label>{$_('upf.size')}<select bind:value={size} onchange={typographyChanged}>{#each sizes as item}<option value={item.value}>{item.label}</option>{/each}</select></label>
+			<label>{$_('upf.weight')}<select bind:value={weight} onchange={typographyChanged}><option value="400">{$_('upf.regular')}</option><option value="500">{$_('upf.size_medium')}</option><option value="600">{$_('upf.semibold')}</option><option value="700">{$_('upf.bold')}</option></select></label>
+			<label>{$_('upf.style')}<select bind:value={fontStyle} onchange={typographyChanged}><option value="normal">{$_('upf.normal')}</option><option value="italic">{$_('upf.italic')}</option></select></label>
+			<label class="studio-wide studio-check"><input type="checkbox" checked={designEnabled} onchange={(event) => { designEnabled = event.currentTarget.checked; typographyChanged(); }} /> {$_('upf.use_editable')}</label>
+			{#if !designEnabled}<p class="studio-hint studio-wide">{$_('upf.kept_note')}</p>{/if}
+			<label class="studio-wide">{$_('upf.effect')}<select bind:value={design.effect} onchange={changed}><option value="solid">{$_('upf.fx_solid')}</option><option value="gradient">{$_('upf.gradient')}</option><option value="glow">{$_('upf.fx_glow')}</option><option value="shimmer">{$_('upf.fx_shimmer')}</option></select></label>
+			<label>{$_('upf.name_color')}<input type="color" bind:value={design.color} oninput={changed} /></label>
+			<label>{$_('upf.color2')}<input type="color" bind:value={design.color2} oninput={changed} /></label>
+			<label class="studio-wide">{$_('upf.angle')} <span>{Math.round(design.angle)}°</span><input type="range" min="0" max="360" step="1" bind:value={design.angle} oninput={changed} /></label>
+			<label class="studio-wide">{$_('upf.glow')} <span>{design.glow} px</span><input type="range" min="0" max="12" step="1" bind:value={design.glow} oninput={changed} /></label>
+			{#if design.effect === 'shimmer'}<label class="studio-wide">{$_('upf.anim_cycle')} <span>{$_('upf.seconds', { values: { count: design.animationSeconds } })}</span><input type="range" min="4" max="20" step="1" bind:value={design.animationSeconds} oninput={changed} /></label>{/if}
+			<label class="studio-wide">{$_('upf.nameplate')}<select bind:value={design.plate} onchange={changed}><option value="none">{$_('upf.none')}</option><option value="solid">{$_('upf.plate_solid')}</option><option value="gradient">{$_('upf.gradient')}</option><option value="outline">{$_('upf.outline')}</option></select></label>
 			{#if design.plate !== 'none'}
-				<label>Plate color<input type="color" bind:value={design.plateColor} oninput={changed} /></label>
-				<label>Second plate color<input type="color" bind:value={design.plateColor2} oninput={changed} /></label>
-				<label class="studio-wide">Plate opacity <span>{Math.round(design.plateOpacity * 100)}%</span><input type="range" min="0" max="1" step="0.05" bind:value={design.plateOpacity} oninput={changed} /></label>
+				<label>{$_('upf.plate_color')}<input type="color" bind:value={design.plateColor} oninput={changed} /></label>
+				<label>{$_('upf.plate_color2')}<input type="color" bind:value={design.plateColor2} oninput={changed} /></label>
+				<label class="studio-wide">{$_('upf.plate_opacity')} <span>{Math.round(design.plateOpacity * 100)}%</span><input type="range" min="0" max="1" step="0.05" bind:value={design.plateOpacity} oninput={changed} /></label>
 			{/if}
 		</div>
-		<div class="studio-actions"><button type="button" class="action-btn secondary" onclick={downloadDesign}>Export design</button><button type="button" class="action-btn secondary" onclick={() => importInput?.click()}>Import design</button><input bind:this={importInput} type="file" accept=".json,application/json" class="hidden-file-input" onchange={importDesign} /></div>
+		<div class="studio-actions"><button type="button" class="action-btn secondary" onclick={downloadDesign}>{$_('upf.export')}</button><button type="button" class="action-btn secondary" onclick={() => importInput?.click()}>{$_('upf.import')}</button><input bind:this={importInput} type="file" accept=".json,application/json" class="hidden-file-input" onchange={importDesign} /></div>
 	</details>
-	<div class="studio-actions"><button type="button" class="action-btn" disabled={saving} onclick={saveDesign}>{saving ? 'Saving…' : 'Save name style'}</button><button type="button" class="action-btn secondary" disabled={saving} onclick={resetDraft}>Start plain</button></div>
+	<div class="studio-actions"><button type="button" class="action-btn" disabled={saving} onclick={saveDesign}>{saving ? $_('upf.saving_btn') : $_('upf.save_style')}</button><button type="button" class="action-btn secondary" disabled={saving} onclick={resetDraft}>{$_('upf.start_plain')}</button></div>
 	{#if feedback}<p class="studio-feedback" role="status">{feedback}</p>{/if}
 	{#if error}<p class="studio-error" role="alert">{error}</p>{/if}
 </section>

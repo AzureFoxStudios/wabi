@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { formatDashboardBytes, formatDashboardUptime, type AdminServerHealth } from '$lib/adminDashboard';
 
 	let { health, loading = false, stale = false, expanded = false }: {
@@ -8,34 +9,34 @@
 		expanded?: boolean;
 	} = $props();
 	const ready = $derived(Boolean(health?.writerRunning && health?.projectionHealthy && !stale));
-	const label = $derived(loading ? 'Checking…' : stale ? 'Last known status' : !health ? 'Not available' : ready ? 'Ready' : 'Needs attention');
+	const label = $derived(loading ? $_('server_health.checking') : stale ? $_('server_health.last_known') : !health ? $_('server_health.not_available') : ready ? $_('server_health.ready') : $_('server_health.needs_attention'));
 </script>
 
-<section class="admin-home-card admin-health" aria-label="Server health">
+<section class="admin-home-card admin-health" aria-label={$_('server_health.label')}>
 	<header class="admin-home-card-header">
-		<h2>Server health</h2>
+		<h2>{$_('server_health.label')}</h2>
 		<span class="admin-health-status" class:ready class:degraded={Boolean(health && !ready && !stale)}>{label}</span>
 	</header>
 	{#if health}
 		<p class="admin-home-description">{stale
-			? 'These are the last observed values. Refresh before relying on this status.'
-			: ready ? 'The database writer is running and changes are being applied to readable state.'
-			: 'The database writer or change application is unhealthy. Check the server logs before retrying writes.'}</p>
+			? $_('server_health.stale_note')
+			: ready ? $_('server_health.ready_note')
+			: $_('server_health.unhealthy_note')}</p>
 		<dl class="admin-health-metrics">
-			<div><dt>Server uptime</dt><dd>{formatDashboardUptime(health.uptimeSeconds)}</dd></div>
-			<div><dt>Server process memory</dt><dd>{formatDashboardBytes(health.processMemoryBytes)}</dd></div>
-			<div><dt>Database writer</dt><dd>{health.writerRunning ? 'Running' : 'Stopped'}</dd></div>
-			<div><dt>Applying changes</dt><dd>{health.projectionHealthy ? 'Healthy' : 'Failed'}</dd></div>
+			<div><dt>{$_('server_health.uptime')}</dt><dd>{formatDashboardUptime(health.uptimeSeconds)}</dd></div>
+			<div><dt>{$_('server_health.memory')}</dt><dd>{formatDashboardBytes(health.processMemoryBytes)}</dd></div>
+			<div><dt>{$_('server_health.writer')}</dt><dd>{health.writerRunning ? $_('server_health.running') : $_('server_health.stopped')}</dd></div>
+			<div><dt>{$_('server_health.applying')}</dt><dd>{health.projectionHealthy ? $_('server_health.healthy') : $_('server_health.failed')}</dd></div>
 		</dl>
 		{#if expanded}
 			<div class="admin-health-details">
-				<h3>Applied database state</h3>
-				<p>Applied commit: <code>{health.appliedCommitSeq}</code></p>
-				<p>This is the latest database commit visible to queries. It is not a message count, backup status or replication confirmation.</p>
-				<p>Memory is the server process’s resident memory, not the whole computer or container. CPU, disk capacity, external call relays and backups are not measured here.</p>
+				<h3>{$_('server_health.applied_heading')}</h3>
+				<p>{$_('server_health.applied_commit')} <code>{health.appliedCommitSeq}</code></p>
+				<p>{$_('server_health.applied_note')}</p>
+				<p>{$_('server_health.memory_note')}</p>
 			</div>
 		{/if}
 	{:else}
-		<p class="admin-home-description">{loading ? 'Waiting for a fresh server health snapshot.' : 'This server has not supplied health measurements. A successful connection alone does not confirm database health.'}</p>
+		<p class="admin-home-description">{loading ? $_('server_health.waiting') : $_('server_health.no_measure')}</p>
 	{/if}
 </section>

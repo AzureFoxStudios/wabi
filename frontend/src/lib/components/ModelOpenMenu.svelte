@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { activeServerUrl } from '$lib/serverUrl';
@@ -43,13 +44,13 @@
     if (blocked) { dialog?.close(); return; }
     dialog?.close();
     try { openModelAssetAt(asset, destination); onError(''); }
-    catch (error) { onError(error instanceof Error ? error.message : 'The model workspace could not be opened.'); }
+    catch (error) { onError(error instanceof Error ? error.message : $_('model_menu.workspace_error')); }
   }
   async function runFileAction(action: () => void | Promise<void>): Promise<void> {
     if (blocked) { dialog?.close(); return; }
     dialog?.close();
     try { await action(); onError(''); }
-    catch (error) { onError(error instanceof Error ? error.message : 'The file action could not be completed.'); }
+    catch (error) { onError(error instanceof Error ? error.message : $_('model_menu.file_action_error')); }
   }
   function dismissBackdrop(event: MouseEvent): void {
     if (event.target !== dialog || !dialog) return;
@@ -59,25 +60,25 @@
 </script>
 
 <button class="model-location-trigger" type="button" bind:this={trigger} disabled={blocked}
-  onclick={(event) => void open(event)} title={cadAsset ? 'CAD actions' : 'Model actions'} aria-label={cadAsset ? 'CAD actions' : 'Model actions'} aria-haspopup="dialog" aria-expanded={isOpen}>
+  onclick={(event) => void open(event)} title={cadAsset ? $_('model_menu.cad_actions') : $_('model_menu.model_actions')} aria-label={cadAsset ? $_('model_menu.cad_actions') : $_('model_menu.model_actions')} aria-haspopup="dialog" aria-expanded={isOpen}>
   <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
 </button>
 
-<dialog bind:this={dialog} class="model-open-menu" aria-label={cadAsset ? 'CAD workspace actions' : 'Model workspace actions'}
+<dialog bind:this={dialog} class="model-open-menu" aria-label={cadAsset ? $_('model_menu.cad_workspace_actions') : $_('model_menu.model_workspace_actions')}
   style:left={`${left}px`} style:top={`${top}px`} onclose={() => { isOpen = false; }} onclick={dismissBackdrop} onkeydown={(event) => dialog && trapModelMenuTab(event, dialog)}>
-  <div class="model-menu-heading"><div><small>{cadAsset ? 'CAD ACTIONS' : 'MODEL ACTIONS'}</small><strong title={asset.fileName}>{asset.fileName}</strong></div><button type="button" aria-label={cadAsset ? 'Close CAD actions' : 'Close model actions'} onclick={() => dialog?.close()}>×</button></div>
+  <div class="model-menu-heading"><div><small>{cadAsset ? $_('model_menu.cad_small') : $_('model_menu.model_small')}</small><strong title={asset.fileName}>{asset.fileName}</strong></div><button type="button" aria-label={cadAsset ? $_('model_menu.close_cad') : $_('model_menu.close_model')} onclick={() => dialog?.close()}>×</button></div>
   <div class="model-menu-actions">
-    <button data-primary type="button" disabled={blocked} onclick={() => choose({ kind: 'workspace' })}>{modelWorkspaceLabel(asset.fileName)}<span>Inspect in the main area</span></button>
-    {#if !mobile}<button type="button" disabled={blocked} onclick={() => choose({ kind: 'dock' })}>Dock beside chat<span>Keep the conversation visible</span></button>{/if}
+    <button data-primary type="button" disabled={blocked} onclick={() => choose({ kind: 'workspace' })}>{modelWorkspaceLabel(asset.fileName)}<span>{$_('model_menu.inspect_main')}</span></button>
+    {#if !mobile}<button type="button" disabled={blocked} onclick={() => choose({ kind: 'dock' })}>{$_('model_menu.dock')}<span>{$_('model_menu.dock_hint')}</span></button>{/if}
   </div>
   {#if onStopPreview || onDownload || (showSourceLink && sourceUrl)}
     <div class="model-menu-file-actions">
-      {#if onStopPreview}<button type="button" disabled={blocked} onclick={() => onStopPreview && void runFileAction(onStopPreview)}>Stop preview</button>{/if}
-      {#if onDownload}<button type="button" disabled={blocked} onclick={() => onDownload && void runFileAction(onDownload)}>Download original</button>
-      {:else if showSourceLink && sourceUrl && !disabled}<a href={sourceUrl} target="_blank" rel="noopener noreferrer" onclick={() => dialog?.close()}>View source file ↗</a>{/if}
+      {#if onStopPreview}<button type="button" disabled={blocked} onclick={() => onStopPreview && void runFileAction(onStopPreview)}>{$_('model_menu.stop_preview')}</button>{/if}
+      {#if onDownload}<button type="button" disabled={blocked} onclick={() => onDownload && void runFileAction(onDownload)}>{$_('model_menu.download_original')}</button>
+      {:else if showSourceLink && sourceUrl && !disabled}<a href={sourceUrl} target="_blank" rel="noopener noreferrer" onclick={() => dialog?.close()}>{$_('model_menu.view_source')} ↗</a>{/if}
     </div>
   {/if}
-  {#if mobile}<p class="model-menu-footnote">Side docking is hidden on this screen. The full CAD/model workspace is available.</p>{/if}
+  {#if mobile}<p class="model-menu-footnote">{$_('model_menu.side_hidden')}</p>{/if}
 </dialog>
 
 <style>

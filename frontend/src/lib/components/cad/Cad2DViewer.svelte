@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { onDestroy } from 'svelte';
   import {
     boundsForCadEntities,
@@ -325,19 +326,19 @@
   }
 
   function reviewStatusLabel(): string {
-    if (reviewSync.status === 'shared') return 'Shared review';
-    if (reviewSync.status === 'connecting') return 'Connecting review…';
-    if (reviewSync.status === 'offline') return 'Review offline';
-    if (reviewSync.status === 'error') return 'Review sync error';
-    return 'Local review';
+    if (reviewSync.status === 'shared') return $_('cad2d.review_shared');
+    if (reviewSync.status === 'connecting') return $_('cad2d.review_connecting');
+    if (reviewSync.status === 'offline') return $_('cad2d.review_offline');
+    if (reviewSync.status === 'error') return $_('cad2d.review_sync_error');
+    return $_('cad2d.review_local');
   }
 
   async function readLimited(response: Response, signal: AbortSignal): Promise<string> {
     const declared = Number(response.headers.get('content-length') || 0);
-    if (declared > MAX_DXF_BYTES) throw new Error('DXF is larger than the built-in 20 MB preview limit.');
+    if (declared > MAX_DXF_BYTES) throw new Error($_('cad2d.err_too_large'));
     if (!response.body) {
       const text = await response.text();
-      if (new TextEncoder().encode(text).byteLength > MAX_DXF_BYTES) throw new Error('DXF is larger than the built-in 20 MB preview limit.');
+      if (new TextEncoder().encode(text).byteLength > MAX_DXF_BYTES) throw new Error($_('cad2d.err_too_large'));
       return text;
     }
     const reader = response.body.getReader();
@@ -350,7 +351,7 @@
         const { done, value } = await reader.read();
         if (done) break;
         total += value.byteLength;
-        if (total > MAX_DXF_BYTES) throw new Error('DXF is larger than the built-in 20 MB preview limit.');
+        if (total > MAX_DXF_BYTES) throw new Error($_('cad2d.err_too_large'));
         text += decoder.decode(value, { stream: true });
       }
       text += decoder.decode();
@@ -370,9 +371,9 @@
     drawing = null; error = ''; loading = true; hiddenLayers = new Set(); soloLayer = null; clearMeasure(); resetView();
     void (async () => {
       try {
-        if (!allowConvertedSource && !/\.dxf(?:$|[?#])/i.test(name) && !/\.dxf(?:$|[?#])/i.test(source)) throw new Error('The built-in 2D CAD reader currently supports ASCII DXF only.');
+        if (!allowConvertedSource && !/\.dxf(?:$|[?#])/i.test(name) && !/\.dxf(?:$|[?#])/i.test(source)) throw new Error($_('cad2d.err_ascii_only'));
         const response = await fetch(source, { signal: controller.signal });
-        if (!response.ok) throw new Error(`Could not load DXF (${response.status}).`);
+        if (!response.ok) throw new Error($_('cad2d.err_load_status', { values: { status: response.status } }));
         const text = await readLimited(response, controller.signal);
         const parsed = parseAsciiDxf(text);
         if (sequence !== loadSequence || controller.signal.aborted) return;
@@ -381,7 +382,7 @@
         hiddenLayers = new Set(Object.entries(parsed.layerStyles).filter(([, style]) => style.off).map(([name]) => name));
       } catch (reason) {
         if (controller.signal.aborted || sequence !== loadSequence) return;
-        error = reason instanceof Error ? reason.message : 'Could not read this DXF file.';
+        error = reason instanceof Error ? reason.message : $_('cad2d.err_read');
       } finally {
         if (sequence === loadSequence && !controller.signal.aborted) loading = false;
       }
@@ -408,44 +409,44 @@
 </script>
 
 <div class:compact class="cad2d-shell" style={`--cad-height:${Math.max(compact ? 180 : 260, height)}px`}>
-  <div class="cad2d-toolbar" aria-label="2D CAD drawing tools">
-    <div class="cad2d-title"><strong>{fileName}</strong><span>{drawing ? `${drawing.entities.length.toLocaleString()} entities · ${drawing.layers.length} layers` : '2D CAD'}</span></div>
+  <div class="cad2d-toolbar" aria-label={$_('cad2d.tools_label')}>
+    <div class="cad2d-title"><strong>{fileName}</strong><span>{drawing ? $_('cad2d.entities_layers', { values: { entities: drawing.entities.length.toLocaleString(), layers: drawing.layers.length } }) : $_('cad2d.title_fallback')}</span></div>
     <div class="cad2d-actions">
-      <button type="button" onclick={resetView}>Fit</button>
-      <button type="button" class:active={measureMode} aria-pressed={measureMode} onclick={() => { measureMode = !measureMode; setReviewMode(false); clearMeasure(); }}>{measureMode ? 'Measuring' : 'Measure'}</button>
-      {#if !compact}<button type="button" class:active={reviewMode} aria-pressed={reviewMode} onclick={() => setReviewMode(!reviewMode)}>{reviewMode ? 'Reviewing' : 'Review'}</button>{/if}
-      {#if !compact && hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>Show all layers</button>{/if}
+      <button type="button" onclick={resetView}>{$_('cad2d.fit')}</button>
+      <button type="button" class:active={measureMode} aria-pressed={measureMode} onclick={() => { measureMode = !measureMode; setReviewMode(false); clearMeasure(); }}>{measureMode ? $_('cad2d.measuring') : $_('cad2d.measure')}</button>
+      {#if !compact}<button type="button" class:active={reviewMode} aria-pressed={reviewMode} onclick={() => setReviewMode(!reviewMode)}>{reviewMode ? $_('cad2d.reviewing') : $_('cad2d.review_btn')}</button>{/if}
+      {#if !compact && hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>{$_('cad2d.show_all_layers_btn')}</button>{/if}
     </div>
   </div>
 
   {#if reviewMode && !compact}
-    <div class="cad-review-toolbar" aria-label="CAD review markup tools">
+    <div class="cad-review-toolbar" aria-label={$_('cad2d.review_tools_label')}>
       <div class="cad-review-tools">
-        {#each [['pan','Hand'],['pen','Pen'],['arrow','Arrow'],['rect','Box'],['ellipse','Circle'],['text','Text'],['eraser','Erase']] as item}
+        {#each [['pan',$_('cad2d.tool_hand')],['pen',$_('cad2d.tool_pen')],['arrow',$_('cad2d.tool_arrow')],['rect',$_('cad2d.tool_box')],['ellipse',$_('cad2d.tool_circle')],['text',$_('cad2d.tool_text')],['eraser',$_('cad2d.tool_erase')]] as item}
           <button type="button" class:active={reviewTool === item[0]} aria-pressed={reviewTool === item[0]} onclick={() => chooseReviewTool(item[0] as CadReviewTool)}>{item[1]}</button>
         {/each}
       </div>
-      <div class="cad-review-palette" aria-label="Markup color">
+      <div class="cad-review-palette" aria-label={$_('cad2d.markup_color')}>
         {#each CAD_REVIEW_COLORS as color}
-          <button type="button" class:active={reviewColor === color} aria-label={`Markup color ${color}`} style={`--review-swatch:${color}`} onclick={() => (reviewColor = color)}></button>
+          <button type="button" class:active={reviewColor === color} aria-label={$_('cad2d.markup_color_named', { values: { color } })} style={`--review-swatch:${color}`} onclick={() => (reviewColor = color)}></button>
         {/each}
       </div>
-      <select aria-label="Markup width" bind:value={reviewWidth}>
+      <select aria-label={$_('cad2d.markup_width')} bind:value={reviewWidth}>
         {#each CAD_REVIEW_WIDTHS as width}<option value={width}>{width}px</option>{/each}
       </select>
-      <button type="button" disabled={reviewUndo.length === 0} onclick={undoReview}>Undo</button>
-      <button type="button" disabled={reviewRedo.length === 0} onclick={redoReview}>Redo</button>
-      <span class:sync-error={reviewSync.status === 'error'} class="cad-review-status" title={reviewSync.error || undefined}>{reviewStatusLabel()} · {reviewElements.length} marks</span>
+      <button type="button" disabled={reviewUndo.length === 0} onclick={undoReview}>{$_('cad2d.undo')}</button>
+      <button type="button" disabled={reviewRedo.length === 0} onclick={redoReview}>{$_('cad2d.redo')}</button>
+      <span class:sync-error={reviewSync.status === 'error'} class="cad-review-status" title={reviewSync.error || undefined}>{reviewStatusLabel()} · {$_('cad2d.marks_count', { values: { count: reviewElements.length } })}</span>
     </div>
   {/if}
 
   <div class="cad2d-main">
     <div class="cad2d-canvas-wrap">
-      {#if loading}<div class="cad2d-state">Reading DXF…</div>
-      {:else if error}<div class="cad2d-state cad2d-error"><strong>2D preview unavailable</strong><span>{error}</span></div>
+      {#if loading}<div class="cad2d-state">{$_('cad2d.reading')}</div>
+      {:else if error}<div class="cad2d-state cad2d-error"><strong>{$_('cad2d.preview_unavailable')}</strong><span>{error}</span></div>
       {:else if drawing}
         <svg bind:this={svg} class:measure-mode={measureMode} class:review-mode={reviewMode} class:review-pan={reviewMode && reviewTool === 'pan'} viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-          role="img" aria-label={`2D CAD drawing ${fileName}`}
+          role="img" aria-label={$_('cad2d.drawing_label', { values: { name: fileName } })}
           onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp}
           onwheel={wheel} onclick={measureClick}>
           <defs>
@@ -493,25 +494,25 @@
         </svg>
         {#if textPoint}
           <form class="cad-review-text-entry" onsubmit={(event) => { event.preventDefault(); commitReviewText(); }}>
-            <label for="cad-review-text">Review note</label>
-            <input id="cad-review-text" bind:value={textValue} maxlength="2000" placeholder="Type a short callout…" autofocus />
-            <div><button type="submit" disabled={!textValue.trim()}>Place</button><button type="button" onclick={() => { textPoint = null; textValue = ''; }}>Cancel</button></div>
+            <label for="cad-review-text">{$_('cad2d.review_note')}</label>
+            <input id="cad-review-text" bind:value={textValue} maxlength="2000" placeholder={$_('cad2d.callout_placeholder')} autofocus />
+            <div><button type="submit" disabled={!textValue.trim()}>{$_('cad2d.place')}</button><button type="button" onclick={() => { textPoint = null; textValue = ''; }}>{$_('cad2d.cancel')}</button></div>
           </form>
         {/if}
         <div class="cad2d-readout">
-          <span>{drawing.unit === 'unknown' ? 'Units not declared' : `Units: ${drawing.unit}`}</span>
+          <span>{drawing.unit === 'unknown' ? $_('cad2d.units_not_declared') : $_('cad2d.units_value', { values: { unit: drawing.unit } })}</span>
           {#if cursorPoint && !compact}<span>X {formatCadNumber(cursorPoint.x)} · Y {formatCadNumber(cursorPoint.y)}</span>{/if}
-          {#if measurement != null}<strong>{formatCadNumber(measurement)} {drawing.unit === 'unknown' ? 'drawing units' : drawing.unit}</strong>{/if}
+          {#if measurement != null}<strong>{formatCadNumber(measurement)} {drawing.unit === 'unknown' ? $_('cad2d.drawing_units') : drawing.unit}</strong>{/if}
         </div>
       {/if}
     </div>
 
     {#if drawing && !compact}
-      <aside class="cad2d-inspector" aria-label="2D CAD drawing inspector">
-        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('drawing')} onclick={() => toggleSection('drawing')}><h3>Drawing</h3><span aria-hidden="true">{collapsedSections.has('drawing') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('drawing')}<dl><div><dt>Width</dt><dd>{formatCadNumber(drawing.bounds.maxX - drawing.bounds.minX)}</dd></div><div><dt>Height</dt><dd>{formatCadNumber(drawing.bounds.maxY - drawing.bounds.minY)}</dd></div><div><dt>Units</dt><dd>{drawing.unit === 'unknown' ? 'Not declared' : drawing.unit}</dd></div></dl>{/if}</section>
-        <section><div class="cad2d-section-head"><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('layers')} onclick={() => toggleSection('layers')}><h3>Layers</h3><span aria-hidden="true">{collapsedSections.has('layers') ? '▸' : '▾'}</span></button>{#if hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>All on</button>{/if}</div>{#if !collapsedSections.has('layers')}<div class="cad2d-layers">{#each drawing.layers as layer}<div class="cad2d-layer-row" class:hidden={hiddenLayers.has(layer)} class:soloed={soloLayer === layer}><button type="button" class="cad2d-layer-eye" aria-label={hiddenLayers.has(layer) ? `Show layer ${layer}` : `Hide layer ${layer}`} aria-pressed={!hiddenLayers.has(layer)} onclick={() => toggleLayer(layer)}><span aria-hidden="true">{hiddenLayers.has(layer) ? '🚫' : '👁'}</span></button><span class="cad2d-layer-chip" style={drawing.layerStyles[layer]?.color ? `background:${drawing.layerStyles[layer].color}` : undefined} aria-hidden="true"></span><span class="cad2d-layer-name" title={layer}>{layer}</span><span class="cad2d-layer-count">{layerCounts.get(layer) ?? 0}</span><button type="button" class="cad2d-layer-solo" aria-label={soloLayer === layer ? `Unisolate layer ${layer}` : `Isolate layer ${layer}`} aria-pressed={soloLayer === layer} title={soloLayer === layer ? 'Show all layers' : 'Isolate this layer'} onclick={() => toggleSolo(layer)}>S</button></div>{/each}</div>{/if}</section>
-        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('review')} onclick={() => toggleSection('review')}><h3>Review</h3><span aria-hidden="true">{collapsedSections.has('review') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('review')}<p>Markup is stored separately from the CAD file and anchored in drawing coordinates. {channelId ? 'Channel members viewing this attachment share the same review.' : 'This file has a local review draft on this device.'}</p>{#if reviewSync.error}<p class="review-error">{reviewSync.error}</p>{/if}{/if}</section>
-        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('coverage')} onclick={() => toggleSection('coverage')}><h3>Reader coverage</h3><span aria-hidden="true">{collapsedSections.has('coverage') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('coverage')}<p>Built-in DXF preview: LINE, POLYLINE/LWPOLYLINE, CIRCLE, ARC, POINT, TEXT, MTEXT and DIMENSION.</p>{#if ignoredCount > 0}<p>{ignoredCount.toLocaleString()} unsupported entities were skipped. The original file is unchanged.</p>{/if}{/if}</section>
+      <aside class="cad2d-inspector" aria-label={$_('cad2d.inspector_label')}>
+        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('drawing')} onclick={() => toggleSection('drawing')}><h3>{$_('cad2d.section_drawing')}</h3><span aria-hidden="true">{collapsedSections.has('drawing') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('drawing')}<dl><div><dt>{$_('cad2d.width')}</dt><dd>{formatCadNumber(drawing.bounds.maxX - drawing.bounds.minX)}</dd></div><div><dt>{$_('cad2d.height')}</dt><dd>{formatCadNumber(drawing.bounds.maxY - drawing.bounds.minY)}</dd></div><div><dt>{$_('cad2d.units')}</dt><dd>{drawing.unit === 'unknown' ? $_('cad2d.not_declared') : drawing.unit}</dd></div></dl>{/if}</section>
+        <section><div class="cad2d-section-head"><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('layers')} onclick={() => toggleSection('layers')}><h3>{$_('cad2d.section_layers')}</h3><span aria-hidden="true">{collapsedSections.has('layers') ? '▸' : '▾'}</span></button>{#if hiddenLayers.size > 0}<button type="button" onclick={showAllLayers}>{$_('cad2d.all_on')}</button>{/if}</div>{#if !collapsedSections.has('layers')}<div class="cad2d-layers">{#each drawing.layers as layer}<div class="cad2d-layer-row" class:hidden={hiddenLayers.has(layer)} class:soloed={soloLayer === layer}><button type="button" class="cad2d-layer-eye" aria-label={hiddenLayers.has(layer) ? $_('cad2d.show_layer', { values: { name: layer } }) : $_('cad2d.hide_layer', { values: { name: layer } })} aria-pressed={!hiddenLayers.has(layer)} onclick={() => toggleLayer(layer)}><span aria-hidden="true">{hiddenLayers.has(layer) ? '🚫' : '👁'}</span></button><span class="cad2d-layer-chip" style={drawing.layerStyles[layer]?.color ? `background:${drawing.layerStyles[layer].color}` : undefined} aria-hidden="true"></span><span class="cad2d-layer-name" title={layer}>{layer}</span><span class="cad2d-layer-count">{layerCounts.get(layer) ?? 0}</span><button type="button" class="cad2d-layer-solo" aria-label={soloLayer === layer ? $_('cad2d.unisolate_layer', { values: { name: layer } }) : $_('cad2d.isolate_layer', { values: { name: layer } })} aria-pressed={soloLayer === layer} title={soloLayer === layer ? $_('cad2d.show_all_layers_btn') : $_('cad2d.isolate_layer_title')} onclick={() => toggleSolo(layer)}>{$_('cad2d.solo_short')}</button></div>{/each}</div>{/if}</section>
+        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('review')} onclick={() => toggleSection('review')}><h3>{$_('cad2d.section_review')}</h3><span aria-hidden="true">{collapsedSections.has('review') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('review')}<p>{$_('cad2d.review_info')} {channelId ? $_('cad2d.review_channel_members') : $_('cad2d.review_local_draft')}</p>{#if reviewSync.error}<p class="review-error">{reviewSync.error}</p>{/if}{/if}</section>
+        <section><button type="button" class="cad2d-section-toggle" aria-expanded={!collapsedSections.has('coverage')} onclick={() => toggleSection('coverage')}><h3>{$_('cad2d.section_coverage')}</h3><span aria-hidden="true">{collapsedSections.has('coverage') ? '▸' : '▾'}</span></button>{#if !collapsedSections.has('coverage')}<p>{$_('cad2d.coverage_supported')}</p>{#if ignoredCount > 0}<p>{$_('cad2d.skipped', { values: { count: ignoredCount.toLocaleString() } })}</p>{/if}{/if}</section>
       </aside>
     {/if}
   </div>

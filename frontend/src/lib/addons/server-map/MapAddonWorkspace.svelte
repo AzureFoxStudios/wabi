@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { derived } from 'svelte/store';
 	import MapWorkspace from './MapWorkspace.svelte';
@@ -35,9 +36,9 @@
 
 <div class="maps-addon-root">
 	{#if variant === 'full' && fieldAvailable}
-		<nav class="maps-views" aria-label="Maps views">
-			<button type="button" class:active={activeView === 'map'} aria-current={activeView === 'map' ? 'page' : undefined} on:click={() => (activeView = 'map')}>Maps</button>
-			{#if fieldAvailable}<button type="button" class:active={activeView === 'field'} aria-current={activeView === 'field' ? 'page' : undefined} on:click={() => (activeView = 'field')}>Field pilot</button>{/if}
+		<nav class="maps-views" aria-label={$_('map_addon.views_label')}>
+			<button type="button" class:active={activeView === 'map'} aria-current={activeView === 'map' ? 'page' : undefined} on:click={() => (activeView = 'map')}>{$_('map_addon.maps')}</button>
+			{#if fieldAvailable}<button type="button" class:active={activeView === 'field'} aria-current={activeView === 'field' ? 'page' : undefined} on:click={() => (activeView = 'field')}>{$_('map_addon.field_pilot')}</button>{/if}
 		</nav>
 	{/if}
 	<div class="maps-addon-shell" class:compact={variant === 'compact'} class:inactive={activeView === 'field' && variant === 'full'}>

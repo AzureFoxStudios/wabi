@@ -100,11 +100,11 @@
 	export let ensureLinkPreviewLoaded: () => void;
 
 	const fallbackRoleLabels: Record<string, string> = {
-		owner: 'Owner',
-		admin: 'Admin',
-		mod: 'Moderator',
-		member: 'Member',
-		guest: 'Guest'
+		owner: $_('msg_item.role_owner'),
+		admin: $_('msg_item.role_admin'),
+		mod: $_('msg_item.role_mod'),
+		member: $_('msg_item.role_member'),
+		guest: $_('msg_item.role_guest')
 	};
 
 
@@ -218,7 +218,7 @@
 		id={messageDomId || `message-${message.id}`}
 		data-message-id={message.id}
 		class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinned ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {deletionModeEnabled ? 'deletion-mode-active' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
-		title={ownMessage && message.deliveryState === 'failed' ? (message.deliveryError || 'Delivery not confirmed. Check this conversation before sending again.') : undefined}
+		title={ownMessage && message.deliveryState === 'failed' ? (message.deliveryError || $_('msg_item.delivery_unconfirmed')) : undefined}
 		on:contextmenu={(e) => onContextMenu(e, message)}
 		use:longpress={{ onLongPress: (e) => onLongPress(e, message) }}
 		transition:messageItemTransition={{
@@ -231,12 +231,12 @@
 				type="button"
 				class="deletion-mode-delete-btn w-btn w-btn--danger w-btn--sm"
 				disabled={deletionModeDeleting}
-				title="Delete this message"
-				aria-label="Delete this message"
+				title={$_('msg_item.delete_message')}
+				aria-label={$_('msg_item.delete_message')}
 				on:click|preventDefault|stopPropagation={() => onDeletionModeDelete(message)}
 			>
 				<Icon name="trash" size={14} />
-				<span>{deletionModeDeleting ? 'Deleting…' : 'Delete'}</span>
+				<span>{deletionModeDeleting ? $_('msg_item.deleting') : $_('msg_item.delete')}</span>
 			</button>
 		{/if}
 		<MessageItemActions

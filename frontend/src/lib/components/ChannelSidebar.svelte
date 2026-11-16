@@ -421,7 +421,7 @@
 		(e.currentTarget as HTMLElement | null)?.blur?.();
 		handleChannelClick(id);
 	}
-	function handleCreateThread(ch: Channel) { const n = window.prompt(`Create a thread in #${ch.name}`, `${ch.name} thread`)?.trim(); if (n) createThread(ch.id, n); }
+	function handleCreateThread(ch: Channel) { const n = window.prompt($_('chan_sidebar.thread_prompt', { values: { name: ch.name } }), $_('chan_sidebar.thread_default', { values: { name: ch.name } }))?.trim(); if (n) createThread(ch.id, n); }
 	function getVoiceMembers(id: string) { return $voiceChannelMembers[id] || []; }
 	function isConnectedToVoice(id: string) { return connectedVoiceChannelIds.has(id); }
 	function isPrimaryVoiceChannel(id: string) { return primaryVoiceChannelId === id; }
@@ -437,14 +437,14 @@
 		try {
 			if (runtimeActiveVoiceChannelId) await subscribeVoiceChannel(id);
 			else await joinVoiceChannel(id);
-		} catch (error) { showToast(error instanceof Error ? error.message : 'Could not join voice channel', 'error'); }
+		} catch (error) { showToast(error instanceof Error ? error.message : $_('chan_sidebar.err_join_voice'), 'error'); }
 	}
 	async function handleToggleListenChannel(id: string) {
 		if (isPrimaryVoiceChannel(id)) return;
 		try {
 			if (isConnectedToVoice(id)) await unsubscribeVoiceChannel(id);
 			else await subscribeVoiceChannel(id);
-		} catch (error) { showToast(error instanceof Error ? error.message : 'Could not update voice subscription', 'error'); }
+		} catch (error) { showToast(error instanceof Error ? error.message : $_('chan_sidebar.err_voice_sub'), 'error'); }
 	}
 	function handleTransmitModeChange(e: Event) {
 		const mode = (e.currentTarget as HTMLSelectElement).value as 'primary' | 'all-listening';
@@ -456,7 +456,7 @@
 		try {
 			if (primaryVoiceChannelId) await leaveVoiceChannel(primaryVoiceChannelId);
 			else for (const id of connectedVoiceChannelIds) await unsubscribeVoiceChannel(id);
-		} catch (error) { showToast(error instanceof Error ? error.message : 'Could not leave voice channel', 'error'); }
+		} catch (error) { showToast(error instanceof Error ? error.message : $_('chan_sidebar.err_leave_voice'), 'error'); }
 	}
 	function hasBreakoutRooms(id: string) { return (breakoutChannelsByParent[id] || []).length > 0; }
 	let showBreakoutModal = false;
@@ -944,7 +944,7 @@
 			if (placingInFolder && createFolderChoice === '__new__') {
 				const folderName = createNewFolderName.trim();
 				if (!folderName) {
-					createChannelError = 'Enter a name for the new folder.';
+					createChannelError = $_('chan_sidebar.err_folder_name');
 					creatingChannel = false;
 					return;
 				}
@@ -981,7 +981,7 @@
 				switchChannel(createdId);
 			}
 		} catch (error) {
-			createChannelError = error instanceof Error ? error.message : 'Failed to create channel.';
+			createChannelError = error instanceof Error ? error.message : $_('chan_sidebar.err_create');
 		} finally {
 			creatingChannel = false;
 		}
@@ -1010,7 +1010,7 @@
 			await deleteChannel(channelToDelete);
 			showDeleteConfirm = false;
 		} catch (error) {
-			deleteChannelError = error instanceof Error ? error.message : 'Failed to delete channel.';
+			deleteChannelError = error instanceof Error ? error.message : $_('chan_sidebar.err_delete_channel');
 		} finally {
 			deletingChannel = false;
 		}
@@ -1023,7 +1023,7 @@
 			await deleteChannelWithOptions(channelToDelete, { preserveChildren: true });
 			showDeleteConfirm = false;
 		} catch (error) {
-			deleteChannelError = error instanceof Error ? error.message : 'Failed to delete folder.';
+			deleteChannelError = error instanceof Error ? error.message : $_('chan_sidebar.err_delete_folder');
 		} finally {
 			deletingChannel = false;
 		}
@@ -1073,56 +1073,56 @@
 
 		if (!isCategory) {
 			items.push(
-				{ id: 'open-kicker', type: 'kicker', label: 'Open' },
-				{ id: 'open-floating-panel', label: 'Open in a floating panel', icon: 'chat', onSelect: () => openChannelFloatingPanel(ch) },
-				{ id: 'open-os-window', label: 'Open in a new window', icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) }
+				{ id: 'open-kicker', type: 'kicker', label: $_('chan_sidebar.kick_open') },
+				{ id: 'open-floating-panel', label: $_('chan_sidebar.open_float'), icon: 'chat', onSelect: () => openChannelFloatingPanel(ch) },
+				{ id: 'open-os-window', label: $_('chan_sidebar.open_window'), icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) }
 			);
 			// The hover tray's whiteboard key, reachable on touch too (the tray is hidden there).
 			if (isVoiceRoom) {
-				items.push({ id: 'open-whiteboard', label: 'Open whiteboard', icon: 'whiteboard', onSelect: () => openVoiceChannelWhiteboard(ch.id) });
+				items.push({ id: 'open-whiteboard', label: $_('chan_sidebar.open_whiteboard'), icon: 'whiteboard', onSelect: () => openVoiceChannelWhiteboard(ch.id) });
 			}
 			if (ch.type === 'text' || ch.type === 'public' || !ch.type) {
-				items.push({ id: 'create-thread', label: 'New thread', icon: 'reply', onSelect: () => handleCreateThread(ch) });
+				items.push({ id: 'create-thread', label: $_('chan_sidebar.new_thread'), icon: 'reply', onSelect: () => handleCreateThread(ch) });
 			}
 		}
 
 		if (sup) {
 			const followCount = $currentServerFollowedChannels.length;
 			items.push(
-				{ id: 'follow-kicker', type: 'kicker', label: 'Follow' },
-				{ id: 'toggle-follow', label: `Follow ${noun}`, icon: 'bell', role: 'menuitemcheckbox', checked: followed, onSelect: () => toggleChannelFollowState(ch.id) },
-				{ id: 'follow-alerts', label: followed ? 'Change follow alerts' : `Follow ${noun} with alerts`, icon: 'flag', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
-				{ id: 'follow-feed', label: 'Open follow feed', icon: 'list', hint: followCount > 0 ? `${followCount} followed` : 'None followed yet', disabled: followCount === 0, onSelect: openFollowingView }
+				{ id: 'follow-kicker', type: 'kicker', label: $_('chan_sidebar.kick_follow') },
+				{ id: 'toggle-follow', label: $_('chan_sidebar.follow_noun', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'bell', role: 'menuitemcheckbox', checked: followed, onSelect: () => toggleChannelFollowState(ch.id) },
+				{ id: 'follow-alerts', label: followed ? $_('chan_sidebar.change_alerts') : $_('chan_sidebar.follow_noun_alerts', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'flag', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
+				{ id: 'follow-feed', label: $_('chan_sidebar.open_follow_feed'), icon: 'list', hint: followCount > 0 ? $_('chan_sidebar.n_followed', { values: { count: followCount } }) : $_('chan_sidebar.none_followed'), disabled: followCount === 0, onSelect: openFollowingView }
 			);
 		}
 
-		items.push({ id: 'organize-kicker', type: 'kicker', label: 'Organize' });
+		items.push({ id: 'organize-kicker', type: 'kicker', label: $_('chan_sidebar.kick_organize') });
 		if (!isCategory) {
 			items.push(
-				{ id: 'pin-channel', label: isChannelBookmarked(ch) ? 'Remove bookmark' : `Bookmark ${noun}`, icon: 'star', onSelect: () => toggleChannelBookmark(ch) },
-				{ id: 'pinned-messages', label: 'Pinned messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) }
+				{ id: 'pin-channel', label: isChannelBookmarked(ch) ? $_('chan_sidebar.remove_bookmark') : $_('chan_sidebar.bookmark_noun', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'star', onSelect: () => toggleChannelBookmark(ch) },
+				{ id: 'pinned-messages', label: $_('chan_sidebar.pinned_messages'), icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) }
 			);
 		}
-		items.push({ id: 'toggle-mute-channel', label: `Mute ${noun}`, icon: 'eyeOff', role: 'menuitemcheckbox', checked: muted, onSelect: () => toggleServerMutedChannelId(ch.id) });
+		items.push({ id: 'toggle-mute-channel', label: $_('chan_sidebar.mute_noun', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'eyeOff', role: 'menuitemcheckbox', checked: muted, onSelect: () => toggleServerMutedChannelId(ch.id) });
 		// This entry only (a folder: its channels). Mark all read lives in the CHANNELS menu.
 		if (!isVoiceRoom) {
 			const unreadHere = unreadIdsFor(ch, state.unreadCounts);
 			items.push({
 				id: 'mark-read',
-				label: isCategory ? 'Mark folder as read' : 'Mark as read',
+				label: isCategory ? $_('chan_sidebar.mark_folder_read') : $_('chan_sidebar.mark_read'),
 				icon: 'check',
 				disabled: unreadHere.length === 0,
-				hint: unreadHere.length === 0 ? 'Nothing unread' : undefined,
+				hint: unreadHere.length === 0 ? $_('chan_sidebar.nothing_unread') : undefined,
 				onSelect: () => markEntriesRead(unreadHere)
 			});
 		}
-		items.push({ id: 'channel-settings', label: `${noun[0].toUpperCase()}${noun.slice(1)} settings`, icon: 'gear', onSelect: () => handleOpenChannelSettings(ch) });
+		items.push({ id: 'channel-settings', label: $_(noun === 'folder' ? 'chan_sidebar.settings_folder' : noun === 'voice room' ? 'chan_sidebar.settings_voice_room' : noun === 'group' ? 'chan_sidebar.settings_group' : 'chan_sidebar.settings_channel'), icon: 'gear', onSelect: () => handleOpenChannelSettings(ch) });
 		if (!isCategory && canCreateChannel) {
-			items.push({ id: 'create-category', label: 'New folder', icon: 'folder', onSelect: openCreateFormForCategory });
+			items.push({ id: 'create-category', label: $_('chan_sidebar.new_folder'), icon: 'folder', onSelect: openCreateFormForCategory });
 		}
 
 		if (!isCategory && allCategories.length > 0 && canReorderChannels) {
-			items.push({ id: 'move-kicker', type: 'kicker', label: 'Move to folder' });
+			items.push({ id: 'move-kicker', type: 'kicker', label: $_('chan_sidebar.move_to_folder') });
 			for (const cat of allCategories) {
 				items.push({
 					id: `move-to-${cat.id}`,
@@ -1133,21 +1133,21 @@
 					onSelect: () => moveChannelToCategory(ch.id, cat.id)
 				});
 			}
-			items.push({ id: 'move-to-root', label: 'No folder (top level)', role: 'menuitemradio', checked: !ch.parentId, onSelect: () => { if (ch.parentId) moveChannelToRoot(ch.id); } });
+			items.push({ id: 'move-to-root', label: $_('chan_sidebar.no_folder'), role: 'menuitemradio', checked: !ch.parentId, onSelect: () => { if (ch.parentId) moveChannelToRoot(ch.id); } });
 		}
 
 		if (isVoiceRoom && !ch.isBreakout) {
-			items.push({ id: 'voice-kicker', type: 'kicker', label: 'Voice room' });
+			items.push({ id: 'voice-kicker', type: 'kicker', label: $_('chan_sidebar.kick_voice_room') });
 			items.push(
 				hasBreakoutRooms(ch.id)
-					? { id: 'close-breakout-rooms', label: 'Close breakout rooms', icon: 'undo', onSelect: () => handleCloseBreakoutRooms(ch) }
-					: { id: 'create-breakout-rooms', label: 'Create breakout rooms', icon: 'layers', onSelect: () => handleCreateBreakoutRooms(ch) }
+					? { id: 'close-breakout-rooms', label: $_('chan_sidebar.close_breakout'), icon: 'undo', onSelect: () => handleCloseBreakoutRooms(ch) }
+					: { id: 'create-breakout-rooms', label: $_('chan_sidebar.create_breakout'), icon: 'layers', onSelect: () => handleCreateBreakoutRooms(ch) }
 			);
 		}
 
 		// Destructive action always last (§7.4), behind a confirm.
 		if (ch.id !== 'general' && ch.id !== 'voice' && !ch.isBreakout && canCreateChannel) {
-			items.push({ id: 'danger-divider', type: 'separator' }, { id: 'delete-channel', label: `Delete ${noun}…`, icon: 'trash', danger: true, onSelect: () => handleDeleteChannel(ch.id) });
+			items.push({ id: 'danger-divider', type: 'separator' }, { id: 'delete-channel', label: $_('chan_sidebar.delete_noun', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'trash', danger: true, onSelect: () => handleDeleteChannel(ch.id) });
 		}
 		return items;
 	}
@@ -1182,7 +1182,7 @@
 			label: $_('sidebar.mark_all_read'),
 			icon: 'check',
 			disabled: communityUnread.length === 0,
-			hint: communityUnread.length === 0 ? 'Nothing unread' : undefined,
+			hint: communityUnread.length === 0 ? $_('chan_sidebar.nothing_unread') : undefined,
 			onSelect: markCommunityRead
 		}
 	] satisfies MenuEntry[];
@@ -1274,7 +1274,7 @@
 			<span class="row-name">{$_('places.dms')}</span>
 			<span class="row-trail" aria-hidden="true">
 				{#if friendRequestCount > 0}
-					<span class="row-mark row-mark--count" title="Friend requests"><Icon name="userPlus" size={14} /><span class="w-count">{formatBadge(friendRequestCount)}</span></span>
+					<span class="row-mark row-mark--count" title={$_('chan_sidebar.friend_requests')}><Icon name="userPlus" size={14} /><span class="w-count">{formatBadge(friendRequestCount)}</span></span>
 				{/if}
 				{#if dmUnreadCount > 0}<span class="w-badge">{formatBadge(dmUnreadCount)}</span>{/if}
 			</span>
@@ -1284,7 +1284,7 @@
 	<!-- Masthead: row A (community, Switch server) + row B (search), one hairline at --w-mast. -->
 	<header class="sb-mast">
 		<div class="sb-head">
-			<button type="button" class="mobile-close-btn w-ibtn" aria-label="Close channels" on:click={() => dispatch('close')}><Icon name="x" size={20} /></button>
+			<button type="button" class="mobile-close-btn w-ibtn" aria-label={$_('chan_sidebar.close_channels')} on:click={() => dispatch('close')}><Icon name="x" size={20} /></button>
 			{#if isCompactSidebar}
 				<Tooltip text={currentServerLabel} placement="right" describe={false}>{@render homeButton()}</Tooltip>
 			{:else}
@@ -1357,7 +1357,7 @@
 					<span class="category-folder-icon" aria-hidden="true"><Icon name="folder" size={16} /></span>
 					<span class="category-name">{item.channel.name}</span>
 					<span class="w-count category-count" aria-hidden="true">{item.children.length}</span>
-					<span class="sr-only">, folder, {item.children.length} {item.children.length === 1 ? 'channel' : 'channels'}</span>
+					<span class="sr-only">{$_('chan_sidebar.sr_folder', { values: { count: item.children.length, noun: item.children.length === 1 ? $_('chan_sidebar.word_channel_one') : $_('chan_sidebar.word_channel_many') } })}</span>
 				</button>
 			{/snippet}
 			{#if isCompactSidebar}
@@ -1470,20 +1470,20 @@
 						type="button"
 						class="channel-glimpse-name"
 						on:click={() => handleChannelClick(glimpseChannel.id)}
-						title={`Open #${glimpseChannel.name}`}
+						title={$_('chan_sidebar.open_channel', { values: { name: glimpseChannel.name } })}
 					>
 						#{glimpseChannel.name}
 					</button>
-					<small>{glimpseChannelMessages.length > 0 ? `${glimpseChannelMessages.length} recent` : glimpseHydrated ? 'No recent' : 'Loading…'}</small>
+					<small>{glimpseChannelMessages.length > 0 ? $_('chan_sidebar.n_recent', { values: { count: glimpseChannelMessages.length } }) : glimpseHydrated ? $_('chan_sidebar.no_recent') : $_('chan_sidebar.loading')}</small>
 				</div>
 				<button
 					type="button"
 					class="channel-glimpse-follow-btn w-btn w-btn--sm"
 					aria-pressed={followedChannelIds.has(glimpseChannel.id)}
 					on:click|stopPropagation={(event) => toggleChannelFollowState(glimpseChannel.id, event)}
-					title={followedChannelIds.has(glimpseChannel.id) ? 'Unfollow channel' : 'Follow channel'}
+					title={followedChannelIds.has(glimpseChannel.id) ? $_('chan_sidebar.unfollow_channel') : $_('chan_sidebar.follow_channel')}
 				>
-					{followedChannelIds.has(glimpseChannel.id) ? 'Following' : 'Follow'}
+					{followedChannelIds.has(glimpseChannel.id) ? $_('chan_sidebar.following') : $_('chan_sidebar.follow')}
 				</button>
 			</div>
 			{#if glimpseChannelMessages.length > 0}
@@ -1499,9 +1499,9 @@
 					{/each}
 				</div>
 			{:else if !glimpseHydrated}
-				<p class="channel-glimpse-empty">Loading recent messages…</p>
+				<p class="channel-glimpse-empty">{$_('chan_sidebar.loading_recent')}</p>
 			{:else}
-				<p class="channel-glimpse-empty">No recent messages</p>
+				<p class="channel-glimpse-empty">{$_('chan_sidebar.no_recent_messages')}</p>
 			{/if}
 		</div>
 	{/if}
@@ -1513,7 +1513,7 @@
 	isOpen={showDeleteConfirm}
 	title={deleteCopy.title}
 	message={deleteCopy.message}
-	confirmText={deletingChannel ? 'Deleting…' : deleteCopy.confirm}
+	confirmText={deletingChannel ? $_('chan_sidebar.deleting') : deleteCopy.confirm}
 	secondaryText={deleteCopy.secondary}
 	variant="danger"
 	onConfirm={confirmDeleteChannel}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import BaseModal from '../components/BaseModal.svelte';
 	import { brandName } from '$lib/branding';
 	import { getAuthToken } from '$lib/authSession';
@@ -108,78 +109,78 @@
 	}
 
 	function formatMarkets(provider: PaymentProviderCapability): string {
-		const countries = provider.countries.length > 0 ? provider.countries.join(', ') : 'Any region';
-		const currencies = provider.currencies.length > 0 ? provider.currencies.join(', ') : 'Any currency';
+		const countries = provider.countries.length > 0 ? provider.countries.join(', ') : $_('pay_conn.any_region');
+		const currencies = provider.currencies.length > 0 ? provider.currencies.join(', ') : $_('pay_conn.any_currency');
 		return `${countries} · ${currencies}`;
 	}
 
 	function formatMethods(provider: PaymentProviderCapability): string {
-		if (provider.methods.length === 0) return 'No payment methods are currently exposed by this provider.';
+		if (provider.methods.length === 0) return $_('pay_conn.no_methods');
 		return provider.methods.map((method) => method.label).join(', ');
 	}
 
 	function getReferenceFieldLabel(provider: PaymentProviderCapability): string {
 		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
-			return 'PromptPay number';
+			return $_('pay_conn.ref_promptpay');
 		}
 		if (provider.pluginId === 'payments-crypto') {
-			return 'Wallet address';
+			return $_('pay_conn.ref_wallet');
 		}
 		if (provider.pluginId === 'payments-eu') {
-			return 'Your IBAN';
+			return $_('pay_conn.ref_iban');
 		}
 		if (provider.pluginId === 'payments-us') {
-			return 'US payment handle';
+			return $_('pay_conn.ref_us');
 		}
-		return 'Saved payment reference';
+		return $_('pay_conn.ref_saved');
 	}
 
 	function getReferencePlaceholder(provider: PaymentProviderCapability): string {
 		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
-			return 'Thai mobile number or PromptPay ID';
+			return $_('pay_conn.ph_promptpay');
 		}
 		if (provider.pluginId === 'payments-crypto') {
-			return '0x… / bc1… / TRX… wallet address';
+			return $_('pay_conn.ph_wallet');
 		}
 		if (provider.pluginId === 'payments-eu') {
-			return 'DE… IBAN (22 chars, mod-97 valid)';
+			return $_('pay_conn.ph_iban');
 		}
 		if (provider.pluginId === 'payments-us') {
-			return '$Cashtag / @Venmo handle / email / routing-account';
+			return $_('pay_conn.ph_us');
 		}
-		return 'PromptPay number / wallet handle / PSP customer id';
+		return $_('pay_conn.ph_default');
 	}
 
 	function getDisplayLabelPlaceholder(provider: PaymentProviderCapability): string {
 		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
-			return 'My PromptPay';
+			return $_('pay_conn.label_promptpay');
 		}
 		if (provider.pluginId === 'payments-crypto') {
-			return 'Main wallet';
+			return $_('pay_conn.label_wallet');
 		}
 		if (provider.pluginId === 'payments-eu') {
-			return 'My bank account';
+			return $_('pay_conn.label_bank');
 		}
 		if (provider.pluginId === 'payments-us') {
-			return 'Main US account';
+			return $_('pay_conn.label_us');
 		}
-		return 'Main wallet / primary bank';
+		return $_('pay_conn.label_default');
 	}
 
 	function getConnectionHelp(provider: PaymentProviderCapability): string {
 		if (provider.pluginId === 'promptpay' || provider.pluginId === 'th-payments') {
-			return 'For personal Thai QR requests, save your own PromptPay number here. Server donations use the server donation route separately. Stored with your account; also cached on this device.';
+			return $_('pay_conn.help_promptpay');
 		}
 		if (provider.pluginId === 'payments-crypto') {
-			return `For crypto requests, save the wallet address that should receive the coins here. ${brandName} never holds the keys. Stored with your account; also cached on this device.`;
+			return $_('pay_conn.help_crypto', { values: { brand: brandName } });
 		}
 		if (provider.pluginId === 'payments-eu') {
-			return `For SEPA Instant requests, save the IBAN that should receive the money here. The QR is built from this IBAN. Stored with your account; also cached on this device.`;
+			return $_('pay_conn.help_sepa');
 		}
 		if (provider.pluginId === 'payments-us') {
-			return `For US app requests, save the handle that should receive the money here. Stored with your account; also cached on this device.`;
+			return $_('pay_conn.help_us');
 		}
-		return `Optional. If you leave the advanced account field blank in a payment request, ${brandName} reuses this saved reference for this provider.`;
+		return $_('pay_conn.help_default', { values: { brand: brandName } });
 	}
 
 	async function loadProviders(): Promise<void> {
@@ -190,7 +191,7 @@
 			providersLoaded = true;
 			ensureEditorsInitialized();
 		} catch (error) {
-			providersError = error instanceof Error ? error.message : 'Failed to load payment providers';
+			providersError = error instanceof Error ? error.message : $_('pay_conn.err_load_providers');
 		} finally {
 			loadingProviders = false;
 		}
@@ -212,7 +213,7 @@
 			linksLoaded = true;
 			ensureEditorsInitialized();
 		} catch (error) {
-			linksError = error instanceof Error ? error.message : 'Failed to load saved payment references';
+			linksError = error instanceof Error ? error.message : $_('pay_conn.err_load_links');
 		} finally {
 			loadingLinks = false;
 		}
@@ -223,13 +224,13 @@
 		actionError = '';
 		const token = getAuthToken();
 		if (!token) {
-			actionError = 'You must be logged in to save a payment reference.';
+			actionError = $_('pay_conn.err_login_save');
 			return;
 		}
 
 		const providerAccountRef = (editorRefs[pluginId] || '').trim();
 		if (!providerAccountRef) {
-			actionError = 'Enter a payment reference before saving.';
+			actionError = $_('pay_conn.err_enter_ref');
 			return;
 		}
 
@@ -245,9 +246,9 @@
 				...paymentAccountLinks.filter((link) => link.pluginId !== pluginId)
 			];
 			syncEditorsForPlugin(pluginId);
-			actionInfo = `Saved payment reference for ${saved.pluginId}.`;
+			actionInfo = $_('pay_conn.ok_saved', { values: { plugin: saved.pluginId } });
 		} catch (error) {
-			actionError = error instanceof Error ? error.message : 'Failed to save payment reference';
+			actionError = error instanceof Error ? error.message : $_('pay_conn.err_save');
 		} finally {
 			savingPluginId = '';
 		}
@@ -258,7 +259,7 @@
 		actionError = '';
 		const token = getAuthToken();
 		if (!token) {
-			actionError = 'You must be logged in to clear a saved payment reference.';
+			actionError = $_('pay_conn.err_login_clear');
 			return;
 		}
 
@@ -267,9 +268,9 @@
 			await deletePaymentAccountLink(token, pluginId);
 			paymentAccountLinks = paymentAccountLinks.filter((link) => link.pluginId !== pluginId);
 			syncEditorsForPlugin(pluginId);
-			actionInfo = `Cleared payment reference for ${pluginId}.`;
+			actionInfo = $_('pay_conn.ok_cleared', { values: { plugin: pluginId } });
 		} catch (error) {
-			actionError = error instanceof Error ? error.message : 'Failed to clear payment reference';
+			actionError = error instanceof Error ? error.message : $_('pay_conn.err_clear');
 		} finally {
 			savingPluginId = '';
 		}
@@ -281,16 +282,16 @@
 	onClose={onClose}
 	width="760px"
 	{overlayZIndex}
-	title="Saved Payment References"
-	subtitle={`Save a non-sensitive payment reference (e.g. your PromptPay number) once and ${brandName} reuses it for that rail. References are stored with your account on the server and cached on this device.`}
+	title={$_('pay_conn.title')}
+	subtitle={$_('pay_conn.subtitle', { values: { brand: brandName } })}
 >
 	<div class="sheet-body">
 		{#if !getAuthToken()}
-			<p class="error">Sign in with a registered account to manage saved payment references.</p>
+			<p class="error">{$_('pay_conn.sign_in_needed')}</p>
 		{/if}
 
 		{#if loadingProviders || loadingLinks}
-			<p class="hint">Loading saved payment references...</p>
+			<p class="hint">{$_('pay_conn.loading')}</p>
 		{/if}
 
 		{#if providersError}
@@ -311,7 +312,7 @@
 
 		{#if !loadingProviders && providers.length === 0}
 			<p class="hint">
-				No payment rails are active on this server yet. Once the server owner enables a rail, it will appear here automatically for saved references.
+				{$_('pay_conn.no_rails')}
 			</p>
 		{/if}
 
@@ -325,7 +326,7 @@
 							<p class="provider-meta">{provider.pluginId} · {formatMarkets(provider)}</p>
 						</div>
 						<span class:linked={Boolean(linkedAccount)} class="status-pill">
-							{linkedAccount ? 'Saved' : 'Not saved'}
+							{linkedAccount ? $_('pay_conn.saved') : $_('pay_conn.not_saved')}
 						</span>
 					</div>
 
@@ -333,7 +334,7 @@
 						<p class="hint">{provider.notes}</p>
 					{/if}
 
-					<p class="hint">Available methods: {formatMethods(provider)}</p>
+					<p class="hint">{$_('pay_conn.available_methods', { values: { methods: formatMethods(provider) } })}</p>
 					<p class="hint">{getConnectionHelp(provider)}</p>
 
 					<div class="grid">
@@ -349,7 +350,7 @@
 						</label>
 
 						<label>
-							<span>Display label</span>
+							<span>{$_('pay_conn.display_label')}</span>
 							<input
 								type="text"
 								value={editorLabels[provider.pluginId] || ''}
@@ -367,23 +368,23 @@
 							disabled={!getAuthToken() || savingPluginId === provider.pluginId}
 						>
 							{savingPluginId === provider.pluginId
-								? 'Saving...'
+								? $_('pay_conn.saving')
 								: linkedAccount
-									? 'Update reference'
-									: 'Save reference'}
+									? $_('pay_conn.update_ref')
+									: $_('pay_conn.save_ref')}
 						</button>
 						<button
 							class="action"
 							onclick={() => void handleClear(provider.pluginId)}
 							disabled={!getAuthToken() || !linkedAccount || savingPluginId === provider.pluginId}
 						>
-							Clear reference
+							{$_('pay_conn.clear_ref')}
 						</button>
 					</div>
 
 					{#if linkedAccount}
 						<p class="linked-copy">
-							Saved as
+							{$_('pay_conn.saved_as')}
 							<code>{linkedAccount.displayLabel || linkedAccount.providerAccountRef}</code>
 						</p>
 					{/if}

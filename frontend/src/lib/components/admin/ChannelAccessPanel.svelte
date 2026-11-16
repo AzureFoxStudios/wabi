@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
 	import { channels, currentUser, type Channel } from '$lib/socket';
@@ -35,26 +36,26 @@
 
 	function retentionLabel(channel: Channel): string {
 		const value = (channel as { autoDeleteAfter?: string | null }).autoDeleteAfter;
-		if (value === null) return 'Keep forever';
+		if (value === null) return $_('channel_access.retention_forever');
 		if (value === undefined) return '—';
-		return value === 'live' ? 'Live session' : value;
+		return value === 'live' ? $_('channel_access.retention_live') : value;
 	}
 
 	async function request(path: string, init: RequestInit = {}, server = $activeServerUrl) {
 		const token = getAuthToken(server);
-		if (!token) throw new Error('Sign in again to manage channels.');
+		if (!token) throw new Error($_('channel_access.sign_in_again'));
 		const response = await fetch(`${server}/api/server-center${path}`, {
 			...init, credentials: 'include',
 			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
 		});
 		const data = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+		if (!response.ok) throw new Error(data.error || $_('channel_access.request_failed', { values: { status: response.status } }));
 		return data;
 	}
 	async function refresh(server = $activeServerUrl) {
 		loading = true; error = '';
 		try { const data = await request('/channel-gates', {}, server); if (server === $activeServerUrl) minRoles = data.minRoles ?? {}; }
-		catch (cause) { if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : 'Could not load channel access.'; }
+		catch (cause) { if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : $_('channel_access.load_failed'); }
 		finally { if (server === $activeServerUrl) loading = false; }
 	}
 	async function setRole(channelId: string, role: string) {
@@ -64,8 +65,8 @@
 			await request(`/channel-gates/${encodeURIComponent(channelId)}`, { method: 'PUT', body: JSON.stringify({ minRole: role || null }) }, server);
 			if (server !== $activeServerUrl) return;
 			minRoles = { ...minRoles, [channelId]: role };
-			saved = 'Access saved. Members who no longer qualify have been removed from the room.';
-		} catch (cause) { if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : 'Could not save channel access.'; }
+			saved = $_('channel_access.saved');
+		} catch (cause) { if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : $_('channel_access.save_failed'); }
 		finally { if (server === $activeServerUrl) busy = ''; }
 	}
 	async function submitCreate() {
@@ -74,23 +75,23 @@
 		creating = true; error = ''; saved = '';
 		try {
 			const id = await createChannel(name, undefined, newType);
-			if (!id) throw new Error('The server did not create the channel.');
+			if (!id) throw new Error($_('channel_access.no_create'));
 			newName = '';
-			saved = `Created #${name}.`;
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not create the channel.'; }
+			saved = $_('channel_access.created', { values: { name } });
+		} catch (cause) { error = cause instanceof Error ? cause.message : $_('channel_access.create_failed'); }
 		finally { creating = false; }
 	}
 	async function confirmRemoval() {
 		if (!confirmDelete || deleting) return;
 		deleting = true; error = '';
-		try { const name = confirmDelete.name; await deleteChannel(confirmDelete.id); saved = `Deleted #${name}.`; confirmDelete = null; }
-		catch (cause) { error = cause instanceof Error ? cause.message : 'Could not delete the channel.'; }
+		try { const name = confirmDelete.name; await deleteChannel(confirmDelete.id); saved = $_('channel_access.deleted', { values: { name } }); confirmDelete = null; }
+		catch (cause) { error = cause instanceof Error ? cause.message : $_('channel_access.delete_failed'); }
 		finally { deleting = false; }
 	}
 	function saveSettings(event: CustomEvent<{ channelId: string; updates: Parameters<typeof updateChannelSettings>[1] }>) {
 		updateChannelSettings(event.detail.channelId, event.detail.updates);
 		editing = null;
-		saved = 'Channel settings saved.';
+		saved = $_('channel_access.settings_saved');
 	}
 	function requestDelete(event: CustomEvent<{ channel: Channel }>) { editing = null; confirmDelete = event.detail.channel; }
 
@@ -100,10 +101,10 @@
 <section class="channels-center" aria-labelledby="channels-center-title">
 	<header class="cc-head">
 		<div>
-			<h3 id="channels-center-title">Channels</h3>
-			<p>Every room on this server: create, rename and tune it, and choose who may open it.</p>
+			<h3 id="channels-center-title">{$_('channel_access.heading')}</h3>
+			<p>{$_('channel_access.intro')}</p>
 		</div>
-		<span class="cc-count">{ordinary.length} rooms</span>
+		<span class="cc-count">{$_('channel_access.count_rooms', { values: { count: ordinary.length } })}</span>
 	</header>
 
 	{#if error}<p class="cc-note cc-error" role="alert">{error}</p>{/if}
@@ -111,26 +112,26 @@
 
 	{#if isStaff}
 		<form class="cc-create" onsubmit={(event) => { event.preventDefault(); void submitCreate(); }}>
-			<label class="cc-field"><span>New channel</span>
-				<input class="w-field" bind:value={newName} placeholder="channel-name" maxlength="64" aria-label="New channel name" />
+			<label class="cc-field"><span>{$_('channel_access.new_channel')}</span>
+				<input class="w-field" bind:value={newName} placeholder="channel-name" maxlength="64" aria-label={$_('channel_access.name_label')} />
 			</label>
-			<label class="cc-field cc-type"><span>Type</span>
-				<select class="w-field" bind:value={newType} aria-label="New channel type">
+			<label class="cc-field cc-type"><span>{$_('channel_access.type')}</span>
+				<select class="w-field" bind:value={newType} aria-label={$_('channel_access.type_label')}>
 					{#each TYPES as type}<option value={type}>{getChannelTypeLabel(type)}</option>{/each}
 				</select>
 			</label>
-			<button type="submit" class="w-btn w-btn--primary" disabled={!newName.trim() || creating}>{creating ? 'Creating…' : 'Create'}</button>
+			<button type="submit" class="w-btn w-btn--primary" disabled={!newName.trim() || creating}>{creating ? $_('channel_access.creating') : $_('channel_access.create')}</button>
 		</form>
 	{/if}
 
 	{#if loading}
-		<p class="cc-empty">Loading channels…</p>
+		<p class="cc-empty">{$_('channel_access.loading')}</p>
 	{:else if ordinary.length === 0}
-		<p class="cc-empty">No channels yet. Create the first one above.</p>
+		<p class="cc-empty">{$_('channel_access.empty')}</p>
 	{:else}
-		<div class="cc-table" role="table" aria-label="Channels">
+		<div class="cc-table" role="table" aria-label={$_('channel_access.table_label')}>
 			<div class="cc-row cc-row--head" role="row">
-				<span role="columnheader">Room</span><span role="columnheader">Kind</span><span role="columnheader">Messages</span><span role="columnheader">Who can open</span><span role="columnheader"></span>
+				<span role="columnheader">{$_('channel_access.col_room')}</span><span role="columnheader">{$_('channel_access.col_kind')}</span><span role="columnheader">{$_('channel_access.col_messages')}</span><span role="columnheader">{$_('channel_access.col_who')}</span><span role="columnheader"></span>
 			</div>
 			{#each ordinary as channel (channel.id)}
 				<div class="cc-row" role="row">
@@ -138,13 +139,13 @@
 					<span class="w-mono cc-kind" role="cell">{getChannelTypeLabel(channel.type as any)}</span>
 					<span class="w-mono cc-ret" role="cell">{retentionLabel(channel)}</span>
 					<span role="cell">
-						<select class="w-field" aria-label={`Minimum role for ${channel.name}`} value={minRoles[channel.id] ?? ''} onchange={(event) => void setRole(channel.id, event.currentTarget.value)} disabled={busy === channel.id || !isStaff}>
-							<option value="">All signed-in accounts</option><option value="member">Registered members</option><option value="moderator">Moderators and admins</option><option value="admin">Admins and owner</option>
+						<select class="w-field" aria-label={$_('channel_access.min_role_label', { values: { name: channel.name } })} value={minRoles[channel.id] ?? ''} onchange={(event) => void setRole(channel.id, event.currentTarget.value)} disabled={busy === channel.id || !isStaff}>
+							<option value="">{$_('channel_access.role_all')}</option><option value="member">{$_('channel_access.role_member')}</option><option value="moderator">{$_('channel_access.role_mod')}</option><option value="admin">{$_('channel_access.role_admin')}</option>
 						</select>
 					</span>
 					<span class="cc-actions" role="cell">
-						{#if onOpenChannel}<button type="button" class="w-btn w-btn--quiet" onclick={() => onOpenChannel?.(channel.id)}>Open</button>{/if}
-						{#if isStaff}<button type="button" class="w-btn" onclick={() => (editing = channel)}>Edit</button>{/if}
+						{#if onOpenChannel}<button type="button" class="w-btn w-btn--quiet" onclick={() => onOpenChannel?.(channel.id)}>{$_('channel_access.open')}</button>{/if}
+						{#if isStaff}<button type="button" class="w-btn" onclick={() => (editing = channel)}>{$_('channel_access.edit')}</button>{/if}
 					</span>
 				</div>
 			{/each}
@@ -159,11 +160,11 @@
 {#if confirmDelete}
 	<div class="cc-confirm" role="alertdialog" aria-modal="true" aria-labelledby="cc-del-title">
 		<div class="cc-confirm-card">
-			<h4 id="cc-del-title">Delete #{confirmDelete.name}?</h4>
-			<p>This removes the room and its messages for everyone. It cannot be undone.</p>
+			<h4 id="cc-del-title">{$_('channel_access.delete_title', { values: { name: confirmDelete.name } })}</h4>
+			<p>{$_('channel_access.delete_text')}</p>
 			<div class="cc-confirm-actions">
-				<button type="button" class="w-btn" onclick={() => (confirmDelete = null)} disabled={deleting}>Cancel</button>
-				<button type="button" class="w-btn w-btn--danger" onclick={() => void confirmRemoval()} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete channel'}</button>
+				<button type="button" class="w-btn" onclick={() => (confirmDelete = null)} disabled={deleting}>{$_('channel_access.cancel')}</button>
+				<button type="button" class="w-btn w-btn--danger" onclick={() => void confirmRemoval()} disabled={deleting}>{deleting ? $_('channel_access.deleting') : $_('channel_access.delete_channel')}</button>
 			</div>
 		</div>
 	</div>

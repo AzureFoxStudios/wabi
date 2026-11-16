@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { currentUser } from '$lib/presenceIdentity';
 	import { layoutStore } from '$lib/layoutStore';
 	import { profilePanel, profilePanelUser } from '$lib/profilePanelState';
@@ -13,7 +14,7 @@
 	}
 </script>
 
-<section class="profile-panel" aria-label="Complete profile">
+<section class="profile-panel" aria-label={$_('profile_panel.label')}>
 	{#if selectedUser}
 		{#key profileIdentity(selectedUser)}
 			<UserPopoutImpl
@@ -26,10 +27,10 @@
 		{/key}
 	{:else}
 		<div class="profile-panel-empty">
-			<h2>Profile</h2>
-			<p>Open someone’s profile and use the side-panel icon at the top to view it alongside your conversation.</p>
+			<h2>{$_('profile_panel.title')}</h2>
+			<p>{$_('profile_panel.empty_hint')}</p>
 			{#if $currentUser}
-				<button type="button" onclick={() => $currentUser && profilePanel.select($currentUser)}>View my profile</button>
+				<button type="button" onclick={() => $currentUser && profilePanel.select($currentUser)}>{$_('profile_panel.view_mine')}</button>
 			{/if}
 		</div>
 	{/if}

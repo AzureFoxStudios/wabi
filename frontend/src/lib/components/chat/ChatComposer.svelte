@@ -190,7 +190,7 @@ import type { MediaAlbum } from '$lib/api';
 	const SEND_BURST_COOLDOWN_MS = 3000;
 	/** The field grows upward to at most 40% of the stage (§7.20); never less than this. */
 	const COMPOSER_MIN_MAX_HEIGHT = 160;
-	const SEND_COOLDOWN_WORDS = 'Sending paused for a moment. Your message is still here.';
+	const SEND_COOLDOWN_WORDS = $_('chat_composer.send_cooldown');
 	const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024;
 	const MAX_GIF_CAPTION_LENGTH = 280;
 	const MAX_FILE_PREVIEW_IMAGES = 8;
@@ -275,7 +275,7 @@ import type { MediaAlbum } from '$lib/api';
 	const hintId = `composer-hint-${composerUid}`;
 	const newlineHintShown = $derived(isTextareaFocused && messageInput.length === 0);
 	const sendReady = $derived((selectedFiles.length > 0 || Boolean(messageInput.trim())) && !isUploading && !isSending && !commandBusy && sendCooldownUntil <= Date.now());
-	const sendLabel = $derived(selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message'));
+	const sendLabel = $derived(selectedFiles.length > 0 ? $_('chat_composer.send_selected_media') : $_('chat.compose.send_message'));
 	const canCapture = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
 	const attachItems = $derived.by<MenuEntry[]>(() => {
 		const items: MenuEntry[] = [{ id: 'file', label: $_('chat.compose.upload_file'), icon: 'upload', onSelect: () => fileInput?.click() }];
@@ -288,7 +288,7 @@ import type { MediaAlbum } from '$lib/api';
 		if ($isMobile) items.push({ id: 'emoji', label: $_('chat.compose.add_emoji'), icon: 'smile', onSelect: () => { setTimeout(openEmojiPicker, 0); } });
 		if (paymentButtonEnabled) {
 			items.push({ id: 'payment-sep', type: 'separator' });
-			items.push({ id: 'payment', label: 'Create payment request', icon: 'transfers', onSelect: () => onOpenPaymentSheet() });
+			items.push({ id: 'payment', label: $_('chat_composer.create_payment_request'), icon: 'transfers', onSelect: () => onOpenPaymentSheet() });
 		}
 		return items;
 	});
@@ -463,7 +463,7 @@ import type { MediaAlbum } from '$lib/api';
 			return;
 		}
 		if (!processed.text) {
-			showToast('Message is empty after processing.', 'warning');
+			showToast($_('chat_composer.empty_after_processing'), 'warning');
 			return;
 		}
 
@@ -489,7 +489,7 @@ import type { MediaAlbum } from '$lib/api';
 				await onExecuteCommand(processed.text);
 				if (operationCurrent() && messageInput === inputAtSubmit) clearAfterSend();
 			} catch (error) {
-				if (operationCurrent()) showToast(error instanceof Error ? error.message : 'Command was not sent. Try again.', 'error');
+				if (operationCurrent()) showToast(error instanceof Error ? error.message : $_('chat_composer.command_not_sent'), 'error');
 			} finally {
 				commandBusy = false;
 			}
@@ -497,7 +497,7 @@ import type { MediaAlbum } from '$lib/api';
 		}
 
 		if (!effectiveChannel) {
-			showToast('No channel selected.', 'error');
+			showToast($_('chat_composer.no_channel_selected'), 'error');
 			return;
 		}
 
@@ -509,7 +509,7 @@ import type { MediaAlbum } from '$lib/api';
 		if (splitLargeMessagesEnabled && processed.text.length > splitLargeMessagesChunkSize) {
 			const chunks = splitMessageForSending(processed.text, splitLargeMessagesChunkSize);
 			if (chunks.length === 0) {
-				showToast('Unable to split message into chunks.', 'error');
+				showToast($_('chat_composer.unable_split'), 'error');
 				return;
 			}
 			const chunkEntities = splitEntitiesForChunks(processed.text, chunks, normalizedEntities);
@@ -581,7 +581,7 @@ import type { MediaAlbum } from '$lib/api';
 			});
 			if (!operationCurrent()) return;
 			if (result.reason) {
-				showToast(result.sent > 0 ? `Sent ${result.sent} of ${payloads.length} parts. The unsent remainder is still in your draft.` : 'Message could not be sent or queued. Your draft is unchanged.', 'error');
+				showToast(result.sent > 0 ? $_('chat_composer.sent_partial', { values: { sent: result.sent, total: payloads.length } }) : $_('chat_composer.message_not_sent'), 'error');
 			} else if (!messageInput) {
 				showMentionSuggestions = false; showMediaMenu = false; sendCooldownMessage = '';
 				sendTyping(false, draftChannel);
@@ -597,7 +597,7 @@ import type { MediaAlbum } from '$lib/api';
 		const caption = resolveOutgoingAttachmentCaption();
 		if (caption === null) return;
 		if (!effectiveChannel) {
-			showToast('No channel selected.', 'error');
+			showToast($_('chat_composer.no_channel_selected'), 'error');
 			return;
 		}
 		const submittedReplyId = replyingTo?.id;
@@ -624,7 +624,7 @@ import type { MediaAlbum } from '$lib/api';
 			})
 		});
 		if (!operationCurrent()) return;
-		if (result.reason) { showToast('GIF could not be sent or queued. Your draft is unchanged.', 'error'); return; }
+		if (result.reason) { showToast($_('chat_composer.gif_not_sent'), 'error'); return; }
 		showMentionSuggestions = false;
 		showEmojiPicker = false;
 		showMediaMenu = false;
@@ -655,7 +655,7 @@ import type { MediaAlbum } from '$lib/api';
 	}
 	function clearFilePreviews(): void { videoCompressionController?.clearCompressionMetadata(filePreviews.map(i => i.file)); for (const item of filePreviews) revokePreviewUrl(item.preview); filePreviews = []; selectedFiles = []; createAlbumFromUpload = false; uploadAlbumName = ''; }
 	function applySelectedFiles(files: File[], mode: 'replace' | 'append'): void { if (mode === 'replace') { clearFilePreviews(); selectedFiles = files; filePreviews = buildPreviewEntries(files); } else { selectedFiles = [...selectedFiles, ...files]; filePreviews = [...filePreviews, ...buildPreviewEntries(files)]; } const b = enforcePreviewBudget(filePreviews, selectedFiles, MAX_FILE_PREVIEW_IMAGES); filePreviews = b.previews; selectedFiles = b.files; }
-	async function prepareIncomingFiles(files: File[]): Promise<File[]> { for (const file of files) { if (file.size > MAX_UPLOAD_FILE_BYTES) { showToast(`File too large! Maximum size is 1GB per file. "${file.name}" is ${formatFileMb(file.size)}MB`, 'error'); return []; } } const prepared: File[] = []; for (const file of files) { const candidate = videoCompressionController ? await videoCompressionController.maybeCompressVideoFile(file) : file; if (candidate) prepared.push(candidate); } return prepared; }
+	async function prepareIncomingFiles(files: File[]): Promise<File[]> { for (const file of files) { if (file.size > MAX_UPLOAD_FILE_BYTES) { showToast($_('chat_composer.file_too_large', { values: { name: file.name, size: formatFileMb(file.size) } }), 'error'); return []; } } const prepared: File[] = []; for (const file of files) { const candidate = videoCompressionController ? await videoCompressionController.maybeCompressVideoFile(file) : file; if (candidate) prepared.push(candidate); } return prepared; }
 	async function handleFileSelect(event: Event) { const input = event.target as HTMLInputElement; const files = Array.from(input.files || []); if (files.length === 0) return; await receiveFiles(files, 'replace'); input.value = ''; }
 	function removeFile(index: number) { const removed = filePreviews[index]; revokePreviewUrl(removed?.preview); if (removed?.file) videoCompressionController?.deleteCompressionMetadata(removed.file); selectedFiles = selectedFiles.filter((_, i) => i !== index); filePreviews = filePreviews.filter((_, i) => i !== index); }
 	function handleAlbumUploadToggle(checked: boolean): void { createAlbumFromUpload = checked; if (!checked) { uploadAlbumName = ''; uploadTargetAlbumId = 0; return; } if (!uploadAlbumName.trim()) uploadAlbumName = buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput); void loadUploadAlbums(); }
@@ -684,8 +684,8 @@ import type { MediaAlbum } from '$lib/api';
 		const dmOtherDbUserId = typeof dmOtherUser?.dbUserId === 'number' ? dmOtherUser.dbUserId : null;
 		const authToken = getAuthToken();
 		const albumScope = createAlbumFromUpload ? getMediaAlbumScope(activeChannel as {type:string; id:string} | undefined) : null;
-		if (createAlbumFromUpload && !authToken) { showToast('Sign in with a registered account to turn multi-photo uploads into an album.', 'warning'); return; }
-		if (createAlbumFromUpload && !albumScope) { showToast('Cannot determine album scope for this upload.', 'error'); return; }
+		if (createAlbumFromUpload && !authToken) { showToast($_('chat_composer.album_sign_in'), 'warning'); return; }
+		if (createAlbumFromUpload && !albumScope) { showToast($_('chat_composer.album_scope'), 'error'); return; }
 		isUploading = true;
 		uploadStatusLabel = get(_)('chat.upload.uploading');
 		uploadProgress = 0;
@@ -705,15 +705,15 @@ import type { MediaAlbum } from '$lib/api';
 					accepted: () => transaction.settle(draft => settleComposerUpload(draft, submitted, !channelForceSpoiler)) });
 				if (!operationCurrent()) return;
 				if (result.reason) {
-					showToast('Files uploaded, but the message could not be sent or queued. Your draft is still available.', 'error');
+					showToast($_('chat_composer.uploaded_not_sent'), 'error');
 					return;
 				}
 				textareaElement?.focus();
 			} finally { transaction.finish(); recheckRoomPrivacy(); }
-		} catch (error) { if (operationCurrent()) { console.error('Upload error:', error); showToast('Failed to upload files. Please try again.', 'error'); } } finally { isUploading = false; uploadStatusLabel = ''; uploadProgress = 0; }
+		} catch (error) { if (operationCurrent()) { console.error('Upload error:', error); showToast($_('chat_composer.upload_failed'), 'error'); } } finally { isUploading = false; uploadStatusLabel = ''; uploadProgress = 0; }
 	}
-	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { showToast('Photo too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
-	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'weba' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { showToast('Audio too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
+	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { showToast($_('chat_composer.photo_too_large'), 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
+	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'weba' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { showToast($_('chat_composer.audio_too_large'), 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
 	function ensureEmojiPickerLoaded(): void { if (EmojiPickerComponent || emojiPickerLoadPromise) return; emojiPickerLoadFailed = false; emojiPickerLoadPromise = import('../EmojiPicker.svelte').then(mod => { EmojiPickerComponent = mod.default; }).catch(err => { console.error('Failed to load EmojiPicker:', err); emojiPickerLoadFailed = true; }).finally(() => { emojiPickerLoadPromise = null; }); }
 	// The attach menu (ui/Menu) closes itself on an outside click, Esc or Tab.
 	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showEmojiPicker = false; showMentionSuggestions = false; }
@@ -790,8 +790,8 @@ import type { MediaAlbum } from '$lib/api';
 					<EmojiPickerComponent on:select={handleEmojiSelect} on:gif={handleGifSelect} on:close={() => (showEmojiPicker = false)} />
 				{:else if emojiPickerLoadFailed}
 					<div class="emoji-picker-loading error" role="alert">
-						<span>The emoji and GIF panel didn't load.</span>
-						<button type="button" class="w-btn w-btn--sm" onclick={stopPropagation(ensureEmojiPickerLoaded)}>Retry</button>
+						<span>{$_('chat_composer.emoji_panel_failed')}</span>
+						<button type="button" class="w-btn w-btn--sm" onclick={stopPropagation(ensureEmojiPickerLoaded)}>{$_('chat_composer.retry')}</button>
 					</div>
 				{:else}
 					<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
@@ -819,8 +819,8 @@ import type { MediaAlbum } from '$lib/api';
 		{/if}
 		<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple hidden />
 		{#if sendCooldownMessage}<div class="composer__notice" role="status" aria-live="polite"><Icon name="clock" size={14} /><span>{sendCooldownMessage}</span></div>{/if}
-		{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}<div class="composer__aside unicode-conversion-hint">Unicode preview: {unicodeComposerPreview}</div>{/if}
-		{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="w-field gif-caption-draft-input" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder="GIF caption (used when sending from the GIF picker)" aria-label="GIF caption" /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength} / {MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="composer__aside unicode-conversion-hint">GIF caption preview: {unicodeGifCaptionPreview}</div>{/if}{/if}
+		{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}<div class="composer__aside unicode-conversion-hint">{$_('chat_composer.unicode_preview', { values: { text: unicodeComposerPreview } })}</div>{/if}
+		{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="w-field gif-caption-draft-input" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder={$_('chat_composer.gif_caption_placeholder')} aria-label={$_('chat_composer.gif_caption_label')} /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength} / {MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="composer__aside unicode-conversion-hint">{$_('chat_composer.gif_caption_preview', { values: { text: unicodeGifCaptionPreview } })}</div>{/if}{/if}
 		<div class="composer__field" data-toast-anchor>
 			<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
 			<textarea class="composer__input" bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; recheckRoomPrivacy(); }} onblur={() => { isTextareaFocused = false; }} placeholder={fieldLabel} aria-label={fieldLabel} aria-describedby={showColophon && newlineHintShown ? hintId : undefined} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} enterkeyhint="send" rows="1"></textarea>

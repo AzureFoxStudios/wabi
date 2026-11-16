@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { Theme } from '$lib/theme/themes';
 
 	export let theme: Theme;
@@ -36,15 +37,15 @@
 		<div class="preview-chat">
 			<div class="chat-message">
 				<div class="message-bubble">
-					<span class="message-author">User</span>
-					<p>This is how messages will look in this theme.</p>
+					<span class="message-author">{$_('theme_preview.user')}</span>
+					<p>{$_('theme_preview.sample_other')}</p>
 				</div>
 			</div>
 
 			<div class="chat-message own">
 				<div class="message-bubble">
-					<span class="message-author">You</span>
-					<p>Your messages appear on the right with the accent color.</p>
+					<span class="message-author">{$_('theme_preview.you')}</span>
+					<p>{$_('theme_preview.sample_own')}</p>
 				</div>
 			</div>
 		</div>
@@ -53,28 +54,28 @@
 		<div class="swatches">
 			<div class="swatch">
 				<div class="swatch-color" style="--swatch-color: {theme.colors.bgPrimary}"></div>
-				<span>Background</span>
+				<span>{$_('theme_preview.background')}</span>
 			</div>
 			<div class="swatch">
 				<div class="swatch-color" style="--swatch-color: {theme.colors.textPrimary}"></div>
-				<span>Text</span>
+				<span>{$_('theme_preview.text')}</span>
 			</div>
 			<div class="swatch">
 				<div class="swatch-color" style="--swatch-color: {theme.colors.accentHex}"></div>
-				<span>Accent</span>
+				<span>{$_('theme_preview.accent')}</span>
 			</div>
 			<div class="swatch">
 				<div class="swatch-color" style="--swatch-color: {theme.colors.statusOnline}"></div>
-				<span>Online</span>
+				<span>{$_('theme_preview.online')}</span>
 			</div>
 		</div>
 
 		<!-- UI Elements -->
 		<div class="ui-elements">
-			<button class="preview-button">Button</button>
-			<input type="text" class="preview-input" placeholder="Input field" />
-			<div class="preview-badge success">✓ Success</div>
-			<div class="preview-badge danger">✗ Danger</div>
+			<button class="preview-button">{$_('theme_preview.button')}</button>
+			<input type="text" class="preview-input" placeholder={$_('theme_preview.input_placeholder')} />
+			<div class="preview-badge success">✓ {$_('theme_preview.success')}</div>
+			<div class="preview-badge danger">✗ {$_('theme_preview.danger')}</div>
 		</div>
 	</div>
 </div>

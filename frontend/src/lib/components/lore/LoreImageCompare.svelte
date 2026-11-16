@@ -1,21 +1,22 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	interface Props { before: string; after: string; beforeLabel?: string; afterLabel?: string; }
-	let { before, after, beforeLabel = 'Before', afterLabel = 'After' }: Props = $props();
+	let { before, after, beforeLabel = $_('lore_compare.before'), afterLabel = $_('lore_compare.after') }: Props = $props();
 	let mode = $state<'split' | 'overlay'>('split');
 	let reveal = $state(50);
 	let zoom = $state(1);
 </script>
 
-<div class="image-compare" aria-label="Artwork version comparison">
+<div class="image-compare" aria-label={$_('lore_compare.label')}>
 	<div class="compare-toolbar">
-		<div class="mode-tabs"><button class:active={mode === 'split'} onclick={() => mode = 'split'}>Split</button><button class:active={mode === 'overlay'} onclick={() => mode = 'overlay'}>Overlay</button></div>
-		<label>Reveal <input type="range" min="0" max="100" bind:value={reveal} /></label>
+		<div class="mode-tabs"><button class:active={mode === 'split'} onclick={() => mode = 'split'}>{$_('lore_compare.split')}</button><button class:active={mode === 'overlay'} onclick={() => mode = 'overlay'}>{$_('lore_compare.overlay')}</button></div>
+		<label>{$_('lore_compare.reveal')} <input type="range" min="0" max="100" bind:value={reveal} /></label>
 		<button onclick={() => zoom = Math.min(3, zoom + 0.25)}>+</button><span>{Math.round(zoom * 100)}%</span><button onclick={() => zoom = Math.max(0.5, zoom - 0.25)}>−</button>
 	</div>
 	<div class="compare-stage" style={`--reveal: ${reveal}%;`}>
 		<div class="image-pane before"><span>{beforeLabel}</span><img src={before} alt={beforeLabel} style={`transform: scale(${zoom})`} /></div>
 		<div class="image-pane after"><span>{afterLabel}</span><img src={after} alt={afterLabel} style={`transform: scale(${zoom})`} /></div>
-		{#if mode === 'overlay'}<div class="overlay-image"><img src={before} alt="Previous version overlay" style={`transform: scale(${zoom})`} /></div>{/if}
+		{#if mode === 'overlay'}<div class="overlay-image"><img src={before} alt={$_('lore_compare.overlay_alt')} style={`transform: scale(${zoom})`} /></div>{/if}
 	</div>
 </div>
 

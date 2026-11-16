@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   export let src = '';
-  export let alt = 'Image';
+  export let alt = $_('image_viewer.default_alt');
   export let onClose: () => void = () => {};
 
   let zoom = 1;
@@ -47,15 +48,15 @@
 
 {#if src}
   <!-- svelte-ignore a11y_click_events_have_key_events: overlay closes on pointer interaction and also supports Enter/Space via handleOverlayKeydown -->
-  <div class="viewer-overlay" role="button" tabindex="0" aria-label="Close image viewer" on:click={onClose} on:keydown={handleOverlayKeydown}>
+  <div class="viewer-overlay" role="button" tabindex="0" aria-label={$_('image_viewer.overlay_label')} on:click={onClose} on:keydown={handleOverlayKeydown}>
     <div class="viewer-panel" role="dialog" aria-modal="true" aria-label={alt} tabindex="-1" on:click|stopPropagation>
       <img class="viewer-img" src={src} alt={alt} style="transform: scale({zoom});"/>
-      <div class="toolbar" aria-label="image viewer controls">
-        <button on:click={zoomOut} title="Zoom out">-</button>
-        <span>Zoom {Math.round(zoom*100)/100}x</span>
-        <button on:click={zoomIn} title="Zoom in">+</button>
-        <button on:click={resetZoom} title="Reset zoom">Reset</button>
-        <button on:click={onClose} title="Close">Close</button>
+      <div class="toolbar" aria-label={$_('image_viewer.controls_label')}>
+        <button on:click={zoomOut} title={$_('image_viewer.zoom_out')}>-</button>
+        <span>{$_('image_viewer.zoom_level', { values: { level: Math.round(zoom*100)/100 } })}</span>
+        <button on:click={zoomIn} title={$_('image_viewer.zoom_in')}>+</button>
+        <button on:click={resetZoom} title={$_('image_viewer.reset_zoom')}>{$_('image_viewer.reset')}</button>
+        <button on:click={onClose} title="Close">{$_('image_viewer.close')}</button>
       </div>
     </div>
   </div>

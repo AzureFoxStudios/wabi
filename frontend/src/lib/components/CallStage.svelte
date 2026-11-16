@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * Phase 3 — the focused channel stage (runes), design contract §8.5.
 	 *
@@ -218,7 +219,7 @@
 	{#if !hasMedia}
 		<!-- The audio room: who is here, who is talking, who is muted or only listening. -->
 		<div class="cstage-room" bind:clientWidth={roomWidth}>
-			<ul class="cstage-people" aria-label="People in this call">
+			<ul class="cstage-people" aria-label={$_('call_stage.people_label')}>
 				{#each room.shown as p (p.userId)}
 					{@const state = voiceStateWord(p)}
 					<li
@@ -248,14 +249,14 @@
 				{#if room.more > 0}
 					<li class="cstage-person cstage-person--more">
 						<span class="cstage-stamp cstage-stamp--more" aria-hidden="true">{room.more}</span>
-						<span class="cstage-person__name">and {room.more} more</span>
+						<span class="cstage-person__name">{$_('call_stage.more', { values: { n: room.more } })}</span>
 						<span class="cstage-person__state"></span>
 					</li>
 				{/if}
 			</ul>
 		</div>
 	{:else}
-		<ul class="cstage-roster" aria-label="People in this call">
+		<ul class="cstage-roster" aria-label={$_('call_stage.people_label')}>
 			{#each participants as p (p.userId)}
 				<li class="cstage-chip" class:speaking={p.isSpeaking && !p.isMuted} class:listening={p.isListenOnly}>
 					<span class="cstage-chip__stamp" style={$inkFor(p.color)}>
@@ -267,9 +268,9 @@
 					</span>
 					<span class="cstage-chip__name">{p.username || p.userId}</span>
 					{#if p.isMuted}
-						<Icon name="micOff" size={14} label="Muted" />
+						<Icon name="micOff" size={14} label={$_('call_stage.muted')} />
 					{:else if p.isListenOnly}
-						<Icon name="headphones" size={14} label="Listening" />
+						<Icon name="headphones" size={14} label={$_('call_stage.listening')} />
 					{/if}
 				</li>
 			{/each}
@@ -292,7 +293,7 @@
 					{#if localCamera}
 						<div class="cstage-tile cstage-tile-local">
 							<VideoSink stream={localCamera} mirror />
-							<span class="cstage-tile-label">You</span>
+							<span class="cstage-tile-label">{$_('call_stage.you')}</span>
 						</div>
 					{/if}
 					{#each cameraEntries as [key, stream] (key)}
@@ -311,27 +312,27 @@
 	{#if spatialEnabled && seatsOpen}
 		<section class="cstage-seats" aria-labelledby={`call-spatial-seats-title-${session.id}`}>
 			<header class="cstage-seats__head">
-				<h3 class="cstage-seats__title" id={`call-spatial-seats-title-${session.id}`}>Arrange seats</h3>
+				<h3 class="cstage-seats__title" id={`call-spatial-seats-title-${session.id}`}>{$_('call_stage.arrange_seats')}</h3>
 				<button
 					type="button"
 					class="w-ibtn w-ibtn--sm"
-					aria-label="Close seats"
-					title="Close seats"
+					aria-label={$_('call_stage.close_seats')}
+					title={$_('call_stage.close_seats')}
 					onclick={() => (seatsOpen = false)}
 				><Icon name="x" size={16} /></button>
 			</header>
-			<p class="cstage-seats__hint">Drag a person to place their voice around you. Arrow keys move a seat; Enter resets it.</p>
+			<p class="cstage-seats__hint">{$_('call_stage.seats_hint')}</p>
 			<div
 				id={`call-spatial-seats-${session.id}`}
 				class="cstage-seatmap"
 				role="application"
-				aria-label="Spatial seating stage — drag avatars to position them"
+				aria-label={$_('call_stage.seatmap_label')}
 				bind:this={stageEl}
 				onpointermove={onSeatPointerMove}
 				onpointerup={onSeatPointerUp}
 				onpointercancel={onSeatPointerUp}
 			>
-				<span class="cstage-seat-center" title="You (listener)">
+				<span class="cstage-seat-center" title={$_('call_stage.you_listener')}>
 					<Icon name="headphones" size={20} />
 				</span>
 				{#each participants as p (p.userId)}
@@ -342,7 +343,7 @@
 						style={seatStyle(p.userId)}
 						role="button"
 						tabindex="0"
-						aria-label={`Seat for ${p.username || p.userId}`}
+						aria-label={$_('call_stage.seat_for', { values: { name: p.username || p.userId } })}
 						onpointerdown={(e) => onSeatPointerDown(e, p.userId)}
 						ondblclick={() => resetSeat(p.userId)}
 						onkeydown={(e) => {
@@ -353,7 +354,7 @@
 								manualSeats = { ...manualSeats, [p.userId]: position }; applySpatialSeat(session.id, p.userId, position);
 							}
 						}}
-						title={manualSeats[p.userId] ? 'Double-click to reset to auto-circle' : ''}
+						title={manualSeats[p.userId] ? $_('call_stage.dbl_reset') : ''}
 					>
 						<span class="cstage-chip__stamp" style={$inkFor(p.color)}>
 							{#if p.avatarUrl}

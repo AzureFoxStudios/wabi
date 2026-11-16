@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
@@ -24,25 +25,25 @@
 	let saved = $state('');
 
 	const retention: Array<{ value: ServerDefaultRetention; label: string; detail: string }> = [
-		{ value: 'live', label: 'Live', detail: 'Not retained: new channel messages are not durably written. The server can still read them while they are live.' },
-		{ value: '1h', label: '1 hour', detail: 'Very short-lived chat for transient coordination.' },
-		{ value: '24h', label: '24 hours', detail: 'Wabi’s privacy-oriented baseline.' },
-		{ value: '7d', label: '7 days', detail: 'Seven days of visible message history.' },
-		{ value: '30d', label: '30 days', detail: 'Longer operational history.' },
-		{ value: 'forever', label: 'Forever', detail: 'Explicitly opt new channels into durable history.' }
+		{ value: 'live', label: $_('pc.ret_live_label'), detail: $_('pc.ret_live_detail') },
+		{ value: '1h', label: $_('pc.ret_1h_label'), detail: $_('pc.ret_1h_detail') },
+		{ value: '24h', label: $_('pc.ret_24h_label'), detail: $_('pc.ret_24h_detail') },
+		{ value: '7d', label: $_('pc.ret_7d_label'), detail: $_('pc.ret_7d_detail') },
+		{ value: '30d', label: $_('pc.ret_30d_label'), detail: $_('pc.ret_30d_detail') },
+		{ value: 'forever', label: $_('pc.ret_forever_label'), detail: $_('pc.ret_forever_detail') }
 	];
 
 	function token() { return getAuthToken($activeServerUrl); }
 	async function request(init: RequestInit = {}) {
 		const auth = token();
-		if (!auth) throw new Error('Sign in again to manage privacy settings.');
+		if (!auth) throw new Error($_('pc.sign_in'));
 		const response = await fetch(`${$activeServerUrl}/api/server-center/privacy`, {
 			...init,
 			credentials: 'include',
 			headers: { Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
 		});
 		const data = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(data.error || `Privacy request failed (${response.status}).`);
+		if (!response.ok) throw new Error(data.error || $_('pc.request_failed', { values: { status: response.status } }));
 		return data;
 	}
 
@@ -53,7 +54,7 @@
 			policy = data.policy;
 			published = structuredClone(data.policy);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not load privacy settings.';
+			error = cause instanceof Error ? cause.message : $_('pc.load_failed');
 		} finally { loading = false; }
 	}
 
@@ -64,9 +65,9 @@
 			const data = await request({ method: 'PUT', body: JSON.stringify(policy) });
 			policy = data.policy;
 			published = structuredClone(data.policy);
-			saved = 'Privacy policy saved. Existing channels were not rewritten.';
+			saved = $_('pc.saved');
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not save privacy settings.';
+			error = cause instanceof Error ? cause.message : $_('pc.save_failed');
 		} finally { saving = false; }
 	}
 
@@ -81,22 +82,22 @@
 <div class="privacy-center">
 	<section class="hero">
 		<div>
-			<span class="eyebrow">Privacy &amp; retention</span>
-			<h2>Choose how much Wabi remembers — and how much it watches.</h2>
-			<p>Retention, confidentiality and moderation are separate choices. Making chat ephemeral does not pretend the server could not see it while it was live.</p>
-			<p>New DMs and groups start encryption-pending and use experimental encryption once everyone's devices are ready. Sending server-readable instead needs each sender's choice. The encryption has not been independently verified, and it does not hide everything from the server operator.</p>
+			<span class="eyebrow">{$_('pc.eyebrow')}</span>
+			<h2>{$_('pc.hero_title')}</h2>
+			<p>{$_('pc.hero_1')}</p>
+			<p>{$_('pc.hero_2')}</p>
 		</div>
-		<div class="truth"><strong>Private conversations</strong><span>Encryption pending, then experimental encryption · not independently verified</span></div>
+		<div class="truth"><strong>{$_('pc.truth_title')}</strong><span>{$_('pc.truth_line')}</span></div>
 	</section>
 
 	{#if error}<div class="error" role="alert">{error}</div>{/if}
 	{#if saved}<div class="saved" role="status">{saved}</div>{/if}
 
 	{#if loading}
-		<section class="card"><p>Loading privacy policy…</p></section>
+		<section class="card"><p>{$_('pc.loading')}</p></section>
 	{:else}
 		<section class="card">
-			<header><div><span class="step">1</span><div><h3>Default retention for new channels</h3><p>This changes what newly created community channels inherit. Existing channels keep their current retention until someone deliberately changes them.</p></div></div></header>
+			<header><div><span class="step">1</span><div><h3>{$_('pc.step1_title')}</h3><p>{$_('pc.step1_text')}</p></div></div></header>
 			<div class="retention-grid">
 				{#each retention as option}
 					<button class:selected={policy.defaultRetention === option.value} onclick={() => setRetention(option.value)}>
@@ -104,56 +105,56 @@
 					</button>
 				{/each}
 			</div>
-			<p class="note"><strong>Each channel keeps its own policy.</strong> Timed deletion removes messages from normal history; it does not securely erase event records, backups, or recipients’ copies.</p>
+			<p class="note"><strong>{$_('pc.retention_strong')}</strong> {$_('pc.retention_rest')}</p>
 		</section>
 
 		<section class="card">
-			<header><div><span class="step">2</span><div><h3>Private conversation moderation</h3><p>Older private rooms, and messages a sender chose to send server-readable, can be read by the server. That does not mean Wabi should inspect them automatically.</p></div></div></header>
+			<header><div><span class="step">2</span><div><h3>{$_('pc.step2_title')}</h3><p>{$_('pc.step2_text')}</p></div></div></header>
 			<div class="choice-row">
-				<div><strong>Reports only</strong><span>Default. Safety rules do not inspect DM/group message text. Participants can still deliberately report a message.</span></div>
+				<div><strong>{$_('pc.reports_only')}</strong><span>{$_('pc.reports_only_text')}</span></div>
 				<label class="switch"><input type="checkbox" bind:checked={policy.privateContentAutomation} onchange={() => saved = ''}/><span></span></label>
 			</div>
 			{#if policy.privateContentAutomation}
-				<div class="warning"><strong>Private-content automation enabled.</strong><span>Literal server safety rules may inspect server-readable DM/group text before delivery. It never reaches messages sent with experimental encryption.</span></div>
+				<div class="warning"><strong>{$_('pc.automation_on')}</strong><span>{$_('pc.automation_text')}</span></div>
 			{:else}
-				<div class="good"><strong>Private spaces are reports-only.</strong><span>Server-side content rules apply to community spaces, not private conversations.</span></div>
+				<div class="good"><strong>{$_('pc.spaces_reports')}</strong><span>{$_('pc.spaces_text')}</span></div>
 			{/if}
 		</section>
 
 		<section class="card">
-			<header><div><span class="step">3</span><div><h3>Reporting &amp; evidence</h3><p>Ephemeral does not become secretly permanent “just in case.” Evidence is preserved when a participant explicitly submits a report.</p></div></div></header>
-			<div class="policy-line"><strong>Evidence preservation</strong><span>Explicit report only</span></div>
-			<label class="policy-line"><strong>New report snapshots</strong><select bind:value={policy.reportEvidenceDays} onchange={() => saved = ''}><option value={null}>Keep until owner removes</option><option value={1}>Remove after 1 day</option><option value={7}>Remove after 7 days</option><option value={30}>Remove after 30 days</option><option value={90}>Remove after 90 days</option></select></label>
-			<p class="note">The report dialog tells the reporter that the selected message is preserved for this server’s staff. Safety-rule flags create a case reference without another message snapshot. This expiry applies to new reports only; the owner can remove any active snapshot sooner. Backups and text copied into staff comments have separate lifecycles. Wabi does not send reports to a central moderation service.</p>
+			<header><div><span class="step">3</span><div><h3>{$_('pc.step3_title')}</h3><p>{$_('pc.step3_text')}</p></div></div></header>
+			<div class="policy-line"><strong>{$_('pc.evidence_pres')}</strong><span>{$_('pc.explicit_only')}</span></div>
+			<label class="policy-line"><strong>{$_('pc.snapshots')}</strong><select bind:value={policy.reportEvidenceDays} onchange={() => saved = ''}><option value={null}>{$_('pc.keep_until')}</option><option value={1}>{$_('pc.remove_1d')}</option><option value={7}>{$_('pc.remove_7d')}</option><option value={30}>{$_('pc.remove_30d')}</option><option value={90}>{$_('pc.remove_90d')}</option></select></label>
+			<p class="note">{$_('pc.report_note')}</p>
 		</section>
 
 		<section class="card muted-card">
-			<header><div><span class="step">4</span><div><h3>Local analytics</h3><p>No central Wabi advertising or behavioral profile is created by either choice.</p></div></div></header>
+			<header><div><span class="step">4</span><div><h3>{$_('pc.step4_title')}</h3><p>{$_('pc.step4_text')}</p></div></div></header>
 			<div class="two-choice">
-				<button class:selected={policy.analyticsMode === 'off'} onclick={() => setAnalytics('off')}><strong>Off</strong><span>Prefer the minimum operational counters necessary to run the server.</span></button>
-				<button class:selected={policy.analyticsMode === 'local_aggregate'} onclick={() => setAnalytics('local_aggregate')}><strong>Local aggregate</strong><span>Permit aggregate Server Center statistics on this instance only.</span></button>
+				<button class:selected={policy.analyticsMode === 'off'} onclick={() => setAnalytics('off')}><strong>{$_('pc.off')}</strong><span>{$_('pc.off_text')}</span></button>
+				<button class:selected={policy.analyticsMode === 'local_aggregate'} onclick={() => setAnalytics('local_aggregate')}><strong>{$_('pc.local_aggregate')}</strong><span>{$_('pc.local_aggregate_text')}</span></button>
 			</div>
-			<p class="caveat">Policy boundary today: Wabi does not have a central analytics upload here. This setting governs the direction of future Server Center analytics; it is not a claim that every existing operational counter disappears when Off.</p>
+			<p class="caveat">{$_('pc.analytics_caveat')}</p>
 		</section>
 
 		<section class="card muted-card">
-			<header><div><span class="step">5</span><div><h3>External content processing</h3><p>Keep external services visible instead of silently treating them as part of Wabi.</p></div></div></header>
+			<header><div><span class="step">5</span><div><h3>{$_('pc.step5_title')}</h3><p>{$_('pc.step5_text')}</p></div></div></header>
 			<div class="two-choice">
-				<button class:selected={policy.externalProcessing === 'none'} onclick={() => setExternal('none')}><strong>None by policy</strong><span>Wabi core should not send message content to outside processors.</span></button>
-				<button class:selected={policy.externalProcessing === 'declared_integrations'} onclick={() => setExternal('declared_integrations')}><strong>Declared integrations</strong><span>Allow explicitly installed integrations to disclose their own data access.</span></button>
+				<button class:selected={policy.externalProcessing === 'none'} onclick={() => setExternal('none')}><strong>{$_('pc.none_policy')}</strong><span>{$_('pc.none_policy_text')}</span></button>
+				<button class:selected={policy.externalProcessing === 'declared_integrations'} onclick={() => setExternal('declared_integrations')}><strong>{$_('pc.declared')}</strong><span>{$_('pc.declared_text')}</span></button>
 			</div>
-			<p class="caveat">This is a server policy marker today, not a proven sandbox for arbitrary backend plugins. Add-on capability enforcement remains a separate security boundary.</p>
+			<p class="caveat">{$_('pc.external_caveat')}</p>
 		</section>
 
 		<section class="principles">
-			<div><strong>What this never means</strong><span>Live/ephemeral = “not retained,” not “invisible to the running server.”</span></div>
-			<div><strong>Encrypted messages</strong><span>Server-side rules can't read messages sent with experimental encryption. Reporting can still disclose selected evidence from the participant’s client.</span></div>
-			<div><strong>No silent downgrade</strong><span>An encrypted conversation must never become server-readable because an admin changed a moderation option.</span></div>
+			<div><strong>{$_('pc.never_means')}</strong><span>{$_('pc.never_means_text')}</span></div>
+			<div><strong>{$_('pc.encrypted_msgs')}</strong><span>{$_('pc.encrypted_text')}</span></div>
+			<div><strong>{$_('pc.no_downgrade')}</strong><span>{$_('pc.no_downgrade_text')}</span></div>
 		</section>
 
 		<footer>
-			<span>{dirty ? 'Unsaved privacy changes' : 'Policy matches the server'}</span>
-			<button class="save" onclick={save} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save privacy policy'}</button>
+			<span>{dirty ? $_('pc.unsaved') : $_('pc.matches')}</span>
+			<button class="save" onclick={save} disabled={saving || !dirty}>{saving ? $_('pc.saving') : $_('pc.save')}</button>
 		</footer>
 	{/if}
 </div>

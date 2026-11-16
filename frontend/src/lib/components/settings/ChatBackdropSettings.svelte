@@ -9,6 +9,7 @@
 	  `customTheme.backgroundImage` is still read as a fallback and never deleted here.
 -->
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
 	import {
@@ -41,37 +42,37 @@
 	const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime';
 
 	const sceneOptions: Array<{ value: ChatBackdropScene; label: string }> = [
-		{ value: 'none', label: 'None' },
-		{ value: 'image', label: 'Your image or video' },
-		{ value: 'ink', label: 'Ink in water' },
-		{ value: 'dusk', label: 'Dusk' },
-		{ value: 'fireflies', label: 'Fireflies' },
-		{ value: 'koi', label: 'Koi pond' }
+		{ value: 'none', label: $_('chat_bg.scene_none') },
+		{ value: 'image', label: $_('chat_bg.scene_image') },
+		{ value: 'ink', label: $_('chat_bg.scene_ink') },
+		{ value: 'dusk', label: $_('chat_bg.scene_dusk') },
+		{ value: 'fireflies', label: $_('chat_bg.scene_fireflies') },
+		{ value: 'koi', label: $_('chat_bg.scene_koi') }
 	];
 	const sizeOptions: Array<{ value: ImageSize; label: string }> = [
-		{ value: 'cover', label: 'Fill' },
-		{ value: 'contain', label: 'Fit' },
-		{ value: 'auto', label: 'Original' }
+		{ value: 'cover', label: $_('chat_bg.size_fill') },
+		{ value: 'contain', label: $_('chat_bg.size_fit') },
+		{ value: 'auto', label: $_('chat_bg.size_original') }
 	];
 	const positionOptions = [
-		['center', 'Center'],
-		['top', 'Top'],
-		['bottom', 'Bottom'],
-		['left', 'Left'],
-		['right', 'Right'],
-		['top-left', 'Top left'],
-		['top-right', 'Top right'],
-		['bottom-left', 'Bottom left'],
-		['bottom-right', 'Bottom right']
+		['center', $_('chat_bg.pos_center')],
+		['top', $_('chat_bg.pos_top')],
+		['bottom', $_('chat_bg.pos_bottom')],
+		['left', $_('chat_bg.pos_left')],
+		['right', $_('chat_bg.pos_right')],
+		['top-left', $_('chat_bg.pos_top_left')],
+		['top-right', $_('chat_bg.pos_top_right')],
+		['bottom-left', $_('chat_bg.pos_bottom_left')],
+		['bottom-right', $_('chat_bg.pos_bottom_right')]
 	].map(([value, label]) => ({ value, label }));
 	const repeatOptions: Array<{ value: ImageRepeat; label: string }> = [
-		{ value: 'no-repeat', label: 'Once' },
-		{ value: 'repeat', label: 'Tile' },
-		{ value: 'repeat-x', label: 'Across' },
-		{ value: 'repeat-y', label: 'Down' }
+		{ value: 'no-repeat', label: $_('chat_bg.repeat_once') },
+		{ value: 'repeat', label: $_('chat_bg.repeat_tile') },
+		{ value: 'repeat-x', label: $_('chat_bg.repeat_across') },
+		{ value: 'repeat-y', label: $_('chat_bg.repeat_down') }
 	];
 	const blendOptions = ['normal', 'overlay', 'multiply', 'screen', 'darken', 'lighten', 'color-dodge', 'color-burn'].map(
-		(value) => ({ value, label: value === 'normal' ? 'Normal' : value.charAt(0).toUpperCase() + value.slice(1).replace('-', ' ') })
+		(value) => ({ value, label: value === 'normal' ? $_('chat_bg.blend_normal') : value.charAt(0).toUpperCase() + value.slice(1).replace('-', ' ') })
 	);
 
 	let settings: BackdropSettings = { ...defaultChatBackdropSettings };
@@ -134,13 +135,13 @@
 		if (!file) return;
 		const video = isVideoFile(file);
 		if (!video && !IMAGE_TYPES.includes(file.type)) {
-			uploadError = 'That file type is not supported. Choose a PNG, JPG, GIF, WEBP, MP4 or WebM file.';
+			uploadError = $_('chat_bg.bad_type');
 			input.value = '';
 			return;
 		}
 		const maxSize = video ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
 		if (file.size > maxSize) {
-			uploadError = `That file is too large. ${video ? 'Videos' : 'Images'} can be up to ${video ? '25' : '10'} MB.`;
+			uploadError = $_('chat_bg.too_large', { values: { kind: video ? $_('chat_bg.videos') : $_('chat_bg.images'), max: video ? 25 : 10 } });
 			input.value = '';
 			return;
 		}
@@ -171,14 +172,14 @@
 				body: formData
 			});
 			if (!response.ok) {
-				uploadError = 'The server did not accept the upload. Your current background is unchanged.';
+				uploadError = $_('chat_bg.upload_rejected');
 				return;
 			}
 			const result = await response.json().catch(() => ({}));
 			// The server returns { backgroundImageUrl }; { fileUrl } is tolerated too.
 			const finalUrl = (result.backgroundImageUrl || result.fileUrl) as string | undefined;
 			if (!finalUrl) {
-				uploadError = 'The upload finished without a file address. Your current background is unchanged.';
+				uploadError = $_('chat_bg.upload_no_url');
 				return;
 			}
 			backgroundImage = { url: finalUrl };
@@ -186,7 +187,7 @@
 			await saveBackgroundImage();
 		} catch (error) {
 			console.error('[Settings] Background upload failed:', error);
-			uploadError = 'The upload could not reach the server. Your current background is unchanged.';
+			uploadError = $_('chat_bg.upload_unreachable');
 		} finally {
 			isUploading = false;
 			input.value = '';
@@ -210,7 +211,7 @@
 			else loadBackgroundImageSetting(next);
 		} catch (error) {
 			console.error('[Settings] Failed to save background image settings:', error);
-			saveError = 'These image settings could not be saved to the server. They still apply here.';
+			saveError = $_('chat_bg.save_failed');
 		}
 	}
 
@@ -223,7 +224,7 @@
 			else loadBackgroundImageSetting(null);
 		} catch (error) {
 			console.error('[Settings] Failed to remove the background image:', error);
-			saveError = 'The image could not be removed on the server. It is hidden here; try again.';
+			saveError = $_('chat_bg.remove_failed');
 		}
 	}
 
@@ -231,10 +232,10 @@
 </script>
 
 <section class="settings-block backdrop-settings" aria-labelledby="chat-backdrop-heading">
-	<h3 class="settings-block__title" id="chat-backdrop-heading">Chat background</h3>
+	<h3 class="settings-block__title" id="chat-backdrop-heading">{$_('chat_bg.title')}</h3>
 	<!-- Where it is saved is said once, in the page's scope note (an uploaded image follows a
 	     signed-in account; scenes stay on this device). -->
-	<p class="settings-block__hint">What sits behind the conversation.</p>
+	<p class="settings-block__hint">{$_('chat_bg.hint')}</p>
 
 	<div class="backdrop-preview" aria-hidden="true">
 		{#if settings.scene === 'image' && backgroundImage}
@@ -268,11 +269,11 @@
 		<div class="backdrop-preview__copy">
 			<div class="backdrop-preview__row">
 				<span class="backdrop-preview__avatar">W</span>
-				<p class="backdrop-preview__msg"><b>Wabi</b><span>The background moves. The conversation stays readable.</span></p>
+				<p class="backdrop-preview__msg"><b>Wabi</b><span>{$_('chat_bg.msg_wabi')}</span></p>
 			</div>
 			<div class="backdrop-preview__row">
 				<span class="backdrop-preview__avatar">Y</span>
-				<p class="backdrop-preview__msg"><b>You</b><span>Pick one that suits the room.</span></p>
+				<p class="backdrop-preview__msg"><b>{$_('chat_bg.you')}</b><span>{$_('chat_bg.msg_pick')}</span></p>
 			</div>
 		</div>
 	</div>
@@ -280,23 +281,23 @@
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="backdrop-scene-label">Scene</p>
-				<p class="w-srow__hint">Animated scenes hold still while motion is reduced.</p>
+				<p class="w-srow__label" id="backdrop-scene-label">{$_('chat_bg.scene')}</p>
+				<p class="w-srow__hint">{$_('chat_bg.scene_hint')}</p>
 			</div>
 			<div class="w-srow__control">
-				<Select ariaLabel="Scene" heading="Scene" align="end" options={sceneOptions} value={settings.scene} onchange={chooseScene} />
+				<Select ariaLabel={$_('chat_bg.scene')} heading={$_('chat_bg.scene')} align="end" options={sceneOptions} value={settings.scene} onchange={chooseScene} />
 			</div>
 		</div>
 
 		{#if settings.scene === 'image'}
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label">Image or video</p>
+					<p class="w-srow__label">{$_('chat_bg.image_video')}</p>
 					<p class="w-srow__hint">
 						{#if backgroundImage}
-							{isVideo ? 'A video loop' : 'An image'} is set. Animated GIF and WEBP files move too.
+							{$_('chat_bg.set_note', { values: { kind: isVideo ? $_('chat_bg.a_video') : $_('chat_bg.an_image') } })}
 						{:else}
-							PNG, JPG, GIF or WEBP up to 10 MB, or a short MP4 or WebM loop up to 25 MB.
+							{$_('chat_bg.file_limits')}
 						{/if}
 					</p>
 				</div>
@@ -306,10 +307,10 @@
 					<input class="backdrop-file" type="file" accept={ACCEPT} bind:this={fileInput} on:change={handleFileSelect} disabled={isUploading} hidden />
 					<button type="button" class="w-btn w-btn--sm" aria-busy={isUploading} disabled={isUploading} on:click={() => fileInput?.click()}>
 						<Icon name="upload" size={16} />
-						{isUploading ? 'Uploading…' : backgroundImage ? 'Replace…' : 'Choose file…'}
+						{isUploading ? $_('chat_bg.uploading') : backgroundImage ? $_('chat_bg.replace') : $_('chat_bg.choose_file')}
 					</button>
 					{#if backgroundImage}
-						<button type="button" class="w-btn w-btn--sm w-btn--danger" disabled={isUploading} on:click={removeImage}>Remove</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--danger" disabled={isUploading} on:click={removeImage}>{$_('chat_bg.remove')}</button>
 					{/if}
 				</div>
 			</div>
@@ -318,7 +319,7 @@
 			{#if backgroundImage}
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label" id="backdrop-opacity-label">Strength</p>
+						<p class="w-srow__label" id="backdrop-opacity-label">{$_('chat_bg.strength')}</p>
 						<p class="w-srow__hint">{opacity}%</p>
 					</div>
 					<div class="w-srow__control">
@@ -337,7 +338,7 @@
 				</div>
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label" id="backdrop-blur-label">Blur</p>
+						<p class="w-srow__label" id="backdrop-blur-label">{$_('chat_bg.blur')}</p>
 						<p class="w-srow__hint">{blur} px</p>
 					</div>
 					<div class="w-srow__control">
@@ -349,15 +350,15 @@
 							bind:value={blur}
 							style={fill(blur, 0, 20)}
 							aria-labelledby="backdrop-blur-label"
-							aria-valuetext="{blur} pixels"
+							aria-valuetext="{$_('chat_bg.pixels', { values: { n: blur } })}"
 							on:change={saveBackgroundImage}
 						/>
 					</div>
 				</div>
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label" id="backdrop-size-label">Size</p>
-						<p class="w-srow__hint">Fill crops to cover the chat; Fit shows the whole picture.</p>
+						<p class="w-srow__label" id="backdrop-size-label">{$_('chat_bg.size')}</p>
+						<p class="w-srow__hint">{$_('chat_bg.size_hint')}</p>
 					</div>
 					<div class="w-srow__control">
 						<Segmented
@@ -373,12 +374,12 @@
 				</div>
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label">Position</p>
-						<p class="w-srow__hint">Which part stays in view.</p>
+						<p class="w-srow__label">{$_('chat_bg.position')}</p>
+						<p class="w-srow__hint">{$_('chat_bg.position_hint')}</p>
 					</div>
 					<div class="w-srow__control">
 						<Select
-							ariaLabel="Position"
+							ariaLabel={$_('chat_bg.position')}
 							align="end"
 							options={positionOptions}
 							value={position}
@@ -397,18 +398,18 @@
 					on:click={() => (showMoreImageOptions = !showMoreImageOptions)}
 				>
 					<Icon name="chevRight" size={16} />
-					More image options
+					{$_('chat_bg.more_options')}
 				</button>
 				{#if showMoreImageOptions}
 					<div class="w-disclosure__body settings-disclosure__body" id="backdrop-more-options">
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label">Repeat</p>
-								<p class="w-srow__hint">For small images and patterns.</p>
+								<p class="w-srow__label">{$_('chat_bg.repeat')}</p>
+								<p class="w-srow__hint">{$_('chat_bg.repeat_hint')}</p>
 							</div>
 							<div class="w-srow__control">
 								<Select
-									ariaLabel="Repeat"
+									ariaLabel={$_('chat_bg.repeat')}
 									align="end"
 									options={repeatOptions}
 									value={repeat}
@@ -421,12 +422,12 @@
 						</div>
 						<div class="w-srow">
 							<div class="w-srow__text">
-								<p class="w-srow__label">Blend</p>
-								<p class="w-srow__hint">How the image mixes with the page color.</p>
+								<p class="w-srow__label">{$_('chat_bg.blend')}</p>
+								<p class="w-srow__hint">{$_('chat_bg.blend_hint')}</p>
 							</div>
 							<div class="w-srow__control">
 								<Select
-									ariaLabel="Blend"
+									ariaLabel={$_('chat_bg.blend')}
 									align="end"
 									options={blendOptions}
 									value={blend}
@@ -443,7 +444,7 @@
 		{:else if animated}
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="backdrop-motion-label">Motion</p>
+					<p class="w-srow__label" id="backdrop-motion-label">{$_('chat_bg.motion')}</p>
 					<p class="w-srow__hint">{Math.round(settings.motion * 100)}%</p>
 				</div>
 				<div class="w-srow__control">
@@ -463,7 +464,7 @@
 			</div>
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="backdrop-dim-label">Darken</p>
+					<p class="w-srow__label" id="backdrop-dim-label">{$_('chat_bg.darken')}</p>
 					<p class="w-srow__hint">{Math.round(settings.dim * 100)}%</p>
 				</div>
 				<div class="w-srow__control">
@@ -483,8 +484,8 @@
 			</div>
 			<div class="w-srow">
 				<div class="w-srow__text">
-					<p class="w-srow__label" id="backdrop-frost-label">Frost</p>
-					<p class="w-srow__hint">{Math.round(settings.frost * 100)}% · softens the scene behind messages</p>
+					<p class="w-srow__label" id="backdrop-frost-label">{$_('chat_bg.frost')}</p>
+					<p class="w-srow__hint">{$_('chat_bg.frost_hint', { values: { pct: Math.round(settings.frost * 100) } })}</p>
 				</div>
 				<div class="w-srow__control">
 					<input

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * How other people's profiles look on this device (§8.9): switch rows on the kit. These
 	 * choices never change anyone's saved design.
@@ -6,21 +7,21 @@
 	import { profileAppearance, setProfileAppearance } from '$lib/profileAppearance';
 
 	const effects = [
-		{ key: 'names', label: 'Styled names' },
-		{ key: 'plates', label: 'Nameplates' },
-		{ key: 'decorations', label: 'Banners and avatar decorations' },
-		{ key: 'animate', label: 'Artwork and name animation' }
+		{ key: 'names', label: $_('profile_cosmetics.names') },
+		{ key: 'plates', label: $_('profile_cosmetics.plates') },
+		{ key: 'decorations', label: $_('profile_cosmetics.decorations') },
+		{ key: 'animate', label: $_('profile_cosmetics.animate') }
 	] as const;
 </script>
 
 <section class="settings-block" aria-labelledby="profile-cosmetics-title">
-	<h3 class="settings-block__title" id="profile-cosmetics-title">Profile decorations</h3>
-	<p class="settings-block__hint">How profiles look on this device. Nobody's saved design changes.</p>
+	<h3 class="settings-block__title" id="profile-cosmetics-title">{$_('profile_cosmetics.title')}</h3>
+	<p class="settings-block__hint">{$_('profile_cosmetics.hint')}</p>
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="profile-cosmetics-plain">Show profiles plainly</p>
-				<p class="w-srow__hint">Turns every effect below off. Your choices come back when you turn this off.</p>
+				<p class="w-srow__label" id="profile-cosmetics-plain">{$_('profile_cosmetics.plain')}</p>
+				<p class="w-srow__hint">{$_('profile_cosmetics.plain_hint')}</p>
 			</div>
 			<div class="w-srow__control">
 				<button
@@ -52,7 +53,7 @@
 			</div>
 		{/each}
 	</div>
-	<p class="profile-cosmetics__note">Reduce motion also keeps profile artwork still.</p>
+	<p class="profile-cosmetics__note">{$_('profile_cosmetics.reduce_motion')}</p>
 </section>
 
 <style>

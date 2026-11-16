@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher<{
@@ -83,22 +84,22 @@
 </script>
 
 <div class="gif-picker">
-	<div class="gif-search-label"><strong>GIF search</strong><span>Search GIPHY, then scroll the results below.</span></div>
+	<div class="gif-search-label"><strong>{$_('gif_picker.label')}</strong><span>{$_('gif_picker.hint')}</span></div>
 	<input
 		type="text"
-		placeholder="Search GIFs..."
+		placeholder={$_('gif_picker.placeholder')}
 		bind:value={gifSearchQuery}
 		on:input={searchGifs}
 	/>
 	<div class="gif-grid">
 		{#if giphyStatus === 'missing'}
-			<div class="no-gifs">GIF search is not configured on this server.</div>
+			<div class="no-gifs">{$_('gif_picker.not_configured')}</div>
 		{:else if giphyStatus === 'error'}
-			<div class="no-gifs">GIF search is temporarily unavailable.</div>
+			<div class="no-gifs">{$_('gif_picker.unavailable')}</div>
 		{:else if gifLoading}
-			<div class="no-gifs">Loading...</div>
+			<div class="no-gifs">{$_('gif_picker.loading')}</div>
 		{:else if gifs.length === 0}
-			<div class="no-gifs">No GIFs found</div>
+			<div class="no-gifs">{$_('gif_picker.none')}</div>
 		{:else}
 			{#each gifs as gif (gif.id)}
 				<button class="gif-item" on:click={() => selectGif(gif)}>

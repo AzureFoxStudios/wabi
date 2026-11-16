@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { get } from 'svelte/store';
 	import { themeStore, currentTheme } from '$lib/theme/themeStore';
 	import { saveThemePreferences, resetThemePreferences } from '$lib/theme/themeApi';
@@ -51,10 +52,10 @@
 	// Per-panel color overrides (server rail, left sidebar, center, right panel)
 	type PanelKey = 'serverRail' | 'leftSidebar' | 'center' | 'rightPanel';
 	const PANEL_META: { key: PanelKey; label: string; solidDefault: string; solidOnly?: boolean }[] = [
-		{ key: 'serverRail', label: 'Server Rail', solidDefault: '#0f0c29' },
-		{ key: 'leftSidebar', label: 'Left Sidebar', solidDefault: '#1a1a2e' },
-		{ key: 'center', label: 'Center Chat', solidDefault: '#0f0c29', solidOnly: true },
-		{ key: 'rightPanel', label: 'Right Panel', solidDefault: '#1a1a2e' }
+		{ key: 'serverRail', label: $_('theme_c.panel_server_rail'), solidDefault: '#0f0c29' },
+		{ key: 'leftSidebar', label: $_('theme_c.panel_left_sidebar'), solidDefault: '#1a1a2e' },
+		{ key: 'center', label: $_('theme_c.panel_center'), solidDefault: '#0f0c29', solidOnly: true },
+		{ key: 'rightPanel', label: $_('theme_c.panel_right_panel'), solidDefault: '#1a1a2e' }
 	];
 
 	function defaultOverride(solid: string): PanelColorOverride {
@@ -188,7 +189,7 @@
 			isExpanded = false;
 		} catch (error) {
 			console.error('Failed to save custom theme:', error);
-			alert(`Failed to save custom theme. ${error instanceof Error ? error.message : 'Please try again.'}`);
+			alert($_('theme_c.save_failed', { values: { detail: error instanceof Error ? error.message : $_('theme_c.try_again') } }));
 		} finally {
 			isSaving = false;
 		}
@@ -207,7 +208,7 @@
 			showResetConfirm = false;
 		} catch (error) {
 			console.error('Failed to reset theme:', error);
-			alert('Failed to reset theme. Please try again.');
+			alert($_('theme_c.reset_failed'));
 		} finally {
 			isSaving = false;
 		}
@@ -289,7 +290,7 @@
 					isExpanded = true;
 				}
 			} catch (error) {
-				alert('Failed to import theme. Make sure it\'s a valid JSON file.');
+				alert($_('theme_c.import_failed'));
 			}
 		};
 		reader.readAsText(file);
@@ -310,45 +311,45 @@
 		}}
 	>
 		<div>
-			<h3>Create Custom Theme</h3>
-			<p>Start from the active theme, then tune surfaces, text, accent, and background.</p>
+			<h3>{$_('theme_c.create_title')}</h3>
+			<p>{$_('theme_c.create_desc')}</p>
 		</div>
-		<span class="expand-icon">{isExpanded ? 'Hide' : 'Customize'}</span>
+		<span class="expand-icon">{isExpanded ? $_('theme_c.hide') : $_('theme_c.customize')}</span>
 	</div>
 
 	{#if isExpanded}
 		<div class="customizer-content">
 			<!-- Color Customization -->
 			<section class="section">
-				<h4>Colors</h4>
+				<h4>{$_('theme_c.colors')}</h4>
 				<div class="color-grid">
 					<ColorPicker
-						label="App Background"
+						label={$_('theme_c.app_background')}
 						value={customColors.bgPrimary || '#0f0c29'}
 						onChange={(c) => (customColors.bgPrimary = c)}
 					/>
 					<ColorPicker
-						label="Panel Surface"
+						label={$_('theme_c.panel_surface')}
 						value={customColors.bgSecondary || '#1a1a2e'}
 						onChange={(c) => (customColors.bgSecondary = c)}
 					/>
 					<ColorPicker
-						label="Raised Surface"
+						label={$_('theme_c.raised_surface')}
 						value={customColors.bgTertiary || '#24243e'}
 						onChange={(c) => (customColors.bgTertiary = c)}
 					/>
 					<ColorPicker
-						label="Text Primary"
+						label={$_('theme_c.text_primary')}
 						value={customColors.textPrimary || '#e0e0ff'}
 						onChange={(c) => (customColors.textPrimary = c)}
 					/>
 					<ColorPicker
-						label="Text Secondary"
+						label={$_('theme_c.text_secondary')}
 						value={customColors.textSecondary || '#b3b3ff'}
 						onChange={(c) => (customColors.textSecondary = c)}
 					/>
 					<ColorPicker
-						label="Accent Color"
+						label={$_('theme_c.accent_color')}
 						value={customColors.accentHex || customColors.accent || '#ff00ff'}
 						onChange={(c) => {
 							customColors.accent = c;
@@ -357,7 +358,7 @@
 						}}
 					/>
 					<ColorPicker
-						label="Border"
+						label={$_('theme_c.border')}
 						value={customColors.border || '#302b63'}
 						onChange={(c) => {
 							customColors.border = c;
@@ -369,20 +370,20 @@
 
 			<!-- Gradient Customization -->
 			<section class="section">
-				<h4>Gradients</h4>
+				<h4>{$_('theme_c.gradients')}</h4>
 				<div class="gradient-grid">
 					<GradientEditor
-						label="Primary Gradient"
+						label={$_('theme_c.primary_gradient')}
 						value={customGradients.primary || 'linear-gradient(90deg, #0f0c29 0%, #302b63 100%)'}
 						onChange={(g) => (customGradients.primary = g)}
 					/>
 					<GradientEditor
-						label="Accent Gradient"
+						label={$_('theme_c.accent_gradient')}
 						value={customGradients.accent || 'linear-gradient(90deg, #ff00ff 0%, #ff69b4 100%)'}
 						onChange={(g) => (customGradients.accent = g)}
 					/>
 					<GradientEditor
-						label="Accent Hover"
+						label={$_('theme_c.accent_hover')}
 						value={customGradients.accentHover || 'linear-gradient(90deg, #ff69b4 0%, #ff1493 100%)'}
 						onChange={(g) => (customGradients.accentHover = g)}
 					/>
@@ -391,7 +392,7 @@
 
 			<!-- Per-Panel Colors -->
 			<section class="section">
-				<h4>Panel Colors</h4>
+				<h4>{$_('theme_c.panel_colors')}</h4>
 
 				<!-- Step 1: separate the panels before touching colors -->
 				<label class="panel-master">
@@ -401,17 +402,17 @@
 						on:change={(e) => toggleMaster(e.currentTarget.checked)}
 					/>
 					<span class="panel-master-copy">
-						<strong>Color panels independently</strong>
+						<strong>{$_('theme_c.panel_master_title')}</strong>
 						<small>
-							Give the sidebar, chat, and side panels their own colors instead of one
-							app-wide look.
+							{$_('theme_c.panel_master_desc')}
+							 
 						</small>
 					</span>
 				</label>
 
 				{#if panelColorsEnabled}
 					<!-- Step 2: pick which panel to edit -->
-					<div class="panel-picker" role="tablist" aria-label="Choose a panel">
+					<div class="panel-picker" role="tablist" aria-label={$_('theme_c.choose_panel')}>
 						{#each PANEL_META as meta (meta.key)}
 							<button
 								type="button"
@@ -444,7 +445,7 @@
 										on:change={(e) =>
 											updatePanel(meta.key, { enabled: e.currentTarget.checked })}
 									/>
-									<span>Custom color for {meta.label}</span>
+									<span>{$_('theme_c.custom_color_for', { values: { label: meta.label } })}</span>
 								</label>
 
 								{#if panelColors[meta.key]?.enabled}
@@ -457,7 +458,7 @@
 												on:click={() =>
 													updatePanel(meta.key, { mode: 'solid', bg: panelBgValue(meta.key) })}
 											>
-												Solid
+												{$_('theme_c.solid')}
 											</button>
 											<button
 												type="button"
@@ -469,20 +470,20 @@
 														bg: `linear-gradient(180deg, ${panelBgValue(meta.key)} 0%, ${panelBgValue(meta.key)} 100%)`
 													})}
 											>
-												Gradient
+												{$_('theme_c.gradient_mode')}
 											</button>
 										</div>
 									{/if}
 
 									{#if panelColors[meta.key]?.mode === 'gradient' && !meta.solidOnly}
 										<GradientEditor
-											label="Background Gradient"
+											label={$_('theme_c.background_gradient')}
 											value={panelBgValue(meta.key)}
 											onChange={(g) => updatePanel(meta.key, { bg: g })}
 										/>
 									{:else}
 										<ColorPicker
-											label="Background"
+											label={$_('theme_c.background')}
 											value={panelBgValue(meta.key)}
 											onChange={(c) => updatePanel(meta.key, { bg: c, mode: 'solid' })}
 										/>
@@ -495,19 +496,19 @@
 											on:change={(e) =>
 												updatePanel(meta.key, { autoText: e.currentTarget.checked })}
 										/>
-										<span>Auto-contrast text (recommended)</span>
+										<span>{$_('theme_c.auto_contrast')}</span>
 									</label>
 
 									{#if panelColors[meta.key]?.autoText === false}
 										<ColorPicker
-											label="Text Color"
+											label={$_('theme_c.text_color')}
 											value={panelColors[meta.key]?.text || autoTextPreview(meta.key)}
 											onChange={(c) => updatePanel(meta.key, { text: c })}
 										/>
 									{/if}
 								{:else}
 									<p class="section-hint">
-										Turn on “Custom color for {meta.label}” to set its background and text.
+										{$_('theme_c.turn_on_hint', { values: { label: meta.label } })}
 									</p>
 								{/if}
 							</div>
@@ -518,7 +519,7 @@
 
 			<!-- Live Preview -->
 			<section class="section preview-section">
-				<h4>Preview</h4>
+				<h4>{$_('theme_c.preview')}</h4>
 				<ThemePreview theme={{
 					id: 'custom-preview',
 					name: 'Custom Theme Preview',
@@ -530,35 +531,35 @@
 
 			<!-- Actions -->
 			<section class="section actions-section">
-				<h4>Actions</h4>
+				<h4>{$_('theme_c.actions')}</h4>
 				<div class="action-buttons">
 					<button
 						class="btn btn-primary"
 						on:click={handleSaveCustomTheme}
 						disabled={isSaving}
 					>
-						{isSaving ? 'Saving...' : 'Save Custom Theme'}
+						{isSaving ? $_('theme_c.saving') : $_('theme_c.save_theme')}
 					</button>
 
 					<div class="import-export-group">
 						<button class="btn btn-secondary" on:click={exportTheme}>
-							Export Theme
+							{$_('theme_c.export_theme')}
 						</button>
 						<label class="btn btn-secondary">
-							Import Theme
+							{$_('theme_c.import_theme')}
 							<input type="file" accept=".json" on:change={importTheme} class="hidden" />
 						</label>
 					</div>
 
 					{#if showResetConfirm}
 						<div class="confirm-dialog">
-							<p>Reset theme to default? This cannot be undone.</p>
+							<p>{$_('theme_c.reset_confirm')}</p>
 							<div class="confirm-buttons">
 								<button class="btn btn-danger" on:click={handleReset} disabled={isSaving}>
-									{isSaving ? 'Resetting...' : 'Yes, Reset'}
+									{isSaving ? $_('theme_c.resetting') : $_('theme_c.yes_reset')}
 								</button>
 								<button class="btn btn-secondary" on:click={() => (showResetConfirm = false)}>
-									Cancel
+									{$_('common.cancel')}
 								</button>
 							</div>
 						</div>
@@ -568,7 +569,7 @@
 							on:click={() => (showResetConfirm = true)}
 							disabled={isSaving}
 						>
-							Reset to Default
+							{$_('theme_c.reset_to_default')}
 						</button>
 					{/if}
 				</div>
