@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
@@ -86,7 +87,7 @@
 	const minutes = $derived(Math.max(1, Math.ceil(wordCount / 220)));
 	const hasProjectContext = $derived($channels.some((channel) => channel.id === $currentChannel && channel.type === 'lore'));
 	const displayTitle = $derived(isCodeDocument
-		? ($readerSelection?.title || 'Untitled source')
+		? ($readerSelection?.title || $_('rti.untitled_source'))
 		: ($readerSelection?.title || '').replace(/\.(txt|text|md|markdown|html|htm)$/i, '').replace(/_/g, ' '));
 
 	$effect(() => {
@@ -329,7 +330,7 @@
 		const existing = bookmarks.find((mark) => mark.anchor.block === anchor.block && Math.abs(mark.anchor.offset - anchor.offset) < 0.05);
 		if (existing) removeReaderBookmark($readerSelection.docKey, existing.id);
 		else {
-			const label = isImageMode ? `Image ${currentPage}` : (blocks[anchor.block]?.textContent?.trim().slice(0, 100) || displayTitle);
+			const label = isImageMode ? $_('rann.image_n', { values: { n: currentPage } }) : (blocks[anchor.block]?.textContent?.trim().slice(0, 100) || displayTitle);
 			addReaderBookmark($readerSelection.docKey, label, anchor);
 		}
 	}
@@ -380,7 +381,7 @@
 	function submitImport(): void {
 		if (!importContent.trim()) return;
 		rememberPosition();
-		openReaderDocument(importTitle.trim() || 'Pasted document', importContent, importFormat, 'pasted');
+		openReaderDocument(importTitle.trim() || $_('rti.pasted_doc'), importContent, importFormat, 'pasted');
 		closeImport();
 	}
 
@@ -390,10 +391,10 @@
 		input.value = '';
 		if (!file) return;
 		error = '';
-		if (file.size > 20 * 1024 * 1024) { error = 'This text file is larger than 20 MB. Open a chapter or smaller document instead.'; return; }
+		if (file.size > 20 * 1024 * 1024) { error = $_('rti.too_large'); return; }
 		busy = true;
 		try { rememberPosition(); await openTemporaryReaderFile(file); }
-		catch { error = 'The file could not be read. Try opening it again.'; }
+		catch { error = $_('rti.read_failed'); }
 		finally { busy = false; }
 	}
 
@@ -405,8 +406,8 @@
 		try {
 			rememberPosition();
 			// Keep the FileList alive until the importer has consumed it.
-			await openReaderImagesFromFiles(input.files.length === 1 ? input.files[0].name : 'Image collection', input.files);
-		} catch { error = 'These images could not be opened. Please try again.'; }
+			await openReaderImagesFromFiles(input.files.length === 1 ? input.files[0].name : $_('rti.image_collection'), input.files);
+		} catch { error = $_('rti.images_failed'); }
 		finally { input.value = ''; busy = false; }
 	}
 
@@ -421,9 +422,9 @@
 		if (copy) {
 			const pre = copy.closest('pre');
 			const text = pre?.querySelector('code')?.textContent || '';
-			try { await navigator.clipboard.writeText(text); copy.textContent = 'Copied'; }
-			catch { copy.textContent = 'Copy failed'; }
-			setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 1500);
+			try { await navigator.clipboard.writeText(text); copy.textContent = $_('lpanel.copied'); }
+			catch { copy.textContent = $_('rti.copy_failed'); }
+			setTimeout(() => { if (copy.isConnected) copy.textContent = $_('lore_viewer.copy'); }, 1500);
 			return;
 		}
 		const link = event.target.closest<HTMLAnchorElement>('a[href^="#"]');
@@ -464,51 +465,51 @@
 	class:reader-sans={$readerPreferences.fontFamily === 'sans'}>
 	<header class="reader-toolbar">
 		<div class="reader-breadcrumb">
-			<button type="button" class="reader-home-button" onclick={returnHome} title="Reader home"><ReaderIcon name="book" /><span>Reader</span></button>
+			<button type="button" class="reader-home-button" onclick={returnHome} title={$_('rti.reader_home')}><ReaderIcon name="book" /><span>{$_('places.reader')}</span></button>
 			{#if $readerSelection}<span class="reader-breadcrumb-slash" aria-hidden="true">/</span><span class="reader-filename" title={$readerSelection.title}>{$readerSelection.title}</span>{/if}
 		</div>
 		<div class="reader-toolbar-actions">
 			{#if $readerSelection}
-				{#if !isImageMode}<button type="button" class="reader-search-trigger" onclick={openSearch} aria-label="Search in document" title="Search in document (Ctrl/Cmd+F)"><ReaderIcon name="search" /><span>Search in document…</span></button>{/if}
-				<button type="button" class="reader-tool" aria-label="Reading settings" title="Reading settings" aria-expanded={settingsOpen} onclick={() => { settingsOpen = !settingsOpen; }}><span class="reader-type-icon">Aa</span></button>
-				<button type="button" class="reader-tool" aria-label="Cycle reader theme" title="Cycle paper, sepia and night themes" onclick={() => { const themes: ReaderTheme[] = ['paper', 'sepia', 'night']; void changePreferences({ theme: themes[(themes.indexOf(theme) + 1) % themes.length] }); }}><ReaderIcon name="theme" /></button>
-				{#if !isImageMode && !isCodeDocument}<button type="button" class="reader-tool" aria-label={layout === 'scroll' ? 'Switch to paged reading' : 'Switch to continuous scrolling'} title={layout === 'scroll' ? 'Paged reading' : 'Continuous scrolling'} onclick={toggleLayout}><ReaderIcon name={layout === 'scroll' ? 'pages' : 'scroll'} /></button>{/if}
-				<button type="button" class="reader-tool" class:active={!!currentBookmark} aria-pressed={!!currentBookmark} aria-label={currentBookmark ? 'Remove bookmark at this place' : 'Bookmark this place'} title="Bookmark this place" onclick={toggleBookmark}><ReaderIcon name="bookmark" /></button>
-				<button type="button" class="reader-tool" aria-label={focusMode ? 'Exit focus mode' : 'Enter focus mode'} title="Focus mode (F)" aria-pressed={focusMode} onclick={() => { lastAnchor = currentAnchor(); focusMode = !focusMode; }}><ReaderIcon name="focus" /></button>
-				<button type="button" class="reader-tool" aria-label="Toggle document sidebar" title="Contents, code, notes and bookmarks" aria-expanded={sidebarOpen} onclick={() => { lastAnchor = currentAnchor(); sidebarOpen = !sidebarOpen; }}><ReaderIcon name="contents" /></button>
+				{#if !isImageMode}<button type="button" class="reader-search-trigger" onclick={openSearch} aria-label={$_('rti.search_doc_aria')} title={$_('rti.search_doc_title')}><ReaderIcon name="search" /><span>{$_('rti.search_doc_btn')}</span></button>{/if}
+				<button type="button" class="reader-tool" aria-label={$_('rti.reading_settings')} title={$_('rti.reading_settings')} aria-expanded={settingsOpen} onclick={() => { settingsOpen = !settingsOpen; }}><span class="reader-type-icon">Aa</span></button>
+				<button type="button" class="reader-tool" aria-label={$_('rti.cycle_theme')} title={$_('rti.cycle_theme_title')} onclick={() => { const themes: ReaderTheme[] = ['paper', 'sepia', 'night']; void changePreferences({ theme: themes[(themes.indexOf(theme) + 1) % themes.length] }); }}><ReaderIcon name="theme" /></button>
+				{#if !isImageMode && !isCodeDocument}<button type="button" class="reader-tool" aria-label={layout === 'scroll' ? $_('rti.paged_switch') : $_('rti.scroll_switch')} title={layout === 'scroll' ? $_('rti.paged_reading') : $_('rti.continuous_scrolling')} onclick={toggleLayout}><ReaderIcon name={layout === 'scroll' ? 'pages' : 'scroll'} /></button>{/if}
+				<button type="button" class="reader-tool" class:active={!!currentBookmark} aria-pressed={!!currentBookmark} aria-label={currentBookmark ? $_('rti.remove_bookmark_here') : $_('rti.bookmark_here')} title={$_('rti.bookmark_here')} onclick={toggleBookmark}><ReaderIcon name="bookmark" /></button>
+				<button type="button" class="reader-tool" aria-label={focusMode ? $_('rti.exit_focus_aria') : $_('rti.enter_focus_aria')} title={$_('rti.focus_title')} aria-pressed={focusMode} onclick={() => { lastAnchor = currentAnchor(); focusMode = !focusMode; }}><ReaderIcon name="focus" /></button>
+				<button type="button" class="reader-tool" aria-label={$_('rti.sidebar_toggle')} title={$_('rti.sidebar_title')} aria-expanded={sidebarOpen} onclick={() => { lastAnchor = currentAnchor(); sidebarOpen = !sidebarOpen; }}><ReaderIcon name="contents" /></button>
 			{/if}
-			<button type="button" class="reader-open-button" onclick={() => fileInput?.click()} disabled={busy}><ReaderIcon name="file" /><span>Open</span></button>
+			<button type="button" class="reader-open-button" onclick={() => fileInput?.click()} disabled={busy}><ReaderIcon name="file" /><span>{$_('common.open')}</span></button>
 		</div>
 	</header>
 
-	{#if focusMode}<button type="button" class="reader-exit-focus" onclick={() => { focusMode = false; }}><ReaderIcon name="close" size={15} />Exit focus<span>Esc</span></button>{/if}
+	{#if focusMode}<button type="button" class="reader-exit-focus" onclick={() => { focusMode = false; }}><ReaderIcon name="close" size={15} />{$_('rti.exit_focus')}<span>{$_('rti.esc')}</span></button>{/if}
 
 	{#if settingsOpen && $readerSelection}
 		<section class="reader-settings-panel" aria-label="Reading settings">
-			<div class="reader-panel-heading"><h2>Reading settings</h2><button class="reader-tool" type="button" aria-label="Close reading settings" onclick={() => { settingsOpen = false; }}><ReaderIcon name="close" /></button></div>
-			<label class="reader-field">Theme<select value={$readerPreferences.theme} onchange={(e) => changePreferences({ theme: e.currentTarget.value as ReaderTheme })}><option value="paper">Paper</option><option value="sepia">Sepia</option><option value="night">Night</option><option value="auto">Follow system</option></select></label>
+			<div class="reader-panel-heading"><h2>{$_('rti.reading_settings')}</h2><button class="reader-tool" type="button" aria-label={$_('rti.close_settings')} onclick={() => { settingsOpen = false; }}><ReaderIcon name="close" /></button></div>
+			<label class="reader-field">{$_('settings.appearance.theme')}<select value={$readerPreferences.theme} onchange={(e) => changePreferences({ theme: e.currentTarget.value as ReaderTheme })}><option value="paper">{$_('wb.paper')}</option><option value="sepia">{$_('rti.sepia')}</option><option value="night">{$_('rti.night')}</option><option value="auto">{$_('rti.follow_system')}</option></select></label>
 			{#if isImageMode}
-				<label class="reader-field">Image size<select value={$readerPreferences.imageFit} onchange={(e) => changePreferences({ imageFit: e.currentTarget.value as ImageFitMode })}><option value="width">Fit width</option><option value="height">Fit height</option><option value="original">Original size</option></select></label>
-				<label class="reader-field">Reading direction<select value={$readerPreferences.readingDirection} onchange={(e) => changePreferences({ readingDirection: e.currentTarget.value as ReadingDirection })}><option value="horizontal">Horizontal pages</option><option value="ltr">Vertical · left to right</option><option value="rtl">Vertical · right to left</option></select></label>
+				<label class="reader-field">{$_('rti.image_size')}<select value={$readerPreferences.imageFit} onchange={(e) => changePreferences({ imageFit: e.currentTarget.value as ImageFitMode })}><option value="width">{$_('rti.fit_width')}</option><option value="height">{$_('rti.fit_height')}</option><option value="original">{$_('rti.original_size')}</option></select></label>
+				<label class="reader-field">{$_('rti.reading_direction')}<select value={$readerPreferences.readingDirection} onchange={(e) => changePreferences({ readingDirection: e.currentTarget.value as ReadingDirection })}><option value="horizontal">{$_('rti.horizontal_pages')}</option><option value="ltr">{$_('rti.vertical_ltr')}</option><option value="rtl">{$_('rti.vertical_rtl')}</option></select></label>
 			{:else}
-				{#if !isCodeDocument}<label class="reader-field">Typeface<select value={$readerPreferences.fontFamily} onchange={(e) => changePreferences({ fontFamily: e.currentTarget.value as ReaderFontFamily })}><option value="serif">Literary serif</option><option value="sans">Clean sans serif</option></select></label>{/if}
-				<label class="reader-field">Text size <span>{$readerPreferences.fontSize}px</span><input aria-label="Text size" type="range" min="14" max="28" step="1" value={$readerPreferences.fontSize} oninput={(e) => changePreferences({ fontSize: Number(e.currentTarget.value) })} /></label>
-				<label class="reader-field">Line spacing <span>{$readerPreferences.lineHeight.toFixed(2)}</span><input aria-label="Line spacing" type="range" min="1.35" max="2.3" step="0.05" value={$readerPreferences.lineHeight} oninput={(e) => changePreferences({ lineHeight: Number(e.currentTarget.value) })} /></label>
-				{#if !isCodeDocument}<label class="reader-field">Reading width<select value={$readerPreferences.contentWidth} onchange={(e) => changePreferences({ contentWidth: e.currentTarget.value as ReaderContentWidth })}><option value="narrow">Narrow</option><option value="medium">Comfortable</option><option value="wide">Wide</option></select></label>{/if}
-				<p class="reader-panel-hint">{isCodeDocument ? 'Source files use a monospace face and continuous scrolling.' : 'F · focus mode'}<br />Ctrl/Cmd + F · find in document<br />Page Up / Page Down · move through text</p>
+				{#if !isCodeDocument}<label class="reader-field">{$_('rti.typeface')}<select value={$readerPreferences.fontFamily} onchange={(e) => changePreferences({ fontFamily: e.currentTarget.value as ReaderFontFamily })}><option value="serif">{$_('rti.literary_serif')}</option><option value="sans">{$_('rti.clean_sans')}</option></select></label>{/if}
+				<label class="reader-field">{$_('settings.appearance.text_size')} <span>{$readerPreferences.fontSize}px</span><input aria-label={$_('settings.appearance.text_size')} type="range" min="14" max="28" step="1" value={$readerPreferences.fontSize} oninput={(e) => changePreferences({ fontSize: Number(e.currentTarget.value) })} /></label>
+				<label class="reader-field">{$_('rti.line_spacing')} <span>{$readerPreferences.lineHeight.toFixed(2)}</span><input aria-label={$_('rti.line_spacing')} type="range" min="1.35" max="2.3" step="0.05" value={$readerPreferences.lineHeight} oninput={(e) => changePreferences({ lineHeight: Number(e.currentTarget.value) })} /></label>
+				{#if !isCodeDocument}<label class="reader-field">{$_('rti.reading_width')}<select value={$readerPreferences.contentWidth} onchange={(e) => changePreferences({ contentWidth: e.currentTarget.value as ReaderContentWidth })}><option value="narrow">{$_('rti.narrow')}</option><option value="medium">{$_('rti.comfortable')}</option><option value="wide">{$_('rti.wide')}</option></select></label>{/if}
+				<p class="reader-panel-hint">{isCodeDocument ? $_('rti.hint_code') : $_('rti.hint_focus')}<br />{$_('rti.hint_find')}<br />{$_('rti.hint_pages')}</p>
 			{/if}
 		</section>
 	{/if}
 
 	{#if searchOpen && $readerSelection && !isImageMode}
-		<div class="reader-search-bar" role="search" aria-label="Find in document">
-			<ReaderIcon name="search" /><input bind:this={searchInput} bind:value={query} aria-label="Find text" placeholder="Find in this document…" onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); showSearchMatch(searchIndex + (e.shiftKey ? -1 : 1)); } }} />
-			<span class="reader-search-count" role="status">{query.trim() ? (searchGroups.length ? `${searchIndex + 1} / ${searchGroups.length}${searchGroups.length === 1000 ? ' (limit)' : ''}` : 'No matches') : ''}</span>
-			<button type="button" class="reader-tool" disabled={!searchGroups.length} aria-label="Previous match" onclick={() => showSearchMatch(searchIndex - 1)}><ReaderIcon name="left" /></button><button type="button" class="reader-tool" disabled={!searchGroups.length} aria-label="Next match" onclick={() => showSearchMatch(searchIndex + 1)}><ReaderIcon name="right" /></button><button type="button" class="reader-tool" aria-label="Close search" onclick={() => { searchOpen = false; viewport?.focus(); }}><ReaderIcon name="close" /></button>
+		<div class="reader-search-bar" role="search" aria-label={$_('rti.find_bar')}>
+			<ReaderIcon name="search" /><input bind:this={searchInput} bind:value={query} aria-label={$_('rti.find_text')} placeholder={$_('rti.find_ph')} onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); showSearchMatch(searchIndex + (e.shiftKey ? -1 : 1)); } }} />
+			<span class="reader-search-count" role="status">{query.trim() ? (searchGroups.length ? `${searchIndex + 1} / ${searchGroups.length}${searchGroups.length === 1000 ? $_('rti.limit') : ''}` : $_('rti.no_matches')) : ''}</span>
+			<button type="button" class="reader-tool" disabled={!searchGroups.length} aria-label={$_('rti.prev_match')} onclick={() => showSearchMatch(searchIndex - 1)}><ReaderIcon name="left" /></button><button type="button" class="reader-tool" disabled={!searchGroups.length} aria-label={$_('rti.next_match')} onclick={() => showSearchMatch(searchIndex + 1)}><ReaderIcon name="right" /></button><button type="button" class="reader-tool" aria-label={$_('rti.close_search')} onclick={() => { searchOpen = false; viewport?.focus(); }}><ReaderIcon name="close" /></button>
 		</div>
 	{/if}
 
-	{#if error || $readerStorageNotice}<div class="reader-notice" role="status">{error || $readerStorageNotice}{#if error}<button type="button" class="reader-tool" aria-label="Dismiss error" onclick={() => { error = ''; }}><ReaderIcon name="close" /></button>{/if}</div>{/if}
+	{#if error || $readerStorageNotice}<div class="reader-notice" role="status">{error || $readerStorageNotice}{#if error}<button type="button" class="reader-tool" aria-label={$_('wb.dismiss_error')} onclick={() => { error = ''; }}><ReaderIcon name="close" /></button>{/if}</div>{/if}
 
 	{#if $readerSelection}
 		<div class="reader-workspace">
@@ -527,9 +528,9 @@
 								{#if !contentHasTitle}<h1>{displayTitle}</h1>{/if}
 								<div class="reader-document-meta">
 									{#if isCodeDocument}
-										<span>{(codeBlocks[0]?.lineCount || 0).toLocaleString()} {(codeBlocks[0]?.lineCount || 0) === 1 ? 'line' : 'lines'}</span><span>{codeBlocks[0]?.label || 'Code'}</span><span>{formatSourceLabel($readerSelection.source)}</span>
+										<span>{(codeBlocks[0]?.lineCount || 0).toLocaleString()} {(codeBlocks[0]?.lineCount || 0) === 1 ? $_('rti.line') : $_('rti.lines')}</span><span>{codeBlocks[0]?.label || $_('rti.code')}</span><span>{formatSourceLabel($readerSelection.source)}</span>
 									{:else}
-										<span>{wordCount.toLocaleString()} words</span><span>~{minutes} min read</span><span>{formatSourceLabel($readerSelection.source)}</span>{#if codeBlocks.length}<span>{codeBlocks.length} code {codeBlocks.length === 1 ? 'block' : 'blocks'}</span>{/if}
+										<span>{$_('rti.words', { values: { n: wordCount.toLocaleString() } })}</span><span>{$_('rti.min_read', { values: { n: minutes } })}</span><span>{formatSourceLabel($readerSelection.source)}</span>{#if codeBlocks.length}<span>{codeBlocks.length === 1 ? $_('rti.block_one') : $_('rti.block_other', { values: { n: codeBlocks.length } })}</span>{/if}
 									{/if}
 								</div>
 							</header>
@@ -542,30 +543,30 @@
 			</div>
 
 			{#if sidebarOpen && !focusMode}
-				<aside class="reader-sidebar" aria-label="Document tools">
-					<div class="reader-sidebar-tabs" role="group" aria-label="Choose document tool">
-						<button type="button" class:active={sidebarTab === 'contents'} aria-pressed={sidebarTab === 'contents'} onclick={() => { sidebarTab = 'contents'; }}><ReaderIcon name="contents" size={16} /><span>Contents</span></button>
+				<aside class="reader-sidebar" aria-label={$_('rti.tools_aria')}>
+					<div class="reader-sidebar-tabs" role="group" aria-label={$_('rti.choose_tool')}>
+						<button type="button" class:active={sidebarTab === 'contents'} aria-pressed={sidebarTab === 'contents'} onclick={() => { sidebarTab = 'contents'; }}><ReaderIcon name="contents" size={16} /><span>{$_('office.editor.contents')}</span></button>
 						{#if codeBlocks.length}<button type="button" class:active={sidebarTab === 'code'} aria-pressed={sidebarTab === 'code'} onclick={() => { sidebarTab = 'code'; }}><ReaderIcon name="code" size={16} /><span>Code</span></button>{/if}
-						<button type="button" class:active={sidebarTab === 'notes'} aria-pressed={sidebarTab === 'notes'} onclick={() => { sidebarTab = 'notes'; }}><ReaderIcon name="notes" size={16} /><span>Notes</span></button>
-						<button type="button" class:active={sidebarTab === 'bookmarks'} aria-pressed={sidebarTab === 'bookmarks'} onclick={() => { sidebarTab = 'bookmarks'; }}><ReaderIcon name="bookmark" size={16} /><span>Bookmarks</span></button>
-						<button type="button" class="reader-sidebar-close" aria-label="Close document sidebar" onclick={() => { sidebarOpen = false; }}><ReaderIcon name="close" size={16} /></button>
+						<button type="button" class:active={sidebarTab === 'notes'} aria-pressed={sidebarTab === 'notes'} onclick={() => { sidebarTab = 'notes'; }}><ReaderIcon name="notes" size={16} /><span>{$_('places.notes')}</span></button>
+						<button type="button" class:active={sidebarTab === 'bookmarks'} aria-pressed={sidebarTab === 'bookmarks'} onclick={() => { sidebarTab = 'bookmarks'; }}><ReaderIcon name="bookmark" size={16} /><span>{$_('rti.bookmarks')}</span></button>
+						<button type="button" class="reader-sidebar-close" aria-label={$_('rti.close_sidebar')} onclick={() => { sidebarOpen = false; }}><ReaderIcon name="close" size={16} /></button>
 					</div>
 					<div class="reader-sidebar-content">
 						{#if sidebarTab === 'contents'}
 							{#if isImageMode}
-								<h2 class="reader-section-label">Images</h2>{#each images as image, index}<button class="reader-outline-item" class:active={currentPage === index + 1} type="button" onclick={() => { const target = blocks[index]; if (target && viewport) scrollReaderToElement(viewport, target, horizontal); }}><span>{index + 1}.</span>{image.alt || `Image ${index + 1}`}</button>{/each}
+								<h2 class="reader-section-label">{$_('gallery.filter_images')}</h2>{#each images as image, index}<button class="reader-outline-item" class:active={currentPage === index + 1} type="button" onclick={() => { const target = blocks[index]; if (target && viewport) scrollReaderToElement(viewport, target, horizontal); }}><span>{index + 1}.</span>{image.alt || $_('rann.image_n', { values: { n: index + 1 } })}</button>{/each}
 							{:else if outline.length}
-								<nav aria-label="Table of contents">{#each outline as heading}<button type="button" class="reader-outline-item" class:active={activeHeading === heading.id} style:--outline-indent={`${Math.min(3, heading.level - 1) * 12}px`} onclick={() => goToHeading(heading.id)}>{heading.label}</button>{/each}</nav>
-							{:else}<h2 class="reader-section-label">Contents</h2><p class="reader-panel-hint">This document has no headings. Use search or save a bookmark to find your place.</p><button class="reader-secondary-button" type="button" onclick={() => seek(0)}>Back to the beginning</button>{/if}
+								<nav aria-label={$_('rti.toc_aria')}>{#each outline as heading}<button type="button" class="reader-outline-item" class:active={activeHeading === heading.id} style:--outline-indent={`${Math.min(3, heading.level - 1) * 12}px`} onclick={() => goToHeading(heading.id)}>{heading.label}</button>{/each}</nav>
+							{:else}<h2 class="reader-section-label">{$_('office.editor.contents')}</h2><p class="reader-panel-hint">{$_('rti.no_headings')}</p><button class="reader-secondary-button" type="button" onclick={() => seek(0)}>{$_('rti.back_begin')}</button>{/if}
 						{:else if sidebarTab === 'code'}
-							<h2 class="reader-section-label">Code in this document</h2>
+							<h2 class="reader-section-label">{$_('rti.code_in_doc')}</h2>
 							{#if hasProjectContext}
-								<button type="button" class="reader-secondary-button reader-code-project-handoff" onclick={openLoreSurface}><ReaderIcon name="code" size={16} />Open project workspace</button>
-								<p class="reader-panel-hint">Reader stays read-only. Use the Project workspace when you need the repository, editor, history, or review tools.</p>
+								<button type="button" class="reader-secondary-button reader-code-project-handoff" onclick={openLoreSurface}><ReaderIcon name="code" size={16} />{$_('rti.open_project')}</button>
+								<p class="reader-panel-hint">{$_('rti.project_hint')}</p>
 							{:else}
-								<p class="reader-panel-hint">Reader is read-only. Open this from a Project channel when you need a repository-backed editor.</p>
+								<p class="reader-panel-hint">{$_('rti.no_project_hint')}</p>
 							{/if}
-							<nav class="reader-code-nav-list" aria-label="Code blocks">
+							<nav class="reader-code-nav-list" aria-label={$_('rti.code_blocks_aria')}>
 								{#each codeBlocks as code, index (code.id)}
 									<button type="button" class="reader-code-nav-item" class:active={activeCode === code.id} onclick={() => goToCode(code.id)}>
 										<span class="reader-code-nav-top"><span class="reader-code-language">{index + 1}. {code.label}</span><small>{code.lineCount} {code.lineCount === 1 ? 'line' : 'lines'}</small></span>
@@ -574,36 +575,36 @@
 								{/each}
 							</nav>
 						{:else if sidebarTab === 'bookmarks'}
-							<button type="button" class="reader-secondary-button" onclick={toggleBookmark}><ReaderIcon name="bookmark" size={16} />{currentBookmark ? 'Remove this bookmark' : 'Bookmark this place'}</button>
-							{#if !bookmarks.length}<p class="reader-panel-hint">Keep a passage within reach. Bookmarks are saved on this device.</p>{/if}
-							{#each bookmarks as mark (mark.id)}<div class="reader-saved-item"><button type="button" class="reader-saved-link" onclick={() => jump(mark.anchor)}><span>{mark.label}</span><small>{Math.round(mark.anchor.progress * 100)}% into document</small></button><button type="button" class="reader-tool" aria-label={`Remove bookmark: ${mark.label}`} onclick={() => { if ($readerSelection) removeReaderBookmark($readerSelection.docKey, mark.id); }}><ReaderIcon name="trash" size={15} /></button></div>{/each}
+							<button type="button" class="reader-secondary-button" onclick={toggleBookmark}><ReaderIcon name="bookmark" size={16} />{currentBookmark ? $_('rti.remove_this_bookmark') : $_('rti.bookmark_here')}</button>
+							{#if !bookmarks.length}<p class="reader-panel-hint">{$_('rti.keep_passage')}</p>{/if}
+							{#each bookmarks as mark (mark.id)}<div class="reader-saved-item"><button type="button" class="reader-saved-link" onclick={() => jump(mark.anchor)}><span>{mark.label}</span><small>{Math.round(mark.anchor.progress * 100)}{$_('rti.into_doc')}</small></button><button type="button" class="reader-tool" aria-label={$_('rti.remove_bookmark_label', { values: { name: mark.label } })} onclick={() => { if ($readerSelection) removeReaderBookmark($readerSelection.docKey, mark.id); }}><ReaderIcon name="trash" size={15} /></button></div>{/each}
 						{:else}
-							<label class="reader-field">Note for this passage<textarea bind:value={noteDraft} maxlength="10000" rows="5" placeholder="Write a note…" onfocus={() => { if (!noteAnchor) noteAnchor = currentAnchor(); }}></textarea></label><button type="button" class="reader-secondary-button" disabled={!noteDraft.trim()} onclick={saveNote}>Save note</button><p class="reader-panel-hint">Notes stay on this device and link back to the passage.</p>
-							{#each notes as note (note.id)}<div class="reader-saved-item"><button type="button" class="reader-saved-link" onclick={() => jump(note.anchor)}><span class="reader-note-text">{note.text}</span><small>Return to passage · {Math.round(note.anchor.progress * 100)}%</small></button><button type="button" class="reader-tool" aria-label="Delete note" onclick={() => { if ($readerSelection) removeReaderNote($readerSelection.docKey, note.id); }}><ReaderIcon name="trash" size={15} /></button></div>{/each}
+							<label class="reader-field">{$_('rti.note_passage')}<textarea bind:value={noteDraft} maxlength="10000" rows="5" placeholder={$_('keep_notes.placeholder')} onfocus={() => { if (!noteAnchor) noteAnchor = currentAnchor(); }}></textarea></label><button type="button" class="reader-secondary-button" disabled={!noteDraft.trim()} onclick={saveNote}>{$_('rti.save_note')}</button><p class="reader-panel-hint">{$_('rti.notes_hint')}</p>
+							{#each notes as note (note.id)}<div class="reader-saved-item"><button type="button" class="reader-saved-link" onclick={() => jump(note.anchor)}><span class="reader-note-text">{note.text}</span><small>{$_('rti.return_passage')} · {Math.round(note.anchor.progress * 100)}%</small></button><button type="button" class="reader-tool" aria-label={$_('rti.delete_note')} onclick={() => { if ($readerSelection) removeReaderNote($readerSelection.docKey, note.id); }}><ReaderIcon name="trash" size={15} /></button></div>{/each}
 						{/if}
 					</div>
 				</aside>
 			{/if}
 		</div>
 		<footer class="reader-footer">
-			<div class="reader-pagination"><button type="button" class="reader-tool" aria-label="Previous page" disabled={atStart} onclick={() => movePage(-1)}><ReaderIcon name="left" size={16} /></button><span>{isImageMode ? `Image ${currentPage} of ${totalPages}` : textLayout === 'paged' ? `Page ${currentPage} of ${totalPages}` : 'Continuous scroll'}</span><button type="button" class="reader-tool" aria-label="Next page" disabled={atEnd} onclick={() => movePage(1)}><ReaderIcon name="right" size={16} /></button></div>
-			<div class="reader-position"><input type="range" min="0" max="100" value={progress} aria-label="Reading position" aria-valuetext={`${progress}% through document`} oninput={(e) => seek(Number(e.currentTarget.value))} /><span>{progress}%</span></div>
-			<span class="reader-footer-hint">{atEnd ? 'End of document' : isImageMode ? '' : isCodeDocument ? `${(codeBlocks[0]?.lineCount || 0).toLocaleString()} lines` : `~${Math.max(1, Math.ceil(minutes * (1 - progress / 100)))} min left`}</span>
+			<div class="reader-pagination"><button type="button" class="reader-tool" aria-label={$_('rti.prev_page')} disabled={atStart} onclick={() => movePage(-1)}><ReaderIcon name="left" size={16} /></button><span>{isImageMode ? $_('rti.image_of', { values: { current: currentPage, total: totalPages } }) : textLayout === 'paged' ? $_('rti.page_of', { values: { current: currentPage, total: totalPages } }) : $_('rti.continuous')}</span><button type="button" class="reader-tool" aria-label={$_('rti.next_page')} disabled={atEnd} onclick={() => movePage(1)}><ReaderIcon name="right" size={16} /></button></div>
+			<div class="reader-position"><input type="range" min="0" max="100" value={progress} aria-label={$_('rti.reading_position')} aria-valuetext={$_('rti.through', { values: { p: progress } })} oninput={(e) => seek(Number(e.currentTarget.value))} /><span>{progress}%</span></div>
+			<span class="reader-footer-hint">{atEnd ? $_('rti.end') : isImageMode ? '' : isCodeDocument ? $_('rti.lines_count', { values: { n: (codeBlocks[0]?.lineCount || 0).toLocaleString() } }) : $_('rti.min_left', { values: { n: Math.max(1, Math.ceil(minutes * (1 - progress / 100))) } })}</span>
 		</footer>
 	{:else}
 		<div class="reader-home">
-			<div class="reader-home-intro"><span class="reader-eyebrow">YOUR READING SPACE</span><h1>Open something<br />worth keeping.</h1><p>Books, essays, notes, source code, and long-form text.<br />A comfortable place to pick up where you left off.</p></div>
+			<div class="reader-home-intro"><span class="reader-eyebrow">{$_('rti.home_eyebrow')}</span><h1>{$_('rti.home_title_1')}<br />{$_('rti.home_title_2')}</h1><p>{$_('rti.home_desc_1')}<br />{$_('rti.home_desc_2')}</p></div>
 			<div class="reader-home-actions">
-				<button type="button" class="reader-import-option reader-import-primary" onclick={() => fileInput?.click()} disabled={busy}><ReaderIcon name="file" size={28} /><span><strong>{busy ? 'Opening…' : 'Open file'}</strong><small>Text, Markdown, HTML, source code</small></span></button>
-				<button type="button" class="reader-import-option" onclick={() => openPaste('text')}><ReaderIcon name="paste" size={28} /><span><strong>Paste text</strong><small>Plain text, Markdown, or HTML</small></span></button>
-				<button type="button" class="reader-import-option" onclick={() => imageInput?.click()} disabled={busy}><ReaderIcon name="image" size={28} /><span><strong>Open images</strong><small>Read a collection of image pages</small></span></button>
+				<button type="button" class="reader-import-option reader-import-primary" onclick={() => fileInput?.click()} disabled={busy}><ReaderIcon name="file" size={28} /><span><strong>{busy ? $_('lore_viewer.opening') : $_('rti.open_file')}</strong><small>{$_('rti.open_file_desc')}</small></span></button>
+				<button type="button" class="reader-import-option" onclick={() => openPaste('text')}><ReaderIcon name="paste" size={28} /><span><strong>{$_('rti.paste_text')}</strong><small>{$_('rti.paste_desc')}</small></span></button>
+				<button type="button" class="reader-import-option" onclick={() => imageInput?.click()} disabled={busy}><ReaderIcon name="image" size={28} /><span><strong>{$_('rti.open_images')}</strong><small>{$_('rti.open_images_desc')}</small></span></button>
 			</div>
 			<div class="reader-home-bottom">
-				<section class="reader-recent-card"><div class="reader-panel-heading"><h2><ReaderIcon name="clock" />Recent reads</h2><span>This session</span></div>
-					{#if $readerHistory.length}{#each $readerHistory as entry (entry.id)}<button type="button" class="reader-recent-item" onclick={() => openReaderHistoryEntry(entry.id)}><ReaderIcon name={entry.contentType === 'images' ? 'image' : entry.format === 'code' ? 'code' : 'file'} size={22} /><span><strong>{entry.title}</strong><small>{entry.contentType === 'images' ? `${entry.images?.length || 0} images` : entry.format === 'code' ? `${countReaderCodeLines(entry.content).toLocaleString()} lines` : `${countWords(entry.content).toLocaleString()} words`} · {Math.round(($readerProgressByDocument[entry.docKey] || 0) * 100)}% read</small></span><ReaderIcon name="right" size={16} /></button>{/each}
-					{:else}<p class="reader-panel-hint">Your open documents will appear here. Start with a file or paste something to read.</p>{/if}
+				<section class="reader-recent-card"><div class="reader-panel-heading"><h2><ReaderIcon name="clock" />{$_('rti.recent_reads')}</h2><span>{$_('rti.this_session')}</span></div>
+					{#if $readerHistory.length}{#each $readerHistory as entry (entry.id)}<button type="button" class="reader-recent-item" onclick={() => openReaderHistoryEntry(entry.id)}><ReaderIcon name={entry.contentType === 'images' ? 'image' : entry.format === 'code' ? 'code' : 'file'} size={22} /><span><strong>{entry.title}</strong><small>{entry.contentType === 'images' ? $_('rti.images_count', { values: { n: entry.images?.length || 0 } }) : entry.format === 'code' ? $_('rti.lines_count', { values: { n: countReaderCodeLines(entry.content).toLocaleString() } }) : $_('rti.words', { values: { n: countWords(entry.content).toLocaleString() } })} · {$_('rti.percent_read', { values: { p: Math.round(($readerProgressByDocument[entry.docKey] || 0) * 100) } })}</small></span><ReaderIcon name="right" size={16} /></button>{/each}
+					{:else}<p class="reader-panel-hint">{$_('rti.recent_empty')}</p>{/if}
 				</section>
-				<section class="reader-home-detail"><ReaderIcon name="bookmark" size={24} /><h2>Your place is kept.</h2><p>Reading position, bookmarks, and notes are saved on this device. Reopen the same document to continue.</p><p class="reader-panel-hint">Local files are not uploaded. Documents remain available in Recent reads for this session.</p></section>
+				<section class="reader-home-detail"><ReaderIcon name="bookmark" size={24} /><h2>{$_('rti.place_kept')}</h2><p>{$_('rti.place_kept_desc')}</p><p class="reader-panel-hint">{$_('rti.place_kept_local')}</p></section>
 			</div>
 		</div>
 	{/if}
@@ -612,9 +613,9 @@
 	<input bind:this={imageInput} class="reader-hidden-input" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp" multiple onchange={handleImages} />
 	{#if importPanelOpen}<ReaderImportSheet bind:importTitle bind:importContent bind:importFormat onClose={closeImport} onSubmit={submitImport} />{/if}
 	{#if lightboxIndex !== null && images[lightboxIndex]}
-		<dialog bind:this={lightbox} class="reader-lightbox" aria-label="Image viewer" oncancel={() => { lightboxIndex = null; }} onclick={(e) => { if (e.target === lightbox) lightboxIndex = null; }}>
+		<dialog bind:this={lightbox} class="reader-lightbox" aria-label={$_('rti.image_viewer')} oncancel={() => { lightboxIndex = null; }} onclick={(e) => { if (e.target === lightbox) lightboxIndex = null; }}>
 			<div class="reader-lightbox-image"><img src={images[lightboxIndex].url} alt={images[lightboxIndex].alt} /></div>
-			<div class="reader-lightbox-toolbar"><button type="button" class="reader-secondary-button" disabled={lightboxIndex === 0} onclick={() => { lightboxIndex = Math.max(0, (lightboxIndex || 0) - 1); }}>Previous</button><span>{lightboxIndex + 1} / {images.length}</span><button type="button" class="reader-secondary-button" disabled={lightboxIndex === images.length - 1} onclick={() => { lightboxIndex = Math.min(images.length - 1, (lightboxIndex || 0) + 1); }}>Next</button><button type="button" class="reader-secondary-button" onclick={() => { lightboxIndex = null; }}>Close</button></div>
+			<div class="reader-lightbox-toolbar"><button type="button" class="reader-secondary-button" disabled={lightboxIndex === 0} onclick={() => { lightboxIndex = Math.max(0, (lightboxIndex || 0) - 1); }}>{$_('messages.viewer.previous')}</button><span>{lightboxIndex + 1} / {images.length}</span><button type="button" class="reader-secondary-button" disabled={lightboxIndex === images.length - 1} onclick={() => { lightboxIndex = Math.min(images.length - 1, (lightboxIndex || 0) + 1); }}>{$_('login.wizard.next')}</button><button type="button" class="reader-secondary-button" onclick={() => { lightboxIndex = null; }}>{$_('common.close')}</button></div>
 		</dialog>
 	{/if}
 </section>

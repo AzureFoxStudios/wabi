@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { kanbanColumns, projects } from '$lib/business/store';
 	import type { Todo, TodoStatus } from '$lib/business/types';
 	import SignatureRow from './SignatureRow.svelte';
@@ -47,33 +48,33 @@
 		}}
 	>
 		<div class="modal-header">
-			<h2>{editingTodo ? 'Edit Task' : 'Add New Task'}</h2>
+			<h2>{editingTodo ? $_('ttm.edit_task') : $_('ttm.add_task_new')}</h2>
 			<button class="close-btn" on:click={closeModal}>&times;</button>
 		</div>
 		<form on:submit|preventDefault={handleSubmit}>
 			<div class="form-group">
-				<label for="title">Title *</label>
-				<input id="title" type="text" bind:value={formTitle} placeholder="What needs to be done?" required />
+				<label for="title">{$_('reader_doc.title_label')} *</label>
+				<input id="title" type="text" bind:value={formTitle} placeholder={$_('ttm.title_ph')} required />
 			</div>
 
 			<div class="form-group">
-				<label for="description">Description</label>
-				<textarea id="description" bind:value={formDescription} placeholder="Add more details..." rows="3"></textarea>
+				<label for="description">{$_('donation_config.description')}</label>
+				<textarea id="description" bind:value={formDescription} placeholder={$_('ttm.desc_ph')} rows="3"></textarea>
 			</div>
 
 			<div class="form-row">
 				<div class="form-group">
-					<label for="priority">Priority</label>
+					<label for="priority">{$_('kan.kick_priority')}</label>
 					<select id="priority" bind:value={formPriority}>
-						<option value="low">Low</option>
-						<option value="medium">Medium</option>
-						<option value="high">High</option>
-						<option value="urgent">Urgent</option>
+						<option value="low">{$_('kan.pri_low')}</option>
+						<option value="medium">{$_('kan.pri_medium')}</option>
+						<option value="high">{$_('kan.pri_high')}</option>
+						<option value="urgent">{$_('kan.pri_urgent')}</option>
 					</select>
 				</div>
 
 				<div class="form-group">
-					<label for="status">Status</label>
+					<label for="status">{$_('project_schedule.th_status')}</label>
 					<select id="status" bind:value={formStatus}>
 						{#each $kanbanColumns as column}
 							<option value={column.id}>{column.label}</option>
@@ -84,15 +85,15 @@
 
 			<div class="form-row">
 				<div class="form-group">
-					<label for="dueDate">Due Date</label>
+					<label for="dueDate">{$_('ttm.due_date')}</label>
 					<input id="dueDate" type="date" bind:value={formDueDate} />
 				</div>
 
 				{#if $projects.length > 0}
 					<div class="form-group">
-						<label for="project">Project</label>
+						<label for="project">{$_('places.project')}</label>
 						<select id="project" bind:value={formProjectId}>
-							<option value="">No Project</option>
+							<option value="">{$_('ttm.no_project')}</option>
 							{#each $projects as project}
 								<option value={project.id}>{project.name}</option>
 							{/each}
@@ -104,30 +105,30 @@
 			<div class="form-group checkbox-group">
 				<label class="checkbox-label">
 					<input type="checkbox" bind:checked={formHasTimeEstimate} />
-					<span>Track time estimate for burndown</span>
+					<span>{$_('ttm.track_estimate')}</span>
 				</label>
 			</div>
 
 			{#if formHasTimeEstimate}
 				<div class="form-group">
-					<label for="estimatedHours">Estimated Time (hours)</label>
+					<label for="estimatedHours">{$_('ttm.est_hours')}</label>
 					<input id="estimatedHours" type="number" min="0.25" step="0.25" bind:value={formEstimatedHours} />
 				</div>
 			{/if}
 
 			<div class="form-group">
-				<label for="tags">Tags (comma separated)</label>
-				<input id="tags" type="text" bind:value={formTags} placeholder="e.g., bug, feature, urgent" />
+				<label for="tags">{$_('ttm.tags')}</label>
+				<input id="tags" type="text" bind:value={formTags} placeholder={$_('ttm.tags_ph')} />
 			</div>
 
 			<div class="form-group">
-				<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" />
+				<SignatureRow bind:draftSignatures {legacySignedBy} label={$_('project_modal.names_attached')} />
 			</div>
 
 			<div class="form-actions">
-				<button type="button" class="cancel-btn" on:click={closeModal}>Cancel</button>
+				<button type="button" class="cancel-btn" on:click={closeModal}>{$_('common.cancel')}</button>
 				<button type="submit" class="submit-btn">
-					{editingTodo ? 'Save Changes' : 'Add Task'}
+					{editingTodo ? $_('project_modal.save_changes') : $_('ttm.add_task')}
 				</button>
 			</div>
 		</form>

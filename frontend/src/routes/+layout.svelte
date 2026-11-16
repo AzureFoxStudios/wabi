@@ -21,7 +21,7 @@
 	import PureRefViewer from '$lib/components/PureRefViewer.svelte';
 	import SyncLoadingOverlay from '$lib/components/SyncLoadingOverlay.svelte';
 	import { isTauriRuntime as isRunningInTauri } from '$lib/tauri-platform';
-	import { initI18n } from '$lib/i18n';
+	import { initI18n, _ } from '$lib/i18n';
 	import { isNeutralBrandingEnabled, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import { openWabiDB, getWabiDB } from '$lib/wabidb';
 	import { drainOutboundQueue } from '$lib/wabidb/drain';
@@ -342,16 +342,16 @@ function isLocalPreviewHost(): boolean {
 </script>
 
 <svelte:head>
-	<meta name="description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
+	<meta name="description" content="{$_('layout.meta_desc')}" />
 	<meta property="og:site_name" content="Wabi" />
 	<meta property="og:type" content="website" />
-	<meta property="og:title" content="Wabi — talk, create, and work together" />
-	<meta property="og:description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
+	<meta property="og:title" content="{$_('layout.meta_title')}" />
+	<meta property="og:description" content="{$_('layout.meta_desc')}" />
 	<meta property="og:image" content="https://wabi.chat/screenshot-wide.png" />
-	<meta property="og:image:alt" content="Wabi communication workspace interface" />
+	<meta property="og:image:alt" content="{$_('layout.meta_img_alt')}" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Wabi — talk, create, and work together" />
-	<meta name="twitter:description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
+	<meta name="twitter:title" content="{$_('layout.meta_title')}" />
+	<meta name="twitter:description" content="{$_('layout.meta_desc')}" />
 	<meta name="twitter:image" content="https://wabi.chat/screenshot-wide.png" />
 </svelte:head>
 
@@ -371,10 +371,10 @@ function isLocalPreviewHost(): boolean {
 	<SyncLoadingOverlay />
 
 	{#if pwaUpdateReady}
-		<div class="pwa-update-banner" role="region" aria-label="Wabi update available">
-			<div><strong>Wabi has an update</strong><span>Finish or copy any unsent draft, then reload for the latest fixes.</span></div>
-			<button type="button" on:click={reloadUpdatedApp}>Reload</button>
-			<button type="button" class="pwa-update-later" aria-label="Dismiss update notice" on:click={() => (pwaUpdateReady = false)}>Later</button>
+		<div class="pwa-update-banner" role="region" aria-label={$_('layout.update_aria')}>
+			<div><strong>{$_('layout.update_title')}</strong><span>{$_('layout.update_text')}</span></div>
+			<button type="button" on:click={reloadUpdatedApp}>{$_('community_roles.reload')}</button>
+			<button type="button" class="pwa-update-later" aria-label={$_('layout.dismiss_aria')} on:click={() => (pwaUpdateReady = false)}>{$_('layout.later')}</button>
 		</div>
 	{/if}
 

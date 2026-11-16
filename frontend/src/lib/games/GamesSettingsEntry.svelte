@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { openGames } from './navigation';
 </script>
 <section class="games-settings-entry">
-  <h3>Games &amp; Steam</h3>
-  <p>Choose your rotation, favorites and invitation preferences. Steam is optional; nothing is published automatically.</p>
-  <div><button onclick={() => openGames()}>Open my game board</button><button onclick={() => openGames({tab:'steam'})}>Steam connection</button></div>
+  <h3>{$_('games_ws.title_own')}</h3>
+  <p>{$_('gse.desc')}</p>
+  <div><button onclick={() => openGames()}>{$_('gse.open_board')}</button><button onclick={() => openGames({tab:'steam'})}>{$_('games_ws.tab_steam')}</button></div>
 </section>
 <style>
 .games-settings-entry{padding:1.2rem;margin:1rem 0;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface-raised);color:var(--text-primary);}

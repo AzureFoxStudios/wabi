@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import BaseModal from '../BaseModal.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import {
@@ -89,7 +90,7 @@
 		collision = null;
 		try {
 			const token = getAuthToken();
-			if (!token) throw new Error('Not signed in');
+			if (!token) throw new Error($_('lpm.not_signed_in'));
 			const res = await promoteLoreFromMessage(token, {
 				messageId: message.id,
 				fileUrl: selectedUrl,
@@ -121,11 +122,11 @@
 
 <BaseModal isOpen={open} onClose={onClose} width="480px" showCloseButton={true}>
 	<div slot="header" class="modal-header">
-		<h3>Promote to Lore</h3>
+		<h3>{$_('lpm.title')}</h3>
 		{#if binding}
-			<p>Channel binding: {binding.path} on branch {binding.branch} ({binding.mode})</p>
+			<p>{$_('lpm.binding', { values: { path: binding.path, branch: binding.branch, mode: binding.mode } })}</p>
 		{:else if bindingMissing}
-			<p>No channel binding — target a repo path directly.</p>
+			<p>{$_('lpm.no_binding')}</p>
 		{/if}
 	</div>
 
@@ -133,16 +134,16 @@
 		{#if result}
 			<div class="promote-result">
 				{#if result.pendingReview}
-					<p>📋 Staged <code>{selectedName}</code> for review on branch <code>{result.reviewBranch}</code>.</p>
+					<p>📋 {$_('lpm.staged')} <code>{selectedName}</code> {$_('lpm.for_review_on')} <code>{result.reviewBranch}</code>.</p>
 				{:else}
-					<p>📦 Committed <code>{selectedName}</code> → <code>{result.path}</code> (rev {result.revision?.hash?.slice(0, 7)}).</p>
+					<p>📦 {$_('lpm.committed')} <code>{selectedName}</code> → <code>{result.path}</code> ({$_('lpm.rev', { values: { hash: result.revision?.hash?.slice(0, 7) } })}).</p>
 				{/if}
-				<p class="field-hint">A confirmation message was posted to the channel.</p>
+				<p class="field-hint">{$_('lpm.confirm_posted')}</p>
 			</div>
 		{:else}
 			{#if attachments.length > 1}
 				<label class="field">
-					<span class="field-label">Attachment</span>
+					<span class="field-label">{$_('chat.compose.attachment')}</span>
 					<select bind:value={selectedUrl}>
 						{#each attachments as a (a.fileUrl)}
 							<option value={a.fileUrl}>{a.fileName}</option>
@@ -152,36 +153,36 @@
 			{/if}
 
 			<label class="field">
-				<span class="field-label">Target path</span>
+				<span class="field-label">{$_('lpm.target_path')}</span>
 				<input type="text" bind:value={path} placeholder="/art/concepts/" />
 				<span class="field-hint">{targetPath}</span>
 			</label>
 
 			<label class="field">
-				<span class="field-label">Branch</span>
+				<span class="field-label">{$_('lpm.branch')}</span>
 				<input type="text" bind:value={branch} />
 			</label>
 
 			<label class="field">
-				<span class="field-label">Mode</span>
+				<span class="field-label">{$_('server_policy.mode')}</span>
 				<select bind:value={mode}>
-					<option value="binding">Use channel binding ({binding?.mode ?? 'n/a'})</option>
-					<option value="direct">Direct commit</option>
-					<option value="stage">Stage for review</option>
+					<option value="binding">{$_('lpm.use_binding', { values: { mode: binding?.mode ?? $_('payment_intent.na') } })}</option>
+					<option value="direct">{$_('lpm.direct')}</option>
+					<option value="stage">{$_('lpm.stage')}</option>
 				</select>
 			</label>
 
 			{#if bindingMissing}
 				<label class="field">
-					<span class="field-label">Repo channel id</span>
-					<input type="number" bind:value={repoChannelId} placeholder="e.g. 42" />
+					<span class="field-label">{$_('lpm.repo_channel')}</span>
+					<input type="number" bind:value={repoChannelId} placeholder="{$_('lpm.eg_42')}" />
 				</label>
 			{/if}
 
 			{#if collision}
 				<div class="collision-warning">
-					<p>⚠️ A file already exists at <code>{collision.path}</code>.</p>
-					<p class="field-hint">Overwrite creates a new revision (old version stays in history).</p>
+					<p>⚠️ {$_('lpm.exists')} <code>{collision.path}</code>.</p>
+					<p class="field-hint">{$_('lpm.overwrite_hint')}</p>
 				</div>
 			{/if}
 
@@ -193,20 +194,20 @@
 
 	<div slot="footer" class="modal-footer">
 		{#if result}
-			<button class="btn-primary" onclick={onClose}>Done</button>
+			<button class="btn-primary" onclick={onClose}>{$_('login.wizard.step_done')}</button>
 		{:else if collision}
-			<button class="btn-secondary" onclick={renamePath}>Choose another path</button>
+			<button class="btn-secondary" onclick={renamePath}>{$_('lpm.choose_path')}</button>
 			<button class="btn-danger" disabled={submitting} onclick={() => submit('overwrite')}>
-				Overwrite (new revision)
+				{$_('lpm.overwrite')}
 			</button>
 		{:else}
-			<button class="btn-secondary" onclick={onClose}>Cancel</button>
+			<button class="btn-secondary" onclick={onClose}>{$_('common.cancel')}</button>
 			<button
 				class="btn-primary"
 				disabled={submitting || !selectedUrl || !path.startsWith('/')}
 				onclick={() => submit()}
 			>
-				{submitting ? 'Promoting…' : mode === 'stage' ? 'Stage for review' : 'Promote'}
+				{submitting ? $_('lpm.promoting') : mode === 'stage' ? $_('lpm.stage') : $_('lpm.promote')}
 			</button>
 		{/if}
 	</div>

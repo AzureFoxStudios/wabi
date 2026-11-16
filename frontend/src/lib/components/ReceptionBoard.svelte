@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	let { mode = 'welcome' }: { mode?: 'welcome' | 'desk' } = $props();
@@ -77,7 +78,7 @@
 	$effect(() => { void serverIcon; serverIconFailed = false; });
 	const posterBlocks = $derived($currentSavedServer?.frontendMetadata?.deskPosterBlocks || []);
 	const helpText = $derived($currentSavedServer?.frontendMetadata?.deskHelpText?.trim() || '');
-	const helpLabel = $derived($currentSavedServer?.frontendMetadata?.deskHelpLabel?.trim() || 'Community resource');
+	const helpLabel = $derived($currentSavedServer?.frontendMetadata?.deskHelpLabel?.trim() || $_('rb.community_resource'));
 	const resourceUrl = $derived.by(() => {
 		const raw = $currentSavedServer?.frontendMetadata?.deskHelpUrl?.trim();
 		if (!raw) return null;
@@ -94,13 +95,13 @@
 	}
 	async function guideRequest(path: string, init: RequestInit = {}, server = $activeServerUrl) {
 		const token = getAuthToken(server);
-		if (!token) throw new Error('Sign in to read this server’s welcome guide.');
+		if (!token) throw new Error($_('rb.sign_in_guide'));
 		const response = await fetch(`${server}/api/server-center${path}`, {
 			...init, credentials: 'include',
 			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
 		});
 		const body = await response.json().catch(() => ({}));
-		if (!response.ok) throw new Error(body.error || `Welcome guide unavailable (${response.status}).`);
+		if (!response.ok) throw new Error(body.error || $_('rb.guide_unavailable', { values: { status: response.status } }));
 		return body;
 	}
 	async function refreshGuide(server = $activeServerUrl) {
@@ -114,7 +115,7 @@
 			guidedRooms = guide.rooms ?? [];
 			canChooseRoles = Boolean(guide.canChooseRoles);
 		} catch (cause) {
-			if (server === $activeServerUrl) guideError = cause instanceof Error ? cause.message : 'Could not load the welcome guide.';
+			if (server === $activeServerUrl) guideError = cause instanceof Error ? cause.message : $_('rb.load_guide_failed');
 		} finally { if (server === $activeServerUrl) loadingGuide = false; }
 	}
 	async function refreshRules(server = $activeServerUrl) {
@@ -138,7 +139,7 @@
 		} catch (cause) {
 			if (server === $activeServerUrl && token === getAuthToken(server) && generation === authSessionGeneration(server)) {
 				await refreshGuide(server);
-				guideError = cause instanceof Error ? cause.message : 'Could not save your roles.';
+				guideError = cause instanceof Error ? cause.message : $_('rb.save_roles_failed');
 			}
 		} finally { if (server === $activeServerUrl) changingRole = ''; }
 	}
@@ -171,19 +172,19 @@
 <div class="reception-board" class:desk={mode === 'desk'}>
 	<div class="reception-header" class:with-artwork={Boolean(displayBackground || posterBlocks.length)}>
 		{#if displayBackground}<img class="server-banner" src={displayBackground} alt="" onerror={() => { if (displayBackground === movingBackground) movingImageFailed = true; }} />{/if}
-		{#if movingBackground && motionAllowed}<button type="button" class="motion-button" onclick={toggleMotion} disabled={movingImageFailed}>{movingImageFailed ? 'Moving background unavailable' : motionPaused ? 'Play background' : 'Pause background'}</button>{/if}
+		{#if movingBackground && motionAllowed}<button type="button" class="motion-button" onclick={toggleMotion} disabled={movingImageFailed}>{movingImageFailed ? $_('rb.moving_unavailable') : motionPaused ? $_('rb.play_bg') : $_('rb.pause_bg')}</button>{/if}
 		{#if serverIcon && !serverIconFailed}<img class="server-icon" src={serverIcon} alt="" onerror={() => serverIconFailed = true} />{:else}<span class="server-icon server-icon-fallback" aria-hidden="true">{serverName.charAt(0).toUpperCase()}</span>{/if}
-		<h1>{mode === 'desk' ? `You’re on ${serverName}` : `Welcome to ${serverName}`}</h1>
+		<h1>{mode === 'desk' ? $_('rb.on_server', { values: { name: serverName } }) : $_('rb.welcome', { values: { name: serverName } })}</h1>
 		{#if serverDescription}<p class="server-description">{serverDescription}</p>{/if}
 		{#if welcomeText}<p class="welcome-message">{welcomeText}</p>{/if}
-		{#if mode === 'welcome'}<p class="reception-subtitle">Read the rules, find rooms that fit you, and shape your view.</p>{/if}
+		{#if mode === 'welcome'}<p class="reception-subtitle">{$_('rb.reception_subtitle')}</p>{/if}
 		{#if posterBlocks.length}
-			<div class="poster-blocks" aria-label="Interactive welcome poster">
+			<div class="poster-blocks" aria-label={$_('rb.welcome_poster')}>
 				{#each posterBlocks as block (block.id)}
 					<div class="poster-block" style:left={`${block.x}%`} style:top={`${block.y}%`} style:width={`${block.width}%`}>
 						{#if block.kind === 'text'}<p>{block.text}</p>
-						{:else if block.kind === 'link'}{@const url = posterLink(block.url)}{#if url}<a href={url} target="_blank" rel="noopener noreferrer">{block.text}</a>{:else}<span>Resource unavailable</span>{/if}
-						{:else if block.kind === 'role'}{@const role = roles.find(item => item.id === block.roleId)}{#if role}<button type="button" disabled={!canChooseRoles || Boolean(changingRole)} aria-pressed={myRoleIds.includes(role.id)} onclick={() => toggleRole(role.id)}>{block.text} · {myRoleIds.includes(role.id) ? 'Selected' : canChooseRoles ? 'Choose' : 'Member account needed'}</button>{:else}<span>Role unavailable</span>{/if}{/if}
+						{:else if block.kind === 'link'}{@const url = posterLink(block.url)}{#if url}<a href={url} target="_blank" rel="noopener noreferrer">{block.text}</a>{:else}<span>{$_('rb.resource_unavailable')}</span>{/if}
+						{:else if block.kind === 'role'}{@const role = roles.find(item => item.id === block.roleId)}{#if role}<button type="button" disabled={!canChooseRoles || Boolean(changingRole)} aria-pressed={myRoleIds.includes(role.id)} onclick={() => toggleRole(role.id)}>{block.text} · {myRoleIds.includes(role.id) ? $_('media_albums.selected') : canChooseRoles ? $_('rb.choose') : $_('rb.member_needed')}</button>{:else}<span>{$_('rb.role_unavailable')}</span>{/if}{/if}
 					</div>
 				{/each}
 			</div>
@@ -194,77 +195,77 @@
 		<div class="desk-overview">
 			{#if guideError}<p class="guide-error" role="alert">{guideError}</p>{/if}
 			<section class="reception-section">
-				<h2>Community rules</h2>
-				{#if rulesText}<p class="rules-excerpt">{rulesText.length > 320 ? `${rulesText.slice(0, 320).trimEnd()}…` : rulesText}</p>{:else}<p class="reception-hint">This server has not published rules yet.{#if rulesChannel} The <strong>#{rulesChannel.name}</strong> room is where members keep them for now.{/if}</p>{/if}
-				{#if !rulesText && rulesChannel}<button type="button" class="rules-button" onclick={() => openRoom(rulesChannel.id)}>Read #{rulesChannel.name}</button>{/if}
-				{#if !rulesText && canWriteRules}<button type="button" class="rules-button" onclick={() => layoutStore.showAdminCenterStage()}>Publish server rules</button>{/if}
-				{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>Read all rules</button>{/if}
+				<h2>{$_('community_rules.title')}</h2>
+				{#if rulesText}<p class="rules-excerpt">{rulesText.length > 320 ? `${rulesText.slice(0, 320).trimEnd()}…` : rulesText}</p>{:else}<p class="reception-hint">{$_('rb.no_rules')}{#if rulesChannel} {$_('rb.rules_room_pre')} <strong>#{rulesChannel.name}</strong> {$_('rb.rules_room_post')}{/if}</p>{/if}
+				{#if !rulesText && rulesChannel}<button type="button" class="rules-button" onclick={() => openRoom(rulesChannel.id)}>{$_('rb.read_room', { values: { name: rulesChannel.name } })}</button>{/if}
+				{#if !rulesText && canWriteRules}<button type="button" class="rules-button" onclick={() => layoutStore.showAdminCenterStage()}>{$_('rb.publish_rules')}</button>{/if}
+				{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>{$_('rb.read_all_rules')}</button>{/if}
 			</section>
 			<section class="reception-section">
-				<h2>Your community roles</h2>
-				<button type="button" class="rules-button" onclick={() => editingChoices = true}>Manage community roles and sidebar</button>
-				{#if myRoleIds.length}<p class="reception-hint">{roles.filter(role => myRoleIds.includes(role.id)).map(role => role.name).join(', ') || 'Your previous roles are no longer available.'}</p>{:else}<p class="reception-hint">You have not chosen any community roles.</p>{/if}
+				<h2>{$_('rb.your_roles')}</h2>
+				<button type="button" class="rules-button" onclick={() => editingChoices = true}>{$_('rb.manage_roles')}</button>
+				{#if myRoleIds.length}<p class="reception-hint">{roles.filter(role => myRoleIds.includes(role.id)).map(role => role.name).join(', ') || $_('rb.prev_roles_gone')}</p>{:else}<p class="reception-hint">{$_('rb.no_roles_chosen')}</p>{/if}
 			</section>
 			<section class="reception-section desk-room-section">
-				<h2>Rooms in your sidebar</h2><p class="reception-hint">Show or hide rooms here, then open them from the channel list.</p>
-				{#if $channels.filter(ch => !['dm', 'group', 'category', 'reception'].includes(ch.type)).length === 0}<p class="reception-hint">No rooms are available yet.</p>{/if}
+				<h2>{$_('rb.rooms_sidebar')}</h2><p class="reception-hint">{$_('rb.rooms_sidebar_desc')}</p>
+				{#if $channels.filter(ch => !['dm', 'group', 'category', 'reception'].includes(ch.type)).length === 0}<p class="reception-hint">{$_('rb.no_rooms')}</p>{/if}
 				<div class="room-list">
 					{#each $channels as ch (ch.id)}
 						{#if !['dm', 'group', 'category', 'reception'].includes(ch.type)}
-							<div class="room-row" class:room-row-off={isHidden(ch.id)}><span class="room-name">{#if roomGlyph(ch)}<Icon name={roomGlyph(ch)} size={14} />{:else}<span class="room-hash" aria-hidden="true">#</span>{/if}{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span><button type="button" class="room-switch" role="switch" aria-checked={!isHidden(ch.id)} aria-label={`Show ${ch.name} in sidebar`} onclick={() => toggleRoom(ch.id)}><span class="switch-track" aria-hidden="true"></span><span>{isHidden(ch.id) ? 'Off' : 'On'}</span></button></div>
+							<div class="room-row" class:room-row-off={isHidden(ch.id)}><span class="room-name">{#if roomGlyph(ch)}<Icon name={roomGlyph(ch)} size={14} />{:else}<span class="room-hash" aria-hidden="true">#</span>{/if}{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span><button type="button" class="room-switch" role="switch" aria-checked={!isHidden(ch.id)} aria-label={$_('rb.show_in_sidebar', { values: { name: ch.name } })} onclick={() => toggleRoom(ch.id)}><span class="switch-track" aria-hidden="true"></span><span>{isHidden(ch.id) ? $_('audio_settings.off') : $_('audio_settings.on')}</span></button></div>
 						{/if}
 					{/each}
 				</div>
 				{#if guidedRooms.filter(room => !$channels.some(channel => channel.id === room.id)).length}
-					<h3>Other rooms you can open</h3>
+					<h3>{$_('rb.other_rooms')}</h3>
 					<div class="room-list">
 						{#each guidedRooms.filter(room => !$channels.some(channel => channel.id === room.id)) as room (room.id)}
-							<div class="room-row room-row-off"><span class="room-name">#{room.name}{#if room.description}<small>{room.description}</small>{/if}</span><span class="room-status">Choose {roles.find(role => role.id === room.roleId)?.name || 'a role'} to open</span></div>
+							<div class="room-row room-row-off"><span class="room-name">#{room.name}{#if room.description}<small>{room.description}</small>{/if}</span><span class="room-status">{$_('rb.choose_to_open', { values: { role: roles.find(role => role.id === room.roleId)?.name || $_('rb.a_role') } })}</span></div>
 						{/each}
 					</div>
 				{/if}
 				</section>
 			<section class="reception-section">
-				<h2>Need a hand?</h2>
-				<p class="reception-hint">{helpText || "Read the rules, choose a role to open its rooms, or browse all rooms you can access. You can return here from the server name at any time."}</p>
+				<h2>{$_('rb.need_hand')}</h2>
+				<p class="reception-hint">{helpText || $_('rb.help_default')}</p>
 				{#if resourceUrl}<a href={resourceUrl} target="_blank" rel="noopener noreferrer">{helpLabel}</a>{/if}
-				{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>Open rules and help</button>{/if}
+				{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>{$_('rb.open_rules_help')}</button>{/if}
 			</section>
 		</div>
 	{:else}
 	<div class="reception-body">
 		<section class="reception-section">
-			<h2>Before you jump in</h2>
-			<p class="reception-hint">Every server has its own expectations. Community roles below open the rooms linked to them. Staff access is assigned separately by staff.</p>
-			{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>Read server rules</button>{/if}
+			<h2>{$_('rb.before_jump')}</h2>
+			<p class="reception-hint">{$_('rb.before_jump_desc')}</p>
+			{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>{$_('rb.read_server_rules')}</button>{/if}
 		</section>
 
 		<section class="reception-section">
-			<h2>Find your role</h2>
-			<p class="reception-hint">Choose any community role that fits. Your choice is saved on this server and opens its rooms immediately.</p>
+			<h2>{$_('rb.find_role')}</h2>
+			<p class="reception-hint">{$_('rb.find_role_desc')}</p>
 			{#if guideError}<p class="guide-error" role="alert">{guideError}</p>{/if}
-			{#if loadingGuide}<p>Loading the room guide…</p>{:else if roles.length === 0}<p class="reception-empty">This server has not set up newcomer roles yet.</p>{:else}
+			{#if loadingGuide}<p>{$_('rb.loading_guide')}</p>{:else if roles.length === 0}<p class="reception-empty">{$_('rb.no_newcomer_roles')}</p>{:else}
 				<div class="role-list">
 					{#each roles as role (role.id)}
 						<div class="role-card">
 							<div><strong>{role.name}</strong>{#if role.description}<p>{role.description}</p>{/if}
 								{#each guidedRooms.filter(room => room.roleId === role.id) as room (room.id)}
-									<div class="guided-room"><span>#{room.name}</span>{#if room.description}<small>{room.description}</small>{/if}{#if myRoleIds.includes(role.id) && $channels.some(channel => channel.id === room.id)}<button type="button" onclick={() => openRoom(room.id)}>Open room</button>{/if}</div>
+									<div class="guided-room"><span>#{room.name}</span>{#if room.description}<small>{room.description}</small>{/if}{#if myRoleIds.includes(role.id) && $channels.some(channel => channel.id === room.id)}<button type="button" onclick={() => openRoom(room.id)}>{$_('rb.open_room')}</button>{/if}</div>
 								{/each}
 							</div>
-							<button type="button" onclick={() => toggleRole(role.id)} disabled={!canChooseRoles || Boolean(changingRole)} aria-pressed={myRoleIds.includes(role.id)}>{myRoleIds.includes(role.id) ? 'Leave role' : 'Choose role'}</button>
+							<button type="button" onclick={() => toggleRole(role.id)} disabled={!canChooseRoles || Boolean(changingRole)} aria-pressed={myRoleIds.includes(role.id)}>{myRoleIds.includes(role.id) ? $_('rb.leave_role') : $_('rb.choose_role')}</button>
 						</div>
 					{/each}
 				</div>
-				{#if !canChooseRoles}<p class="reception-hint">Sign in with a member account to choose roles.</p>{/if}
+				{#if !canChooseRoles}<p class="reception-hint">{$_('rb.sign_in_choose')}</p>{/if}
 			{/if}
-			<button type="button" class="refresh-guide" onclick={() => refreshGuide()}>Refresh room guide</button>
+			<button type="button" class="refresh-guide" onclick={() => refreshGuide()}>{$_('rb.refresh_guide')}</button>
 		</section>
 
 		<section class="reception-section view-section">
-			<h2>Shape your view</h2>
-			<p class="reception-hint">Show or hide rooms in your sidebar. This changes only your view; your community roles control access.</p>
-			<label class="rail-choice"><input type="checkbox" checked={$desktopServerRailPinned} onchange={event => desktopServerRailPinned.set(event.currentTarget.checked)} /><span>Show the server rail on desktop <small>A quick bar for switching between saved servers.</small></span></label>
+			<h2>{$_('rb.shape_view')}</h2>
+			<p class="reception-hint">{$_('rb.shape_view_desc')}</p>
+			<label class="rail-choice"><input type="checkbox" checked={$desktopServerRailPinned} onchange={event => desktopServerRailPinned.set(event.currentTarget.checked)} /><span>{$_('rb.rail')} <small>{$_('rb.rail_desc')}</small></span></label>
 			<div class="room-list">
 				{#each $channels as ch (ch.id)}
 					{#if !['dm', 'group', 'category', 'reception'].includes(ch.type)}
@@ -272,11 +273,11 @@
 							type="button"
 							class="room-row"
 							class:room-row-off={isHidden(ch.id)}
-							role="switch" aria-checked={!isHidden(ch.id)} aria-label={`Show ${ch.name} in sidebar`}
+							role="switch" aria-checked={!isHidden(ch.id)} aria-label={$_('rb.show_in_sidebar', { values: { name: ch.name } })}
 							onclick={() => toggleRoom(ch.id)}
 						>
 							<span class="room-name">{#if roomGlyph(ch)}<Icon name={roomGlyph(ch)} size={14} />{:else}<span class="room-hash" aria-hidden="true">#</span>{/if}{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span>
-							<span class="switch-track" class:enabled={!isHidden(ch.id)} aria-hidden="true"></span><span class="room-status">{isHidden(ch.id) ? 'Off' : 'On'}</span>
+							<span class="switch-track" class:enabled={!isHidden(ch.id)} aria-hidden="true"></span><span class="room-status">{isHidden(ch.id) ? $_('audio_settings.off') : $_('audio_settings.on')}</span>
 						</button>
 					{/if}
 				{/each}
@@ -287,8 +288,8 @@
 
 	<div class="reception-footer">
 		{#if mode === 'desk'}
-			{#if editingChoices}<button type="button" class="primary" onclick={() => editingChoices = false}>Done</button>{/if}
-		{:else}<button type="button" class="primary" onclick={openGeneral} disabled={!firstRoom}>Show me the server</button>{/if}
+			{#if editingChoices}<button type="button" class="primary" onclick={() => editingChoices = false}>{$_('login.wizard.step_done')}</button>{/if}
+		{:else}<button type="button" class="primary" onclick={openGeneral} disabled={!firstRoom}>{$_('rb.show_server')}</button>{/if}
 	</div>
 </div>
 

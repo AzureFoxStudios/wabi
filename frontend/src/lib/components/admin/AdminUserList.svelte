@@ -43,13 +43,13 @@
 			placeholder={$_('admin.placeholders.search_users')}
 			value={searchQuery}
 			oninput={(e) => onSearchInput((e.currentTarget as HTMLInputElement).value)}
-			aria-label="Search server members"
+			aria-label={$_('aul.search_aria')}
 		/>
 	</div>
 	{#if badgeMutationState.error}<p class="admin-badge-feedback" role="alert">{badgeMutationState.error}</p>{/if}
-	{#if badgeMutationState.pending}<p class="admin-badge-pending" role="status">Updating badges for {badgeMutationState.pending.username}…</p>
+	{#if badgeMutationState.pending}<p class="admin-badge-pending" role="status">{$_('aul.updating_badges', { values: { username: badgeMutationState.pending.username } })}</p>
 	{:else if badgeMutationState.status}<p class="admin-badge-status" role="status">{badgeMutationState.status}</p>{/if}
-	{#if canManageRoles && !badgeControlsOnline}<p class="admin-badge-status">Reconnect to change badges.</p>{/if}
+	{#if canManageRoles && !badgeControlsOnline}<p class="admin-badge-status">{$_('aul.reconnect_badges')}</p>{/if}
 	<div class="admin-user-list">
 		{#each sortedUsers as user (user.id)}
 			<div class="admin-user-item">
@@ -60,25 +60,25 @@
 						<span class="admin-guest-badge">{getRoleLabel('guest')}</span>
 					{/if}
 					{#if user.dbUserId && isUserPaymentBlocked(user)}
-						<span class="admin-payment-block-badge">Payments restricted</span>
+						<span class="admin-payment-block-badge">{$_('aul.payments_restricted')}</span>
 					{/if}
 				</div>
 				<div class="admin-actions">
-					<button class="admin-person-action admin-message-action" type="button" disabled={messagePendingUserId !== null} onclick={() => onMessage(user)} aria-label={`Message ${user.username}`}>
+					<button class="admin-person-action admin-message-action" type="button" disabled={messagePendingUserId !== null} onclick={() => onMessage(user)} aria-label={$_('aul.message_user', { values: { username: user.username } })}>
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
 						</svg>
-						<span>Message</span>
+						<span>{$_('messages.message')}</span>
 					</button>
-					{#if messagePendingUserId === getDmDirectoryKey(user)}<span class="admin-person-status" role="status">Opening conversation…</span>{/if}
+					{#if messagePendingUserId === getDmDirectoryKey(user)}<span class="admin-person-status" role="status">{$_('aul.opening_conv')}</span>{/if}
 					{#if canManageRoles}
 						<label class="admin-role-control">
-							<span>Role</span>
+							<span>{$_('upop.role')}</span>
 							<select
 								class="admin-select admin-user-role-select"
 								value={user.highestRole === 'owner' ? 'owner' : user.isRegistered === false ? 'guest' : getManagedUserRole(user)}
 								disabled={!canManageTargetUser(user) || roleBusyUserIds.includes(user.dbUserId ?? 0)}
-								aria-label={`Role for ${user.username}`}
+								aria-label={$_('aul.role_for', { values: { username: user.username } })}
 								onchange={(event) => {
 									const select = event.currentTarget;
 									const next = select.value as ManagedUserRole;
@@ -93,9 +93,9 @@
 								{/each}
 							</select>
 						</label>
-						{#if roleBusyUserIds.includes(user.dbUserId ?? 0)}<span class="admin-person-status" role="status">Updating role…</span>{/if}
+						{#if roleBusyUserIds.includes(user.dbUserId ?? 0)}<span class="admin-person-status" role="status">{$_('aul.updating_role')}</span>{/if}
 						{#if canManageTargetUser(user)}
-							<button class="admin-person-action admin-reset-password" type="button" aria-label={`Reset password for ${user.username}`} onclick={() => onResetPassword(user)}>Reset password</button>
+							<button class="admin-person-action admin-reset-password" type="button" aria-label={$_('aul.reset_pw_for', { values: { username: user.username } })} onclick={() => onResetPassword(user)}>{$_('apr.reset')}</button>
 							<button
 								class="admin-person-action admin-pay-toggle"
 								type="button"
@@ -103,23 +103,23 @@
 								onclick={() => onTogglePaymentBlock(user)}
 							>
 								{#if paymentBlockBusyUserId === user.dbUserId}
-									Updating…
+									{$_('aul.updating')}
 								{:else if isUserPaymentBlocked(user)}
-									Allow payments
+									{$_('aul.allow_pay')}
 								{:else}
-									Restrict payments
+									{$_('aul.restrict_pay')}
 								{/if}
 							</button>
 						{/if}
 						{#if canManageTargetUser(user) && onAssignBadge && onRemoveBadge && (heldBadges(user).length > 0 || unheldBadges(user).length > 0)}
 							<details class="admin-person-badges">
-								<summary aria-label={`Manage badges for ${user.username}`}>Badges{#if heldBadges(user).length > 0}<span class="admin-badge-count">{heldBadges(user).length}</span>{/if}</summary>
+								<summary aria-label={$_('aul.manage_badges_for', { values: { username: user.username } })}>{$_('profile_settings.badges_heading')}{#if heldBadges(user).length > 0}<span class="admin-badge-count">{heldBadges(user).length}</span>{/if}</summary>
 								<div class="admin-badge-control">
 								{#each heldBadges(user) as badge (badge.id)}
 									<button
 										class="admin-person-action admin-badge-chip"
 										type="button"
-										aria-label={`Remove ${badge.label} badge from ${user.username}`}
+										aria-label={$_('aul.remove_badge_from', { values: { badge: badge.label, username: user.username } })}
 										disabled={!badgeControlsOnline || badgeMutationState.pending !== null}
 										onclick={() => onRemoveBadge?.(user, badge.id)}
 									>
@@ -131,7 +131,7 @@
 								{#if unheldBadges(user).length > 0}
 									<select
 										class="admin-select admin-badge-select"
-										aria-label={`Add badge for ${user.username}`}
+										aria-label={$_('aul.add_badge_for', { values: { username: user.username } })}
 										disabled={!badgeControlsOnline || badgeMutationState.pending !== null}
 										value=""
 										onchange={(event) => {
@@ -140,7 +140,7 @@
 													(event.currentTarget as HTMLSelectElement).value = '';
 												}}
 									>
-										<option value="">Add a badge…</option>
+										<option value="">{$_('aul.add_badge_select')}</option>
 										{#each unheldBadges(user) as badge (badge.id)}
 											<option value={badge.id}>{badge.icon} {badge.label}</option>
 										{/each}

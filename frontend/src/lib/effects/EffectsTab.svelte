@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { effectsRegistry } from './registry';
 	import CRTSettings from './CRTSettings.svelte';
@@ -133,10 +134,10 @@
 			} else {
 				saveThemeToLocalStorage($themeStore.themeId, prefs);
 			}
-			showToast('Effect settings saved', 'info');
+			showToast($_('et.saved'), 'info');
 		} catch (err) {
 			console.error('[EffectsTab] Save failed:', err);
-			showToast('Failed to save effect settings', 'error');
+			showToast($_('et.save_failed'), 'error');
 		} finally {
 			saving = false;
 		}
@@ -157,12 +158,12 @@
 				URL.revokeObjectURL(url);
 				const EffectClass = module.default || Object.values(module)[0];
 				if (!EffectClass || typeof EffectClass !== 'function') {
-					showToast('Could not find an effect class in the module. Make sure it exports a class implementing AmbientEffect as default.', 'error');
+					showToast($_('et.no_class'), 'error');
 					return;
 				}
 				const instance = new EffectClass();
 				if (!instance.id || !instance.name || !instance.render) {
-					showToast('Invalid effect: missing required properties (id, name, render).', 'error');
+					showToast($_('et.invalid'), 'error');
 					return;
 				}
 				effectsRegistry.register(instance);
@@ -175,7 +176,7 @@
 				effectSpeed = instance.defaultConfig?.speed ?? effectSpeed;
 				applyEffect();
 			} catch (err) {
-				showToast('Failed to import effect: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
+				showToast($_('et.import_failed', { values: { reason: err instanceof Error ? err.message : $_('et.unknown_error') } }), 'error');
 			}
 		};
 		input.click();
@@ -198,15 +199,15 @@
 </script>
 
 <div class="settings-subsection">
-	<h4 class="subsection-label">Background Effects</h4>
+	<h4 class="subsection-label">{$_('et.title')}</h4>
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Effect</span>
-			<span class="setting-description">Choose an animated background effect for this theme</span>
+			<span class="setting-label">{$_('et.effect')}</span>
+			<span class="setting-description">{$_('et.effect_desc')}</span>
 		</div>
 		<select class="theme-select" value={selectedEffect} on:change={handleEffectChange}>
-			<option value="none">None (CSS glows only)</option>
+			<option value="none">{$_('et.none')}</option>
 			{#each effects as effect}
 				<option value={effect.id}>{effect.name}</option>
 			{/each}
@@ -216,21 +217,21 @@
 	{#if isJoker}
 		<div class="setting-item">
 			<div class="setting-info">
-				<span class="setting-label">Balatro state</span>
-				<span class="setting-description">Title screen, blind select, or shop</span>
+				<span class="setting-label">{$_('et.balatro_state')}</span>
+				<span class="setting-description">{$_('et.balatro_desc')}</span>
 			</div>
 			<div class="segmented-control">
-				<button type="button" class="segment" class:active={jokerState === 'title'} on:click={() => applyJokerState('title')}>Title</button>
-				<button type="button" class="segment" class:active={jokerState === 'blind'} on:click={() => applyJokerState('blind')}>Blind</button>
-				<button type="button" class="segment" class:active={jokerState === 'shop'} on:click={() => applyJokerState('shop')}>Shop</button>
+				<button type="button" class="segment" class:active={jokerState === 'title'} on:click={() => applyJokerState('title')}>{$_('reader_doc.title_label')}</button>
+				<button type="button" class="segment" class:active={jokerState === 'blind'} on:click={() => applyJokerState('blind')}>{$_('et.state_blind')}</button>
+				<button type="button" class="segment" class:active={jokerState === 'shop'} on:click={() => applyJokerState('shop')}>{$_('et.state_shop')}</button>
 			</div>
 		</div>
 	{/if}
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Color</span>
-			<span class="setting-description">Accent color for the effect</span>
+			<span class="setting-label">{$_('project_modal.color')}</span>
+			<span class="setting-description">{$_('et.color_desc')}</span>
 		</div>
 		<input
 			type="color"
@@ -242,8 +243,8 @@
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Color 2</span>
-			<span class="setting-description">Secondary color (Joker's blue)</span>
+			<span class="setting-label">{$_('et.color2')}</span>
+			<span class="setting-description">{$_('et.color2_desc')}</span>
 		</div>
 		<input
 			type="color"
@@ -255,8 +256,8 @@
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Color 3</span>
-			<span class="setting-description">Tertiary color (Joker's dark base)</span>
+			<span class="setting-label">{$_('et.color3')}</span>
+			<span class="setting-description">{$_('et.color3_desc')}</span>
 		</div>
 		<input
 			type="color"
@@ -268,7 +269,7 @@
 
 	<div class="setting-item setting-item-stack">
 		<div class="setting-info">
-			<span class="setting-label">Intensity</span>
+			<span class="setting-label">{$_('et.intensity')}</span>
 			<span class="setting-description">{Math.round(effectIntensity * 100)}%</span>
 		</div>
 		<input
@@ -284,7 +285,7 @@
 
 	<div class="setting-item setting-item-stack">
 		<div class="setting-info">
-			<span class="setting-label">Size</span>
+			<span class="setting-label">{$_('messages.viewer.details_size')}</span>
 			<span class="setting-description">{effectSize.toFixed(1)}×</span>
 		</div>
 		<input
@@ -300,7 +301,7 @@
 
 	<div class="setting-item setting-item-stack">
 		<div class="setting-info">
-			<span class="setting-label">Speed</span>
+			<span class="setting-label">{$_('mv.speed')}</span>
 			<span class="setting-description">{effectSpeed.toFixed(1)}×</span>
 		</div>
 		<input
@@ -316,31 +317,31 @@
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Apply to all themes</span>
-			<span class="setting-description">Use this effect configuration for every theme</span>
+			<span class="setting-label">{$_('et.apply_all')}</span>
+			<span class="setting-description">{$_('et.apply_all_desc')}</span>
 		</div>
 		<button class="toggle-btn" class:active={applyGlobally} on:click={() => applyGlobally = !applyGlobally}>
-			{applyGlobally ? 'ON' : 'OFF'}
+			{applyGlobally ? $_('payment_access_panel.on') : $_('payment_access_panel.off')}
 		</button>
 	</div>
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Save effect preferences</span>
-			<span class="setting-description">Persist your effect settings for this theme</span>
+			<span class="setting-label">{$_('et.save_prefs')}</span>
+			<span class="setting-description">{$_('et.save_prefs_desc')}</span>
 		</div>
 		<button class="action-btn" on:click={save} disabled={saving}>
-			{saving ? 'Saving...' : 'Save'}
+			{saving ? $_('donation_config.saving') : $_('common.save')}
 		</button>
 	</div>
 
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Import Custom Effect</span>
-			<span class="setting-description">Import a .ts or .js file that exports an AmbientEffect class</span>
+			<span class="setting-label">{$_('et.import_custom')}</span>
+			<span class="setting-description">{$_('et.import_desc')}</span>
 		</div>
 		<button type="button" class="action-btn" on:click={handleImport}>
-			Import
+			{$_('et.import')}
 		</button>
 	</div>
 </div>

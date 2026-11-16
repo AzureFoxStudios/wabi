@@ -126,11 +126,11 @@
 		owner: 4
 	};
 	const fallbackRoleLabels: Record<string, string> = {
-		owner: 'Owner',
-		admin: 'Admin',
-		mod: 'Moderator',
-		member: 'Member',
-		guest: 'Guest'
+		owner: $_('server_policy.role_owner'),
+		admin: $_('settings.tabs.admin'),
+		mod: $_('server_policy.role_moderator'),
+		member: $_('upop.role_member'),
+		guest: $_('login.tabs.guest')
 	};
 
 	$: activeChannelId = channelId || $currentChannel || '';
@@ -349,17 +349,17 @@
 
 	function formatDurationCompact(durationMs: number): string {
 		const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-		if (totalSeconds < 60) return `${totalSeconds}s`;
+		if (totalSeconds < 60) return `${totalSeconds}${get(_)('msgl.unit_s')}`;
 		const totalMinutes = Math.floor(totalSeconds / 60);
-		if (totalMinutes < 60) return `${totalMinutes}m`;
+		if (totalMinutes < 60) return `${totalMinutes}${get(_)('msgl.unit_m')}`;
 		const totalHours = Math.floor(totalMinutes / 60);
 		if (totalHours < 24) {
 			const minutes = totalMinutes % 60;
-			return minutes > 0 ? `${totalHours}h ${minutes}m` : `${totalHours}h`;
+			return minutes > 0 ? `${totalHours}${get(_)('msgl.unit_h')} ${minutes}${get(_)('msgl.unit_m')}` : `${totalHours}${get(_)('msgl.unit_h')}`;
 		}
 		const days = Math.floor(totalHours / 24);
 		const hours = totalHours % 24;
-		return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+		return hours > 0 ? `${days}${get(_)('msgl.unit_d')} ${hours}${get(_)('msgl.unit_h')}` : `${days}${get(_)('msgl.unit_d')}`;
 	}
 
 	function getMessageDeletionDeadline(message: Message): number | null {
@@ -680,7 +680,7 @@
 				// no-op
 			}
 		}
-		showToast('Copied!', 'info', 1200);
+		showToast(get(_)('msgl.copied'), 'info', 1200);
 	}
 
 	function canUseRevealAllSpoilers(): boolean {
@@ -831,7 +831,7 @@
 	): Promise<{ id: number; name: string } | null> {
 		const albums = await listMediaAlbums(token, scopeType, scopeId, 200);
 		if (albums.length === 0) {
-			const name = prompt('No albums found in this channel. Enter a new album name:', 'General');
+			const name = prompt(get(_)('msgl.no_albums'), get(_)('msgl.general'));
 			if (!name || !name.trim()) return null;
 			const created = await createMediaAlbum(token, {
 				scopeType,
@@ -842,17 +842,17 @@
 		}
 
 		const options = albums
-			.map((album, index) => `${index + 1}. ${album.name} (${album.itemCount} items)`)
+			.map((album, index) => get(_)('msgl.album_option', { values: { n: index + 1, name: album.name, count: album.itemCount } }))
 			.slice(0, 25)
 			.join('\n');
 		const raw = prompt(
-			`Choose an album:\n${options}${albums.length > 25 ? '\n...more albums not listed' : ''}\n\nEnter a number, or type "new" to create one.`,
+			get(_)('msgl.choose_album', { values: { options, more: albums.length > 25 ? get(_)('msgl.more_albums') : '' } }),
 			'1'
 		);
 		if (raw === null) return null;
 		const value = raw.trim().toLowerCase();
 		if (value === 'new' || value === 'n') {
-			const name = prompt('Enter a new album name:', 'General');
+			const name = prompt(get(_)('msgl.enter_new_name'), get(_)('msgl.general'));
 			if (!name || !name.trim()) return null;
 			const created = await createMediaAlbum(token, {
 				scopeType,
@@ -864,7 +864,7 @@
 
 		const index = Number.parseInt(value, 10);
 		if (!Number.isInteger(index) || index < 1 || index > albums.length) {
-			throw new Error(`Invalid album selection. Enter a number between 1 and ${albums.length}.`);
+			throw new Error(get(_)('msgl.invalid_selection', { values: { count: albums.length } }));
 		}
 		const selected = albums[index - 1];
 		return { id: selected.id, name: selected.name };
@@ -907,7 +907,7 @@
 
 		const token = getAuthToken();
 		if (!token) {
-			showToast('Login is required to add files to albums.', 'warning');
+			showToast(get(_)('msgl.login_albums'), 'warning');
 			contextMenuVisible = false;
 			return;
 		}
@@ -925,7 +925,7 @@
 
 		const scope = getAlbumScopeFromCurrentChannel();
 		if (!scope) {
-			showToast('Cannot determine active album scope.', 'error');
+			showToast(get(_)('msgl.scope_unknown'), 'error');
 			contextMenuVisible = false;
 			return;
 		}
@@ -941,11 +941,11 @@
 			if (outcome.status === 'blocked') {
 				blockedForServerReadable('album', targetMessage);
 			} else if (outcome.status === 'added' && outcome.count > 0) {
-				showToast(`Added ${outcome.count} file${outcome.count === 1 ? '' : 's'} to "${outcome.albumName}".`, 'info');
+				showToast(outcome.count === 1 ? get(_)('msgl.added_one', { values: { album: outcome.albumName } }) : get(_)('msgl.added_other', { values: { n: outcome.count, album: outcome.albumName } }), 'info');
 			}
 		} catch (error) {
 			console.error('Adding files to the album failed:', error);
-			showToast('Couldn’t add the files to the album. Nothing was added.', 'error');
+			showToast(get(_)('msgl.add_failed'), 'error');
 		} finally {
 			contextMenuVisible = false;
 		}
@@ -1008,27 +1008,27 @@
 	}
 
 	function getAlbumAnnouncementStatusLabel(meta: AlbumAnnouncementMeta, itemCount = 0): string {
-		if (albumAnnouncementUploadName === meta.name) return 'Uploading';
+		if (albumAnnouncementUploadName === meta.name) return get(_)('media_albums.uploading');
 		const recentCount = getRecentAlbumAnnouncementUploadCount(meta.name);
-		if (recentCount > 0) return `Added ${recentCount}`;
-		if (itemCount > 0) return `${itemCount} items`;
-		return 'Click to upload';
+		if (recentCount > 0) return get(_)('msgl.added_status', { values: { n: recentCount } });
+		if (itemCount > 0) return get(_)('msgl.items_count', { values: { n: itemCount } });
+		return get(_)('msgl.click_upload');
 	}
 
 	function getAlbumAnnouncementSupportText(meta: AlbumAnnouncementMeta, itemCount = 0): string {
 		if (albumAnnouncementUploadName === meta.name) {
-			return 'Uploading files into this shared album now.';
+			return get(_)('message_content.album_uploading_support');
 		}
 		const recentCount = getRecentAlbumAnnouncementUploadCount(meta.name);
 		if (itemCount > 0) {
 			return recentCount > 0
-				? 'Open Albums to browse the latest additions or add more files.'
-				: 'Open Albums to browse this shared album or add more files.';
+				? get(_)('msgl.open_albums_latest')
+				: get(_)('message_content.album_open_browse');
 		}
 		if (recentCount > 0) {
-			return 'Upload finished. Open Albums to browse what was added or click again to add more.';
+			return get(_)('msgl.upload_done');
 		}
-		return 'Click anywhere on this row to add the first image, or open Albums to manage it.';
+		return get(_)('msgl.click_first');
 	}
 
 	function handleAlbumAnnouncementActivate(meta: AlbumAnnouncementMeta, hasFiles: boolean, message?: Message): void {
@@ -1078,13 +1078,13 @@
 			} catch {
 				detail = await response.text();
 			}
-			throw new Error(detail || `Upload failed (${response.status})`);
+			throw new Error(detail || get(_)('branding.upload_failed', { values: { status: response.status } }));
 		}
 
 		const payload = await response.json();
 		const fileUrl = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
 		if (!fileUrl) {
-			throw new Error('Upload did not return a file URL.');
+			throw new Error(get(_)('msgl.no_file_url'));
 		}
 
 		return {
@@ -1106,13 +1106,13 @@
 		if (blockedForServerReadable('album', message)) return;
 		const token = getAuthToken();
 		if (!token) {
-			showToast('Login is required to upload into shared albums.', 'warning');
+			showToast(get(_)('msgl.login_upload_albums'), 'warning');
 			return;
 		}
 
 		const scope = getAlbumScopeFromCurrentChannel();
 		if (!scope) {
-			showToast('Cannot determine the active album scope.', 'error');
+			showToast(get(_)('msgl.scope_unknown2'), 'error');
 			return;
 		}
 
@@ -1126,9 +1126,9 @@
 				albums.find((album) => normalizeAlbumName(album.name) === normalizeAlbumName(meta.name)) || null;
 			if (!targetAlbum) {
 				const shouldCreate = await confirmAction({
-					title: `Recreate “${meta.name}”?`,
-					body: 'This album no longer exists here. Recreating it makes a new album with the same name for these files.',
-					confirm: 'Recreate album'
+					title: get(_)('msgl.recreate_title', { values: { name: meta.name } }),
+					body: get(_)('msgl.recreate_body'),
+					confirm: get(_)('msgl.recreate_btn')
 				});
 				if (!shouldCreate) return;
 				targetAlbum = await createMediaAlbum(token, {
@@ -1152,11 +1152,11 @@
 
 			if (addedCount > 0) {
 				recordAlbumAnnouncementUpload(meta.name, addedCount);
-				showToast(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`, 'info');
+				showToast(addedCount === 1 ? get(_)('msgl.added_one', { values: { album: targetAlbum.name } }) : get(_)('msgl.added_other', { values: { n: addedCount, album: targetAlbum.name } }), 'info');
 			}
 		} catch (error) {
 			console.error('Uploading into the album failed:', error);
-			showToast('Couldn’t upload into the album. Try again in a moment.', 'error');
+			showToast(get(_)('msgl.upload_failed_album'), 'error');
 		} finally {
 			albumAnnouncementUploadName = null;
 		}
@@ -1209,10 +1209,10 @@
 			if (navigator.clipboard?.writeText) {
 				await navigator.clipboard.writeText(quoteText);
 			} else {
-				window.prompt('Copy quote:', quoteText);
+				window.prompt(get(_)('msgl.copy_quote'), quoteText);
 			}
 		} catch {
-			window.prompt('Copy quote:', quoteText);
+			window.prompt(get(_)('msgl.copy_quote'), quoteText);
 		} finally {
 			contextMenuVisible = false;
 		}
@@ -1225,10 +1225,10 @@
 			if (navigator.clipboard?.writeText) {
 				await navigator.clipboard.writeText(deepLink);
 			} else {
-				window.prompt('Copy message link:', deepLink);
+				window.prompt(get(_)('msgl.copy_link'), deepLink);
 			}
 		} catch {
-			window.prompt('Copy message link:', deepLink);
+			window.prompt(get(_)('msgl.copy_link'), deepLink);
 		} finally {
 			contextMenuVisible = false;
 		}
@@ -1270,7 +1270,7 @@
 		const targetMessage = contextMenuMessage;
 		const settings = getTranslatorSettings();
 		if (!settings.providerUrl) {
-			showToast('Select a translator model in Settings > Add-ons > Translator Assist.', 'warning');
+			showToast(get(_)('msgl.translator_model'), 'warning');
 			contextMenuVisible = false;
 			return;
 		}
@@ -1300,7 +1300,7 @@
 			const translated = await requestTranslation(targetMessage.text, settings);
 			translatedMessages = { ...translatedMessages, [targetMessage.id]: translated };
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Translation failed';
+			const message = error instanceof Error ? error.message : get(_)('msgl.translation_failed');
 			translatedMessages = { ...translatedMessages, [targetMessage.id]: `(${message})` };
 		} finally {
 			const next = new Set(translatingMessageIds);
@@ -1368,9 +1368,9 @@
 		if (!canUseDeletionMode) return;
 		if (!deletionModeEnabled) {
 			const confirmed = await confirmAction({
-				title: 'Turn on deletion mode?',
-				body: 'Each message you click is removed immediately for everyone.',
-				confirm: 'Turn on deletion mode',
+				title: get(_)('msgl.deletion_on_title'),
+				body: get(_)('msgl.deletion_on_body'),
+				confirm: get(_)('msgl.deletion_on_btn'),
 				danger: true
 			});
 			if (!confirmed) return;
@@ -1567,9 +1567,9 @@
 	}
 	function formatFileSize(bytes?: number): string {
 		if (!bytes) return '';
-		if (bytes < 1024) return bytes + ' B';
-		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+		if (bytes < 1024) return bytes + ' ' + get(_)('storage_center.unit_b');
+		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' ' + get(_)('storage_center.unit_kb');
+		return (bytes / (1024 * 1024)).toFixed(1) + ' ' + get(_)('storage_center.unit_mb');
 	}
 	/** The one attachment URL builder (privacy/remoteMedia.ts): what is rendered is what is gated. */
 	function getFileUrl(fileUrl?: string): string {
@@ -1693,10 +1693,10 @@
 	}
 
 	function formatDirectionsExpiry(expiresAt?: number): string {
-		if (!expiresAt) return 'Temporary';
+		if (!expiresAt) return get(_)('msgl.temporary');
 		const remainingMs = Math.max(0, expiresAt - Date.now());
 		const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
-		return `Temporary | expires in ${remainingMinutes} min`;
+		return get(_)('msgl.temp_expires', { values: { n: remainingMinutes } });
 	}
 
 	function openDirectionsExternal(url?: string): void {
@@ -1731,7 +1731,7 @@
 			});
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok || payload?.success === false) {
-				throw new Error(payload?.error || `Failed to queue import (${response.status})`);
+				throw new Error(payload?.error || get(_)('msgl.queue_failed_status', { values: { status: response.status } }));
 			}
 			showToast(
 				payload?.job?.id
@@ -2097,10 +2097,10 @@
 
 <div class="ml-stream" class:messages-pane={standaloneStream} use:attachStreamList>
 {#if canUseDeletionMode && deletionModeEnabled}
-	<div class="moderation-delete-toolbar active" role="region" aria-label="Deletion mode active">
+	<div class="moderation-delete-toolbar active" role="region" aria-label={$_('msgl.deletion_active')}>
 		<span class="moderation-delete-dot" aria-hidden="true"></span>
-		<span class="moderation-delete-hint">Deletion mode — click a message to remove it for everyone.</span>
-		<button type="button" class="moderation-delete-exit" on:click={toggleDeletionMode}>Exit (Esc)</button>
+		<span class="moderation-delete-hint">{$_('msgl.deletion_hint')}</span>
+		<button type="button" class="moderation-delete-exit" on:click={toggleDeletionMode}>{$_('msgl.exit_deletion')}</button>
 	</div>
 {/if}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	/**
 	 * My Planner calendar (design contract §8.6). A quiet month grid on the page: mono weekday
 	 * kickers, today as an accent disc, events as tinted pills that never clip (overflow becomes
@@ -212,9 +213,9 @@
 	/** "Tuesday 22 September, 2 events, 1 task due" (the cell's name for assistive tech). */
 	function cellLabel(day: Date, events: number, tasks: number): string {
 		const parts = [fullDateFormat.format(day)];
-		if (sameDay(day, today)) parts[0] = `Today, ${parts[0]}`;
-		if (events) parts.push(plural(events, 'event', 'events'));
-		if (tasks) parts.push(`${plural(tasks, 'task', 'tasks')} due`);
+		if (sameDay(day, today)) parts[0] = `${$_('messages.day_today')}, ${parts[0]}`;
+		if (events) parts.push(plural(events, $_('kan.event_one'), $_('kan.event_other')));
+		if (tasks) parts.push(`${plural(tasks, $_('kan.task_one'), $_('kan.task_other'))} ${$_('cal.due_word')}`);
 		return parts.join(', ');
 	}
 	/** The day words a person reads in an agenda heading: "Today", "Tomorrow", or the date. */
@@ -278,8 +279,8 @@
 		if (isReadOnly) return;
 		const { patch, undo } = completeTask(todo);
 		updateTodo(todo.id, patch);
-		toast(`Marked “${todo.title}” done`, {
-			action: 'Undo',
+		toast($_('project_detail.marked_done', { values: { title: todo.title } }), {
+			action: $_('project_detail.undo'),
 			onAction: () => updateTodo(todo.id, { status: undo.status, completedAt: undo.completedAt })
 		});
 	}
@@ -376,7 +377,7 @@
 
 	function handleSubmit() {
 		if (!formTitle.trim() || !formStartDate) {
-			showToast('Title and start date are required', 'error');
+			showToast($_('cal.title_required'), 'error');
 			return;
 		}
 
@@ -413,11 +414,11 @@
 	async function handleDelete(id: string) {
 		const event = $calendarEvents.find((item) => item.id === id);
 		const confirmed = await confirmAction({
-			title: 'Delete this event?',
+			title: $_('cal.delete_title'),
 			body: event?.recurring
-				? `“${event.title}” and every time it repeats will be removed from your Planner.`
-				: `“${event?.title ?? 'This event'}” will be removed from your Planner.`,
-			confirm: 'Delete event',
+				? $_('cal.delete_series', { values: { title: event.title } })
+				: $_('kan.del_task_body', { values: { title: event?.title ?? $_('cal.this_event') } }),
+			confirm: $_('cal.delete_btn'),
 			danger: true
 		});
 		if (!confirmed) return;
@@ -434,7 +435,7 @@
 		<input
 			type="checkbox"
 			class="w-check cal-task__check"
-			aria-label={`Mark “${task.title}” done`}
+			aria-label={$_('project_detail.mark_done_label', { values: { title: task.title } })}
 			checked={false}
 			disabled={isReadOnly}
 			tabindex={inCell && !active ? -1 : 0}
@@ -452,7 +453,7 @@
 		class="cal-pill"
 		style:--pill={eventTint(event)}
 		tabindex={inCell && !active ? -1 : 0}
-		aria-label={`${event.title}, ${event.allDay ? 'all day' : formatTime(event.startDate)}. Edit event`}
+		aria-label={$_('cal.pill_aria', { values: { title: event.title, time: event.allDay ? $_('cal.all_day_word') : formatTime(event.startDate) } })}
 		on:click={() => openEditModal(event)}
 	>
 		<span class="cal-pill__dot" aria-hidden="true"></span>
@@ -465,40 +466,40 @@
 <div class="cal" class:cal--embedded={embedded} class:cal--agenda={agenda} class:cal--aside={showAside} bind:clientWidth={width}>
 	<header class="cal-head">
 		<div class="cal-steps">
-			<Tooltip text="Previous month">
-				<button type="button" class="w-ibtn" aria-label="Previous month" on:click={prevMonth}><Icon name="chevLeft" /></button>
+			<Tooltip text={$_('cal.prev_month')}>
+				<button type="button" class="w-ibtn" aria-label={$_('cal.prev_month')} on:click={prevMonth}><Icon name="chevLeft" /></button>
 			</Tooltip>
-			<Tooltip text="Next month">
-				<button type="button" class="w-ibtn" aria-label="Next month" on:click={nextMonth}><Icon name="chevRight" /></button>
+			<Tooltip text={$_('cal.next_month')}>
+				<button type="button" class="w-ibtn" aria-label={$_('cal.next_month')} on:click={nextMonth}><Icon name="chevRight" /></button>
 			</Tooltip>
 		</div>
 		<h2 class="cal-title" id={titleId} aria-live="polite">{monthLabel}</h2>
 		{#if showSummary}
 			<!-- Stands in for the side list when it is not beside the month: each count opens the
 			     Tasks companion on that filter (center stage keeps the month). -->
-			<div class="cal-sum" role="group" aria-label="Tasks with a due date">
+			<div class="cal-sum" role="group" aria-label={$_('cal.tasks_due_aria')}>
 				{#if overdue.length > 0}
-					<Tooltip text="Show overdue tasks in the Tasks panel">
+					<Tooltip text={$_('cal.show_overdue')}>
 						<button type="button" class="cal-sum__item cal-sum__item--danger" on:click={() => openPlannerTasksPanel('overdue')}>
-							<b>{overdue.length}</b> overdue
+							<b>{overdue.length}</b> {$_('kan.overdue_lc')}
 						</button>
 					</Tooltip>
 				{/if}
 				{#if overdue.length > 0 && upcoming.length > 0}<span class="cal-sum__sep" aria-hidden="true">·</span>{/if}
 				{#if upcoming.length > 0}
-					<Tooltip text="Show this week’s tasks in the Tasks panel">
+					<Tooltip text={$_('cal.show_week')}>
 						<button type="button" class="cal-sum__item" on:click={() => openPlannerTasksPanel('week')}>
-							<b>{upcoming.length}</b> due this week
+							<b>{upcoming.length}</b> {$_('cal.due_this_week')}
 						</button>
 					</Tooltip>
 				{/if}
 			</div>
 		{/if}
 		<div class="cal-head__end">
-			<button type="button" class="w-btn w-btn--sm" on:click={goToToday}>Today</button>
+			<button type="button" class="w-btn w-btn--sm" on:click={goToToday}>{$_('messages.day_today')}</button>
 			{#if !embedded}
-				<button type="button" class="w-btn w-btn--sm w-btn--primary" on:click={() => openAddModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only: events cannot be added here' : undefined}>
-					<Icon name="plus" size={16} />Add event
+				<button type="button" class="w-btn w-btn--sm w-btn--primary" on:click={() => openAddModal()} disabled={isReadOnly} title={isReadOnly ? $_('cal.read_only_add') : undefined}>
+					<Icon name="plus" size={16} />{$_('cal.add_event_label')}
 				</button>
 			{/if}
 		</div>
@@ -512,9 +513,9 @@
 					<EmptyState
 						icon="calendar"
 						as="h3"
-						title={`Nothing planned in ${new Intl.DateTimeFormat(undefined, { month: 'long' }).format(currentMonth)}`}
-						text="Events and tasks with a date in this month show up here."
-						action={isReadOnly ? undefined : 'Add event'}
+						title={$_('cal.nothing_in', { values: { month: new Intl.DateTimeFormat(undefined, { month: 'long' }).format(currentMonth) } })}
+						text={$_('cal.empty_text')}
+						action={isReadOnly ? undefined : $_('cal.add_event_label')}
 						onaction={() => openAddModal(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1))}
 					/>
 				{:else}
@@ -524,15 +525,15 @@
 							<div class="cal-agenda__head">
 								<h3 class="cal-agenda__date">{#if word}<strong>{word}</strong>{' · '}{/if}{fullDateFormat.format(day.date)}</h3>
 								{#if !isReadOnly}
-									<Tooltip text={`Add on ${dayMonthFormat.format(day.date)}`}>
-										<button type="button" class="w-ibtn w-ibtn--sm" aria-label={`Add on ${dayMonthFormat.format(day.date)}`} on:click={() => openAddModal(day.date)}>
+									<Tooltip text={$_('planner.add_on_date', { values: { date: dayMonthFormat.format(day.date) } })}>
+										<button type="button" class="w-ibtn w-ibtn--sm" aria-label={$_('planner.add_on_date', { values: { date: dayMonthFormat.format(day.date) } })} on:click={() => openAddModal(day.date)}>
 											<Icon name="plus" size={16} />
 										</button>
 									</Tooltip>
 								{/if}
 							</div>
 							{#if day.events.length === 0 && day.tasks.length === 0}
-								<p class="cal-agenda__none">Nothing planned yet.</p>
+								<p class="cal-agenda__none">{$_('cal.nothing_yet')}</p>
 							{:else}
 								<ul class="cal-agenda__list">
 									{#each day.events as event (`${event.id}-${event.startDate}`)}
@@ -583,25 +584,25 @@
 										<!-- In the head row beside the date, so the lines below keep the cell's
 										     height for titles. Narrow days drop the word ("+4"); the name and
 										     the tooltip say it in full. -->
-										<Tooltip text={`Show all ${total} items`}>
+										<Tooltip text={$_('cal.show_all', { values: { n: total } })}>
 											<button
 												type="button"
 												class="cal-more"
 												tabindex={active ? 0 : -1}
-												aria-label={`${hidden} more: show all ${total} items on ${dayMonthFormat.format(day)}`}
+												aria-label={$_('cal.more_aria', { values: { hidden, total, date: dayMonthFormat.format(day) } })}
 												on:click={() => openDayModal(day)}
 											>
-												<span>+{hidden}</span><span class="cal-more__word">more</span>
+												<span>+{hidden}</span><span class="cal-more__word">{$_('cal.more')}</span>
 											</button>
 										</Tooltip>
 									{/if}
 									{#if !isReadOnly}
-										<Tooltip text={`Add on ${dayMonthFormat.format(day)}`}>
+										<Tooltip text={$_('planner.add_on_date', { values: { date: dayMonthFormat.format(day) } })}>
 											<button
 												type="button"
 												class="w-ibtn w-ibtn--sm cal-add"
 												tabindex={active ? 0 : -1}
-												aria-label={`Add on ${dayMonthFormat.format(day)}`}
+												aria-label={$_('planner.add_on_date', { values: { date: dayMonthFormat.format(day) } })}
 												on:click={() => openAddModal(day)}
 											>
 												<Icon name="plus" size={14} />
@@ -629,11 +630,11 @@
 		{/if}
 
 		{#if showAside}
-			<aside class="cal-aside" aria-label="Tasks with a due date">
+			<aside class="cal-aside" aria-label={$_('cal.tasks_due_aria')}>
 				{#if overdue.length > 0}
 					<section class="cal-aside__group" aria-labelledby={`${titleId}-overdue`}>
 						<h3 class="cal-aside__kicker cal-aside__kicker--overdue" id={`${titleId}-overdue`}>
-							Overdue <span class="cal-aside__count">{overdue.length}</span>
+							{$_('kan.f_overdue')} <span class="cal-aside__count">{overdue.length}</span>
 						</h3>
 						<ul class="cal-aside__list">
 							{#each overdue.slice(0, SIDE_LIST_ROWS) as task (task.id)}
@@ -645,17 +646,17 @@
 						</ul>
 						{#if overdue.length > SIDE_LIST_ROWS}
 							<button type="button" class="cal-aside__more" on:click={() => openPlannerTasksPanel('overdue')}>
-								and {overdue.length - SIDE_LIST_ROWS} more overdue
+								{$_('cal.and_more_overdue', { values: { n: overdue.length - SIDE_LIST_ROWS } })}
 							</button>
 						{/if}
 					</section>
 				{/if}
 				<section class="cal-aside__group" aria-labelledby={`${titleId}-upcoming`}>
 					<h3 class="cal-aside__kicker" id={`${titleId}-upcoming`}>
-						Upcoming {#if upcoming.length}<span class="cal-aside__count">{upcoming.length}</span>{/if}
+						{$_('cal.upcoming')} {#if upcoming.length}<span class="cal-aside__count">{upcoming.length}</span>{/if}
 					</h3>
 					{#if upcoming.length === 0}
-						<p class="cal-aside__empty">Nothing due in the next seven days.</p>
+						<p class="cal-aside__empty">{$_('cal.nothing_due')}</p>
 					{:else}
 						<ul class="cal-aside__list">
 							{#each upcoming.slice(0, SIDE_LIST_ROWS) as task (task.id)}
@@ -667,7 +668,7 @@
 						</ul>
 						{#if upcoming.length > SIDE_LIST_ROWS}
 							<button type="button" class="cal-aside__more" on:click={() => openPlannerTasksPanel('week')}>
-								and {upcoming.length - SIDE_LIST_ROWS} more this week
+								{$_('cal.and_more_week', { values: { n: upcoming.length - SIDE_LIST_ROWS } })}
 							</button>
 						{/if}
 					{/if}

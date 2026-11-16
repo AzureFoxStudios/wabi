@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { canInstallPwa, dismissInstallBanner, isInstallBannerDismissed, promptInstall } from '$lib/pwa/installPrompt';
 	import { isStandaloneDisplay } from '$lib/pwa/platform';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -25,16 +26,16 @@
 </script>
 
 {#if show}
-	<div class="pwa-install-banner" role="region" aria-label="Install app">
+	<div class="pwa-install-banner" role="region" aria-label={$_('iab.aria')}>
 		<div class="pwa-install-banner__text">
-			<strong>Install Wabi</strong>
-			<span>Add Wabi to your home screen for quick access.</span>
+			<strong>{$_('iab.title')}</strong>
+			<span>{$_('iab.desc')}</span>
 		</div>
 		<div class="pwa-install-banner__actions">
 			<button type="button" class="pwa-install-banner__primary" disabled={busy} on:click={onInstall}>
-				{busy ? '…' : 'Install'}
+				{busy ? '…' : $_('iab.install')}
 			</button>
-			<button type="button" class="pwa-install-banner__ghost" on:click={onDismiss}>Not now</button>
+			<button type="button" class="pwa-install-banner__ghost" on:click={onDismiss}>{$_('iab.not_now')}</button>
 		</div>
 	</div>
 {/if}

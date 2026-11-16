@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
   import { onDestroy } from 'svelte';
   import Cad2DViewer from './Cad2DViewer.svelte';
   import { cadReviewAssetKey } from '$lib/cadReview';
@@ -46,10 +47,10 @@
 
   async function readLimited(response: Response, signal: AbortSignal): Promise<string> {
     const declared = Number(response.headers.get('content-length') || 0);
-    if (declared > MAX_DXF_BYTES) throw new Error("CAD document is larger than Wabi's 20 MB 2D preview limit.");
+    if (declared > MAX_DXF_BYTES) throw new Error($_('cdv.too_large'));
     if (!response.body) {
       const text = await response.text();
-      if (new TextEncoder().encode(text).byteLength > MAX_DXF_BYTES) throw new Error("CAD document is larger than Wabi's 20 MB 2D preview limit.");
+      if (new TextEncoder().encode(text).byteLength > MAX_DXF_BYTES) throw new Error($_('cdv.too_large'));
       return text;
     }
     const reader = response.body.getReader();
@@ -62,7 +63,7 @@
         const { done, value } = await reader.read();
         if (done) break;
         total += value.byteLength;
-        if (total > MAX_DXF_BYTES) throw new Error("CAD document is larger than Wabi's 20 MB 2D preview limit.");
+        if (total > MAX_DXF_BYTES) throw new Error($_('cdv.too_large'));
         text += decoder.decode(value, { stream: true });
       }
       text += decoder.decode();
@@ -86,7 +87,7 @@
     void (async () => {
       try {
         const response = await fetch(source, { signal: controller.signal });
-        if (!response.ok) throw new Error(`Could not load CAD document (${response.status}).`);
+        if (!response.ok) throw new Error($_('cdv.load_status', { values: { status: response.status } }));
         const text = await readLimited(response, controller.signal);
         const inspected = inspectCadDocumentViews(text);
         if (sequence !== loadSequence || controller.signal.aborted) return;
@@ -94,7 +95,7 @@
         activeId = inspected.views.find((view) => view.kind === 'model')?.id ?? inspected.views[0]?.id ?? '';
       } catch (reason) {
         if (controller.signal.aborted || sequence !== loadSequence) return;
-        error = reason instanceof Error ? reason.message : 'Could not inspect CAD document views.';
+        error = reason instanceof Error ? reason.message : $_('cdv.inspect_failed');
       } finally {
         if (sequence === loadSequence && !controller.signal.aborted) loading = false;
       }
@@ -119,13 +120,13 @@
 
 <div class="cad-document-shell" class:compact>
   {#if loading}
-    <div class="document-state" role="status">Inspecting CAD document views…</div>
+    <div class="document-state" role="status">{$_('cdv.inspecting')}</div>
   {:else if error}
-    <div class="document-state error" role="alert"><strong>CAD document preview unavailable</strong><span>{error}</span></div>
+    <div class="document-state error" role="alert"><strong>{$_('cdv.unavailable')}</strong><span>{error}</span></div>
   {:else if viewSet && activeView}
     {#if hasViewBar}
-      <div class="document-viewbar" aria-label="CAD document views">
-        <div class="view-tabs" role="tablist" aria-label="Model and drawing layouts">
+      <div class="document-viewbar" aria-label={$_('cdv.views_aria')}>
+        <div class="view-tabs" role="tablist" aria-label={$_('cdv.layouts_aria')}>
           {#each viewSet.views as view (view.id)}
             <button
               type="button"
@@ -133,18 +134,18 @@
               aria-selected={activeView.id === view.id}
               class:active={activeView.id === view.id}
               onclick={() => (activeId = view.id)}
-              title={view.kind === 'model' && view.hasSpatialEntities ? `${view.name}: spatial model content detected` : view.name}
+              title={view.kind === 'model' && view.hasSpatialEntities ? $_('cdv.spatial_content', { values: { name: view.name } }) : view.name}
             >
               <span>{view.name}</span>
               {#if view.kind === 'model' && view.hasSpatialEntities}
                 <small>{viewSet.modelDimensionality === 'mixed' ? '2D + 3D' : '3D'}</small>
-              {:else if view.kind === 'layout'}<small>Sheet</small>{/if}
+              {:else if view.kind === 'layout'}<small>{$_('cdv.sheet')}</small>{/if}
             </button>
           {/each}
         </div>
         {#if viewSet.hasSpatialModel}
           <span class="spatial-summary" title={viewSet.spatialEntityTypes.join(', ')}>
-            Spatial model detected
+            {$_('cdv.spatial_detected')}
           </span>
         {/if}
       </div>
@@ -153,11 +154,11 @@
     {#if hasRepresentationNote}
       <div class="representation-note" class:spatial-only={!activeView.previewable2d}>
         <div>
-          <strong>{viewSet.modelDimensionality === 'mixed' ? 'Model Space contains both 2D and 3D geometry' : '3D Model Space detected'}</strong>
+          <strong>{viewSet.modelDimensionality === 'mixed' ? $_('cdv.mixed_title') : $_('cdv.spatial_title')}</strong>
           {#if activeView.previewable2d}
-            <span>Wabi is showing the readable 2D projection below; it is not pretending that projection is the complete 3D model.</span>
+            <span>{$_('cdv.projection_note')}</span>
           {:else}
-            <span>This model has spatial entities but no supported 2D projection to display.</span>
+            <span>{$_('cdv.no_projection')}</span>
           {/if}
         </div>
         <small>{activeView.spatialEntityTypes.join(' · ')}</small>
@@ -176,11 +177,11 @@
       />
     {:else if activeView.hasSpatialEntities}
       <div class="spatial-placeholder" role="status">
-        <strong>3D representation needs a solid-model importer</strong>
-        <span>Wabi detected real spatial CAD content in this view. For a full solid preview, attach/export STEP, IGES or 3MF alongside the DWG/DXF. Paper Space layouts remain available above.</span>
+        <strong>{$_('cdv.solid_title')}</strong>
+        <span>{$_('cdv.solid_desc')}</span>
       </div>
     {:else}
-      <div class="document-state"><strong>No readable 2D entities in {activeView.name}</strong><span>The view exists in the CAD document, but its entity types are not supported by Wabi's current 2D renderer.</span></div>
+      <div class="document-state"><strong>{$_('cdv.no_entities', { values: { name: activeView.name } })}</strong><span>{$_('cdv.no_entities_desc')}</span></div>
     {/if}
   {/if}
 </div>

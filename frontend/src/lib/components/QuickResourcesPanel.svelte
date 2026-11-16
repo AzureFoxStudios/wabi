@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onDestroy, tick } from 'svelte';
 	import { layoutStore, NOTES_DM_ID } from '$lib/layoutStore';
 	import {
@@ -55,14 +56,14 @@
 	// finds or creates the "Scratchpad" note, which must never happen without the person asking.
 	// Until then the band states where the scratchpad lives; once it exists the band shows its real
 	// save state, collapsed or not.
-	const SAVED_HERE = 'Saved on this device';
-	const FAILED_STATES = new Set(['Could not save', 'Conflicting changes', 'Not available']);
+	const SAVED_HERE = $_('locality.saved_on_device');
+	const FAILED_STATES = new Set([$_('qsp.failed'), $_('qsp.conflict'), $_('server_health.not_available')]);
 	let scratchpadOpened = false;
 	$: if (!collapsed && !showingDm) scratchpadOpened = true;
 	$: bandStatus = scratchpadOpened ? scratchStatus || SAVED_HERE : SAVED_HERE;
 	// Autosave flips between "Saving…" and "Saved" as someone types: only a failure is announced,
 	// and only while collapsed (expanded, the editor's own notice is the alert).
-	$: bandAlert = collapsed && FAILED_STATES.has(scratchStatus) ? `Scratchpad: ${scratchStatus}` : '';
+	$: bandAlert = collapsed && FAILED_STATES.has(scratchStatus) ? $_('qrp.alert', { values: { status: scratchStatus } }) : '';
 
 	$: maxHeight = Math.max(TRAY_MIN_HEIGHT, Math.floor(parentHeight * TRAY_MAX_RATIO));
 	$: shownHeight = Math.max(TRAY_MIN_HEIGHT, Math.min(maxHeight, trayHeight));
@@ -80,14 +81,14 @@
 	) as User | null;
 	$: microDmMessages = (microDmChannelId ? $channelMessages[microDmChannelId] || [] : []) as Message[];
 	$: recentDmMessages = microDmMessages.slice(-8);
-	$: dmLabel = microDmOther?.username || (microDmChannelId ? 'Direct message' : null);
+	$: dmLabel = microDmOther?.username || (microDmChannelId ? $_('chat.dm.badge') : null);
 	$: hasDm = Boolean(microDmChannelId && microDmOther);
 	// The conversation view exists only while there is a conversation to show.
 	$: if (!hasDm && activeView === 'dm') activeView = 'notes';
 	$: showingDm = activeView === 'dm' && hasDm;
 	$: viewOptions = [
-		{ value: 'notes' as const, label: 'Scratchpad' },
-		{ value: 'dm' as const, label: dmLabel ?? 'Conversation' }
+		{ value: 'notes' as const, label: $_('shell.scratchpad') },
+		{ value: 'dm' as const, label: dmLabel ?? $_('notif.conversation') }
 	];
 
 	let dmDraft = '';
@@ -139,7 +140,7 @@
 		// A message that did not leave keeps its words in the field.
 		if (result.ok === false && result.reason !== 'empty') {
 			if (!dmDraft) dmDraft = text;
-			dmSendError = 'Not sent. Your message is still in the field.';
+			dmSendError = $_('qrp.not_sent');
 		}
 	}
 
@@ -258,7 +259,7 @@
 	class:is-collapsed={collapsed}
 	class:is-resizing={isResizing}
 	style={collapsed ? undefined : `height: ${shownHeight}px;`}
-	aria-label="Scratchpad tray"
+	aria-label={$_('qrp.tray_aria')}
 >
 	{#if !collapsed}
 		<!-- A focusable window splitter (WAI-ARIA separator with a value): ↑/↓ resize, Enter collapses. -->
@@ -267,7 +268,7 @@
 			class="scratch-edge"
 			role="separator"
 			aria-orientation="horizontal"
-			aria-label="Resize Scratchpad"
+			aria-label={$_('panels.scratchpad_resize')}
 			aria-controls={`${trayId}-body`}
 			aria-valuemin={TRAY_MIN_HEIGHT}
 			aria-valuemax={maxHeight}
@@ -282,9 +283,9 @@
 	<div class="scratch-body" id={`${trayId}-body`} hidden={collapsed}>
 		{#if hasDm}
 			<div class="scratch-views">
-				<Segmented mode="pressed" label="Tray view" options={viewOptions} bind:value={activeView} />
+				<Segmented mode="pressed" label={$_('qrp.tray_view')} options={viewOptions} bind:value={activeView} />
 				{#if showingDm && $pinnedDmChannelId === microDmChannelId}
-					<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={unpinMicroDm}>Unpin</button>
+					<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={unpinMicroDm}>{$_('pinned.actions.unpin')}</button>
 				{/if}
 			</div>
 		{/if}
@@ -295,10 +296,10 @@
 			{/if}
 		</div>
 		{#if showingDm && microDmOther}
-			<section class="micro-dm" aria-label={`Conversation with ${microDmOther.username}`}>
+			<section class="micro-dm" aria-label={$_('qrp.conv_with', { values: { name: microDmOther.username } })}>
 				<div class="micro-dm-list" bind:this={dmListEl}>
 					{#if recentDmMessages.length === 0}
-						<p class="micro-dm-empty">No messages yet.</p>
+						<p class="micro-dm-empty">{$_('qrp.no_messages')}</p>
 					{:else}
 						{#each recentDmMessages as msg (msg.id || msg.clientMessageId)}
 							<div class="micro-dm-row" class:own={isOwnMessage(msg)}>
@@ -314,8 +315,8 @@
 							<input
 								type="text"
 								bind:value={dmDraft}
-								placeholder={`Message ${microDmOther.username}`}
-								aria-label={`Message ${microDmOther.username}`}
+								placeholder={$_('chat.compose.placeholder_dm', { values: { name: microDmOther.username } })}
+								aria-label={$_('chat.compose.placeholder_dm', { values: { name: microDmOther.username } })}
 								aria-describedby={dmSendError ? `${trayId}-dm-error` : undefined}
 								on:keydown={handleDmKeydown}
 							/>
@@ -323,7 +324,7 @@
 						<button
 							type="button"
 							class="w-ibtn w-ibtn--sm w-ibtn--edge micro-dm-send"
-							aria-label="Send"
+							aria-label={$_('camera.send')}
 							aria-disabled={!dmDraft.trim()}
 							on:click={sendMicroDm}
 						>
@@ -333,8 +334,8 @@
 					{#if dmSendError}<p class="micro-dm-error" id={`${trayId}-dm-error`} role="alert">{dmSendError}</p>{/if}
 				{:else}
 					<div class="micro-dm-paused" role="status">
-						<p class="micro-dm-paused-text">Sending is paused here until this conversation is ready.</p>
-						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={openFullDms}>Open in DMs</button>
+						<p class="micro-dm-paused-text">{$_('qrp.paused')}</p>
+						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={openFullDms}>{$_('qrp.open_in_dms')}</button>
 					</div>
 				{/if}
 				<div class="micro-dm-colophon">
@@ -349,9 +350,9 @@
 		<label class="scratch-label" for={`${trayId}-toggle`}>
 			<span class="scratch-glyph" aria-hidden="true"><Icon name={showingDm ? 'dm' : 'note'} size={18} /></span>
 			<span class="scratch-words">
-				<span class="scratch-title">{showingDm ? dmLabel : 'Scratchpad'}</span>
+				<span class="scratch-title">{showingDm ? dmLabel : $_('shell.scratchpad')}</span>
 				{#if showingDm}
-					<span class="scratch-status">{$pinnedDmChannelId === microDmChannelId ? 'Pinned conversation' : 'Open in DMs'}</span>
+					<span class="scratch-status">{$pinnedDmChannelId === microDmChannelId ? $_('dm.pinned') : $_('qrp.open_in_dms')}</span>
 				{:else}
 					<span class="scratch-status">{bandStatus}</span>
 				{/if}
@@ -361,8 +362,8 @@
 			<button
 				type="button"
 				class="w-ibtn w-ibtn--sm"
-				aria-label={showingDm ? 'Open conversation in DMs' : 'Open in Notes'}
-				title={showingDm ? 'Open conversation in DMs' : 'Open in Notes'}
+				aria-label={showingDm ? $_('qrp.open_conv_dms') : $_('qrp.open_in_notes')}
+				title={showingDm ? $_('qrp.open_conv_dms') : $_('qrp.open_in_notes')}
 				on:click={showingDm ? openFullDms : openFullNotes}
 			>
 				<Icon name="expand" size={16} />
@@ -376,7 +377,7 @@
 			class="w-ibtn w-ibtn--sm scratch-toggle"
 			aria-expanded={!collapsed}
 			aria-controls={`${trayId}-body`}
-			aria-label={collapsed ? 'Expand Scratchpad' : 'Collapse Scratchpad'}
+			aria-label={collapsed ? $_('qrp.expand') : $_('qrp.collapse')}
 			on:click={toggle}
 		>
 			<Icon name={collapsed ? 'chevUp' : 'chevDown'} size={16} />

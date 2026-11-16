@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
     import { onMount } from 'svelte';
     import { activeServerUrl } from '$lib/serverUrl';
     import { getAuthToken } from '$lib/authSession';
@@ -9,7 +10,7 @@
     let { owner = false }: { owner?: boolean } = $props();
     let workload: { nodeId: string; assignedMediaRooms: number; reportedActiveMediaRooms: number }[] = $state([]);
     let nodes: HelperNode[] = $state([]); let error = $state(''); let loading = $state(false); let now = $state(Date.now()); let epoch = 0; let scope = ''; let clockOffset = 0;
-    function health(n: HelperNode) { if (n.status === 'revoked') return 'Revoked'; if (!n.lastHeartbeatAt) return 'No heartbeat'; return n.status === 'online' && now - Date.parse(n.lastHeartbeatAt) <= 90000 ? 'Fresh heartbeat' : 'Stale / offline'; }
+    function health(n: HelperNode) { if (n.status === 'revoked') return $_('storage_center.revoked'); if (!n.lastHeartbeatAt) return $_('infra.health_no_heartbeat'); return n.status === 'online' && now - Date.parse(n.lastHeartbeatAt) <= 90000 ? $_('infra.health_fresh') : $_('infra.health_stale'); }
     async function refresh() {
         if (loading) return; loading = true; const server = $activeServerUrl; const request = ++epoch;
         try { const data = await infrastructureRequest<{ nodes: HelperNode[]; workload: typeof workload; observedAt: string }>(getAuthToken(server), '/api/nodes'); if (request === epoch && server === $activeServerUrl) { nodes = data.nodes; workload = data.workload ?? []; error = ''; clockOffset = Date.parse(data.observedAt) - Date.now(); now = Date.now() + clockOffset; } }
@@ -20,25 +21,25 @@
     onMount(() => { void refresh(); const timer = setInterval(() => { now = Date.now() + clockOffset; if (!document.hidden) void refresh(); }, 10000); return () => { epoch++; clearInterval(timer); }; });
 </script>
 <div class="infra-center">
-    <header><div><h2>Infrastructure</h2><p>Understand the server’s health and what optional helpers contribute.</p></div><button onclick={refresh} disabled={loading}>{loading ? 'Checking…' : 'Refresh helpers'}</button></header>
+    <header><div><h2>{$_('infra.title')}</h2><p>{$_('infra.health_desc')}</p></div><button onclick={refresh} disabled={loading}>{loading ? $_('privacy.state.checking_short') : $_('infra.refresh_helpers')}</button></header>
     <NetworkHealthPanel />
     <CommunityEntryPointsPanel {owner} />
     <VolunteerBoostersPanel />
     <section class="helper-panel">
-        <h3>Operator helpers</h3><p>These are deliberately paired infrastructure. Volunteer boosters appear separately above. A fresh heartbeat confirms contact; it does not prove useful work or spare capacity.</p>
-        {#if error}<p class="error" role="alert">Helper status unavailable: {error}. Any rows below are last known values.</p>{/if}
+        <h3>{$_('infra.operator_helpers')}</h3><p>{$_('infra.helpers_desc')}</p>
+        {#if error}<p class="error" role="alert">{$_('infra.helper_unavailable', { values: { error } })}</p>{/if}
         {#each nodes as node (node.nodeId)}
             {@const work = workload.find(w => w.nodeId === node.nodeId)}
             <article><header><strong>{node.displayName || node.nodeId}</strong><span>{health(node)}</span></header>
-                <p>{node.capabilities.join(', ').replaceAll('_', ' ') || 'No capabilities advertised'}</p>
-                <dl><div><dt>Last heartbeat</dt><dd>{node.lastHeartbeatAt ? new Date(node.lastHeartbeatAt).toLocaleString() : 'Not reported'}</dd></div>
-                <div><dt>Reported CPU</dt><dd>{node.load.cpuPercent == null ? 'Not reported' : `${node.load.cpuPercent.toFixed(1)}%`}</dd></div>
-                <div><dt>Reported memory</dt><dd>{node.load.memoryUsedMb == null ? 'Not reported' : `${node.load.memoryUsedMb} MB`}</dd></div>
-                <div><dt>Reported upload rate</dt><dd>{node.load.uploadMbps == null ? 'Not reported' : `${node.load.uploadMbps.toFixed(2)} Mbps`}</dd></div></dl>
-                <p>Authority media assignments: {work?.assignedMediaRooms ?? 'Not measured'}. Rooms reported active: {work?.reportedActiveMediaRooms ?? 'Not measured'}. These counts do not verify media delivery or bandwidth savings.</p>
-                <details><summary>Connection details</summary><p>{node.reachability.replaceAll('_', ' ')} · {node.endpoint || 'No endpoint advertised'}</p><p>Node {node.nodeId}. Values are helper-reported; completed jobs and bandwidth savings are not inferred from them.</p></details>
+                <p>{node.capabilities.join(', ').replaceAll('_', ' ') || $_('infra.no_capabilities')}</p>
+                <dl><div><dt>{$_('infra.last_heartbeat')}</dt><dd>{node.lastHeartbeatAt ? new Date(node.lastHeartbeatAt).toLocaleString() : $_('infra.not_reported')}</dd></div>
+                <div><dt>{$_('infra.reported_cpu')}</dt><dd>{node.load.cpuPercent == null ? $_('infra.not_reported') : `${node.load.cpuPercent.toFixed(1)}%`}</dd></div>
+                <div><dt>{$_('infra.reported_memory')}</dt><dd>{node.load.memoryUsedMb == null ? $_('infra.not_reported') : `${node.load.memoryUsedMb} MB`}</dd></div>
+                <div><dt>{$_('infra.reported_upload')}</dt><dd>{node.load.uploadMbps == null ? $_('infra.not_reported') : `${node.load.uploadMbps.toFixed(2)} Mbps`}</dd></div></dl>
+                <p>{$_('infra.media_counts', { values: { assigned: work?.assignedMediaRooms ?? $_('network_health.not_measured'), active: work?.reportedActiveMediaRooms ?? $_('network_health.not_measured') } })}</p>
+                <details><summary>{$_('shell.call.toggle_diagnostics')}</summary><p>{node.reachability.replaceAll('_', ' ')} · {node.endpoint || $_('infra.no_endpoint')}</p><p>{$_('infra.node_note', { values: { id: node.nodeId } })}</p></details>
             </article>
-        {:else}{#if !error}<p>{loading ? 'Reading helper roster…' : 'No operator helpers registered. The Authority can operate without them.'}</p>{/if}{/each}
+        {:else}{#if !error}<p>{loading ? $_('infra.reading_roster') : $_('infra.no_helpers')}</p>{/if}{/each}
     </section>
 </div>
 <style>

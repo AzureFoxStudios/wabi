@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	interface Props {
 		events: Array<{
 			id: string;
@@ -32,22 +33,22 @@
 
 	function timeAgo(ts: number): string {
 		const diff = Date.now() / 1000 - ts;
-		if (diff < 60) return `${Math.floor(diff)}s ago`;
-		if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-		if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+		if (diff < 60) return $_('lore_history.s_ago', { values: { n: Math.floor(diff) } });
+		if (diff < 3600) return $_('reader_doc.minutes_ago', { values: { n: Math.floor(diff / 60) } });
+		if (diff < 86400) return $_('reader_doc.hours_ago', { values: { n: Math.floor(diff / 3600) } });
 		return new Date(ts * 1000).toLocaleDateString();
 	}
 </script>
 
 <div class="audit-viewer">
 	<div class="audit-header">
-		<h3 class="audit-title">Audit Log</h3>
+		<h3 class="audit-title">{$_('lav.title')}</h3>
 		<div class="audit-controls">
 			<input
 				type="text"
 				class="audit-search"
 				bind:value={searchQuery}
-				placeholder="Search events..."
+				placeholder={$_('lav.search_ph')}
 			/>
 			<select class="audit-filter" bind:value={filterType}>
 				{#each eventTypes() as type}
@@ -58,7 +59,7 @@
 	</div>
 
 	<div class="incident-tools">
-		<button class="tool-btn danger" onclick={onPauseEgress}>⏸ Pause Egress</button>
+		<button class="tool-btn danger" onclick={onPauseEgress}>⏸ {$_('lav.pause')}</button>
 	</div>
 
 	<div class="audit-list">

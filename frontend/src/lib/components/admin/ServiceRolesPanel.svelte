@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
     import { onMount, untrack } from 'svelte';
     import { activeServerUrl } from '$lib/serverUrl';
     import { currentUser, connected } from '$lib/socket';
@@ -26,13 +27,13 @@
             const result = await serviceAccessRequest(server, token, roles ? { revision: snapshot!.access.revision, roles } : undefined);
             if (!current()) return;
             snapshot = result; notice = message; renameId = ''; deleteId = '';
-            if (message === 'Role created.') newName = '';
+            if (message === $_('srp.role_created')) newName = '';
         } catch (e) { if (current()) error = e instanceof Error ? e.message : String(e); }
         finally { if (current()) busy = false; }
     }
     function change(id: string, patch: Partial<ServiceRole>) {
         if (!snapshot || busy) return;
-        void request(snapshot.access.roles.map(r => r.id === id ? { ...r, ...patch } : r), 'Role saved.');
+        void request(snapshot.access.roles.map(r => r.id === id ? { ...r, ...patch } : r), $_('srp.role_saved'));
     }
     function toggle(role: ServiceRole, field: 'services' | 'members', value: string | number, checked: boolean) {
         if (field === 'services') change(role.id, { services: checked ? [...role.services, value as string] : role.services.filter(v => v !== value) });
@@ -51,23 +52,23 @@
     }
     function create() {
         if (!snapshot || busy || !newName.trim()) return;
-        void request([...snapshot.access.roles, { id: crypto.randomUUID(), name: newName.trim(), services: [], members: [] }], 'Role created.');
+        void request([...snapshot.access.roles, { id: crypto.randomUUID(), name: newName.trim(), services: [], members: [] }], $_('srp.role_created'));
     }
     function remove(id: string) {
         if (!snapshot || busy) return;
-        void request(snapshot.access.roles.filter(r => r.id !== id), 'Role deleted; its service grants and memberships were removed.');
+        void request(snapshot.access.roles.filter(r => r.id !== id), $_('srp.role_deleted'));
     }
 </script>
 
-<section class="admin-section service-roles" aria-label="Service roles" aria-busy={busy}>
-    <h4>Roles &amp; services</h4>
-    <p>Choose which services each role can use. Custom roles add service access without changing administrator powers or device admission.</p>
-    {#if error}<div role="alert" class="feedback"><span>{error}</span><button type="button" class="ui-btn ui-btn-secondary" disabled={busy || !canEdit} onclick={() => request()}>Reload roles</button></div>{/if}
+<section class="admin-section service-roles" aria-label={$_('srp.aria')} aria-busy={busy}>
+    <h4>{$_('srp.heading')}</h4>
+    <p>{$_('srp.desc')}</p>
+    {#if error}<div role="alert" class="feedback"><span>{error}</span><button type="button" class="ui-btn ui-btn-secondary" disabled={busy || !canEdit} onclick={() => request()}>{$_('lore_roles.reload')}</button></div>{/if}
     {#if notice}<p role="status">{notice}</p>{/if}
-    {#if !canEdit}<p role="status">Connect as an administrator to manage service roles.</p>
-    {:else if !snapshot && !error}<p role="status">Loading roles…</p>
+    {#if !canEdit}<p role="status">{$_('srp.connect_admin')}</p>
+    {:else if !snapshot && !error}<p role="status">{$_('srp.loading')}</p>
     {:else if snapshot}
-        {#if snapshot.services.length === 0}<p class="hint">No services registered. The host must register and expose an endpoint before a role can use it.</p>{/if}
+        {#if snapshot.services.length === 0}<p class="hint">{$_('srp.no_services')}</p>{/if}
         <ul class="roles">
             {#each snapshot.access.roles as role (role.id)}
                 {@const builtin = role.id.startsWith('builtin:')}
@@ -75,50 +76,50 @@
                     <div class="row">
                         {#if renameId === role.id}
                             <form class="rename" onsubmit={(e) => { e.preventDefault(); change(role.id, { name: renameName.trim() }); }}>
-                                <input aria-label="Role name" maxlength="40" bind:value={renameName} disabled={busy} />
-                                <button class="ui-btn ui-btn-primary" disabled={busy || !renameName.trim()}>Save name</button>
-                                <button class="ui-btn ui-btn-secondary" type="button" disabled={busy} onclick={() => renameId = ''}>Cancel</button>
+                                <input aria-label={$_('lore_roles.role_name')} maxlength="40" bind:value={renameName} disabled={busy} />
+                                <button class="ui-btn ui-btn-primary" disabled={busy || !renameName.trim()}>{$_('srp.save_name')}</button>
+                                <button class="ui-btn ui-btn-secondary" type="button" disabled={busy} onclick={() => renameId = ''}>{$_('common.cancel')}</button>
                             </form>
-                        {:else}<div class="name"><strong>{role.name}</strong><small>{builtin ? 'Built-in · protected' : 'Custom service role'}</small></div>{/if}
+                        {:else}<div class="name"><strong>{role.name}</strong><small>{builtin ? $_('srp.builtin') : $_('srp.custom')}</small></div>{/if}
                         <details class="picker" use:closeable>
-                            <summary aria-label={`Services for ${role.name}`}>Services <span>{role.services.length}</span></summary>
+                            <summary aria-label={$_('srp.services_for', { values: { name: role.name } })}>{$_('srp.services')} <span>{role.services.length}</span></summary>
                             <div class="choices">
                                 {#each snapshot.services as service (service.id)}
-                                    <label><input type="checkbox" checked={role.services.includes(service.id)} disabled={busy} onchange={(e) => pick(role, 'services', service.id, e.currentTarget)} /><span>{service.name}<small>{service.exposed ? service.kind : 'Not exposed by host'}</small></span></label>
+                                    <label><input type="checkbox" checked={role.services.includes(service.id)} disabled={busy} onchange={(e) => pick(role, 'services', service.id, e.currentTarget)} /><span>{service.name}<small>{service.exposed ? service.kind : $_('srp.not_exposed')}</small></span></label>
                                 {/each}
                                 {#each role.services.filter(id => !snapshot!.services.some(s => s.id === id)) as id}
-                                    <label><input type="checkbox" checked disabled={busy} onchange={(e) => pick(role, 'services', id, e.currentTarget)} /><span>{id}<small>No longer registered · remove grant</small></span></label>
+                                    <label><input type="checkbox" checked disabled={busy} onchange={(e) => pick(role, 'services', id, e.currentTarget)} /><span>{id}<small>{$_('srp.no_longer')}</small></span></label>
                                 {/each}
-                                {#if !snapshot.services.length && !role.services.length}<p>No registered services.</p>{/if}
+                                {#if !snapshot.services.length && !role.services.length}<p>{$_('srp.no_registered')}</p>{/if}
                             </div>
                         </details>
                         {#if !builtin}
                             <details class="picker" use:closeable>
-                                <summary aria-label={`Members of ${role.name}`}>Members <span>{role.members.length}</span></summary>
+                                <summary aria-label={$_('srp.members_for', { values: { name: role.name } })}>{$_('group_settings.members')} <span>{role.members.length}</span></summary>
                                 <div class="choices">
                                     {#each snapshot.members as member (member.id)}
                                         <label><input type="checkbox" checked={role.members.includes(member.id)} disabled={busy} onchange={(e) => pick(role, 'members', member.id, e.currentTarget)} />{member.name}</label>
                                     {/each}
                                     {#each role.members.filter(id => !snapshot!.members.some(m => m.id === id)) as id}
-                                        <label><input type="checkbox" checked disabled={busy} onchange={(e) => pick(role, 'members', id, e.currentTarget)} />Unavailable member #{id}</label>
+                                        <label><input type="checkbox" checked disabled={busy} onchange={(e) => pick(role, 'members', id, e.currentTarget)} />{$_('srp.unavail_member', { values: { id } })}</label>
                                     {/each}
                                 </div>
                             </details>
-                            <button type="button" class="ui-btn ui-btn-secondary" disabled={busy} onclick={() => { renameId = role.id; renameName = role.name; }}>Rename</button>
-                            <button type="button" class="ui-btn ui-btn-secondary" disabled={busy} onclick={() => deleteId = role.id}>Delete</button>
+                            <button type="button" class="ui-btn ui-btn-secondary" disabled={busy} onclick={() => { renameId = role.id; renameName = role.name; }}>{$_('forum_channel.rename_btn')}</button>
+                            <button type="button" class="ui-btn ui-btn-secondary" disabled={busy} onclick={() => deleteId = role.id}>{$_('admin.actions.delete')}</button>
                         {/if}
                     </div>
                     {#if deleteId === role.id}
-                        <div class="feedback" role="alert"><span>Delete {role.name}? This removes its {role.members.length} memberships and all service grants. Other roles still apply.</span><button type="button" class="ui-btn ui-btn-danger" disabled={busy} onclick={() => remove(role.id)}>Delete role</button><button type="button" class="ui-btn ui-btn-secondary" disabled={busy} onclick={() => deleteId = ''}>Cancel</button></div>
+                        <div class="feedback" role="alert"><span>{$_('srp.delete_confirm', { values: { name: role.name, count: role.members.length } })}</span><button type="button" class="ui-btn ui-btn-danger" disabled={busy} onclick={() => remove(role.id)}>{$_('srp.delete_role')}</button><button type="button" class="ui-btn ui-btn-secondary" disabled={busy} onclick={() => deleteId = ''}>{$_('common.cancel')}</button></div>
                     {/if}
                 </li>
             {/each}
         </ul>
         <form class="create" onsubmit={(e) => { e.preventDefault(); create(); }}>
-            <input aria-label="New role name" placeholder="New role name" maxlength="40" bind:value={newName} disabled={busy} />
-            <button class="ui-btn ui-btn-primary" disabled={busy || !newName.trim()}>Create role</button>
+            <input aria-label={$_('srp.new_role_aria')} placeholder={$_('srp.new_role_aria')} maxlength="40" bind:value={newName} disabled={busy} />
+            <button class="ui-btn ui-btn-primary" disabled={busy || !newName.trim()}>{$_('lore_roles.create_role')}</button>
         </form>
-        <p class="hint">Service grants combine across custom roles and the member’s current built-in role. Admins also need a service grant. Grants do not expose endpoints or add devices.</p>
+        <p class="hint">{$_('srp.grants_hint')}</p>
     {/if}
 </section>
 

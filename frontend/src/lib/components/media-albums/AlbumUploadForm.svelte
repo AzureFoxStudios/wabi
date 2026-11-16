@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { formatBytes } from './mediaAlbumHelpers';
 
 	export let draftUploadFile: File | null = null;
@@ -35,20 +36,20 @@
 			type="button"
 			class="album-upload-trigger"
 			on:click|stopPropagation={() => onTriggerPicker('draft')}
-			title="Choose file for this album"
-			aria-label="Choose file for this album"
+			title={$_('aup.choose_file')}
+			aria-label={$_('aup.choose_file')}
 		>
 			+
 		</button>
 		<div class="upload-local-copy">
-			<strong>Add to this album</strong>
-			<span>{draftUploadFile ? draftUploadFile.name : 'Pick an image, video, or file to add.'}</span>
+			<strong>{$_('aup.add_to_album')}</strong>
+			<span>{draftUploadFile ? draftUploadFile.name : $_('aup.pick_file')}</span>
 		</div>
 		<button
 			on:click|stopPropagation={() => onUpload()}
 			disabled={isUploadingAlbumFile || !draftUploadFile}
 		>
-			{isUploadingAlbumFile ? 'Uploading...' : 'Upload to album'}
+			{isUploadingAlbumFile ? $_('message_content.uploading_ellipsis') : $_('aup.upload')}
 		</button>
 	</div>
 	{#if draftUploadFile}
@@ -60,6 +61,6 @@
 	<input
 		type="text"
 		bind:value={draftUploadCaption}
-		placeholder="Caption for uploaded file (optional)"
+		placeholder={$_('aup.caption_ph')}
 	/>
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { UploadRoleTier } from '$lib/api';
 
 	export let canManageAdmin: boolean;
@@ -19,8 +20,8 @@
 </script>
 
 <div class="upload-limits-panel">
-	<h4>Upload Limits (MB)</h4>
-	<p class="admin-help">Leave a field blank for unlimited. These limits are enforced on the backend.</p>
+	<h4>{$_('ulp.title')}</h4>
+	<p class="admin-help">{$_('ulp.help')}</p>
 	<div class="upload-limit-grid">
 		{#each uploadRoleOrder as tier}
 			<label class="upload-limit-row">
@@ -29,7 +30,7 @@
 					type="number"
 					min="1"
 					step="1"
-					placeholder="Unlimited"
+					placeholder={$_('server_policy.unlimited')}
 					value={uploadLimitInputs[tier]}
 					on:input={(e) => onInput(tier, (e.currentTarget as HTMLInputElement).value)}
 					disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}
@@ -37,12 +38,12 @@
 			</label>
 		{/each}
 		<label class="upload-limit-row">
-			<span>Global Cap</span>
+			<span>{$_('server_policy.global_cap')}</span>
 			<input
 				type="number"
 				min="1"
 				step="1"
-				placeholder="Unlimited"
+				placeholder={$_('server_policy.unlimited')}
 				value={globalUploadLimitInput}
 				on:input={(e) => onGlobalInput((e.currentTarget as HTMLInputElement).value)}
 				disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}
@@ -50,6 +51,6 @@
 		</label>
 	</div>
 	<button class="action-btn" on:click={onSave} disabled={!canManageAdmin || loadingUploadLimits || savingUploadLimits}>
-		{savingUploadLimits ? 'Saving...' : 'Save Upload Limits'}
+		{savingUploadLimits ? $_('donation_config.saving') : $_('server_policy.save_upload')}
 	</button>
 </div>

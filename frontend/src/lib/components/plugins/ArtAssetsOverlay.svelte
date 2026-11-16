@@ -1,4 +1,5 @@
 ﻿<script lang="ts">
+	import { _ } from '$lib/i18n';
   import { onMount } from 'svelte';
   import { getSocket } from '$lib/socket';
 
@@ -151,9 +152,9 @@
 
   function addImageAsset(): void {
     if (!canEdit) return;
-    const source = window.prompt('Asset URL (image/gif/video):');
+    const source = window.prompt($_('aao.asset_url'));
     if (!source) return;
-    const name = window.prompt('Asset name:', 'Overlay Asset') || 'Overlay Asset';
+    const name = window.prompt($_('aao.asset_name'), $_('aao.overlay_asset')) || $_('aao.overlay_asset');
 
     emitAsset('asset:add', {
       kind: 'image',
@@ -171,7 +172,7 @@
 
   function saveScene(): void {
     if (!canEdit) return;
-    const name = window.prompt('Scene name:', 'Scene');
+    const name = window.prompt($_('aao.scene_name'), $_('chat_bg.scene'));
     if (!name) return;
     emitAsset('asset:scene:save', { name });
   }
@@ -220,13 +221,13 @@
 {#if enabled}
   <div class="asset-overlay">
     <div class="overlay-toolbar">
-      <button type="button" on:click={addImageAsset} disabled={!canEdit}>Add Asset</button>
-      <button type="button" on:click={saveScene} disabled={!canEdit}>Save Scene</button>
+      <button type="button" on:click={addImageAsset} disabled={!canEdit}>{$_('aao.add_asset')}</button>
+      <button type="button" on:click={saveScene} disabled={!canEdit}>{$_('aao.save_scene')}</button>
       <button type="button" on:click={() => (showSafeZones = !showSafeZones)}>
-        {showSafeZones ? 'Hide Safe Zones' : 'Show Safe Zones'}
+        {showSafeZones ? $_('aao.hide_safe') : $_('aao.show_safe')}
       </button>
       <select on:change={loadScene} disabled={!room || room.scenes.length === 0 || !canEdit}>
-        <option value="">Load Scene</option>
+        <option value="">{$_('aao.load_scene')}</option>
         {#if room}
           {#each room.scenes as scene}
             <option value={scene.id}>{scene.name}</option>
@@ -248,7 +249,7 @@
             style={getAssetStyle(asset)}
             role="button"
             tabindex="0"
-            aria-label={`Select asset ${asset.name}`}
+            aria-label={$_('aao.select_asset', { values: { name: asset.name } })}
             on:pointerdown={(event) => startDrag(event, asset)}
             on:click={() => (selectedAssetId = asset.id)}
             on:keydown={(event) => {
@@ -268,9 +269,9 @@
 
             {#if selectedAssetId === asset.id}
               <div class="asset-actions">
-                <button type="button" on:click|stopPropagation={() => toggleAssetLock(asset)}>{asset.locked ? 'Unlock' : 'Lock'}</button>
-                <button type="button" on:click|stopPropagation={() => toggleAssetVisibility(asset)}>{asset.visible ? 'Hide' : 'Show'}</button>
-                <button type="button" on:click|stopPropagation={() => removeAsset(asset)}>Remove</button>
+                <button type="button" on:click|stopPropagation={() => toggleAssetLock(asset)}>{asset.locked ? $_('lore_channel.unlock') : $_('lore_channel.col_lock')}</button>
+                <button type="button" on:click|stopPropagation={() => toggleAssetVisibility(asset)}>{asset.visible ? $_('model_inspect.hide') : $_('panels.show')}</button>
+                <button type="button" on:click|stopPropagation={() => removeAsset(asset)}>{$_('profile_settings.remove')}</button>
               </div>
             {/if}
           </div>

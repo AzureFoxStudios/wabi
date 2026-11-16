@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { nameStylesVisible, setNameStylesVisible } from '$lib/addons/nameStyles';
 	import { THEMES } from '$lib/theme/themes';
 	import {
@@ -53,8 +54,8 @@
 {#if localAddonControlMatches('name_styles')}
 	<AddonRow
 		id="name_styles"
-		label="Name styles"
-		description="Show styled names in messages, People and profiles on this device. Create and share your own design in Profile settings; Appearance also controls plates, artwork and motion."
+		label={$_('as.name_styles')}
+		description={$_('as.name_styles_desc')}
 		enabled={$nameStylesVisible}
 		badge={SECTION}
 		onToggle={() => setNameStylesVisible(!$nameStylesVisible)}
@@ -64,8 +65,8 @@
 {#if localAddonControlMatches('timed_theme_mode')}
 	<AddonRow
 		id="timed_theme_mode"
-		label="Light and dark by time of day"
-		description="Automatically switch between day and night themes using your local device time."
+		label={$_('as.timed_label')}
+		description={$_('as.timed_desc')}
 		enabled={timedThemeModeEnabled}
 		badge={SECTION}
 		onToggle={toggleTimedThemeModeAddon}
@@ -74,7 +75,7 @@
 			{#if timedThemeModeEnabled}
 				<div class="addon-grid">
 					<label class="addon-field">
-						<span class="w-label">Day starts (hour)</span>
+						<span class="w-label">{$_('as.day_starts')}</span>
 						<input
 							class="w-field"
 							type="number"
@@ -86,7 +87,7 @@
 						/>
 					</label>
 					<label class="addon-field">
-						<span class="w-label">Night starts (hour)</span>
+						<span class="w-label">{$_('as.night_starts')}</span>
 						<input
 							class="w-field"
 							type="number"
@@ -98,15 +99,15 @@
 						/>
 					</label>
 					<div class="addon-field">
-						<span class="w-label">Day theme</span>
-						<Select ariaLabel="Day theme" options={Object.values(THEMES).map((theme) => ({ value: String(theme.id), label: String(theme.name) }))} bind:value={timedThemeLightThemeId} onchange={(value) => updateTimedThemeLightTheme(value)} />
+						<span class="w-label">{$_('as.day_theme')}</span>
+						<Select ariaLabel={$_('as.day_theme')} options={Object.values(THEMES).map((theme) => ({ value: String(theme.id), label: String(theme.name) }))} bind:value={timedThemeLightThemeId} onchange={(value) => updateTimedThemeLightTheme(value)} />
 					</div>
 					<div class="addon-field">
-						<span class="w-label">Night theme</span>
-						<Select ariaLabel="Night theme" options={Object.values(THEMES).map((theme) => ({ value: String(theme.id), label: String(theme.name) }))} bind:value={timedThemeDarkThemeId} onchange={(value) => updateTimedThemeDarkTheme(value)} />
+						<span class="w-label">{$_('as.night_theme')}</span>
+						<Select ariaLabel={$_('as.night_theme')} options={Object.values(THEMES).map((theme) => ({ value: String(theme.id), label: String(theme.name) }))} bind:value={timedThemeDarkThemeId} onchange={(value) => updateTimedThemeDarkTheme(value)} />
 					</div>
 				</div>
-				<div class="addon-note">The theme changes at these hours while the app is open.</div>
+				<div class="addon-note">{$_('as.theme_note')}</div>
 			{/if}
 		{/snippet}
 	</AddonRow>

@@ -248,7 +248,7 @@
 				const start = candidate ? ctx.presenceSince.get(`${channelId}::${candidate}`) : undefined;
 				if (start) { selfPresenceStart = start; break; }
 			}
-			const name = ctx.self.username || 'You';
+			const name = ctx.self.username || $_('admin.you');
 			people.push({
 				key: `self:${ctx.currentUserId ?? 'me'}`,
 				userId: ctx.currentUserId ?? '',
@@ -392,7 +392,7 @@
 	"and N more" and, once opened, "Show less". The toggle sits after the list, not inside it.
 -->
 {#snippet voiceRoster(room: Channel, roster: Roster)}
-	<div role="list" aria-label={`In ${room.name}`}>
+	<div role="list" aria-label={$_('ucl.in_room', { values: { name: room.name } })}>
 		{#each roster.shown as person (person.key)}
 			<div
 				class="voice-member-item"
@@ -410,7 +410,7 @@
 				{:else}
 					<span class="voice-member-avatar voice-avatar-fallback" style={person.inkStyle} aria-hidden="true">{person.initial}</span>
 				{/if}
-				<span class="voice-member-name">{person.name}{#if person.self}<span class="sr-only"> (you)</span>{/if}</span>
+				<span class="voice-member-name">{person.name}{#if person.self}<span class="sr-only"> ({$_('user.you')})</span>{/if}</span>
 				<span class="voice-member-extra">
 					{#if person.self}
 						<ScreenSharePreview channelId={room.id} userId={person.userId} username={person.name} self />
@@ -418,7 +418,7 @@
 						<ScreenSharePreview channelId={room.id} userId={person.userId} username={person.name} announced={person.screenShareEnabled} />
 					{/if}
 					{#if person.recording}
-						<span class="row-tag row-tag--rec"><span class="w-dot w-dot--danger" aria-hidden="true"></span>Rec</span>
+						<span class="row-tag row-tag--rec"><span class="w-dot w-dot--danger" aria-hidden="true"></span>{$_('ucl.rec')}</span>
 					{/if}
 					{#if voiceDurationMode === 'all' || (voiceDurationMode === 'others' && !person.self)}
 						<span class="w-count voice-member-duration">{formatVoiceDuration(person.presenceStart, nowMs)}</span>
@@ -428,8 +428,8 @@
 							type="button"
 							class="w-ibtn w-ibtn--sm voice-member-kick"
 							on:click={(e) => { e.stopPropagation(); onKickVoiceMember(room.id, person.userId); }}
-							title={`Remove ${person.name} from voice`}
-							aria-label={`Remove ${person.name} from voice`}
+							title={$_('ucl.remove_from_voice', { values: { name: person.name } })}
+							aria-label={$_('ucl.remove_from_voice', { values: { name: person.name } })}
 						><Icon name="logout" size={14} /></button>
 					{/if}
 				</span>
@@ -510,22 +510,22 @@
 				<span class="row-trail">
 					{#if isLiveRetention(channel.autoDeleteAfter)}
 						<!-- Retention words (§9.2), shortened: "Live" alone would read as a live voice room. -->
-						<span class="row-tag" title={retentionLabel('live') ?? undefined} aria-hidden="true">Not saved</span>
+						<span class="row-tag" title={retentionLabel('live') ?? undefined} aria-hidden="true">{$_('shared_notes.not_saved')}</span>
 					{/if}
 					{#if nsfwTagsOn && isNsfwTaggedChannel(channel)}
-						<span class="row-tag">NSFW</span>
+						<span class="row-tag">{$_('ucl.nsfw')}</span>
 					{/if}
 					{#if mutedIds.has(channel.id)}
-						<span class="row-tag">Muted</span>
+						<span class="row-tag">{$_('calls.muted')}</span>
 					{/if}
 					{#if bookmarked}
-						<span class="row-mark" title="Bookmarked for the quick switcher" aria-hidden="true"><Icon name="star" size={14} /></span>
+						<span class="row-mark" title={$_('ucl.bookmarked_title')} aria-hidden="true"><Icon name="star" size={14} /></span>
 					{/if}
 					{#if whiteboardLive}
-						<span class="row-mark" title="Someone is on this whiteboard" aria-hidden="true"><Icon name="whiteboard" size={14} /></span>
+						<span class="row-mark" title={$_('ucl.whiteboard_live')} aria-hidden="true"><Icon name="whiteboard" size={14} /></span>
 					{/if}
 					{#if isVoice && row && row.recordingCount > 0}
-						<span class="row-tag row-tag--rec" title={`${row.recordingCount} recording in this call`}><span class="w-dot w-dot--danger" aria-hidden="true"></span>Rec</span>
+						<span class="row-tag row-tag--rec" title={$_('ucl.recording_count', { values: { n: row.recordingCount } })}><span class="w-dot w-dot--danger" aria-hidden="true"></span>{$_('ucl.rec')}</span>
 					{/if}
 					{#if unread > 0}
 						<span class="w-badge" aria-hidden="true">{formatBadge(unread)}</span>
@@ -535,11 +535,11 @@
 					{/if}
 				</span>
 				{#if isLiveRetention(channel.autoDeleteAfter)}<span class="sr-only">, {retentionLabel('live')}</span>{/if}
-				{#if bookmarked}<span class="sr-only">, bookmarked</span>{/if}
-				{#if whiteboardLive}<span class="sr-only">, whiteboard in use</span>{/if}
+				{#if bookmarked}<span class="sr-only">, {$_('ucl.bookmarked')}</span>{/if}
+				{#if whiteboardLive}<span class="sr-only">, {$_('ucl.whiteboard_in_use')}</span>{/if}
 				{#if unread > 0}<span class="sr-only">, {unreadLabel(unread)}</span>{/if}
 				{#if isVoice && occupancy > 0}<span class="sr-only">, {getVoiceOccupancyTitle(channel, occupancy)}</span>{/if}
-				{#if channelIsConnected}<span class="sr-only">, connected</span>{/if}
+				{#if channelIsConnected}<span class="sr-only">, {$_('ucl.connected')}</span>{/if}
 			</button>
 		{/snippet}
 		<!-- The rail shows names in tooltips; the full column shows the names, so no tooltip is mounted. -->
@@ -553,8 +553,8 @@
 					<button
 						type="button"
 						class="w-ibtn w-ibtn--sm"
-						aria-label={`Open ${channel.name} whiteboard`}
-						title="Whiteboard"
+						aria-label={$_('ucl.open_whiteboard', { values: { name: channel.name } })}
+						title={$_('places.whiteboard')}
 						on:click|stopPropagation={(event) => onOpenVoiceChannelWhiteboard(channel.id, event)}
 					><Icon name="whiteboard" size={16} /></button>
 				{:else}
@@ -562,23 +562,23 @@
 						type="button"
 						class="w-ibtn w-ibtn--sm"
 						aria-pressed={followed}
-						aria-label={`Follow ${channel.name}`}
-						title="Follow"
+						aria-label={$_('ucl.follow_name', { values: { name: channel.name } })}
+						title={$_('chan_sidebar.kick_follow')}
 						on:click|stopPropagation={(event) => onToggleChannelFollow(channel.id, event)}
 					><Icon name="bell" size={16} /></button>
 					<button
 						type="button"
 						class="w-ibtn w-ibtn--sm"
-						aria-label={`Pinned messages in ${channel.name}`}
-						title="Pinned messages"
+						aria-label={$_('ucl.pinned_in', { values: { name: channel.name } })}
+						title={$_('pinned.summary.title')}
 						on:click|stopPropagation={() => onShowPinnedMessages(channel.id)}
 					><Icon name="pin" size={16} /></button>
 				{/if}
 				<button
 					type="button"
 					class="w-ibtn w-ibtn--sm"
-					aria-label={`${channel.name} settings`}
-					title={isVoice ? 'Voice room settings' : 'Channel settings'}
+					aria-label={$_('ucl.settings_name', { values: { name: channel.name } })}
+					title={isVoice ? $_('chan_sidebar.settings_voice_room') : $_('chan_sidebar.settings_channel')}
 					on:click|stopPropagation={() => onOpenChannelSettings(channel)}
 				><Icon name="gear" size={16} /></button>
 			</div>
@@ -612,13 +612,13 @@
 					<span class="row-name">{breakout.name}</span>
 					<span class="row-trail">
 						{#if breakoutRow && breakoutRow.recordingCount > 0}
-							<span class="row-tag row-tag--rec" title={`${breakoutRow.recordingCount} recording in this call`}><span class="w-dot w-dot--danger" aria-hidden="true"></span>Rec</span>
+							<span class="row-tag row-tag--rec" title={$_('ucl.recording_count', { values: { n: breakoutRow.recordingCount } })}><span class="w-dot w-dot--danger" aria-hidden="true"></span>{$_('ucl.rec')}</span>
 						{/if}
 						{#if breakoutOccupancy > 0 || breakout.voiceSettings?.userLimit}
 							<span class="w-count" title={getVoiceOccupancyTitle(breakout, breakoutOccupancy)} aria-hidden="true">{formatVoiceOccupancy(breakout, breakoutOccupancy)}</span>
 						{/if}
 					</span>
-					<span class="sr-only">, breakout room{#if breakoutOccupancy > 0}, {getVoiceOccupancyTitle(breakout, breakoutOccupancy)}{/if}{#if breakoutIsConnected}, connected{/if}</span>
+					<span class="sr-only">, {$_('ucl.breakout_room')}{#if breakoutOccupancy > 0}, {getVoiceOccupancyTitle(breakout, breakoutOccupancy)}{/if}{#if breakoutIsConnected}, {$_('ucl.connected')}{/if}</span>
 				</button>
 			{/snippet}
 			{#if compact}
@@ -629,8 +629,8 @@
 					<button
 						type="button"
 						class="w-ibtn w-ibtn--sm"
-						aria-label={`Open ${breakout.name} whiteboard`}
-						title="Whiteboard"
+						aria-label={$_('ucl.open_whiteboard', { values: { name: breakout.name } })}
+						title={$_('places.whiteboard')}
 						on:click|stopPropagation={(event) => onOpenVoiceChannelWhiteboard(breakout.id, event)}
 					><Icon name="whiteboard" size={16} /></button>
 				</div>
@@ -657,7 +657,7 @@
 				>
 					<span class="thread-name">{thread.name}</span>
 					{#if thread.type === 'thread_private'}
-						<span class="row-tag">Private</span>
+						<span class="row-tag">{$_('ucl.private')}</span>
 					{/if}
 					{#if threadUnread > 0}
 						<span class="w-badge w-badge--sm" aria-hidden="true">{formatBadge(threadUnread)}</span>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { channels, currentChannel } from '$lib/socket';
 	import { switchChannel } from '$lib/channelStore';
 	import ProjectAssistant from './ProjectAssistant.svelte';
@@ -48,7 +49,7 @@
 	}
 </script>
 
-<section class="project-workspace" class:discussion-active={discussionActive} aria-label="Project workspace">
+<section class="project-workspace" class:discussion-active={discussionActive} aria-label={$_('pw.aria')}>
 	{#if selected}
 		<header class="project-hero">
 			<div class="project-identity">
@@ -56,30 +57,30 @@
 					<svg viewBox="0 0 32 32" fill="none"><path d="M7 9.5h18M7 16h18M7 22.5h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="24.5" cy="22.5" r="2.5" fill="currentColor"/></svg>
 				</div>
 				<div class="project-title-block">
-					<p class="project-eyebrow"><span class="project-presence"></span> Shared project space</p>
+					<p class="project-eyebrow"><span class="project-presence"></span> {$_('pw.eyebrow')}</p>
 					<h1>{selected.name}</h1>
-					<p class="project-subtitle">The work and the knowledge behind it, together.</p>
+					<p class="project-subtitle">{$_('pw.subtitle')}</p>
 				</div>
 			</div>
-			<label class="project-picker"><span>Switch project</span>
-				<select value={selected.id} onchange={choose} aria-label="Choose project">
+			<label class="project-picker"><span>{$_('lore_project.switch_project')}</span>
+				<select value={selected.id} onchange={choose} aria-label={$_('pw.choose')}>
 					{#each projects as project (project.id)}<option value={project.id}>{project.name}</option>{/each}
 				</select>
 			</label>
 		</header>
 		<div class="project-nav-row">
-			<nav class="project-tabs" aria-label="Project views">
-				<button type="button" class:active={!discussionActive && tab === 'plan'} aria-current={!discussionActive && tab === 'plan' ? 'page' : undefined} onclick={() => openView('plan')}><span aria-hidden="true">▦</span> Board</button>
-				<button type="button" class:active={!discussionActive && tab === 'schedule'} aria-current={!discussionActive && tab === 'schedule' ? 'page' : undefined} onclick={() => openView('schedule')}><span aria-hidden="true">≡</span> Schedule</button>
-				<button type="button" class:active={!discussionActive && tab === 'wiki'} aria-current={!discussionActive && tab === 'wiki' ? 'page' : undefined} onclick={() => openView('wiki')}><span aria-hidden="true">▤</span> Wiki</button>
-				<button type="button" class:active={!discussionActive && tab === 'assistant'} aria-current={!discussionActive && tab === 'assistant' ? 'page' : undefined} onclick={() => openView('assistant')}><span aria-hidden="true">✧</span> Assistant</button>
-                {#if connectionsEnabled}<button type="button" class:active={!discussionActive && tab==='connections'} aria-current={!discussionActive && tab==='connections'?'page':undefined} onclick={()=>openView('connections')}><span aria-hidden="true">◈</span> Connections</button>{/if}
-				{#if selected.type === 'lore'}<button type="button" class:active={!discussionActive && tab === 'files'} aria-current={!discussionActive && tab === 'files' ? 'page' : undefined} onclick={() => openView('files')}><span aria-hidden="true">◇</span> Files</button>{/if}
-				{#if discussionAvailable}<button type="button" class:active={discussionActive} aria-current={discussionActive ? 'page' : undefined} onclick={() => onDiscussionChange(true)}><span aria-hidden="true">◌</span> Discussion</button>{/if}
+			<nav class="project-tabs" aria-label={$_('pw.views')}>
+				<button type="button" class:active={!discussionActive && tab === 'plan'} aria-current={!discussionActive && tab === 'plan' ? 'page' : undefined} onclick={() => openView('plan')}><span aria-hidden="true">▦</span> {$_('project_detail.tab_board')}</button>
+				<button type="button" class:active={!discussionActive && tab === 'schedule'} aria-current={!discussionActive && tab === 'schedule' ? 'page' : undefined} onclick={() => openView('schedule')}><span aria-hidden="true">≡</span> {$_('project_schedule.heading')}</button>
+				<button type="button" class:active={!discussionActive && tab === 'wiki'} aria-current={!discussionActive && tab === 'wiki' ? 'page' : undefined} onclick={() => openView('wiki')}><span aria-hidden="true">▤</span> {$_('places.wiki')}</button>
+				<button type="button" class:active={!discussionActive && tab === 'assistant'} aria-current={!discussionActive && tab === 'assistant' ? 'page' : undefined} onclick={() => openView('assistant')}><span aria-hidden="true">✧</span> {$_('pw.assistant')}</button>
+                {#if connectionsEnabled}<button type="button" class:active={!discussionActive && tab==='connections'} aria-current={!discussionActive && tab==='connections'?'page':undefined} onclick={()=>openView('connections')}><span aria-hidden="true">◈</span> {$_('user.popout.connections')}</button>{/if}
+				{#if selected.type === 'lore'}<button type="button" class:active={!discussionActive && tab === 'files'} aria-current={!discussionActive && tab === 'files' ? 'page' : undefined} onclick={() => openView('files')}><span aria-hidden="true">◇</span> {$_('places.files')}</button>{/if}
+				{#if discussionAvailable}<button type="button" class:active={discussionActive} aria-current={discussionActive ? 'page' : undefined} onclick={() => onDiscussionChange(true)}><span aria-hidden="true">◌</span> {$_('pw.discussion')}</button>{/if}
 			</nav>
 
 		</div>
-		{#if discussionActive}<div class="discussion-intro"><strong>Project discussion</strong><span>Messages shared with the people in this project.</span></div>{/if}
+		{#if discussionActive}<div class="discussion-intro"><strong>{$_('pw.discussion_title')}</strong><span>{$_('pw.discussion_desc')}</span></div>{/if}
 		{#if !discussionActive}<div class="project-content">
 			{#key selected.id}
 				{#if tab === 'plan'}<SharedProjectBoard channelId={selected.id} />
@@ -92,7 +93,7 @@
 			{/key}
 		</div>{/if}
 	{:else}
-		<div class="project-empty"><h1>No project yet</h1><p>Create a Planning channel to share cards and wiki pages with your team and authorized agents.</p><button type="button" onclick={() => window.dispatchEvent(new CustomEvent('wabi:create-channel', { detail: { type: 'planning' } }))}>Create project</button></div>
+		<div class="project-empty"><h1>{$_('pw.no_project')}</h1><p>{$_('pw.no_project_desc')}</p><button type="button" onclick={() => window.dispatchEvent(new CustomEvent('wabi:create-channel', { detail: { type: 'planning' } }))}>{$_('pw.create')}</button></div>
 	{/if}
 </section>
 

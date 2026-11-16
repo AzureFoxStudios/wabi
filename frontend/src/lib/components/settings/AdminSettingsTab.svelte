@@ -19,10 +19,10 @@
 	const dispatch = createEventDispatcher<{ openDashboard: { section: AdminSection } }>();
 	const canManageAdmin = $derived(['owner', 'admin'].includes($currentUser?.highestRole ?? ''));
 	const destinations: Array<{ section: AdminSection; title: string; description: string }> = [
-		{ section: 'users', title: 'People', description: 'Find members, manage roles, and help someone regain access.' },
-		{ section: 'branding', title: 'Server identity', description: 'The name, icon and banner people see for this server.' },
-		{ section: 'roles', title: 'Roles', description: 'The permission levels this server has.' },
-		{ section: 'runtime', title: 'Server health', description: 'How the running server is doing.' }
+		{ section: 'users', title: $t('places.people'), description: $t('ast.dest_people_desc') },
+		{ section: 'branding', title: $t('ast.dest_identity'), description: $t('ast.dest_identity_desc') },
+		{ section: 'roles', title: $t('lore_roles.roles_eyebrow'), description: $t('ast.dest_roles_desc') },
+		{ section: 'runtime', title: $t('server_health.label'), description: $t('ast.dest_health_desc') }
 	];
 
 	// ── Who can join (auth_policy) ──
@@ -38,7 +38,7 @@
 	const joinMode = $derived(joinModeOf(policy));
 	const canSwitchGuests = $derived(policyState === 'ready' && !policySaving && guestSwitchAvailable(policy));
 	const roleWord = $derived(
-		$currentUser?.highestRole ? $currentUser.highestRole.charAt(0).toUpperCase() + $currentUser.highestRole.slice(1) : 'Unknown'
+		$currentUser?.highestRole ? $currentUser.highestRole.charAt(0).toUpperCase() + $currentUser.highestRole.slice(1) : $t('gallery.unknown_creator')
 	);
 
 	async function loadPolicy(): Promise<void> {
@@ -68,11 +68,11 @@
 		try {
 			const saved = await saveAdminPolicy<AuthPolicy>(token, 'auth_policy', next);
 			policy = { ...next, ...(saved ?? {}) };
-			policyNote = { text: 'Saved. It applies to the next person who tries to join.', error: false };
+			policyNote = { text: $t('ast.policy_saved'), error: false };
 		} catch (error) {
 			console.warn('[Admin] auth policy save failed:', error);
 			policy = previous;
-			policyNote = { text: "That change wasn't saved. Joining works as it did before.", error: true };
+			policyNote = { text: $t('ast.policy_not_saved'), error: true };
 		} finally {
 			policySaving = false;
 		}
@@ -107,11 +107,11 @@
 		try {
 			const scope = await captureScope();
 			office = await request<OfficeCapabilities>(scope, '/capabilities', next, 'PUT');
-			officeNote = { text: 'Saved. It applies to new shares on this server.', error: false };
+			officeNote = { text: $t('ast.office_saved'), error: false };
 		} catch (error) {
 			console.warn('[Admin] office capabilities save failed:', error);
 			office = previous;
-			officeNote = { text: "That change wasn't saved. Sharing works as it did before.", error: true };
+			officeNote = { text: $t('ast.office_not_saved'), error: true };
 		} finally {
 			officeSaving = false;
 		}
@@ -132,16 +132,16 @@
 			<div class="w-srows">
 				<div class="w-srow">
 					<div class="w-srow__text">
-						<p class="w-srow__label" id="admin-join-mode">New accounts</p>
+						<p class="w-srow__label" id="admin-join-mode">{$t('ast.new_accounts')}</p>
 						<p class="w-srow__hint">
 							{#if joinMode === 'open'}
 								{label('login.wizard.join_open_desc', 'Anyone who reaches this server can create an account.')}
 							{:else if joinMode === 'invite'}
-								People need an invite link to create an account.
+								{$t('ast.invite_needed')}
 							{:else if joinMode === 'unsupported'}
-								This server is set to check email first, which this version can't do, so no one can join. Choose who can join to fix it.
+								{$t('ast.unsupported')}
 							{:else}
-								{label('login.wizard.join_closed_desc', 'No one else can create an account on this server.')} Invite links can't create accounts either.
+								{label('login.wizard.join_closed_desc', 'No one else can create an account on this server.')} {$t('ast.invite_no_accounts')}
 							{/if}
 						</p>
 					</div>
@@ -150,7 +150,7 @@
 							labelledby="admin-join-mode"
 							options={[
 								{ value: 'open', label: label('login.wizard.join_open_label', 'Open') },
-								{ value: 'invite', label: 'Invite only' },
+								{ value: 'invite', label: $t('ast.invite_only') },
 								{ value: 'closed', label: label('login.wizard.join_closed_label', 'Closed') }
 							]}
 							value={joinMode}
@@ -164,9 +164,9 @@
 						<p class="w-srow__label" id="admin-join-guest">{label('login.wizard.join_guest_label', 'Allow guest access')}</p>
 						<p class="w-srow__hint" id="admin-join-guest-hint">
 							{#if policy && needsEmailCheck(policy)}
-								Choose who can join first.
+								{$t('ast.guest_first')}
 							{:else if policy && !guestSwitchAvailable(policy)}
-								{joinMode === 'invite' ? "Invite-only servers don't take guests." : "This server doesn't take guests while it's closed."}
+								{joinMode === 'invite' ? $t('ast.invite_no_guests') : $t('ast.closed_no_guests')}
 							{:else}
 								{label('login.wizard.join_guest_desc', 'Let people join as temporary guests without an account.')}
 							{/if}
@@ -184,14 +184,14 @@
 				</div>
 			</div>
 		{:else if policyState === 'loading'}
-			<p class="admin-join__note" role="status">Checking who can join…</p>
+			<p class="admin-join__note" role="status">{$t('ast.checking_join')}</p>
 		{/if}
 		{#if policyState === 'error'}
 			<div class="w-notice admin-join__notice" role="alert">
 				<Icon name="alert" />
-				<p class="w-notice__title">The join setting didn't load</p>
-				<p class="w-notice__text">Joining works as it did before.</p>
-				<button type="button" class="w-btn w-btn--sm" onclick={loadPolicy}>Retry</button>
+				<p class="w-notice__title">{$t('ast.join_failed')}</p>
+				<p class="w-notice__text">{$t('ast.join_failed_text')}</p>
+				<button type="button" class="w-btn w-btn--sm" onclick={loadPolicy}>{$t('common.retry')}</button>
 			</div>
 		{:else if policyNote}
 			<p class="admin-join__note" class:is-error={policyNote.error} role={policyNote.error ? 'alert' : 'status'}>{policyNote.text}</p>
@@ -199,15 +199,15 @@
 	</section>
 
 	<section class="settings-block admin-office" aria-labelledby="admin-office-title" aria-busy={officeState === 'loading' || officeSaving}>
-		<h3 class="settings-block__title" id="admin-office-title">Office tools <span class="w-tag w-tag--mat" title={$t('maturity.preview_title')}>{$t('maturity.preview')}</span></h3>
-		<p class="settings-block__hint">Shared spreadsheets and decks use the same accounts and permissions as shared Documents. Shared files are server-readable.</p>
+		<h3 class="settings-block__title" id="admin-office-title">{$t('addon.office_title')} <span class="w-tag w-tag--mat" title={$t('maturity.preview_title')}>{$t('maturity.preview')}</span></h3>
+		<p class="settings-block__hint">{$t('ast.office_desc')}</p>
 		{#if officeState === 'ready' && office}
 			{#if office.admin}
 				<div class="w-srows">
 					<div class="w-srow">
 						<div class="w-srow__text">
-							<p class="w-srow__label" id="admin-office-sheets">Allow shared spreadsheets</p>
-							<p class="w-srow__hint">Members can share Sheets files on this server.</p>
+							<p class="w-srow__label" id="admin-office-sheets">{$t('ast.allow_sheets')}</p>
+							<p class="w-srow__hint">{$t('ast.allow_sheets_desc')}</p>
 						</div>
 						<div class="w-srow__control">
 							<Switch labelledby="admin-office-sheets" checked={office.sheets} disabled={officeSaving} onchange={(on) => office && void saveOffice({ sheets: on, present: office.present })} />
@@ -215,8 +215,8 @@
 					</div>
 					<div class="w-srow">
 						<div class="w-srow__text">
-							<p class="w-srow__label" id="admin-office-present">Allow shared decks and presentations</p>
-							<p class="w-srow__hint">Members can share Present decks and present them to a channel.</p>
+							<p class="w-srow__label" id="admin-office-present">{$t('ast.allow_present')}</p>
+							<p class="w-srow__hint">{$t('ast.allow_present_desc')}</p>
 						</div>
 						<div class="w-srow__control">
 							<Switch labelledby="admin-office-present" checked={office.present} disabled={officeSaving} onchange={(on) => office && void saveOffice({ sheets: office.sheets, present: on })} />
@@ -224,17 +224,17 @@
 					</div>
 				</div>
 			{:else}
-				<p class="admin-join__note">Shared Sheets: {office.sheets ? 'on' : 'off'} · Present: {office.present ? 'on' : 'off'}. Only the server's office admin can change these.</p>
+				<p class="admin-join__note">{$t('ast.sheets_present', { values: { sheets: office.sheets ? $t('ast.on') : $t('ast.off'), present: office.present ? $t('ast.on') : $t('ast.off') } })}</p>
 			{/if}
 		{:else if officeState === 'loading'}
-			<p class="admin-join__note" role="status">Checking office sharing…</p>
+			<p class="admin-join__note" role="status">{$t('ast.checking_office')}</p>
 		{/if}
 		{#if officeState === 'error'}
 			<div class="w-notice admin-join__notice" role="alert">
 				<Icon name="alert" />
-				<p class="w-notice__title">The office sharing settings didn't load</p>
-				<p class="w-notice__text">Sharing works as it did before.</p>
-				<button type="button" class="w-btn w-btn--sm" onclick={loadOffice}>Retry</button>
+				<p class="w-notice__title">{$t('ast.office_failed')}</p>
+				<p class="w-notice__text">{$t('ast.office_failed_text')}</p>
+				<button type="button" class="w-btn w-btn--sm" onclick={loadOffice}>{$t('common.retry')}</button>
 			</div>
 		{:else if officeNote}
 			<p class="admin-join__note" class:is-error={officeNote.error} role={officeNote.error ? 'alert' : 'status'}>{officeNote.text}</p>
@@ -242,12 +242,12 @@
 	</section>
 
 	<section class="settings-block admin-launcher" aria-labelledby="admin-launcher-title">
-		<h3 class="settings-block__title" id="admin-launcher-title">Server overview</h3>
-		<p class="settings-block__hint">{$connected ? 'Connected to your community.' : 'Offline. Counts are from the last connection.'}</p>
+		<h3 class="settings-block__title" id="admin-launcher-title">{$t('ast.overview')}</h3>
+		<p class="settings-block__hint">{$connected ? $t('ast.connected') : $t('ast.offline')}</p>
 		<dl class="admin-summary">
-			<div><dt>Online in your roster</dt><dd>{$users.filter((user) => ['active', 'away', 'busy'].includes(user.status)).length}</dd></div>
-			<div><dt>Channels you can see</dt><dd>{$channels.length}</dd></div>
-			<div><dt>Your role</dt><dd class="admin-summary__word">{roleWord}</dd></div>
+			<div><dt>{$t('ast.online_roster')}</dt><dd>{$users.filter((user) => ['active', 'away', 'busy'].includes(user.status)).length}</dd></div>
+			<div><dt>{$t('ast.channels_visible')}</dt><dd>{$channels.length}</dd></div>
+			<div><dt>{$t('ast.your_role')}</dt><dd class="admin-summary__word">{roleWord}</dd></div>
 		</dl>
 		<div class="admin-destinations">
 			{#each destinations as destination (destination.section)}

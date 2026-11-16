@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { isImageAlbumItem, isVideoAlbumItem, resolveAlbumAssetUrl, formatTimestamp } from './mediaAlbumHelpers';
 	import type { MediaAlbum, MediaAlbumItem } from '$lib/api';
 
@@ -16,10 +17,10 @@
 	export let onQuickDelete: (albumId: number) => void = () => {};
 
 	$: rowStatus = selectedAlbumId === album.id && isUploadingAlbumFile
-		? 'Uploading'
+		? $_('media_albums.uploading')
 		: selectedAlbumId === album.id
-			? (album.itemCount > 0 ? 'Selected' : 'Ready')
-			: lastUploadedAlbumId === album.id ? 'Updated' : null;
+			? (album.itemCount > 0 ? $_('media_albums.selected') : $_('media_albums.ready'))
+			: lastUploadedAlbumId === album.id ? $_('wiki.updated') : null;
 
 	function handleKeydown(event: KeyboardEvent, album: MediaAlbum): void {
 		if (event.key === 'Enter' || event.key === ' ') {
@@ -29,8 +30,8 @@
 	}
 
 	$: placeholderText = selectedAlbumId === album.id && isUploadingAlbumFile
-		? 'Uploading into this album...'
-		: album.itemCount > 0 ? 'Open album gallery' : 'Click row to upload the first image';
+		? $_('ac.uploading_into')
+		: album.itemCount > 0 ? $_('ac.open_gallery') : $_('ac.click_first');
 
 </script>
 
@@ -54,13 +55,13 @@
 		</div>
 		<div class="album-card-actions">
 			{#if album.isFeatured}
-				<span class="featured-badge">Featured</span>
+				<span class="featured-badge">{$_('ac.featured')}</span>
 			{/if}
 			<button
 				type="button"
 				class="album-quick-btn"
-				title="Add file to album"
-				aria-label={`Add file to ${album.name}`}
+				title={$_('album_header.add_file')}
+				aria-label={$_('ac.add_file_to', { values: { name: album.name } })}
 				on:click|stopPropagation={() => onQuickAdd(album.id)}
 			>
 				+
@@ -69,11 +70,11 @@
 				<button
 					type="button"
 					class="album-quick-btn album-quick-btn--danger"
-					title="Delete album"
-					aria-label={`Delete ${album.name}`}
+					title={$_('media_albums.delete_album')}
+					aria-label={$_('ac.delete_name', { values: { name: album.name } })}
 					on:click|stopPropagation={() => onQuickDelete(album.id)}
 			>
-					Delete
+					{$_('admin.actions.delete')}
 				</button>
 			{/if}
 		</div>
@@ -84,7 +85,7 @@
 				<button
 					type="button"
 					class="album-card-preview"
-					aria-label={`Open ${album.name} preview ${previewIndex + 1}`}
+					aria-label={$_('ac.open_preview', { values: { name: album.name, index: previewIndex + 1 } })}
 					on:click|stopPropagation={() => onPreviewActivate(album, previewIndex)}
 				>
 					{#if isVideoAlbumItem(previewItem)}
@@ -111,7 +112,7 @@
 		{/if}
 	</div>
 	<div class="album-meta">
-		<span>{album.itemCount} items</span>
-		<span>{album.updatedAt > 0 ? `Updated ${formatTimestamp(album.updatedAt)}` : 'Recently created'}</span>
+		<span>{$_('message_content.album_items_count', { values: { count: album.itemCount } })}</span>
+		<span>{album.updatedAt > 0 ? $_('ac.updated_at', { values: { time: formatTimestamp(album.updatedAt) } }) : $_('ac.recent')}</span>
 	</div>
 </div>

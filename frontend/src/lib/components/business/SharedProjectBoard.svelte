@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { getAuthToken, getStoredDbUserId, onAuthSessionCleared } from '$lib/authSession';
 	import { fetchChannel } from '$lib/api/channelAccess';
@@ -21,11 +22,11 @@
 	};
 	type ProjectMember = { id: number; name: string; isBot: boolean };
 	const columns: KanbanColumn[] = [
-		{ id: 'ideas', label: 'Ideas', color: '#8b5cf6', visible: true },
-		{ id: 'todo', label: 'To do', color: '#3b82f6', visible: true },
-		{ id: 'in_progress', label: 'In progress', color: '#f59e0b', visible: true },
-		{ id: 'done', label: 'Done', color: '#10b981', visible: true },
-		{ id: 'scrapped', label: 'Scrapped', color: '#6b7280', visible: true }
+		{ id: 'ideas', label: $_('insights.status_ideas'), color: '#8b5cf6', visible: true },
+		{ id: 'todo', label: $_('project_schedule.to_do'), color: '#3b82f6', visible: true },
+		{ id: 'in_progress', label: $_('project_detail.figure_in_progress'), color: '#f59e0b', visible: true },
+		{ id: 'done', label: $_('login.wizard.step_done'), color: '#10b981', visible: true },
+		{ id: 'scrapped', label: $_('project_map.scrapped'), color: '#6b7280', visible: true }
 	];
 	let tasks: ProjectTask[] = [];
 	let members: ProjectMember[] = [];
@@ -110,7 +111,7 @@
 		const epoch = ++requestEpoch;
 		try {
 			const response = await fetchChannel(channelId, path(), { headers: headers() });
-			if (!response.ok) throw new Error(response.status === 403 ? 'Project access was removed.' : `Could not load the shared board (${response.status}).`);
+			if (!response.ok) throw new Error(response.status === 403 ? $_('project_schedule.access_removed') : $_('spb.load_failed_status', { values: { status: response.status } }));
 			const data = await response.json();
 			if (epoch !== requestEpoch) return;
 			tasks = Array.isArray(data.tasks) ? data.tasks : [];
@@ -119,7 +120,7 @@
 		} catch (cause) {
 			if (epoch !== requestEpoch) return;
 			tasks = [];
-			error = cause instanceof Error ? cause.message : 'Could not load the shared board.';
+			error = cause instanceof Error ? cause.message : $_('spb.load_failed');
 		} finally {
 			if (epoch === requestEpoch) loading = false;
 		}
@@ -129,16 +130,16 @@
 		void load();
 		void loadMembers();
 		const poll = setInterval(() => { if (!saving && !modalOpen && document.visibilityState === 'visible') void load(); }, 5000);
-		const stopAuth = onAuthSessionCleared(() => { requestEpoch++; tasks = []; members = []; history = []; currentUserId = null; error = 'Sign in to view this project.'; });
+		const stopAuth = onAuthSessionCleared(() => { requestEpoch++; tasks = []; members = []; history = []; currentUserId = null; error = $_('spb.sign_in_view'); });
 		return () => { clearInterval(poll); stopAuth(); requestEpoch++; };
 	});
 
 	async function loadHistory(): Promise<void> {
         try {
             const response = await fetchChannel(channelId, `${getServerUrl()}/api/projects/${encodeURIComponent(channelId)}/history`, { headers: headers() });
-            if (!response.ok) throw new Error('Could not load estimate history.');
+            if (!response.ok) throw new Error($_('spb.history_failed'));
             const data = await response.json(); history = data.history ?? []; historyError = '';
-        } catch (cause) { history = []; historyError = cause instanceof Error ? cause.message : 'Could not load estimate history.'; }
+        } catch (cause) { history = []; historyError = cause instanceof Error ? cause.message : $_('spb.history_failed'); }
     }
 	function openAddModal(column: TodoStatus): void {
 		void loadMembers();
@@ -178,16 +179,16 @@
 					const current = task ? tasks.find(item => item.taskId === task.taskId) : null;
 					if (modalOpen && current) editing = current;
 					throw new Error(current
-						? `This card changed to ${current.status} by member #${current.updatedByUserId}. Your draft is still here; review before saving again.`
-						: 'This card changed or was removed. Your draft is still here; refresh before saving again.');
+						? $_('spb.card_changed', { values: { status: current.status, id: current.updatedByUserId } })
+						: $_('spb.card_removed'));
 				}
-				throw new Error(response.status === 403 ? 'You no longer have access to edit this project.' : `Could not save the card (${response.status}).`);
+				throw new Error(response.status === 403 ? $_('spb.no_edit_access') : $_('spb.save_failed_status', { values: { status: response.status } }));
 			}
 			await load();
 			error = '';
 			return true;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not save the card.';
+			error = cause instanceof Error ? cause.message : $_('spb.save_failed');
 			return false;
 		} finally { saving = false; }
 	}
@@ -223,9 +224,9 @@
         saving = true;
         try {
             const response = await fetchChannel(channelId, `${path(task.taskId)}/claim`, {method:'POST', headers:headers(), body:JSON.stringify({expectedRevision:task.revision})});
-            if (!response.ok) throw new Error(response.status===409?'Someone changed or claimed this card. Review its assignment before trying again.':'Could not claim this card.');
+            if (!response.ok) throw new Error(response.status===409?$_('spb.claim_conflict'):$_('spb.claim_failed'));
             error=''; await load();
-        } catch (cause) { await load(); error=cause instanceof Error?cause.message:'Could not claim this card.'; }
+        } catch (cause) { await load(); error=cause instanceof Error?cause.message:$_('spb.claim_failed'); }
         finally { saving=false; }
     }
 	function getPriorityColor(value: Priority): string {
@@ -234,41 +235,41 @@
 	function getAssigneeName(id: number | undefined): string {
 		if (!id) return '';
 		const member = members.find(item => item.id === id);
-		return member ? `${member.name}${member.isBot ? ' · bot' : ''}` : `Member #${id}`;
+		return member ? `${member.name}${member.isBot ? $_('spb.bot_suffix') : ''}` : $_('project_schedule.member_id', { values: { id } });
 	}
 	function getColumnHint(value: TodoStatus): string {
-		return { ideas: 'Capture what might be', todo: 'Ready when you are', in_progress: 'Being worked on', done: 'Finished work', scrapped: 'Set aside for now', archived: '' }[value] ?? '';
+		return { ideas: $_('spb.hint_ideas'), todo: $_('spb.hint_todo'), in_progress: $_('spb.hint_in_progress'), done: $_('spb.hint_done'), scrapped: $_('spb.hint_scrapped'), archived: '' }[value] ?? '';
 	}
 </script>
 
-<section class="shared-project-board" class:burn-open={showBurn} aria-label="Shared project plan">
+<section class="shared-project-board" class:burn-open={showBurn} aria-label={$_('spb.aria_plan')}>
 	<div class="board-overview">
 		<header class="board-heading">
-			<div class="board-intro"><p class="board-eyebrow">THE SHARED BOARD <span>·</span> LIVE</p><h2>Work in motion</h2><p>Pick up a card, make progress, leave a clear trail for the team.</p></div>
-			<div class="board-actions"><button class="refresh-button" type="button" onclick={() => void load()} disabled={loading} aria-label="Refresh board" title="Refresh board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button><button class="new-card-button" type="button" onclick={() => openAddModal('todo')}><span aria-hidden="true">＋</span> New card</button></div>
+			<div class="board-intro"><p class="board-eyebrow">{$_('spb.eyebrow')} <span>·</span> {$_('spb.live')}</p><h2>{$_('spb.heading')}</h2><p>{$_('spb.heading_desc')}</p></div>
+			<div class="board-actions"><button class="refresh-button" type="button" onclick={() => void load()} disabled={loading} aria-label={$_('spb.refresh')} title={$_('spb.refresh')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button><button class="new-card-button" type="button" onclick={() => openAddModal('todo')}><span aria-hidden="true">＋</span> {$_('spb.new_card')}</button></div>
 		</header>
-		<div class="board-pulse" aria-label="Board progress">
-			<div class="pulse-stat"><strong>{trackedTasks.length}</strong><span>On the board</span></div>
-			<div class="pulse-stat"><strong>{workingCount}</strong><span>In progress</span></div>
-			<div class="pulse-stat"><strong>{doneCount}</strong><span>Done</span></div>
-			<div class="pulse-progress"><span>{completionPercent}% complete</span><div class="progress-track" role="progressbar" aria-label="Cards done" aria-valuenow={completionPercent} aria-valuemin="0" aria-valuemax="100"><div style:width={`${completionPercent}%`}></div></div></div>
+		<div class="board-pulse" aria-label={$_('spb.board_progress')}>
+			<div class="pulse-stat"><strong>{trackedTasks.length}</strong><span>{$_('spb.on_board')}</span></div>
+			<div class="pulse-stat"><strong>{workingCount}</strong><span>{$_('project_detail.figure_in_progress')}</span></div>
+			<div class="pulse-stat"><strong>{doneCount}</strong><span>{$_('login.wizard.step_done')}</span></div>
+			<div class="pulse-progress"><span>{$_('spb.percent_complete', { values: { p: completionPercent } })}</span><div class="progress-track" role="progressbar" aria-label={$_('spb.cards_done')} aria-valuenow={completionPercent} aria-valuemin="0" aria-valuemax="100"><div style:width={`${completionPercent}%`}></div></div></div>
 		</div>
 	</div>
 	{#if !loading}<ProjectMap {tasks} history={history as any} nameOf={getAssigneeName} onOpen={(id) => handleCardClick({ id } as Todo)} />{/if}
 	{#if error}<p class="board-error" role="alert">{error}</p>{/if}
-	{#if loading}<p class="board-state" role="status">Loading shared board…</p>{:else}
-		<div class="board-section-bar"><div><span class="section-line"></span><h3>Board lanes</h3><span class="lane-count">{visibleColumns.length}</span></div><button type="button" class:pressed={showScrapped} onclick={() => showScrapped = !showScrapped}>{showScrapped ? 'Hide' : 'Show'} set aside <span>{scrappedCount}</span></button></div>
-		<div class="burn-toggle"><button type="button" onclick={() => { showBurn = !showBurn; if (showBurn) void loadHistory(); }}>{showBurn ? 'Hide' : 'Show'} estimate burndown</button><span>For human planning · estimates never sent to bots</span></div>
-        {#if showBurn}<section class="burn-chart" aria-label="Human estimate burndown"><h3>Estimated work remaining</h3><p>Recorded changes, including added work and reopened cards. No estimate means uncounted work.</p>
-        {#if historyError}<p role="alert">{historyError}</p>{:else if burn.length}<svg viewBox="0 0 700 195" role="img" aria-label="Remaining estimated hours over recorded changes"><path d="M30 30V160H670" class="burn-axis"/><path d={scopePath} class="scope-line"/><path d={burnPath} class="burn-line"/><text x="30" y="20">{(maxBurn / 60).toFixed(1)} hours</text><text x="30" y="185">{new Date(burnStart).toLocaleDateString()}</text><text x="550" y="185">{new Date(burnEnd).toLocaleDateString()}</text></svg><div class="burn-legend"><span>Remaining: {((burn.at(-1)?.remainingMinutes ?? 0)/60).toFixed(1)}h</span><span>Scope: {((burn.at(-1)?.scopeMinutes ?? 0)/60).toFixed(1)}h</span><span>{burn.at(-1)?.unestimated ?? 0} unestimated cards</span></div>{:else}<p>Estimate history will appear as cards change.</p>{/if}</section>{/if}
+	{#if loading}<p class="board-state" role="status">{$_('spb.loading_board')}</p>{:else}
+		<div class="board-section-bar"><div><span class="section-line"></span><h3>{$_('spb.board_lanes')}</h3><span class="lane-count">{visibleColumns.length}</span></div><button type="button" class:pressed={showScrapped} onclick={() => showScrapped = !showScrapped}>{showScrapped ? $_('model_inspect.hide') : $_('panels.show')} {$_('spb.set_aside')} <span>{scrappedCount}</span></button></div>
+		<div class="burn-toggle"><button type="button" onclick={() => { showBurn = !showBurn; if (showBurn) void loadHistory(); }}>{showBurn ? $_('model_inspect.hide') : $_('panels.show')} {$_('spb.burndown')}</button><span>{$_('spb.burn_note')}</span></div>
+        {#if showBurn}<section class="burn-chart" aria-label={$_('spb.burn_aria')}><h3>{$_('spb.burn_title')}</h3><p>{$_('spb.burn_desc')}</p>
+        {#if historyError}<p role="alert">{historyError}</p>{:else if burn.length}<svg viewBox="0 0 700 195" role="img" aria-label={$_('spb.burn_svg_aria')}><path d="M30 30V160H670" class="burn-axis"/><path d={scopePath} class="scope-line"/><path d={burnPath} class="burn-line"/><text x="30" y="20">{$_('spb.hours_value', { values: { h: (maxBurn / 60).toFixed(1) } })}</text><text x="30" y="185">{new Date(burnStart).toLocaleDateString()}</text><text x="550" y="185">{new Date(burnEnd).toLocaleDateString()}</text></svg><div class="burn-legend"><span>{$_('spb.remaining_value', { values: { h: ((burn.at(-1)?.remainingMinutes ?? 0)/60).toFixed(1) } })}</span><span>{$_('spb.scope_value', { values: { h: ((burn.at(-1)?.scopeMinutes ?? 0)/60).toFixed(1) } })}</span><span>{$_('spb.unestimated', { values: { n: burn.at(-1)?.unestimated ?? 0 } })}</span></div>{:else}<p>{$_('spb.history_empty')}</p>{/if}</section>{/if}
         <div class="board-scroll">
 			<KanbanBoardColumns columns={visibleColumns} {sortedTodosByColumn} {dragOverColumn}
 				showPriorityLabel compactEmpty {getColumnHint}
-				{getPriorityColor} formatEstimateHours={(minutes) => minutes == null ? '' : `${minutes / 60}h · human estimate`}
+				{getPriorityColor} formatEstimateHours={(minutes) => minutes == null ? '' : $_('spb.estimate', { values: { hours: minutes / 60 } })}
 				{getAssigneeName} {claimTask} isReadOnly={saving}
                 canClaim={(todo) => currentUserId != null && (!todo.assignedTo || Number(todo.assignedTo)===currentUserId && todo.status!=='in_progress') && ['ideas','todo','in_progress'].includes(todo.status)}
-                getClaimLabel={(todo) => todo.assignedTo ? 'Start working' : 'Claim this task'}
-                getWorkingLabel={(todo) => { const task = tasks.find(t => t.taskId===todo.id); return task?.assigneeUserId != null && task.status==='in_progress' ? `${getAssigneeName(task.assigneeUserId)} is working on this` : ''; }}
+                getClaimLabel={(todo) => todo.assignedTo ? $_('spb.start_working') : $_('spb.claim_task')}
+                getWorkingLabel={(todo) => { const task = tasks.find(t => t.taskId===todo.id); return task?.assigneeUserId != null && task.status==='in_progress' ? $_('spb.is_working', { values: { name: getAssigneeName(task.assigneeUserId) } }) : ''; }}
 				getProjectColor={() => '#3b82f6'} getProjectName={() => ''}
 				formatDueDate={(date) => date ? new Date(date).toLocaleDateString() : ''}
 				isOverdue={(date) => Boolean(date && date < Date.now())}
@@ -280,33 +281,33 @@
 
 {#if modalOpen}
 	<div class="task-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget && !saving) modalOpen = false; }}>
-		<form class="shared-task-editor" onsubmit={(event) => { event.preventDefault(); void save(); }} aria-label={editing ? 'Edit shared card' : 'Create shared card'}>
-			<header><h2>{editing ? 'Edit card' : 'New card'}</h2><button type="button" onclick={() => modalOpen = false} disabled={saving} aria-label="Close card editor">×</button></header>
-			<label>Title<input bind:value={title} maxlength="200" required /></label>
-			<label>Description<textarea bind:value={description} maxlength="16000" rows="5"></textarea></label>
-			<div class="editor-grid"><label>Status<select bind:value={status}>{#each columns as column}<option value={column.id}>{column.label}</option>{/each}</select></label>
-			<label>Priority<select bind:value={priority}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></label></div>
-			<div class="editor-grid"><label>Due date<input type="date" bind:value={dueDate} /></label><label>Assignee<select bind:value={assigneeUserId}><option value="">Unassigned</option>{#each members as member (member.id)}<option value={String(member.id)}>{member.name}{member.isBot ? ' · bot' : ''}</option>{/each}</select></label></div>
-            <label>Blocked because<input maxlength="300" bind:value={blockedReason} placeholder="Leave blank if nothing is in the way (e.g. Waiting on live API keys)" /></label>
-            <fieldset class="decision-editor"><legend>Needs your call</legend>
-				<label class="decision-toggle"><input type="checkbox" bind:checked={needsDecision} /> This card is waiting on a decision from a person</label>
-				{#if needsDecision}<label>The question<input maxlength="300" bind:value={decisionQuestion} placeholder="e.g. Switch Stripe to live mode?" /></label>
-				<div class="editor-grid"><label>If nobody answers<input maxlength="300" bind:value={decisionFallback} placeholder="e.g. Stay in test mode" /></label><label>Answer by<input type="date" bind:value={decisionDeadline} /></label></div>{/if}
+		<form class="shared-task-editor" onsubmit={(event) => { event.preventDefault(); void save(); }} aria-label={editing ? $_('spb.edit_card_aria') : $_('spb.create_card_aria')}>
+			<header><h2>{editing ? $_('spb.edit_card') : $_('spb.new_card')}</h2><button type="button" onclick={() => modalOpen = false} disabled={saving} aria-label={$_('spb.close_editor')}>×</button></header>
+			<label>{$_('reader_doc.title_label')}<input bind:value={title} maxlength="200" required /></label>
+			<label>{$_('donation_config.description')}<textarea bind:value={description} maxlength="16000" rows="5"></textarea></label>
+			<div class="editor-grid"><label>{$_('project_schedule.th_status')}<select bind:value={status}>{#each columns as column}<option value={column.id}>{column.label}</option>{/each}</select></label>
+			<label>{$_('kan.kick_priority')}<select bind:value={priority}><option value="low">{$_('kan.pri_low')}</option><option value="medium">{$_('kan.pri_medium')}</option><option value="high">{$_('kan.pri_high')}</option><option value="urgent">{$_('kan.pri_urgent')}</option></select></label></div>
+			<div class="editor-grid"><label>{$_('kanban_task.due_date')}<input type="date" bind:value={dueDate} /></label><label>{$_('kan.kick_assignee')}<select bind:value={assigneeUserId}><option value="">{$_('kan.opt_unassigned')}</option>{#each members as member (member.id)}<option value={String(member.id)}>{member.name}{member.isBot ? $_('spb.bot_suffix') : ''}</option>{/each}</select></label></div>
+            <label>{$_('spb.blocked')}<input maxlength="300" bind:value={blockedReason} placeholder={$_('spb.blocked_ph')} /></label>
+            <fieldset class="decision-editor"><legend>{$_('project_map.needs_call')}</legend>
+				<label class="decision-toggle"><input type="checkbox" bind:checked={needsDecision} /> {$_('spb.waiting_decision')}</label>
+				{#if needsDecision}<label>{$_('spb.the_question')}<input maxlength="300" bind:value={decisionQuestion} placeholder={$_('spb.question_ph')} /></label>
+				<div class="editor-grid"><label>{$_('spb.if_nobody')}<input maxlength="300" bind:value={decisionFallback} placeholder={$_('spb.fallback_ph')} /></label><label>{$_('spb.answer_by')}<input type="date" bind:value={decisionDeadline} /></label></div>{/if}
 			</fieldset>
-            <label>Human estimate (hours)<input type="number" min="0" max="10000" step="0.25" bind:value={estimateHours} placeholder="Leave blank if unknown" /><small>Human planning only. Bots cannot read or change this field.</small></label>
-            <fieldset class="checklist-editor"><legend>Checklist</legend><p>Small steps belong here. Work needing its own owner or review belongs on a linked card.</p>{#each checklist as item, index (item.id)}<div class="checklist-row"><input type="checkbox" bind:checked={item.done} aria-label={`Complete checklist item ${index + 1}`} /><input bind:value={item.title} maxlength="500" aria-label={`Checklist item ${index + 1}`} required /><button type="button" aria-label={`Remove checklist item ${index + 1}`} onclick={() => checklist = checklist.filter(i => i.id !== item.id)}>×</button></div>{/each}<button type="button" disabled={checklist.length >= 100} onclick={() => checklist = [...checklist, {id: crypto.randomUUID(), title:'', done:false}]}>＋ Add step</button></fieldset>
-            <label>Notes<textarea bind:value={notes} maxlength="16000" rows="3" placeholder="Decisions, context, links, or handoff notes"></textarea></label>
-<fieldset class="linked-inventory"><legend>Linked cards</legend><p>Connect real cards. Each keeps its own owner and status.</p>
+            <label>{$_('spb.estimate_label')}<input type="number" min="0" max="10000" step="0.25" bind:value={estimateHours} placeholder={$_('spb.estimate_ph')} /><small>{$_('spb.estimate_help')}</small></label>
+            <fieldset class="checklist-editor"><legend>{$_('office.editor.block_checklist')}</legend><p>{$_('spb.checklist_help')}</p>{#each checklist as item, index (item.id)}<div class="checklist-row"><input type="checkbox" bind:checked={item.done} aria-label={$_('spb.complete_item', { values: { n: index + 1 } })} /><input bind:value={item.title} maxlength="500" aria-label={$_('spb.checklist_item', { values: { n: index + 1 } })} required /><button type="button" aria-label={$_('spb.remove_item', { values: { n: index + 1 } })} onclick={() => checklist = checklist.filter(i => i.id !== item.id)}>×</button></div>{/each}<button type="button" disabled={checklist.length >= 100} onclick={() => checklist = [...checklist, {id: crypto.randomUUID(), title:'', done:false}]}>＋ {$_('spb.add_step')}</button></fieldset>
+            <label>{$_('places.notes')}<textarea bind:value={notes} maxlength="16000" rows="3" placeholder={$_('spb.notes_ph')}></textarea></label>
+<fieldset class="linked-inventory"><legend>{$_('spb.linked')}</legend><p>{$_('spb.linked_help')}</p>
  {#each relatedTaskIds as id (id)}{@const target = tasks.find(task => task.taskId === id)}
- <div class="linked-selection"><button type="button" onclick={() => inspectedLink = inspectedLink === id ? '' : id}>{target?.title || 'Unavailable card'} <small>{target?.status.replaceAll('_',' ') || ''}</small></button><button type="button" aria-label={`Unlink ${target?.title || id}`} onclick={() => relatedTaskIds = relatedTaskIds.filter(value => value !== id)}>×</button></div>
- {#if inspectedLink === id && target}<div class="linked-preview"><strong>{target.title}</strong><p>{target.description || 'No description'}</p><small>Assignee: {members.find(member => member.id === target.assigneeUserId)?.name || 'Unassigned'}</small>{#if target.notes}<p>{target.notes}</p>{/if}</div>{/if}
+ <div class="linked-selection"><button type="button" onclick={() => inspectedLink = inspectedLink === id ? '' : id}>{target?.title || $_('spb.unavailable_card')} <small>{target?.status.replaceAll('_',' ') || ''}</small></button><button type="button" aria-label={$_('spb.unlink', { values: { name: target?.title || id } })} onclick={() => relatedTaskIds = relatedTaskIds.filter(value => value !== id)}>×</button></div>
+ {#if inspectedLink === id && target}<div class="linked-preview"><strong>{target.title}</strong><p>{target.description || $_('spb.no_description')}</p><small>{$_('kan.kick_assignee')}: {members.find(member => member.id === target.assigneeUserId)?.name || $_('kan.opt_unassigned')}</small>{#if target.notes}<p>{target.notes}</p>{/if}</div>{/if}
  {/each}
- <label>Find cards<input bind:value={linkSearch} placeholder="Search card titles…" /></label>
- <div class="link-options">{#each linkCandidates as task (task.taskId)}<label><input type="checkbox" checked={relatedTaskIds.includes(task.taskId)} onchange={(event) => relatedTaskIds = event.currentTarget.checked ? [...new Set([...relatedTaskIds,task.taskId])] : relatedTaskIds.filter(id=>id !== task.taskId)} /><span>{task.title}<small>{task.status.replaceAll('_',' ')} · {members.find(member=>member.id===task.assigneeUserId)?.name || 'Unassigned'}</small></span></label>{:else}<p>No matching cards.</p>{/each}</div>
- <small>Click a linked card to inspect it without losing this draft. Unlinking does not delete the card.</small>
+ <label>{$_('spb.find_cards')}<input bind:value={linkSearch} placeholder={$_('spb.find_ph')} /></label>
+ <div class="link-options">{#each linkCandidates as task (task.taskId)}<label><input type="checkbox" checked={relatedTaskIds.includes(task.taskId)} onchange={(event) => relatedTaskIds = event.currentTarget.checked ? [...new Set([...relatedTaskIds,task.taskId])] : relatedTaskIds.filter(id=>id !== task.taskId)} /><span>{task.title}<small>{task.status.replaceAll('_',' ')} · {members.find(member=>member.id===task.assigneeUserId)?.name || $_('kan.opt_unassigned')}</small></span></label>{:else}<p>{$_('spb.no_match_cards')}</p>{/each}</div>
+ <small>{$_('spb.link_help')}</small>
 </fieldset>
 			{#if error}<p class="board-error" role="alert">{error}</p>{/if}
-			<footer>{#if editing}<button type="button" onclick={() => void archive()} disabled={saving}>Archive</button>{/if}<button type="button" onclick={() => modalOpen = false} disabled={saving}>Cancel</button><button type="submit" disabled={saving || !title.trim()}>{saving ? 'Saving…' : 'Save card'}</button></footer>
+			<footer>{#if editing}<button type="button" onclick={() => void archive()} disabled={saving}>{$_('spb.archive')}</button>{/if}<button type="button" onclick={() => modalOpen = false} disabled={saving}>{$_('common.cancel')}</button><button type="submit" disabled={saving || !title.trim()}>{saving ? $_('payment_access_panel.saving') : $_('spb.save_card')}</button></footer>
 		</form>
 	</div>
 {/if}

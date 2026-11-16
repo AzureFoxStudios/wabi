@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { untrack } from 'svelte';
 	import { writable } from 'svelte/store';
 	import { notebookOwner } from '$lib/notes/scope';
@@ -29,12 +30,12 @@
 	// Locality is stated in the words themselves: this scratchpad never leaves the device (§9.3).
 	const statusLabel = $derived.by(() => {
 		const draft = $draftStore;
-		if (!draft || !editor) return loading ? 'Opening…' : loadFailed || $notebookOwner.error ? 'Not available' : '';
-		if (draft.status === 'saved') return 'Saved on this device';
-		if (draft.status === 'saving') return 'Saving…';
-		if (draft.status === 'conflict') return 'Conflicting changes';
-		if (draft.status === 'failed') return 'Could not save';
-		return 'Unsaved changes';
+		if (!draft || !editor) return loading ? $_('lore_viewer.opening') : loadFailed || $notebookOwner.error ? $_('server_health.not_available') : '';
+		if (draft.status === 'saved') return $_('locality.saved_on_device');
+		if (draft.status === 'saving') return $_('payment_access_panel.saving');
+		if (draft.status === 'conflict') return $_('qsp.conflict');
+		if (draft.status === 'failed') return $_('qsp.failed');
+		return $_('common.unsaved_changes');
 	});
 	$effect(() => {
 		status = statusLabel;
@@ -72,47 +73,47 @@
 		try { await editor.saveRecoveryCopy(`Recovered scratchpad ${new Date().toISOString()}`); error = ''; }
 		catch (failure) {
 			console.error('[scratchpad] could not save a recovery copy', failure);
-			error = 'Could not save a recovery copy. Download the draft to keep it.';
+			error = $_('qsp.recovery_fail');
 		}
 	}
 </script>
 
-<section class="quick-scratchpad" class:embedded aria-label="Scratchpad">
+<section class="quick-scratchpad" class:embedded aria-label={$_('shell.scratchpad')}>
 	{#if $draftStore && editor}
 		{#if $draftStore.error}
 			<div class="w-notice scratchpad-notice" role="alert">
 				<Icon name="alert" size={16} />
-				<p class="w-notice__title">{$draftStore.status === 'conflict' ? 'This scratchpad changed elsewhere' : 'Could not save the scratchpad'}</p>
+				<p class="w-notice__title">{$draftStore.status === 'conflict' ? $_('qsp.changed_elsewhere') : $_('qsp.could_not_save_pad')}</p>
 				<p class="w-notice__text">{$draftStore.error}</p>
 				<div class="w-notice__actions">
-					<button type="button" class="w-btn w-btn--sm" onclick={recover}>Save recovery copy</button>
-					<button type="button" class="w-btn w-btn--sm" onclick={download}>Download draft</button>
-					{#if $draftStore.status === 'failed'}<button type="button" class="w-btn w-btn--sm" onclick={() => editor?.save()}>Retry</button>{/if}
+					<button type="button" class="w-btn w-btn--sm" onclick={recover}>{$_('notebook.save_recovery')}</button>
+					<button type="button" class="w-btn w-btn--sm" onclick={download}>{$_('notebook.download_draft')}</button>
+					{#if $draftStore.status === 'failed'}<button type="button" class="w-btn w-btn--sm" onclick={() => editor?.save()}>{$_('common.retry')}</button>{/if}
 				</div>
 			</div>
 		{/if}
 		{#if $draftStore.note.trashedAt !== null}
 			<div class="w-notice w-notice--info scratchpad-notice" role="status">
 				<Icon name="info" size={16} />
-				<p class="w-notice__title">This scratchpad is in Trash</p>
-				<p class="w-notice__text">Open Notes to restore it, or reopen this panel to start a new scratchpad.</p>
+				<p class="w-notice__title">{$_('qsp.in_trash')}</p>
+				<p class="w-notice__text">{$_('qsp.trash_desc')}</p>
 			</div>
 		{/if}
-		<textarea class="scratchpad-input" aria-label="Scratchpad text" value={$draftStore.text} disabled={$draftStore.note.trashedAt !== null} oninput={event => editor?.update({ text: event.currentTarget.value })} placeholder="Type or paste notes here." spellcheck="true"></textarea>
+		<textarea class="scratchpad-input" aria-label={$_('qsp.text_aria')} value={$draftStore.text} disabled={$draftStore.note.trashedAt !== null} oninput={event => editor?.update({ text: event.currentTarget.value })} placeholder={$_('qsp.text_ph')} spellcheck="true"></textarea>
 		{#if showStatus || showFull}
 			<div class="scratchpad-footer">
 				{#if showStatus}<span role="status">{statusLabel}</span>{/if}
-				{#if showFull}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={openFull}>Open full note</button>{/if}
+				{#if showFull}<button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={openFull}>{$_('qsp.open_full')}</button>{/if}
 			</div>
 		{/if}
 	{:else if loading && !$notebookOwner.error}
-		<p class="scratchpad-loading" role="status">Opening the scratchpad…</p>
+		<p class="scratchpad-loading" role="status">{$_('qsp.opening_pad')}</p>
 	{:else}
 		<div class="w-notice w-notice--warn scratchpad-notice" role="status">
 			<Icon name="warn" size={16} />
-			<p class="w-notice__title">The scratchpad isn't available</p>
-			<p class="w-notice__text">{$notebookOwner.error || 'Your notes on this device are unchanged.'}</p>
-			<div class="w-notice__actions"><button type="button" class="w-btn w-btn--sm" onclick={openFull}>Open Notes</button></div>
+			<p class="w-notice__title">{$_('qsp.not_avail_title')}</p>
+			<p class="w-notice__text">{$notebookOwner.error || $_('qsp.notes_unchanged')}</p>
+			<div class="w-notice__actions"><button type="button" class="w-btn w-btn--sm" onclick={openFull}>{$_('qsp.open_notes')}</button></div>
 		</div>
 	{/if}
 	{#if error && $draftStore}<p class="scratchpad-error" role="alert">{error}</p>{/if}

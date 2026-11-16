@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type { FrontendAppMetadataPolicy } from '$lib/api';
 	import type { DeskPosterBlock } from '../../../../../shared/adminPolicyContracts';
 	import { onMount } from 'svelte';
@@ -120,100 +121,100 @@
 	}
 </script>
 
-<section class="branding-editor" aria-label="Server identity">
+<section class="branding-editor" aria-label={$_('fmp.identity')}>
 	<header class="branding-heading">
-		<div><h2>Server identity</h2><p>Your community’s name, artwork and welcome text.</p></div>
+		<div><h2>{$_('fmp.identity')}</h2><p>{$_('fmp.heading_desc')}</p></div>
 		<div class="branding-actions">
-			<button onclick={onRefresh} disabled={busy || dirty || accentInvalid}>Refresh</button>
-			{#if dirty || accentInvalid}<button onclick={discard} disabled={busy}>Discard changes</button>{/if}
-			<button class="branding-publish" onclick={onSave} disabled={!editable || !dirty || accentInvalid || deskBackgroundInvalid}>{frontendMetadataSaving ? 'Publishing…' : 'Publish changes'}</button>
+			<button onclick={onRefresh} disabled={busy || dirty || accentInvalid}>{$_('yt.refresh')}</button>
+			{#if dirty || accentInvalid}<button onclick={discard} disabled={busy}>{$_('fmp.discard')}</button>{/if}
+			<button class="branding-publish" onclick={onSave} disabled={!editable || !dirty || accentInvalid || deskBackgroundInvalid}>{frontendMetadataSaving ? $_('crp.publishing') : $_('fmp.publish')}</button>
 		</div>
 	</header>
 	{#if frontendMetadataError}<p class="branding-error" role="alert">{frontendMetadataError}</p>{/if}
 	{#if !frontendMetadataLoaded}
-		<p role="status" class="branding-notice">{frontendMetadataLoading ? 'Loading the published server identity…' : 'The server identity could not be loaded. Refresh to try again; nothing has been changed.'}</p>
+		<p role="status" class="branding-notice">{frontendMetadataLoading ? $_('fmp.loading_identity') : $_('fmp.load_failed')}</p>
 	{:else}
-		<p role="status" class="branding-notice">{dirty || accentInvalid || deskBackgroundInvalid ? 'You have unpublished changes. The preview below is only visible to you.' : frontendMetadataSaveStatus || 'Showing the published server identity.'}</p>
+		<p role="status" class="branding-notice">{dirty || accentInvalid || deskBackgroundInvalid ? $_('fmp.unpublished') : frontendMetadataSaveStatus || $_('fmp.showing_published')}</p>
 		<fieldset disabled={!editable} class="branding-fields">
-			<legend class="branding-sr-only">Identity and artwork</legend>
+			<legend class="branding-sr-only">{$_('fmp.legend')}</legend>
 			<div class="branding-form-grid">
-				<label>Server name<input value={frontendAppMetadata.displayName ?? ''} placeholder="Your community" oninput={event => setText('displayName', event.currentTarget.value)} /></label>
-				<label>Signature color<input value={accentInput} placeholder="#6366f1" aria-invalid={accentInvalid ? 'true' : undefined} aria-describedby="branding-accent-help" oninput={event => editAccent(event.currentTarget.value)} /><small id="branding-accent-help">{accentInvalid ? 'Enter a valid hex, RGB or HSL color, or leave blank.' : 'Signature color: tints the sidebar banner, room titles and the server preview. Leave blank to follow each member’s theme.'}</small></label>
-				<label>Owner mark<input value={frontendAppMetadata.ownerBadgeMark ?? ''} placeholder="Default crown" maxlength="8" aria-label="Owner badge mark" oninput={event => setBadgeMark('ownerBadgeMark', event.currentTarget.value)} /><small>Shown beside owner names. Leave blank for the default crown.</small></label>
-				<label>Staff mark<input value={frontendAppMetadata.staffBadgeMark ?? ''} placeholder="Default gem" maxlength="8" aria-label="Staff badge mark" oninput={event => setBadgeMark('staffBadgeMark', event.currentTarget.value)} /><small>Shown beside staff names. Leave blank for the default gem.</small></label>
-				<label>Title font<select value={frontendAppMetadata.displayFont ?? 'default'} aria-label="Community title font" onchange={event => setDisplayFont(event.currentTarget.value)}>{#each DISPLAY_FONTS as font}<option value={font.id}>{font.label}</option>{/each}</select><small>Used for the server name, room titles and headings. A theme with its own type (like Joker) keeps its own.</small></label>
-				<label class="branding-wide">Description<input value={frontendAppMetadata.description ?? ''} placeholder="A short introduction to your server" oninput={event => setText('description', event.currentTarget.value)} /></label>
-				<label class="branding-wide">Tagline<input value={frontendAppMetadata.tagline ?? ''} placeholder="A few words that make this place yours" oninput={event => setText('tagline', event.currentTarget.value)} /></label>
+				<label>{$_('login.wizard.branding_name')}<input value={frontendAppMetadata.displayName ?? ''} placeholder={$_('fmp.ph_community')} oninput={event => setText('displayName', event.currentTarget.value)} /></label>
+				<label>{$_('fmp.signature')}<input value={accentInput} placeholder="#6366f1" aria-invalid={accentInvalid ? 'true' : undefined} aria-describedby="branding-accent-help" oninput={event => editAccent(event.currentTarget.value)} /><small id="branding-accent-help">{accentInvalid ? $_('fmp.accent_invalid') : $_('fmp.accent_help')}</small></label>
+				<label>{$_('fmp.owner_mark')}<input value={frontendAppMetadata.ownerBadgeMark ?? ''} placeholder={$_('fmp.default_crown')} maxlength="8" aria-label={$_('fmp.owner_badge_label')} oninput={event => setBadgeMark('ownerBadgeMark', event.currentTarget.value)} /><small>{$_('fmp.owner_help')}</small></label>
+				<label>{$_('fmp.staff_mark')}<input value={frontendAppMetadata.staffBadgeMark ?? ''} placeholder={$_('fmp.default_gem')} maxlength="8" aria-label={$_('fmp.staff_badge_label')} oninput={event => setBadgeMark('staffBadgeMark', event.currentTarget.value)} /><small>{$_('fmp.staff_help')}</small></label>
+				<label>{$_('fmp.title_font')}<select value={frontendAppMetadata.displayFont ?? 'default'} aria-label={$_('fmp.title_font_label')} onchange={event => setDisplayFont(event.currentTarget.value)}>{#each DISPLAY_FONTS as font}<option value={font.id}>{font.label}</option>{/each}</select><small>{$_('fmp.title_font_help')}</small></label>
+				<label class="branding-wide">{$_('donation_config.description')}<input value={frontendAppMetadata.description ?? ''} placeholder={$_('fmp.desc_ph')} oninput={event => setText('description', event.currentTarget.value)} /></label>
+				<label class="branding-wide">{$_('branding.tagline')}<input value={frontendAppMetadata.tagline ?? ''} placeholder={$_('fmp.tagline_ph')} oninput={event => setText('tagline', event.currentTarget.value)} /></label>
 			</div>
 			<div class="branding-assets">
-				<input bind:this={iconInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="branding-file-input" aria-label="Choose server icon file" tabindex="-1" onchange={event => onUploadAsset('icon', event)} />
-				<input bind:this={bannerInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="branding-file-input" aria-label="Choose server banner file" tabindex="-1" onchange={event => onUploadAsset('banner', event)} />
+				<input bind:this={iconInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="branding-file-input" aria-label={$_('fmp.choose_icon')} tabindex="-1" onchange={event => onUploadAsset('icon', event)} />
+				<input bind:this={bannerInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="branding-file-input" aria-label={$_('fmp.choose_banner')} tabindex="-1" onchange={event => onUploadAsset('banner', event)} />
 				{#each ['icon', 'banner'] as asset}
 					{@const target = asset as 'icon' | 'banner'}
 					{@const source = resolveFrontendMetadataAssetUrl(target === 'icon' ? frontendAppMetadata.iconUrl : frontendAppMetadata.bannerUrl)}
 					<div class="branding-asset">
-						<button class="branding-upload" class:dragging={dragTarget === target} aria-label={'Upload server ' + target}
+						<button class="branding-upload" class:dragging={dragTarget === target} aria-label={$_('fmp.upload_asset', { values: { target: target === 'icon' ? $_('fmp.word_icon') : $_('fmp.word_banner') } })}
 							onclick={() => (target === 'icon' ? iconInput : bannerInput)?.click()}
 							ondragover={event => dragAsset(target, event)} ondragleave={() => dragTarget = null}
 							ondrop={event => dropAsset(target, event)}>
-							<span class="branding-asset-preview" class:banner={target === 'banner'}>{#if source}<img src={source} alt="" />{:else}<span>{target === 'icon' ? 'Icon' : 'Banner'}</span>{/if}</span>
-							<strong>{frontendMetadataUploadTarget === target ? 'Uploading…' : target === 'icon' ? 'Server icon' : 'Server banner'}</strong>
-							<span>{target === 'icon' ? 'Square artwork' : 'Wide artwork'} · choose or drop a file</span>
+							<span class="branding-asset-preview" class:banner={target === 'banner'}>{#if source}<img src={source} alt="" />{:else}<span>{target === 'icon' ? $_('map.icon') : $_('profile_settings.banner')}</span>{/if}</span>
+							<strong>{frontendMetadataUploadTarget === target ? $_('wb.uploading') : target === 'icon' ? $_('fmp.server_icon') : $_('fmp.server_banner')}</strong>
+							<span>{target === 'icon' ? $_('fmp.square') : $_('fmp.wide')} · {$_('fmp.choose_drop')}</span>
 						</button>
-						{#if source}<button class="branding-remove" onclick={() => setText(target === 'icon' ? 'iconUrl' : 'bannerUrl', '')}>Remove {target}</button>{/if}
+						{#if source}<button class="branding-remove" onclick={() => setText(target === 'icon' ? 'iconUrl' : 'bannerUrl', '')}>{$_('fmp.remove_target', { values: { target: target === 'icon' ? $_('fmp.word_icon') : $_('fmp.word_banner') } })}</button>{/if}
 					</div>
 				{/each}
 			</div>
-				<p class="branding-help">PNG, JPG, GIF or WebP, up to 10 MB. Uploads join your draft; publish to make them visible.</p>
-				<section class="desk-branding" aria-label="Reference Desk background">
-					<h3>Reference Desk background</h3>
-					<label>Welcome message<textarea rows="4" maxlength="2000" value={frontendAppMetadata.deskWelcomeText ?? ''} placeholder="Tell people what this community is here to do" oninput={event => setText('deskWelcomeText', event.currentTarget.value)}></textarea></label>
-					<label class="branding-checkbox"><input type="checkbox" checked={frontendAppMetadata.deskFocusedWelcome === true} onchange={event => onMetadataChange({ ...frontendAppMetadata, deskFocusedWelcome: event.currentTarget.checked })} /><span>Focus the welcome view on first arrival <small>Fill the app window, with a visible exit. Returning visits use the normal desk.</small></span></label>
-					<label>Suggested starting room<select value={frontendAppMetadata.deskStartingRoomId || ''} onchange={event => onMetadataChange({ ...frontendAppMetadata, deskStartingRoomId: event.currentTarget.value || null })}><option value="">First accessible text room</option>{#each $channels.filter(channel => channel.type === 'text') as channel (channel.id)}<option value={channel.id}>#{channel.name}</option>{/each}</select></label>
-					<label>Help text<textarea rows="3" maxlength="1200" value={frontendAppMetadata.deskHelpText ?? ''} placeholder="Where to get help on this server" oninput={event => setText('deskHelpText', event.currentTarget.value)}></textarea></label>
-					<div class="branding-form-grid"><label>Resource label<input maxlength="80" value={frontendAppMetadata.deskHelpLabel ?? ''} placeholder="Community guide" oninput={event => setText('deskHelpLabel', event.currentTarget.value)} /></label><label>Resource URL<input type="url" value={frontendAppMetadata.deskHelpUrl ?? ''} placeholder="https://example.org/guide" oninput={event => setText('deskHelpUrl', event.currentTarget.value)} /></label></div>
-					<p>Upload an animated GIF or WebP and a still image for people who pause motion or prefer reduced motion.</p>
-					<input bind:this={deskBackgroundInput} type="file" accept="image/gif,image/webp" class="branding-file-input" aria-label="Choose animated Reference Desk background" tabindex="-1" onchange={event => onUploadAsset('deskBackground', event)} />
-					<input bind:this={deskStillInput} type="file" accept="image/png,image/jpeg" class="branding-file-input" aria-label="Choose Reference Desk still image" tabindex="-1" onchange={event => onUploadAsset('deskStill', event)} />
-					<div class="desk-branding-actions"><button type="button" onclick={() => deskBackgroundInput?.click()} disabled={!editable}>{frontendMetadataUploadTarget === 'deskBackground' ? 'Uploading…' : 'Upload moving background'}</button><button type="button" onclick={() => deskStillInput?.click()} disabled={!editable}>{frontendMetadataUploadTarget === 'deskStill' ? 'Uploading…' : 'Upload still image'}</button></div>
-				{#if deskBackgroundInvalid}<p class="branding-error" role="alert">Add a still image before publishing an animated background.</p>{/if}
-				{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl)}<img class="desk-branding-preview" src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl) ?? undefined} alt="Reference Desk still preview" />{/if}
-				<div class="branding-form-grid"><label>Moving background URL<input value={frontendAppMetadata.deskBackgroundUrl ?? ''} placeholder="/uploads/desk-background.webp" oninput={event => setText('deskBackgroundUrl', event.currentTarget.value)} /></label><label>Still image URL<input value={frontendAppMetadata.deskStillUrl ?? ''} placeholder="/uploads/desk-still.webp" oninput={event => setText('deskStillUrl', event.currentTarget.value)} /></label></div>
-				{#if frontendAppMetadata.deskBackgroundUrl || frontendAppMetadata.deskStillUrl}<button type="button" onclick={() => onMetadataChange({ ...frontendAppMetadata, deskBackgroundUrl: null, deskStillUrl: null })} disabled={!editable}>Remove desk background</button>{/if}
+				<p class="branding-help">{$_('fmp.upload_help')}</p>
+				<section class="desk-branding" aria-label={$_('fmp.desk_title')}>
+					<h3>{$_('fmp.desk_title')}</h3>
+					<label>{$_('fmp.welcome_msg')}<textarea rows="4" maxlength="2000" value={frontendAppMetadata.deskWelcomeText ?? ''} placeholder={$_('fmp.welcome_ph')} oninput={event => setText('deskWelcomeText', event.currentTarget.value)}></textarea></label>
+					<label class="branding-checkbox"><input type="checkbox" checked={frontendAppMetadata.deskFocusedWelcome === true} onchange={event => onMetadataChange({ ...frontendAppMetadata, deskFocusedWelcome: event.currentTarget.checked })} /><span>{$_('fmp.focus_welcome')} <small>{$_('fmp.focus_desc')}</small></span></label>
+					<label>{$_('fmp.start_room')}<select value={frontendAppMetadata.deskStartingRoomId || ''} onchange={event => onMetadataChange({ ...frontendAppMetadata, deskStartingRoomId: event.currentTarget.value || null })}><option value="">{$_('fmp.first_room')}</option>{#each $channels.filter(channel => channel.type === 'text') as channel (channel.id)}<option value={channel.id}>#{channel.name}</option>{/each}</select></label>
+					<label>{$_('fmp.help_text')}<textarea rows="3" maxlength="1200" value={frontendAppMetadata.deskHelpText ?? ''} placeholder={$_('fmp.help_ph')} oninput={event => setText('deskHelpText', event.currentTarget.value)}></textarea></label>
+					<div class="branding-form-grid"><label>{$_('fmp.resource_label')}<input maxlength="80" value={frontendAppMetadata.deskHelpLabel ?? ''} placeholder={$_('fmp.resource_ph')} oninput={event => setText('deskHelpLabel', event.currentTarget.value)} /></label><label>{$_('fmp.resource_url')}<input type="url" value={frontendAppMetadata.deskHelpUrl ?? ''} placeholder="https://example.org/guide" oninput={event => setText('deskHelpUrl', event.currentTarget.value)} /></label></div>
+					<p>{$_('fmp.anim_help')}</p>
+					<input bind:this={deskBackgroundInput} type="file" accept="image/gif,image/webp" class="branding-file-input" aria-label={$_('fmp.choose_anim')} tabindex="-1" onchange={event => onUploadAsset('deskBackground', event)} />
+					<input bind:this={deskStillInput} type="file" accept="image/png,image/jpeg" class="branding-file-input" aria-label={$_('fmp.choose_still')} tabindex="-1" onchange={event => onUploadAsset('deskStill', event)} />
+					<div class="desk-branding-actions"><button type="button" onclick={() => deskBackgroundInput?.click()} disabled={!editable}>{frontendMetadataUploadTarget === 'deskBackground' ? $_('wb.uploading') : $_('fmp.upload_moving')}</button><button type="button" onclick={() => deskStillInput?.click()} disabled={!editable}>{frontendMetadataUploadTarget === 'deskStill' ? $_('wb.uploading') : $_('fmp.upload_still')}</button></div>
+				{#if deskBackgroundInvalid}<p class="branding-error" role="alert">{$_('fmp.still_needed')}</p>{/if}
+				{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl)}<img class="desk-branding-preview" src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl) ?? undefined} alt={$_('fmp.still_preview')} />{/if}
+				<div class="branding-form-grid"><label>{$_('fmp.moving_url')}<input value={frontendAppMetadata.deskBackgroundUrl ?? ''} placeholder="/uploads/desk-background.webp" oninput={event => setText('deskBackgroundUrl', event.currentTarget.value)} /></label><label>{$_('fmp.still_url')}<input value={frontendAppMetadata.deskStillUrl ?? ''} placeholder="/uploads/desk-still.webp" oninput={event => setText('deskStillUrl', event.currentTarget.value)} /></label></div>
+				{#if frontendAppMetadata.deskBackgroundUrl || frontendAppMetadata.deskStillUrl}<button type="button" onclick={() => onMetadataChange({ ...frontendAppMetadata, deskBackgroundUrl: null, deskStillUrl: null })} disabled={!editable}>{$_('fmp.remove_desk')}</button>{/if}
 
-					<section class="poster-editor" aria-label="Interactive poster">
-						<h3>Interactive poster</h3>
-						<p>Place readable text, links, and community role choices over the artwork. On small screens they appear as a list.</p>
-						<div class="desk-branding-actions"><button type="button" onclick={() => addPosterBlock('text')} disabled={!editable}>Add text</button><button type="button" onclick={() => addPosterBlock('link')} disabled={!editable}>Add link</button><button type="button" onclick={() => addPosterBlock('role')} disabled={!editable}>Add role choice</button></div>
+					<section class="poster-editor" aria-label={$_('fmp.poster_title')}>
+						<h3>{$_('fmp.poster_title')}</h3>
+						<p>{$_('fmp.poster_help')}</p>
+						<div class="desk-branding-actions"><button type="button" onclick={() => addPosterBlock('text')} disabled={!editable}>{$_('fmp.add_text')}</button><button type="button" onclick={() => addPosterBlock('link')} disabled={!editable}>{$_('fmp.add_link')}</button><button type="button" onclick={() => addPosterBlock('role')} disabled={!editable}>{$_('fmp.add_role')}</button></div>
 						{#each frontendAppMetadata.deskPosterBlocks || [] as block (block.id)}
 							<div class="poster-block-fields">
-								<strong>{block.kind === 'text' ? 'Text' : block.kind === 'link' ? 'Link' : 'Role choice'}</strong>
-								<label>Visible text<input maxlength="240" value={block.text} oninput={event => updatePosterBlock(block.id, { text: event.currentTarget.value })} /></label>
-								{#if block.kind === 'link'}<label>Full web URL<input type="url" value={block.url || ''} oninput={event => updatePosterBlock(block.id, { url: event.currentTarget.value })} /></label>{/if}
-								{#if block.kind === 'role'}<label>Community role<select value={block.roleId || ''} onchange={event => updatePosterBlock(block.id, { roleId: event.currentTarget.value })}><option value="">Choose a role</option>{#each roleOptions as role (role.id)}<option value={role.id}>{role.name}</option>{/each}</select></label>{/if}
-								<div class="poster-position"><label>Left %<input type="number" min="0" max="90" value={block.x} oninput={event => updatePosterBlock(block.id, { x: Number(event.currentTarget.value) })} /></label><label>Top %<input type="number" min="0" max="100" value={block.y} oninput={event => updatePosterBlock(block.id, { y: Number(event.currentTarget.value) })} /></label><label>Width %<input type="number" min="10" max="100" value={block.width} oninput={event => updatePosterBlock(block.id, { width: Number(event.currentTarget.value) })} /></label></div>
-								<button type="button" onclick={() => removePosterBlock(block.id)}>Remove block</button>
+								<strong>{block.kind === 'text' ? $_('login.kind_text') : block.kind === 'link' ? $_('office.editor.link') : $_('fmp.kind_role')}</strong>
+								<label>{$_('fmp.visible_text')}<input maxlength="240" value={block.text} oninput={event => updatePosterBlock(block.id, { text: event.currentTarget.value })} /></label>
+								{#if block.kind === 'link'}<label>{$_('fmp.web_url')}<input type="url" value={block.url || ''} oninput={event => updatePosterBlock(block.id, { url: event.currentTarget.value })} /></label>{/if}
+								{#if block.kind === 'role'}<label>{$_('fmp.community_role')}<select value={block.roleId || ''} onchange={event => updatePosterBlock(block.id, { roleId: event.currentTarget.value })}><option value="">{$_('fmp.choose_role')}</option>{#each roleOptions as role (role.id)}<option value={role.id}>{role.name}</option>{/each}</select></label>{/if}
+								<div class="poster-position"><label>{$_('panels.left')} %<input type="number" min="0" max="90" value={block.x} oninput={event => updatePosterBlock(block.id, { x: Number(event.currentTarget.value) })} /></label><label>{$_('model_viewer.top')} %<input type="number" min="0" max="100" value={block.y} oninput={event => updatePosterBlock(block.id, { y: Number(event.currentTarget.value) })} /></label><label>{$_('rann.width')} %<input type="number" min="10" max="100" value={block.width} oninput={event => updatePosterBlock(block.id, { width: Number(event.currentTarget.value) })} /></label></div>
+								<button type="button" onclick={() => removePosterBlock(block.id)}>{$_('fmp.remove_block')}</button>
 							</div>
 						{/each}
-						{#if (frontendAppMetadata.deskPosterBlocks || []).length}<button type="button" onclick={() => previewNarrow = !previewNarrow}>{previewNarrow ? 'Preview desktop' : 'Preview phone'}</button><div bind:this={posterPreview} class="poster-preview" class:narrow={previewNarrow} style:background-image={resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl) ? `url(${resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl)})` : undefined} aria-label="Poster placement preview">{#each frontendAppMetadata.deskPosterBlocks || [] as block (block.id)}<button type="button" class="poster-preview-block" style:left={`${block.x}%`} style:top={`${block.y}%`} style:width={`${block.width}%`} aria-label={`Move ${block.text || block.kind} block`} onpointerdown={event => startPosterDrag(event, block)} onpointermove={movePosterDrag} onpointerup={() => draggingPoster = null} onpointercancel={() => draggingPoster = null}>{block.text || 'Untitled'}</button>{/each}</div>{/if}
+						{#if (frontendAppMetadata.deskPosterBlocks || []).length}<button type="button" onclick={() => previewNarrow = !previewNarrow}>{previewNarrow ? $_('fmp.preview_desktop') : $_('fmp.preview_phone')}</button><div bind:this={posterPreview} class="poster-preview" class:narrow={previewNarrow} style:background-image={resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl) ? `url(${resolveFrontendMetadataAssetUrl(frontendAppMetadata.deskStillUrl)})` : undefined} aria-label={$_('fmp.poster_preview')}>{#each frontendAppMetadata.deskPosterBlocks || [] as block (block.id)}<button type="button" class="poster-preview-block" style:left={`${block.x}%`} style:top={`${block.y}%`} style:width={`${block.width}%`} aria-label={$_('fmp.move_block', { values: { name: block.text || block.kind } })} onpointerdown={event => startPosterDrag(event, block)} onpointermove={movePosterDrag} onpointerup={() => draggingPoster = null} onpointercancel={() => draggingPoster = null}>{block.text || $_('fmp.untitled')}</button>{/each}</div>{/if}
 					</section>
 				</section>
 			<details class="branding-advanced">
-				<summary>Advanced artwork and fallback</summary>
+				<summary>{$_('fmp.advanced')}</summary>
 				<div class="branding-form-grid">
-					<label>Icon URL<input value={frontendAppMetadata.iconUrl ?? ''} placeholder="/uploads/server-icon.webp" oninput={event => setText('iconUrl', event.currentTarget.value)} /></label>
-					<label>Banner URL<input value={frontendAppMetadata.bannerUrl ?? ''} placeholder="/uploads/server-banner.webp" oninput={event => setText('bannerUrl', event.currentTarget.value)} /></label>
-					<label class="branding-checkbox branding-wide"><input type="checkbox" checked={frontendAppMetadata.launchPageFallbackEnabled} onchange={event => onMetadataChange({ ...frontendAppMetadata, launchPageFallbackEnabled: event.currentTarget.checked })} /><span>Use the login page’s artwork and text when a field is empty.</span></label>
+					<label>{$_('fmp.icon_url')}<input value={frontendAppMetadata.iconUrl ?? ''} placeholder="/uploads/server-icon.webp" oninput={event => setText('iconUrl', event.currentTarget.value)} /></label>
+					<label>{$_('fmp.banner_url')}<input value={frontendAppMetadata.bannerUrl ?? ''} placeholder="/uploads/server-banner.webp" oninput={event => setText('bannerUrl', event.currentTarget.value)} /></label>
+					<label class="branding-checkbox branding-wide"><input type="checkbox" checked={frontendAppMetadata.launchPageFallbackEnabled} onchange={event => onMetadataChange({ ...frontendAppMetadata, launchPageFallbackEnabled: event.currentTarget.checked })} /><span>{$_('fmp.login_fallback')}</span></label>
 				</div>
 			</details>
 		</fieldset>
-		<section class="branding-preview-section" aria-label="Server identity preview">
-			<h3>Preview</h3>
+		<section class="branding-preview-section" aria-label={$_('fmp.preview_aria')}>
+			<h3>{$_('messages.zip_preview.preview.show')}</h3>
 			<div class="branding-preview" style:--branding-preview-accent={safeAccent}>
 				{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl)}<img class="branding-preview-banner" src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.bannerUrl) ?? undefined} alt="" />{/if}
 				<div class="branding-preview-copy">
 					<div class="branding-preview-avatar">{#if resolveFrontendMetadataAssetUrl(frontendAppMetadata.iconUrl)}<img src={resolveFrontendMetadataAssetUrl(frontendAppMetadata.iconUrl) ?? undefined} alt="" />{:else}<span>{(frontendAppMetadata.displayName || 'W').charAt(0).toUpperCase()}</span>{/if}</div>
-					<div><strong>{frontendAppMetadata.displayName || 'Your server'}</strong>{#if frontendAppMetadata.description}<p>{frontendAppMetadata.description}</p>{/if}{#if frontendAppMetadata.tagline}<small>{frontendAppMetadata.tagline}</small>{/if}</div>
+					<div><strong>{frontendAppMetadata.displayName || $_('fmp.your_server')}</strong>{#if frontendAppMetadata.description}<p>{frontendAppMetadata.description}</p>{/if}{#if frontendAppMetadata.tagline}<small>{frontendAppMetadata.tagline}</small>{/if}</div>
 				</div>
 			</div>
 		</section>

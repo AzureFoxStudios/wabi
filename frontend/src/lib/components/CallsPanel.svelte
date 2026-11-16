@@ -111,11 +111,11 @@
 			<Icon name="voice" size={28} />
 			<p class="w-empty__title">{t('calls.empty_title')}</p>
 			{#if $activeWorkspaceView === 'voice'}
-				<p class="w-empty__text">Join a voice room from the sidebar or from Calls.</p>
+				<p class="w-empty__text">{$_('cp.join_sidebar')}</p>
 			{:else}
-				<p class="w-empty__text">Join a voice room from the sidebar. Every room is listed in Calls.</p>
+				<p class="w-empty__text">{$_('cp.join_sidebar_all')}</p>
 				<div class="w-empty__actions">
-					<button type="button" class="w-btn" onclick={() => selectWorkspaceView('voice')}>Open Calls</button>
+					<button type="button" class="w-btn" onclick={() => selectWorkspaceView('voice')}>{$_('cp.open_calls')}</button>
 				</div>
 			{/if}
 		</div>
@@ -165,9 +165,9 @@
 							value={session.volume}
 							oninput={(e) => setCallVolume(session.id, Number((e.currentTarget as HTMLInputElement).value))}
 							aria-label={t('calls.volume_for', { room })}
-							aria-valuetext={silenced ? `${session.volume}%, silenced` : `${session.volume}%`}
+							aria-valuetext={silenced ? $_('cp.silenced_value', { values: { volume: session.volume } }) : `${session.volume}%`}
 						/>
-						<span class="calls-row__level" aria-hidden="true">{silenced ? 'Off' : `${session.volume}%`}</span>
+						<span class="calls-row__level" aria-hidden="true">{silenced ? $_('audio_settings.off') : `${session.volume}%`}</span>
 						<button type="button" class="w-btn w-btn--danger w-btn--sm" aria-label={`${t('calls.leave')} ${room}`} onclick={() => leaveCall(session, room)}>
 							{t('calls.leave')}
 						</button>

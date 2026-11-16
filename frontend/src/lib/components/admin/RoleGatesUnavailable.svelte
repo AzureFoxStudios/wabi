@@ -1,10 +1,13 @@
+<script lang="ts">
+	import { _ } from '$lib/i18n';
+</script>
 <section class="admin-section role-gates-unavailable" aria-labelledby="role-gates-heading">
-	<h4 id="role-gates-heading">Automatic role assignment</h4>
-	<p class="role-gates-status">Automatic reaction roles are not available in this server version.</p>
-	<p>Wabi cannot yet create or manage reaction-role rules or permanent role-gate posts. Members can choose the community roles configured above in Welcome; moderator and admin roles remain staff-assigned. This dashboard does not change existing reaction-role data.</p>
+	<h4 id="role-gates-heading">{$_('rga.heading')}</h4>
+	<p class="role-gates-status">{$_('rga.status')}</p>
+	<p>{$_('rga.body')}</p>
 	<div class="role-gates-alternatives">
-		<p><strong>Assign a role:</strong> open <strong>Users</strong> and use the account’s role control.</p>
-		<p><strong>Keep a conversation private:</strong> use direct or group messages with membership-based access.</p>
+		<p><strong>{$_('rga.assign_label')}</strong> {$_('jump.hint_open')} <strong>{$_('admin.stats.users')}</strong> {$_('rga.assign_post')}</p>
+		<p><strong>{$_('rga.keep_label')}</strong> {$_('rga.keep_text')}</p>
 	</div>
 </section>
 

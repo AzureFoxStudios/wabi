@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import type {
 		AdminRelayNode,
 		CommunityNodeAccessPolicy,
@@ -52,36 +53,36 @@
 <div class="donation-audit-panel">
 	<div class="donation-audit-header">
 		<div>
-			<h5>Community Nodes</h5>
-			<p class="admin-help">See which relay-style nodes are up, down, pending, or degraded. This is the live server roster, not a private admin notification.</p>
+			<h5>{$_('cn.title')}</h5>
+			<p class="admin-help">{$_('cn.help')}</p>
 		</div>
 		<button
 			class="action-btn"
 			on:click={onRefreshRelayRoster}
 			disabled={adminRelayRosterLoading || adminRelayApproveBusyId !== null || adminRelayDeleteBusyId !== null}
 		>
-			{adminRelayRosterLoading ? 'Refreshing...' : 'Refresh Nodes'}
+			{adminRelayRosterLoading ? $_('donation_config.refreshing') : $_('cn.refresh')}
 		</button>
 	</div>
 	<div class="upload-limits-panel">
-		<h4>Node Access Policy</h4>
-		<p class="admin-help">Control who can activate desktop helper mode on this server.</p>
+		<h4>{$_('cn.access_title')}</h4>
+		<p class="admin-help">{$_('cn.access_help')}</p>
 		<div class="setting-item">
-			<label for="community-node-access-mode">Access Mode</label>
+			<label for="community-node-access-mode">{$_('cn.access_mode')}</label>
 			<select
 				id="community-node-access-mode"
 				value={communityNodeAccess.mode}
 				on:change={(e) => onAccessModeChange((e.currentTarget as HTMLSelectElement).value)}
 				disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
 			>
-				<option value="open">Open</option>
-				<option value="approval_required">Approval Required</option>
-				<option value="whitelist_only">Whitelist Only</option>
+				<option value="open">{$_('common.open')}</option>
+				<option value="approval_required">{$_('cn.approval')}</option>
+				<option value="whitelist_only">{$_('cn.whitelist_only')}</option>
 			</select>
 		</div>
 		{#if communityNodeAccess.mode === 'whitelist_only'}
 			<div class="setting-item">
-				<label for="community-node-whitelist-online">Add Online User</label>
+				<label for="community-node-whitelist-online">{$_('cn.add_online')}</label>
 				<div class="input-with-button">
 					<select
 						id="community-node-whitelist-online"
@@ -89,7 +90,7 @@
 						on:change={(e) => onWhitelistSelectedUserIdChange((e.currentTarget as HTMLSelectElement).value)}
 						disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
 					>
-						<option value="">Select a user</option>
+						<option value="">{$_('cn.select_user')}</option>
 						{#each communityNodeWhitelistCandidates as user}
 							<option value={String(user.dbUserId)}>#{user.username}</option>
 						{/each}
@@ -99,17 +100,17 @@
 						on:click={onAddSelectedWhitelistUser}
 						disabled={!communityNodeWhitelistSelectedUserId || !canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
 					>
-						Add
+						{$_('media_albums.add')}
 					</button>
 				</div>
 			</div>
 			<div class="setting-item">
-				<label for="community-node-whitelist-username">Add By Username</label>
+				<label for="community-node-whitelist-username">{$_('cn.add_username')}</label>
 				<div class="input-with-button">
 					<input
 						id="community-node-whitelist-username"
 						type="text"
-						placeholder="Exact registered username"
+						placeholder={$_('cn.username_ph')}
 						value={communityNodeWhitelistUsernameInput}
 						on:input={(e) => onWhitelistUsernameInput((e.currentTarget as HTMLInputElement).value)}
 						disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
@@ -119,15 +120,15 @@
 						on:click={onAddTypedWhitelistUser}
 						disabled={!communityNodeWhitelistUsernameInput.trim() || !canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
 					>
-						Stage
+						{$_('cn.stage')}
 					</button>
 				</div>
-				<p class="admin-help">Typed usernames are validated when you save the policy.</p>
+				<p class="admin-help">{$_('cn.typed_help')}</p>
 			</div>
 			<div class="setting-item">
-				<div class="setting-label">Allowed Users</div>
+				<div class="setting-label">{$_('server_policy.allowed_users')}</div>
 				{#if communityNodeAccess.allowedUsers.length === 0 && communityNodeWhitelistPendingUsernames.length === 0}
-					<p class="admin-help">No users are currently whitelisted.</p>
+					<p class="admin-help">{$_('cn.no_whitelist')}</p>
 				{:else}
 					<div class="quick-reaction-custom-list">
 						{#each communityNodeAccess.allowedUsers as entry (entry.userId)}
@@ -138,19 +139,19 @@
 									on:click={() => onRemoveWhitelistUser(entry.userId)}
 									disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
 								>
-									Remove
+									{$_('profile_settings.remove')}
 								</button>
 							</div>
 						{/each}
 						{#each communityNodeWhitelistPendingUsernames as username (username)}
 							<div class="quick-reaction-custom-item">
-								<span>#{username} (pending)</span>
+								<span>#{username} ({$_('storage.offline.wabiDB.pending')})</span>
 								<button
 									class="action-btn danger"
 									on:click={() => onRemovePendingWhitelistUsername(username)}
 									disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
 								>
-									Remove
+									{$_('profile_settings.remove')}
 								</button>
 							</div>
 						{/each}
@@ -166,12 +167,12 @@
 			on:click={onSaveNodeAccess}
 			disabled={!canManageAdmin || communityNodeAccessLoading || communityNodeAccessSaving}
 		>
-			{communityNodeAccessSaving ? 'Saving...' : 'Save Node Access Policy'}
+			{communityNodeAccessSaving ? $_('donation_config.saving') : $_('cn.save_access')}
 		</button>
 	</div>
 	<div class="upload-limits-panel">
-		<h4>Node Announcements</h4>
-		<p class="admin-help">Optionally post helper up/down events into one channel. Placeholders: {'{node}'}, {'{user}'}, {'{mode}'}, {'{status}'}.</p>
+		<h4>{$_('cn.announce_title')}</h4>
+		<p class="admin-help">{$_('cn.announce_help')} {'{node}'}, {'{user}'}, {'{mode}'}, {'{status}'}.</p>
 		<label class="setting-toggle">
 			<input
 				type="checkbox"
@@ -179,24 +180,24 @@
 				on:change={(e) => onAnnouncementsEnabledChange((e.currentTarget as HTMLInputElement).checked)}
 				disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
 			/>
-			<span>Post community node status messages</span>
+			<span>{$_('cn.post_status')}</span>
 		</label>
 		<div class="setting-item">
-			<label for="community-node-announcement-channel">Announcement Channel</label>
+			<label for="community-node-announcement-channel">{$_('cn.announce_channel')}</label>
 			<select
 				id="community-node-announcement-channel"
 				value={communityNodeAnnouncements.channelId || ''}
 				on:change={(e) => onAnnouncementsChannelIdChange((e.currentTarget as HTMLSelectElement).value || null)}
 				disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
 			>
-				<option value="">No channel selected</option>
+				<option value="">{$_('cn.no_channel')}</option>
 				{#each communityAnnouncementChannelOptions as channel}
 					<option value={channel.id}>#{channel.name}</option>
 				{/each}
 			</select>
 		</div>
 		<div class="setting-item">
-			<label for="community-node-announcement-online">Online Message</label>
+			<label for="community-node-announcement-online">{$_('cn.online_msg')}</label>
 			<input
 				id="community-node-announcement-online"
 				type="text"
@@ -207,7 +208,7 @@
 			/>
 		</div>
 		<div class="setting-item">
-			<label for="community-node-announcement-offline">Offline Message</label>
+			<label for="community-node-announcement-offline">{$_('cn.offline_msg')}</label>
 			<input
 				id="community-node-announcement-offline"
 				type="text"
@@ -225,13 +226,13 @@
 			on:click={onSaveNodeAnnouncements}
 			disabled={!canManageAdmin || communityNodeAnnouncementsLoading || communityNodeAnnouncementsSaving}
 		>
-			{communityNodeAnnouncementsSaving ? 'Saving...' : 'Save Node Announcement Settings'}
+			{communityNodeAnnouncementsSaving ? $_('donation_config.saving') : $_('cn.save_announce')}
 		</button>
 	</div>
 	{#if adminRelayRosterLoading && adminRelayRoster.length === 0}
-		<p class="admin-help">Loading community nodes...</p>
+		<p class="admin-help">{$_('cn.loading')}</p>
 	{:else if adminRelayRoster.length === 0}
-		<p class="admin-help">No community nodes have registered yet.</p>
+		<p class="admin-help">{$_('cn.none')}</p>
 	{:else}
 		<div class="donation-audit-list">
 			{#each adminRelayRoster as relay (relay.relay_id)}
@@ -243,7 +244,7 @@
 							<small>{getAdminRelayOwnerLabel(relay)}</small>
 						{/if}
 						<small>{relay.region} - {getAdminRelayCapabilitiesSummary(relay)}</small>
-						<small>Last seen: {formatRelaySeenAt(relay.last_health_ping)}</small>
+						<small>{$_('cn.last_seen', { values: { time: formatRelaySeenAt(relay.last_health_ping) } })}</small>
 						<small>{relay.url}</small>
 						{#if relay.metadata?.reason}
 							<small>{relay.metadata.reason}</small>
@@ -255,14 +256,14 @@
 							disabled={relay.approved === 1 || adminRelayApproveBusyId !== null}
 							on:click={() => onApproveRelay(relay)}
 						>
-							{adminRelayApproveBusyId === relay.relay_id ? 'Approving...' : (relay.approved === 1 ? 'Approved' : 'Approve')}
+							{adminRelayApproveBusyId === relay.relay_id ? $_('cn.approving') : (relay.approved === 1 ? $_('cn.approved') : $_('yt.approve'))}
 						</button>
 						<button
 							class="action-btn danger"
 							disabled={adminRelayDeleteBusyId !== null}
 							on:click={() => onDeleteRelay(relay)}
 						>
-							{adminRelayDeleteBusyId === relay.relay_id ? 'Removing...' : 'Remove'}
+							{adminRelayDeleteBusyId === relay.relay_id ? $_('cn.removing') : $_('profile_settings.remove')}
 						</button>
 					</div>
 				</div>

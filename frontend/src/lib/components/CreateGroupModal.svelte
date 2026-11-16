@@ -55,14 +55,14 @@
 	/** The footer line: what is still missing while Create group is disabled, else the count. */
 	const footLine = $derived(
 		pending
-			? 'Waiting for the server…'
+			? $_('cgm.waiting')
 			: !groupName.trim() && selectedUsers.length === 0
-				? 'Name the group and pick people to create it'
+				? $_('cgm.name_and_pick')
 				: !groupName.trim()
-					? 'Name the group to create it'
+					? $_('cgm.name_only')
 					: selectedUsers.length === 0
-						? 'Pick at least one person'
-						: `${memberCount} ${memberCount === 1 ? 'person' : 'people'}, you included`
+						? $_('cgm.pick_one')
+						: memberCount === 1 ? $_('cgm.foot_one', { values: { count: memberCount } }) : $_('cgm.foot_other', { values: { count: memberCount } })
 	);
 
 	/** The footer's hairline shows only while the body scrolls (§7.13). */
@@ -105,7 +105,7 @@
 			onCreated?.(channel);
 		} catch (error) {
 			console.warn('[group] create failed', error);
-			operationError = "Couldn't confirm the new group. Check DMs before trying again.";
+			operationError = $_('cgm.op_error');
 		} finally { pending = false; }
 	}
 
@@ -119,10 +119,10 @@
 	}
 </script>
 
-<BaseModal {isOpen} onClose={closeModal} size="md" padded title="New group" initialFocus="#{uid}-name" panelClass="cg" closeOnScrim={!pending}>
+<BaseModal {isOpen} onClose={closeModal} size="md" padded title={$_('dm.new_group')} initialFocus="#{uid}-name" panelClass="cg" closeOnScrim={!pending}>
 	<form id="{uid}-form" class="cg-form" aria-busy={pending} use:watchBodyScroll onsubmit={(event) => { event.preventDefault(); void handleCreate(); }}>
 		<div class="cg-field">
-			<label class="w-label" for="{uid}-name">Group name <span class="cg-required">required</span></label>
+			<label class="w-label" for="{uid}-name">{$_('cgm.name_label')} <span class="cg-required">{$_('cgm.required')}</span></label>
 			<input
 				id="{uid}-name"
 				class="w-field"
@@ -136,18 +136,18 @@
 			/>
 			<p class="cg-privacy" id="{uid}-privacy">
 				<Icon name="hourglass" size={14} />
-				New groups start encryption-pending and use experimental encryption once everyone's devices are ready.
+				{$_('cgm.privacy')}
 			</p>
 		</div>
 
 		<div class="cg-field">
-			<span class="w-label" id="{uid}-people">People</span>
+			<span class="w-label" id="{uid}-people">{$_('places.people')}</span>
 			{#if selectedUsers.length > 0}
 				<ul class="cg-chips" aria-labelledby="{uid}-people">
 					{#each selectedUsers as user (getDmDirectoryKey(user))}
 						<li class="w-tag cg-chip">
 							<span>{user.username}</span>
-							<button type="button" class="cg-chip__remove" disabled={pending} aria-label={`Remove ${user.username}`} onclick={() => removeSelected(user)}>
+							<button type="button" class="cg-chip__remove" disabled={pending} aria-label={$_('file_upload_preview.remove_file', { values: { name: user.username } })} onclick={() => removeSelected(user)}>
 								<Icon name="x" size={12} />
 							</button>
 						</li>
@@ -156,28 +156,28 @@
 			{/if}
 			<div class="w-field w-field--chrome cg-search">
 				<Icon name="search" size={16} />
-				<input type="search" bind:value={searchQuery} placeholder="Search registered members" aria-label="Search registered members" disabled={pending} autocomplete="off" />
+				<input type="search" bind:value={searchQuery} placeholder={$_('cgm.search')} aria-label={$_('cgm.search')} disabled={pending} autocomplete="off" />
 			</div>
 		</div>
 
 		{#if filteredUsers.length === 0}
 			<div class="w-empty cg-empty">
 				<Icon name="users" size={28} />
-				<p class="w-empty__title">{searchQuery.trim() ? 'No one matches' : selectedUsers.length ? 'Everyone is in' : 'No one to add yet'}</p>
+				<p class="w-empty__title">{searchQuery.trim() ? $_('ulist.empty_no_match') : selectedUsers.length ? $_('cgm.everyone_in') : $_('cgm.none_yet')}</p>
 				<p class="w-empty__text">
 					{searchQuery.trim()
-						? 'Try another name or handle. Guests cannot join groups.'
+						? $_('cgm.try_other')
 						: selectedUsers.length
-							? 'Every registered member is already in this group.'
-							: 'Registered members appear here as soon as they join this community.'}
+							? $_('cgm.all_in')
+							: $_('cgm.appear_here')}
 				</p>
 			</div>
 		{:else}
-			<ul class="cg-list" aria-label="Registered members">
+			<ul class="cg-list" aria-label={$_('payment_access.registered')}>
 				{#each filteredUsers as user (getDmDirectoryKey(user))}
 					{@const presence = presenceOf(user.status)}
 					<li>
-						<button type="button" class="cg-row" style={$inkFor(user.roleColor || user.color)} disabled={pending} aria-label={`Add ${user.username}`} onclick={() => toggleUser(user)}>
+						<button type="button" class="cg-row" style={$inkFor(user.roleColor || user.color)} disabled={pending} aria-label={$_('cgm.add_user', { values: { name: user.username } })} onclick={() => toggleUser(user)}>
 							<span class="cg-av" data-presence={presence}>
 								{#if user.profilePicture}
 									<ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="cg-av__pic" />
@@ -211,9 +211,9 @@
 	<div slot="footer" class="w-dialog__foot cg-foot" class:w-dialog__foot--rule={bodyScrolls}>
 		<p class="w-dialog__foot-start cg-count" id="{uid}-foot" role="status">{footLine}</p>
 		<div class="cg-foot__actions">
-			<button type="button" class="w-btn w-btn--quiet" onclick={closeModal} disabled={pending}>Cancel</button>
+			<button type="button" class="w-btn w-btn--quiet" onclick={closeModal} disabled={pending}>{$_('common.cancel')}</button>
 			<button type="submit" form="{uid}-form" class="w-btn w-btn--primary" aria-busy={pending} aria-describedby="{uid}-foot" disabled={!canCreate}>
-				{pending ? 'Creating…' : 'Create group'}
+				{pending ? $_('cch.creating') : $_('cgm.create')}
 			</button>
 		</div>
 	</div>

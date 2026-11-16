@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import BaseModal from './BaseModal.svelte';
 
 	let {
@@ -39,13 +40,13 @@
 
 <BaseModal isOpen={open} onClose={onClose} width="400px" showCloseButton={true}>
 	<div slot="header" class="modal-header">
-		<h3>Create Breakout Rooms</h3>
-		<p>{channelName ? `Split ${channelName} into temporary voice rooms.` : 'Split this channel into temporary voice rooms.'}</p>
+		<h3>{$_('brm.title')}</h3>
+		<p>{channelName ? $_('brm.split_named', { values: { channel: channelName } }) : $_('brm.split_this')}</p>
 	</div>
 
 	<div class="modal-body">
 		<label class="field">
-			<span class="field-label">Number of rooms (2&ndash;20)</span>
+			<span class="field-label">{$_('brm.rooms_label')}</span>
 			<input
 				type="number"
 				min="2"
@@ -57,19 +58,19 @@
 				}}
 			/>
 			{#if memberCount > 0}
-				<span class="field-hint">{memberCount} {memberCount === 1 ? 'person' : 'people'} in channel</span>
+				<span class="field-hint">{memberCount === 1 ? $_('brm.in_channel_one', { values: { count: memberCount } }) : $_('brm.in_channel_other', { values: { count: memberCount } })}</span>
 			{/if}
 		</label>
 
 		<label class="field checkbox-field">
 			<input type="checkbox" bind:checked={autoAssign} />
-			<span>Automatically distribute members across rooms</span>
+			<span>{$_('brm.auto')}</span>
 		</label>
 	</div>
 
 	<div slot="footer" class="modal-footer">
-		<button class="btn-secondary" onclick={onClose}>Cancel</button>
-		<button class="btn-primary" disabled={!isValid} onclick={submit}>Create Rooms</button>
+		<button class="btn-secondary" onclick={onClose}>{$_('common.cancel')}</button>
+		<button class="btn-primary" disabled={!isValid} onclick={submit}>{$_('brm.create')}</button>
 	</div>
 </BaseModal>
 

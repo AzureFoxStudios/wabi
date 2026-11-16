@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import ServiceRolesPanel from "./ServiceRolesPanel.svelte";
 	import CommunityRolesPanel from "./CommunityRolesPanel.svelte";
 	import { badgeCatalog } from '$lib/socket';
@@ -13,19 +14,19 @@
 	type Tab = 'staff' | 'community' | 'service' | 'badges';
 	let tab = $state<Tab>('community');
 	const TABS: Array<[Tab, string, string]> = [
-		['community', 'Community roles', 'Chosen by members, open rooms'],
-		['staff', 'Staff roles', 'Owner, admin, moderator, member'],
-		['service', 'Service roles', 'Who may use which services'],
-		['badges', 'Badges', 'Marks assigned in People']
+		['community', $_('rnp.tab_community'), $_('rnp.tab_community_hint')],
+		['staff', $_('rnp.tab_staff'), $_('rnp.tab_staff_hint')],
+		['service', $_('rnp.tab_service'), $_('rnp.tab_service_hint')],
+		['badges', $_('profile_settings.badges_heading'), $_('rnp.tab_badges_hint')]
 	];
 </script>
 
 <section class="roles-center" aria-labelledby="roles-center-title">
 	<header class="rc-head">
-		<h3 id="roles-center-title">Roles &amp; badges</h3>
-		<p>Four separate things, kept apart on purpose: what members pick for themselves, what staff can do, who may use services, and the marks people wear.</p>
+		<h3 id="roles-center-title">{$_('rnp.heading')}</h3>
+		<p>{$_('rnp.intro')}</p>
 	</header>
-	<div class="w-seg rc-tabs" role="tablist" aria-label="Role kinds">
+	<div class="w-seg rc-tabs" role="tablist" aria-label={$_('rnp.aria_kinds')}>
 		{#each TABS as [id, label]}
 			<button type="button" role="tab" aria-selected={tab === id} aria-pressed={tab === id} onclick={() => (tab = id)}>{label}</button>
 		{/each}
@@ -35,34 +36,34 @@
 	{#if tab === 'community'}
 		<CommunityRolesPanel />
 	{:else if tab === 'staff'}
-		<section class="rc-card" aria-label="Server roles" aria-busy={loading}>
-			<div class="rc-row-head"><p>Staff roles control what someone can do on the server. Assign a member’s role in People.</p><button class="w-btn" type="button" onclick={onOpenPeople}>Manage people</button></div>
+		<section class="rc-card" aria-label={$_('rnp.server_roles')} aria-busy={loading}>
+			<div class="rc-row-head"><p>{$_('rnp.staff_desc')}</p><button class="w-btn" type="button" onclick={onOpenPeople}>{$_('rnp.manage_people')}</button></div>
 			{#if error}
 				<div class="rc-feedback" role="alert"><p>{error}</p><button class="w-btn" onclick={onRetry}>Try again</button></div>
 			{:else if loading && roleDefinitions.length === 0}
-				<p class="rc-feedback" role="status">Loading server roles…</p>
+				<p class="rc-feedback" role="status">{$_('rnp.loading_roles')}</p>
 			{:else if roleDefinitions.length === 0}
-				<div class="rc-feedback" role="status"><p>This server did not provide a role catalog. Existing member roles still apply.</p><button class="w-btn" onclick={onRetry}>Reload roles</button></div>
+				<div class="rc-feedback" role="status"><p>{$_('rnp.no_catalog')}</p><button class="w-btn" onclick={onRetry}>{$_('lore_roles.reload')}</button></div>
 			{:else}
 				<ol class="rc-ladder">
 					{#each roleDefinitions as role, index (role.roleName)}
 						<li><span class="rc-rank w-mono">{String(index + 1).padStart(2, '0')}</span><div><strong>{role.displayName}</strong>{#if role.description}<p>{role.description}</p>{/if}</div></li>
 					{/each}
 				</ol>
-				<p class="rc-note">Built-in role names are fixed. Create your own roles under <button type="button" class="rc-link" onclick={() => (tab = 'community')}>Community roles</button>.</p>
+				<p class="rc-note">{$_('rnp.builtin_fixed')} <button type="button" class="rc-link" onclick={() => (tab = 'community')}>{$_('rnp.tab_community')}</button>.</p>
 			{/if}
 		</section>
 	{:else if tab === 'service'}
 		<ServiceRolesPanel />
 	{:else}
-		<section class="rc-card" aria-label="Badges">
-			<p>Badges are marks you can give people in <button type="button" class="rc-link" onclick={onOpenPeople}>People</button> (open a member, then “Badges”). Owner and staff marks come from the member’s staff role and are set under Branding.</p>
+		<section class="rc-card" aria-label={$_('profile_settings.badges_heading')}>
+			<p>{$_('rnp.badges_intro')} <button type="button" class="rc-link" onclick={onOpenPeople}>{$_('places.people')}</button> {$_('rnp.badges_how')}</p>
 			<ul class="rc-badges">
 				{#each $badgeCatalog as badge (badge.id)}
 					<li><span class="rc-glyph" aria-hidden="true">{badge.icon}</span><div><strong>{badge.label}</strong><small class="w-mono">{badge.id}</small></div></li>
 				{/each}
 			</ul>
-			<p class="rc-note">This server ships a fixed badge list, so new badges can’t be created here yet.</p>
+			<p class="rc-note">{$_('rnp.fixed_badges')}</p>
 		</section>
 	{/if}
 </section>

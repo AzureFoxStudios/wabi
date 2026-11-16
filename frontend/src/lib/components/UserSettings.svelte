@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { _ } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { getUserSettings, saveUserSettings } from '$lib/api';
 	import { getAuthToken } from '$lib/authSession';
@@ -31,7 +32,7 @@
 		} catch (error) {
 			console.error('Failed to load settings:', error);
 			messageType = 'error';
-			message = 'Failed to load settings';
+			message = $_('us.load_failed');
 		} finally {
 			isLoading = false;
 		}
@@ -51,7 +52,7 @@
 			});
 
 			messageType = 'success';
-			message = '✓ Settings saved successfully';
+			message = $_('us.saved');
 
 			// Clear message after 3 seconds
 			setTimeout(() => {
@@ -60,7 +61,7 @@
 		} catch (error) {
 			console.error('Failed to save settings:', error);
 			messageType = 'error';
-			message = error instanceof Error ? error.message : 'Failed to save settings';
+			message = error instanceof Error ? error.message : $_('us.save_failed');
 		} finally {
 			isSaving = false;
 		}
@@ -69,19 +70,19 @@
 
 <div class="settings-panel">
 	<div class="settings-header">
-		<h3>Offline Message Settings</h3>
-		<p class="subtitle">Configure how offline messages are handled</p>
+		<h3>{$_('us.title')}</h3>
+		<p class="subtitle">{$_('us.subtitle')}</p>
 	</div>
 
 	{#if isLoading}
-		<div class="loading">Loading settings...</div>
+		<div class="loading">{$_('us.loading')}</div>
 	{:else}
 		<div class="settings-content">
 			<!-- Retention Period Setting -->
 			<div class="setting-item">
-				<label for="retention">Message Retention Period</label>
+				<label for="retention">{$_('us.retention')}</label>
 				<p class="setting-description">
-					How long offline messages are kept before automatically deleted
+					{$_('us.retention_desc')}
 				</p>
 				<select
 					id="retention"
@@ -89,10 +90,10 @@
 					disabled={isSaving}
 					class="select-input"
 				>
-					<option value="1d">1 Day</option>
-					<option value="7d">7 Days (recommended)</option>
-					<option value="30d">30 Days</option>
-					<option value="forever">Forever (never delete)</option>
+					<option value="1d">{$_('us.d1')}</option>
+					<option value="7d">{$_('us.d7')}</option>
+					<option value="30d">{$_('us.d30')}</option>
+					<option value="forever">{$_('us.forever')}</option>
 				</select>
 			</div>
 
@@ -106,10 +107,10 @@
 						disabled={isSaving}
 						class="checkbox-input"
 					/>
-					<span class="checkbox-text">Allow temporary users to send me offline messages</span>
+					<span class="checkbox-text">{$_('us.allow_temp')}</span>
 				</label>
 				<p class="setting-description">
-					When disabled, only registered users can send you messages while you're offline
+					{$_('us.allow_temp_desc')}
 				</p>
 			</div>
 
@@ -121,12 +122,12 @@
 					<line x1="12" y1="8" x2="12.01" y2="8"></line>
 				</svg>
 				<div>
-					<p><strong>ℹ️ How offline messages work:</strong></p>
+					<p><strong>ℹ️ {$_('us.how_title')}</strong></p>
 					<ul>
-						<li>When you're offline, messages are queued on the server</li>
-						<li>They're delivered when you reconnect</li>
-						<li>After the retention period, old messages are hidden. They are not erased: the stored record stays on the server</li>
-						<li>Real-time messages are lost if you're offline (only registered users get queuing)</li>
+						<li>{$_('us.li1')}</li>
+						<li>{$_('us.li2')}</li>
+						<li>{$_('us.li3')}</li>
+						<li>{$_('us.li4')}</li>
 					</ul>
 				</div>
 			</div>
@@ -144,7 +145,7 @@
 				disabled={isSaving}
 				class="save-btn"
 			>
-				{isSaving ? '💾 Saving...' : '💾 Save Settings'}
+				{isSaving ? $_('us.saving') : $_('us.save')}
 			</button>
 		</div>
 	{/if}
