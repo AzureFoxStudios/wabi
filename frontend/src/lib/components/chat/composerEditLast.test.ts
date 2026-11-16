@@ -32,3 +32,12 @@ test('clicking away closes the :emoji suggestions and the /command list, but not
 	expect(composer).toContain(".closest?.('.emoji-suggestions, .command-palette')");
 	expect(composer).toContain('textareaElement?.contains(target)');
 });
+
+// "DM message field unable to maintain shape": the field's height was recomputed only on the input event, so a
+// restored draft, an edited last message, an inserted mention or a width change (a panel opening) left it the
+// wrong height.
+test('the field reshapes when its text changes without typing and when its width changes', () => {
+	expect(composer).toContain('$effect(() => { void messageInput; void tick().then(() => autoResizeTextarea()); });');
+	expect(composer).toContain('new ResizeObserver(() => { const width = textareaElement?.clientWidth ?? 0; if (width !== fieldWidth)');
+	expect(composer).toContain('fieldObserver?.disconnect()');
+});

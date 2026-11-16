@@ -746,9 +746,19 @@ import type { MediaAlbum } from '$lib/api';
 			}
 		});
 		autoResizeTextarea(); document.addEventListener('click', handleGlobalClick); void loadPlaceRegistry();
+		// A field whose width changes (a side panel opening, the window resizing, a hidden view being shown) wraps its words
+		// differently, so its height has to follow; before, it only recomputed when you typed.
+		let fieldWidth = textareaElement?.clientWidth ?? 0;
+		const fieldObserver = typeof ResizeObserver !== 'undefined' && textareaElement
+			? new ResizeObserver(() => { const width = textareaElement?.clientWidth ?? 0; if (width !== fieldWidth) { fieldWidth = width; autoResizeTextarea(); } })
+			: null;
+		if (fieldObserver && textareaElement) fieldObserver.observe(textareaElement);
 		const stopTrackingStream = trackStream();
-		return () => { unsubscribeSend(); document.removeEventListener('click', handleGlobalClick); stopTrackingStream(); };
+		return () => { unsubscribeSend(); document.removeEventListener('click', handleGlobalClick); stopTrackingStream(); fieldObserver?.disconnect(); };
 	});
+	// Text that changes without typing (a restored draft, editing your last message, a mention or emoji inserted, a send
+	// that clears it) must also reshape the field; only the input event did before.
+	$effect(() => { void messageInput; void tick().then(() => autoResizeTextarea()); });
 	// The stream this field writes under (composerGeometry): end where its rules end (its
 	// scrollbar included) and keep its newest message in view while the field grows.
 	function trackStream(): () => void {
