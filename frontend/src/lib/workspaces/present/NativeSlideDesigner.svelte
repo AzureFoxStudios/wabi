@@ -15,12 +15,17 @@
 	canvas slides draw only their objects, so the title, text and image fields stay hidden for
 	them (their stored values are kept).
 -->
+<script lang="ts" module>
+	/** Copied slide objects, shared by every slide and deck in this window (objects are not text, so they stay in the app). */
+	const objectClipboard: { object: Omit<SceneObject, 'id' | 'z'> | null } = { object: null };
+</script>
+
 <script lang="ts">
-	import { onDestroy, type Snippet } from 'svelte';
+	import { onDestroy, tick as settle, type Snippet } from 'svelte';
 	import AudienceSlideView from '../AudienceSlide.svelte';
 	import type { ArtifactSession } from '../session';
 	import type { DeckSlide } from './model';
-	import type { SceneObject, SceneKind, SceneTheme } from '../scene';
+	import { scenePalette, type SceneObject, type SceneKind, type SceneTheme } from '../scene';
 	import { readDesign, presetDesign, setDesign, addSceneObject, patchSceneObject, removeSceneObject, setSceneTheme, type ScenePreset } from './nativeScene';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Menu from '$lib/components/ui/Menu.svelte';
@@ -50,6 +55,7 @@
 	let tab = $state<'slide' | 'object'>('slide');
 	let stage = $state<HTMLDivElement>(), imageInput = $state<HTMLInputElement>(), arrangeAnchor = $state<HTMLElement | null>(null), arrangeOpen = $state(false);
 	let resizing = $state<{ id: string; w: number; h: number } | null>(null);
+	let editingText = $state<string | null>(null), textEditor = $state<HTMLTextAreaElement>();
 	const abort = new AbortController();
 	let disposed = false;
 
@@ -61,6 +67,7 @@
 	$effect(() => { if (selectedObjectId && design?.objects.some((object) => object.id === selectedObjectId)) { selected = selectedObjectId; tab = 'object'; } });
 	$effect(() => session.state.subscribe((value) => (tick = value.tick)));
 	$effect(() => { if (selected && !design?.objects.some((object) => object.id === selected)) { selected = ''; onselect(null); } });
+	$effect(() => { if (editingText && (selected !== editingText || !editable)) editingText = null; });
 	$effect(() => { if (!design && tab === 'object') tab = 'slide'; });
 	onDestroy(() => { disposed = true; abort.abort(); });
 
@@ -141,7 +148,16 @@
 
 	/** Arrows move the focused object (Shift: 5%), Alt + arrows resize it, Delete removes it. */
 	function keys(event: KeyboardEvent, object: SceneObject) {
+		const mod = event.ctrlKey || event.metaKey, lower = event.key.toLowerCase();
+		if (mod && !event.altKey && lower === 'c') { event.preventDefault(); copyObject(object); return; }
 		if (!editable) return;
+		if (mod && !event.altKey) {
+			if (lower === 'x') { event.preventDefault(); copyObject(object); run(() => removeSceneObject(session, slide.id, object.id)); return; }
+			if (lower === 'd') { event.preventDefault(); pasteObject(object); return; }
+			if (lower === 'v') { event.preventDefault(); pasteObject(objectClipboard.object); return; }
+		}
+		// Enter or F2 on a text object edits its words on the slide, as in PowerPoint; Esc comes back to the object.
+		if (object.kind === 'text' && (event.key === 'Enter' || event.key === 'F2') && !mod) { event.preventDefault(); void startTextEdit(object); return; }
 		if (event.key === 'Delete' || event.key === 'Backspace') {
 			event.preventDefault();
 			run(() => removeSceneObject(session, slide.id, object.id));
@@ -157,6 +173,35 @@
 			return;
 		}
 		run(() => patchSceneObject(session, slide.id, object.id, { x: Math.max(0, Math.min(1 - object.w, object.x + dx)), y: Math.max(0, Math.min(1 - object.h, object.y + dy)) }));
+	}
+
+	function copyObject(object: SceneObject) {
+		const { id: _id, z: _z, ...rest } = object;
+		objectClipboard.object = rest;
+	}
+	/** A pasted or duplicated object lands a little down and right of where it came from, on top, and is selected. */
+	function pasteObject(source: Omit<SceneObject, 'id' | 'z'> | SceneObject | null) {
+		if (!source) return;
+		run(() => {
+			const { id: _id, z: _z, ...rest } = source as SceneObject;
+			const id = addSceneObject(session, slide.id, rest.kind);
+			patchSceneObject(session, slide.id, id, { ...rest, x: Math.max(0, Math.min(1 - rest.w, rest.x + 0.02)), y: Math.max(0, Math.min(1 - rest.h, rest.y + 0.02)) });
+			choose(id);
+		}, "Couldn't paste that object");
+	}
+	async function startTextEdit(object: SceneObject) {
+		if (!editable || object.kind !== 'text') return;
+		choose(object.id);
+		editingText = object.id;
+		await settle();
+		textEditor?.focus();
+		textEditor?.setSelectionRange(textEditor.value.length, textEditor.value.length);
+	}
+	/** Leaving the text puts focus back on the object, so the arrow keys move it again. */
+	function endTextEdit(refocus = false) {
+		const id = editingText;
+		editingText = null;
+		if (refocus && id) void settle().then(() => stage?.querySelector<HTMLElement>('.object-handle.chosen')?.focus());
 	}
 
 	let drag: { id: string; slideId: string; x: number; y: number; px: number; py: number; width: number; height: number; target: HTMLElement; pointer: number } | null = null;
@@ -235,6 +280,7 @@
 			{ id: 'center', label: 'Center horizontally', icon: 'alignCenter', disabled: !editable, onSelect: () => patch({ x: (1 - object.w) / 2 }) },
 			{ id: 'right', label: 'Align right', icon: 'alignRight', disabled: !editable, onSelect: () => patch({ x: 1 - object.w }) },
 			{ id: 'middle', label: 'Center vertically', icon: 'columns', disabled: !editable, onSelect: () => patch({ y: (1 - object.h) / 2 }) },
+			{ id: 'duplicate', label: 'Duplicate', icon: 'copy', shortcut: 'Ctrl D', disabled: !editable, onSelect: () => pasteObject(object) },
 			{ id: 'sep', type: 'separator', label: '' },
 			{ id: 'forward', label: 'Bring forward', icon: 'layers', disabled: !editable, onSelect: () => patch({ z: Math.min(999999, Math.max(0, ...objects.map((o) => o.z)) + 1) }) },
 			{ id: 'back', label: 'Send behind', icon: 'layers', disabled: !editable, onSelect: () => patch({ z: Math.max(-999999, Math.min(0, ...objects.map((o) => o.z)) - 1) }) }
@@ -287,8 +333,9 @@
 							style:height={`${size.h * 100}%`}
 							aria-label={`${KIND_NAME[object.kind]} ${index + 1}${object.text ? `: ${object.text.slice(0, 40)}` : ''}`}
 							aria-pressed={selected === object.id}
-							aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Alt+ArrowRight Alt+ArrowDown Delete"
+							aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Alt+ArrowRight Alt+ArrowDown Delete Enter Control+C Control+X Control+V Control+D"
 							onclick={() => choose(object.id)}
+							ondblclick={() => void startTextEdit(object)}
 							onkeydown={(event) => keys(event, object)}
 							onpointerdown={(event) => startDrag(event, object)}
 							onpointermove={dragMove}
@@ -308,6 +355,27 @@
 							></span>
 						{/if}
 					{/each}
+					{#if editingText && chosen && chosen.id === editingText && chosen.kind === 'text' && editable}
+						<!-- Opaque, so the slide's own copy of the words does not show through behind the caret. -->
+						<textarea
+							class="object-editor"
+							bind:this={textEditor}
+							aria-label="Slide text"
+							maxlength="6000"
+							value={chosen.text}
+							style:left={`${chosen.x * 100}%`}
+							style:top={`${chosen.y * 100}%`}
+							style:width={`${chosen.w * 100}%`}
+							style:height={`${chosen.h * 100}%`}
+							style:font-size={`${chosen.fontSize / 10}cqw`}
+							style:color={chosen.color}
+							style:background={chosen.fill && chosen.fill !== 'transparent' ? chosen.fill : scenePalette[design?.theme ?? 'paper'].background}
+							style:text-align={chosen.align}
+							oninput={(event) => patch({ text: event.currentTarget.value })}
+							onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); endTextEdit(true); } }}
+							onblur={() => endTextEdit()}
+						></textarea>
+					{/if}
 				{/if}
 			</div>
 		</div>

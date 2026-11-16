@@ -176,6 +176,25 @@
 .designer-stage {
 	position: relative;
 	width: 100%;
+	/* The in-place text editor sizes its type in cqw, the same unit the slide draws with. */
+	container-type: inline-size;
+}
+.object-editor {
+	position: absolute;
+	z-index: 4;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0.15em;
+	border: 0;
+	border-radius: 0;
+	outline: 2px solid var(--w-accent);
+	font-family: var(--slide-face, Arial, sans-serif);
+	line-height: 1.25;
+	letter-spacing: 0;
+	overflow: auto;
+	overflow-wrap: anywhere;
+	resize: none;
+	white-space: pre-wrap;
 }
 .object-handle {
 	position: absolute;
