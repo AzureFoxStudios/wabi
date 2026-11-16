@@ -45,6 +45,22 @@ describe('one toolbar, one formula bar, the grid owns the rest', () => {
 		expect(markup).toContain('<span class="sheet-formula__fx" aria-hidden="true">fx</span>');
 	});
 
+	test('the fill handle, find bar, underline, date and AutoSum keys exist, and one loop serves every drag', () => {
+		expect(markup).toContain('class="fill-handle"');
+		expect(grid).toContain('fillValues(source,');
+		expect(markup).toContain('role="search" aria-label="Find in sheet"');
+		expect(grid).toContain("(lower==='f'||lower==='h')");
+		expect(grid).toContain("if(lower==='u'&&allowSelected)");
+		expect(grid).toContain("key===';'&&!event.shiftKey");
+		expect(grid).toContain("event.altKey&&!mod&&key==='='");
+		expect(grid).toContain("event.altKey&&el===cellEditor");
+		// Selecting, writing a formula's range and the fill handle share one frame loop that also scrolls at the edges.
+		expect(grid).toContain('function dragLoop()');
+		expect(grid).toContain('document.elementFromPoint(x,y)');
+		// Stepping through matches must not pull the caret out of the find bar.
+		expect(grid).toContain("focused?.closest('.sheet-find')");
+	});
+
 	test('columns can be resized by dragging their edge, and the cell menu opens from mouse and keyboard', () => {
 		expect(markup).toContain('class="col-resize"');
 		expect(markup).toContain('onpointerdown={event=>resizeStart(event,column.id)}');
@@ -100,7 +116,8 @@ describe('the grid', () => {
 	});
 
 	test('the cell edits in place, and a formula can point at cells instead of committing', () => {
-		expect(grid).toContain('<input class="sheet-cell-editor"');
+		// A textarea, so Alt+Enter can hold a second line; it floats over the cell instead of being clipped by it.
+		expect(grid).toContain('<textarea class="sheet-cell-editor"');
 		// Clicking while a formula wants a reference keeps focus in the editor and writes the address.
 		expect(grid).toContain('draft.startsWith(\'=\')&&(liveSpan(draft,pointSpan)||canPoint(draft,at))');
 		expect(grid).toContain('event.preventDefault();');

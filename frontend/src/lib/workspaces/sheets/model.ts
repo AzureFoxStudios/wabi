@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import {cellKey,heads,literal,parseFormula,renderFormula,shiftFormula,type Axis,type CellVersion,type Expr,type WorkbookSnapshot,type Scalar} from './formula';
 export interface CellStyle {
-    bold?:boolean;italic?:boolean;format?:'general'|'number'|'percent'|'currency'|'text'|'date';
+    bold?:boolean;italic?:boolean;underline?:boolean;format?:'general'|'number'|'percent'|'currency'|'text'|'date';
     align?:'left'|'center'|'right';fill?:string;wrap?:boolean;border?:boolean;precision?:number;currency?:string;
 }
 export type YSheet=Y.Map<unknown>;
