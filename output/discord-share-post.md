@@ -3,7 +3,7 @@ Hello all, here's an early look at my project "Wabi", a self-hostable collaborat
 Channels/DMs/Groups. Voice/video/screen share, with optional LiveKit for bigger calls (mediasoup is on the list). There's also an opt-in add-on system, kind of like Blender's, still being hardened.
 You can keep a list of servers you connect to, but each server is owned by whoever hosts it. My hope is anybody wanting a full alternative to Discord can use this as a tool to build their own service.
 
-I built it with Claude Code. I'm not a pro dev: I plan, test and review, Claude writes most of the code, and I keep it on track with a rules file (AGENTS.md) in the repo.
+I'm not a pro dev, so I've leaned on AI tools throughout: mostly Claude Code, plus ChatGPT, Hermes and a few others over the months. I plan, test and review; the AI does a lot of the code. A rules file in the repo (AGENTS.md) is how I keep every tool on the same page about what Wabi is and isn't.
 
 Security and data
 * Whoever runs a server can read its public channels, metadata and stored data. Nothing is sent back to me.
