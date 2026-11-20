@@ -46,7 +46,8 @@ export type WorkspacePanelComponentKey =
 	| 'calls'
 	| 'wiki'
 	| 'forum'
-	| 'game-sync';
+	| 'game-sync'
+	| 'channel-chat';
 
 export type WorkspacePanelDockArea = 'right' | 'bottom' | 'center' | 'floating';
 export type WorkspacePanelMobileMode = 'sheet' | 'fullscreen' | 'hidden';
@@ -341,7 +342,8 @@ const KNOWN_COMPONENT_KEYS = new Set<WorkspacePanelComponentKey>([
 	'planner-tasks',
 	'wiki',
 	'forum',
-	'game-sync'
+	'game-sync',
+	'channel-chat'
 ]);
 
 export const workspacePanelRegistry = { subscribe: panelRegistry.subscribe };

@@ -231,6 +231,9 @@
     "drag": {
       "drop_to_upload": "Drop files here to upload"
     },
+    "companion": {
+      "stage_only": "This channel opens on center stage."
+    },
     "dm": {
       "badge": "Direct message",
       "call": "Call",
@@ -6248,6 +6251,7 @@
     "err_delete_folder": "Failed to delete folder.",
     "kick_open": "Open",
     "open_float": "Open in a floating panel",
+    "open_side": "Open beside the page",
     "open_window": "Open in a new window",
     "open_whiteboard": "Open whiteboard",
     "new_thread": "New thread",
