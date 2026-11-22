@@ -16,6 +16,7 @@ import { get } from 'svelte/store';
 import { callTransportState, callOfflineNotice } from './callingStateStores';
 import type { EffectiveCallTransport } from './mediaRuntime';
 // (type-only: erased at runtime — keeps tests free of mediaRuntime's $app deps)
+import { PEER_CONNECTION_UNAVAILABLE } from './mediaCapabilities';
 
 export type CallSurface = 'channel' | 'group' | 'direct';
 
@@ -50,13 +51,20 @@ export function chainForMode(mode: string): EffectiveCallTransport[] {
  *
  * Group calls keep the historical small-mesh fallback, but trim it once the
  * expected room exceeds MESH_MAX_PARTICIPANTS.
+ *
+ * `peerConnections` is false in a webview built without WebRTC (WebKitGTK,
+ * the Linux desktop app): P2P and the LiveKit SFU both need RTCPeerConnection,
+ * so only the relay remains. Callers pass `hasPeerConnection()`.
  */
 export function effectiveChain(
 	mode: string,
 	surface: CallSurface,
-	expectedParticipants: number
+	expectedParticipants: number,
+	peerConnections = true
 ): EffectiveCallTransport[] {
-	const chain = chainForMode(mode).slice();
+	const chain = chainForMode(mode).filter(
+		(transport) => peerConnections || (transport !== 'p2p' && transport !== 'sfu')
+	);
 	if (surface === 'channel') {
 		return chain.filter((transport) => transport !== 'p2p');
 	}
@@ -74,11 +82,20 @@ export const COMMUNITY_VOICE_P2P_REFUSAL =
  * Refuse before any capture or transport work when the chain is empty
  * (e.g. P2P-only on community voice). Sets the visible notice and throws.
  */
-export function refuseEmptyChain(mode: string, surface: CallSurface, expectedParticipants = 1): void {
-	if (effectiveChain(mode, surface, expectedParticipants).length > 0) return;
-	const message = surface === 'channel'
-		? `${COMMUNITY_VOICE_P2P_REFUSAL} Choose Auto, WabiDB, or SFU.`
-		: 'No permitted call transport is available.';
+export function refuseEmptyChain(
+	mode: string,
+	surface: CallSurface,
+	expectedParticipants = 1,
+	peerConnections = true
+): void {
+	if (effectiveChain(mode, surface, expectedParticipants, peerConnections).length > 0) return;
+	// Say which rule emptied the chain: the engine, or the community-voice policy.
+	const engineLimit = !peerConnections && effectiveChain(mode, surface, expectedParticipants).length > 0;
+	const message = engineLimit
+		? `${PEER_CONNECTION_UNAVAILABLE} Choose Auto or WabiDB.`
+		: surface === 'channel'
+			? `${COMMUNITY_VOICE_P2P_REFUSAL} Choose Auto, WabiDB, or SFU.`
+			: 'No permitted call transport is available.';
 	callOfflineNotice.set(message);
 	throw new Error(message);
 }
@@ -109,16 +126,22 @@ export async function connectWithFallback(opts: {
 	expectedParticipants?: number;
 	/** Cancellation is not a transport failure and must never select a fallback. */
 	stillWanted?: () => boolean;
+	/** `hasPeerConnection()` at the call site; see effectiveChain. Defaults to true. */
+	peerConnections?: boolean;
 	connect: (transport: EffectiveCallTransport) => Promise<void>;
 }): Promise<ConnectOutcome> {
-	const chain = effectiveChain(opts.mode, opts.surface, opts.expectedParticipants ?? 1);
+	const participants = opts.expectedParticipants ?? 1;
+	const peerConnections = opts.peerConnections ?? true;
+	const chain = effectiveChain(opts.mode, opts.surface, participants, peerConnections);
+	// What this call would have tried first in an engine with peer connections.
+	const preferred = effectiveChain(opts.mode, opts.surface, participants)[0];
 	const attempts: TransportAttempt[] = [];
 	const check = () => {
 		if (opts.stillWanted && !opts.stillWanted()) throw new DOMException('Call ended during transport setup', 'AbortError');
 	};
 	check();
 
-	refuseEmptyChain(opts.mode, opts.surface, opts.expectedParticipants ?? 1);
+	refuseEmptyChain(opts.mode, opts.surface, participants, peerConnections);
 
 	for (let i = 0; i < chain.length; i++) {
 		const transport = chain[i];
@@ -128,18 +151,24 @@ export async function connectWithFallback(opts: {
 			check();
 			attempts.push({ transport, ok: true });
 			const demoted = i > 0;
+			// The engine removed the preferred transport before any attempt.
+			const engineDemoted = !demoted && transport !== preferred;
 			callTransportState.update((state) => ({
 				...state,
 				activeTransport: transport,
-				isFallback: demoted || state.isFallback,
-				reason: demoted ? `fallback_${transport}_after_${chain[0]}` : state.reason,
+				isFallback: demoted || engineDemoted || state.isFallback,
+				reason: demoted
+					? `fallback_${transport}_after_${chain[0]}`
+					: engineDemoted
+						? `fallback_${transport}_no_peer_connections`
+						: state.reason,
 				checkedAt: Date.now()
 			}));
 			if (demoted) {
 				console.warn('[Calling] Transport fallback:', chain[0], '->', transport,
 					'(after', attempts.length - 1, 'failure(s))');
 			}
-			return { active: transport, attempts, demoted };
+			return { active: transport, attempts, demoted: demoted || engineDemoted };
 		} catch (error) {
 			check();
 			if (error instanceof DOMException && error.name === 'AbortError') throw error;

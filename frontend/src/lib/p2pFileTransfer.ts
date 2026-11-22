@@ -1,5 +1,6 @@
 import { writable, get, derived } from 'svelte/store';
 import { buildRTCConfig, prefetchTurnCredentials } from './turnConfig';
+import { requirePeerConnection } from './mediaCapabilities';
 
 const CHUNK_SIZE = 64 * 1024; // 64KB chunks
 
@@ -163,6 +164,7 @@ async function startOutgoingTransfer(
 	file: File,
 	transferId: string
 ): Promise<string> {
+	requirePeerConnection();
 	await prefetchTurnCredentials();
 	const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
@@ -401,6 +403,8 @@ export function handleP2PIncomingOffer(data: {
 }
 
 export async function acceptFileTransfer(socket: any, transferId?: string): Promise<void> {
+	// Before the offer is consumed, so it stays listed and can still be declined.
+	requirePeerConnection();
 	await prefetchTurnCredentials();
 	const offers = get(incomingFileOffers);
 	const offer = transferId

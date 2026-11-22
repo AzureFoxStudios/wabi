@@ -154,8 +154,9 @@ function currentVideoSession(): VideoSession | undefined {
 
 /** Does THIS call have a ready video relay? Not "any background call". */
 export function wabidbVideoTransportLive(channel = currentVideoChannel()): boolean {
-	// Linux desktop webviews may have WebRTC but no WebCodecs. Keep the
-	// microphone relay and choose P2P for camera/screenshare in that case.
+	// A webview without WebCodecs keeps the microphone relay and uses P2P for
+	// camera/screen share. (The Linux desktop webview is the reverse case: it
+	// has WebCodecs and no WebRTC, so its video always rides the relay.)
 	return !!channel && videoSessions.has(channel) && hasWebCodecs();
 }
 

@@ -1,5 +1,8 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before GTK or any thread exists: this may set an environment variable.
+    #[cfg(target_os = "linux")]
+    linux_media::apply_rendering_workarounds();
     let builder = tauri::Builder::default();
     // Register before other plugins so secondary launches never initialize resources.
     #[cfg(not(mobile))]
@@ -128,6 +131,8 @@ pub fn run() {
 mod commands;
 #[cfg(not(mobile))]
 mod desktop;
+#[cfg(target_os = "linux")]
+mod linux_media;
 #[cfg(not(mobile))]
 mod updater;
 #[cfg(not(mobile))]

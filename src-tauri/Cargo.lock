@@ -7313,6 +7313,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "url",
+ "webkit2gtk",
  "wgpu",
  "windows-native-keyring-store",
  "windows-sys 0.61.2",

@@ -21,6 +21,7 @@ import {
 	scheduleLivekitTokenRefresh
 } from './callingLivekitTokenRefresh';
 import { createLivekitAccessToken } from './mediaGateway';
+import { requirePeerConnection } from './mediaCapabilities';
 import type { Call, ScreenShare } from './callingTypes';
 
 // ============================================================================
@@ -487,6 +488,7 @@ export async function connectLivekitSfu(
 	signal?: AbortSignal
 ): Promise<void> {
 	signal?.throwIfAborted();
+	requirePeerConnection(); // LiveKit is WebRTC; the chain normally never offers it here
 	if (livekitRoom && livekitChannelId === channelId && get(sfuMediaActive)) return;
 	if (livekitRoom && livekitChannelId !== channelId) {
 		throw new Error('LiveKit is already owned by another call');

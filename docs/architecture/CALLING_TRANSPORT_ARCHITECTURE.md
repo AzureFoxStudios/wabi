@@ -330,6 +330,21 @@ Native media capability declarations are not proof that corresponding Rust
 commands are registered. The current native crate does not implement a separate
 microphone/DSP engine. Do not label browser processing as shipped native DSP.
 
+**Linux desktop (2026-11-20).** The Linux webview is the system WebKitGTK. It
+asks the shell before a page may use capture devices, and
+`src-tauri/src/linux_media.rs` answers for the app's own origin; without that
+every `getUserMedia` call is refused. None of the six distributions checked
+(Fedora, Debian, Ubuntu, Arch, openSUSE, the GNOME runtime) builds WebKitGTK
+with WebRTC, so there is no `RTCPeerConnection`: `effectiveChain` receives
+`hasPeerConnection()` and leaves only the relay, and P2P calls, LiveKit and P2P
+file transfer are refused with that reason. The engine advertises
+`echoCancellation` but applies none, has no noise suppression or gain control,
+shares screens without audio and cannot select an output device. A client
+that falls from an SFU room to the relay may not share a media plane with the
+LiveKit participants; that is unverified. Evidence, memory figures and the
+native voice engine decision are in the
+[Linux desktop media work record](../plans/2026-11-20-linux-desktop-media.md).
+
 Synthetic headful Chromium tests exercise actual codecs, worklets, local ICE,
 mute, replacement, DSP recovery, and receive handover under the desktop CSP.
 They do not certify physical microphones/speakers, NAT/TURN, two authenticated

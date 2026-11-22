@@ -28,6 +28,7 @@
  */
 
 import { writable } from 'svelte/store';
+import { ensureVideoCodecGlDisplay } from './mediaCapabilities';
 
 // ============================================================================
 // Envelope types
@@ -888,6 +889,12 @@ export class WabidbVideoLane {
       this.onError?.(err);
       throw err;
     }
+    if (!ensureVideoCodecGlDisplay()) {
+      stream.getTracks().forEach(track => track.stop());
+      const err = new Error('Video is unavailable: this webview has no graphics context for video codecs');
+      this.onError?.(err);
+      throw err;
+    }
     if (this.senders.get(source)?.owns(stream)) {
       await this.pendingSenders.get(source);
       return;
@@ -966,7 +973,9 @@ export class WabidbVideoLane {
    *  - a restart (seq <= last, sender re-encoded from seq 0): reset state.
    */
   private enqueueFrame(streamKey: string, frame: ReassembledFrame): void {
-    if (!hasWebCodecs()) return;
+    // The guard must precede every decoder call: without a GL display
+    // WebKitGTK aborts the web process instead of reporting an error.
+    if (!hasWebCodecs() || !ensureVideoCodecGlDisplay()) return;
     const last = this.lastDecodedSeq.get(streamKey);
     const isRestart = last != null && frame.seq <= last;
     if (isRestart) {
