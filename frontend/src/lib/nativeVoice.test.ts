@@ -17,6 +17,7 @@ mock.module('@tauri-apps/api/core', () => ({
 		calls.push({ command, args });
 		if (command === 'voice_capabilities') return capabilities;
 		if (command === 'voice_poll') return status;
+		if (command === 'voice_capture_start' && startGate) await startGate;
 		return undefined;
 	}
 }));
@@ -36,6 +37,7 @@ beforeEach(() => {
 	status = { capturing: false, playing: true, pagesSent: 0, captureLevel: 0, streams: [], active: [] };
 	(globalThis as any).window = { __TAURI_INTERNALS__: {} };
 	(globalThis as any).localStorage = { getItem: (key: string) => storage.get(key) ?? null };
+	startGate = null;
 	resetNativeVoiceForTests();
 });
 
@@ -86,7 +88,9 @@ describe('NativeRelayPlayback', () => {
 		expect(calls.find(call => call.command === 'voice_set_group_volume')?.args).toEqual({ prefix: 'call-a\u001f', volume: 0.4 });
 		playback.stop();
 		await settle();
-		expect(calls.at(-1)).toEqual({ command: 'voice_remove_group', args: { prefix: 'call-a\u001f' } });
+		expect(calls.find(call => call.command === 'voice_remove_group')?.args).toEqual({ prefix: 'call-a\u001f' });
+		// Nothing uses the engine any more: its streams are closed.
+		expect(commands().at(-1)).toBe('voice_shutdown');
 	});
 
 	test('a sender is ready after 500 ms played, unavailable after a stall, and screen audio never counts', () => {
@@ -122,6 +126,8 @@ describe('NativeRelayPlayback', () => {
 	});
 });
 
+let startGate: Promise<void> | null = null;
+
 describe('NativeRelayCapture', () => {
 	const track = (enabled = true) => ({ kind: 'audio', readyState: 'live', enabled }) as unknown as MediaStreamTrack;
 	const context = {} as AudioContext;
@@ -155,6 +161,23 @@ describe('NativeRelayCapture', () => {
 		await settle(400);
 		expect(commands()).toContain('voice_capture_stop');
 		capture.stop();
+	});
+
+	test('a stop that lands while the start is still in flight closes the microphone afterwards', async () => {
+		let open!: () => void;
+		startGate = new Promise<void>(resolve => { open = resolve; });
+		const capture = new NativeRelayCapture();
+		const starting = capture.start(context, track(), () => {});
+		await settle();
+		expect(commands()).toContain('voice_capture_start');
+		capture.stop(); // the shell has not finished opening the microphone yet
+		await settle();
+		expect(commands()).not.toContain('voice_capture_stop');
+		open();
+		startGate = null;
+		await starting;
+		await settle();
+		expect(commands().lastIndexOf('voice_capture_stop')).toBeGreaterThan(commands().lastIndexOf('voice_capture_start'));
 	});
 
 	test('a second transmitting relay restarts the capture so its listeners get headers', async () => {

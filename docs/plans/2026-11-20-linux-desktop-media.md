@@ -1,6 +1,6 @@
 # Linux desktop: microphone, camera, screen share and voice
 
-Date: 2026-11-20. Branch: `fix/linux-desktop-media`.
+Date: 2026-11-20, extended 2026-11-21. Branches: `fix/linux-desktop-media` (steps 1 and 2) and `feat/linux-native-voice` on top of it (step 3).
 
 Evidence labels used below:
 
@@ -21,7 +21,7 @@ Agreed order (Ronin, 2026-11-20):
 
 1. Make the existing web calling path work in the Linux desktop app, provided it costs no memory at idle. **This branch.**
 2. Profile where the desktop app's memory goes. The target is "about as light as Discord, measured the same way"; ~300 MB was the figure mentioned. **Done 2026-11-21; see Memory.**
-3. Native voice engine in Rust, designed with the result of step 2.
+3. Native voice engine in Rust, designed with the result of step 2. **Built 2026-11-21 as an opt-in; see Step 3 for what is and is not wired.**
 
 A Chromium-based runtime (CEF) was considered and dropped: it would give WebRTC and in-engine audio processing, but it is heavier than the current webview and only exists as a Tauri v3 alpha (source).
 
@@ -91,12 +91,62 @@ What the split shows:
 - **A webview costs 164–327 MB before Wabi loads anything.** The hello-world host process alone is 128 MB with the GPU renderer (49 MB heap, 20 MB anonymous, NVIDIA and GL libraries) and 72 MB without.
 - **The renderer mode is not a dependable saving.** Without DMABUF the page is rasterised on the CPU and the cost follows the window's pixel count: it saved ~125 MB at 1280×720 headless and cost ~40 MB more than the GPU path on the live session. The WebCodecs abort that used to rule this mode out is covered by the WebGL guard, so the choice is memory against GPU compositing, per machine.
 - **Wabi's own share at the entry screen is ~120 MB** (GPU, headless): ~90 MB in the web process (anonymous memory 123 MB against 63 MB for hello-world, plus more of the WebKit and JavaScriptCore libraries paged in) and ~27 MB in the host (the 61 MB binary, of which ~19 MB is resident; the frontend build is 27 MB before compression). Logging in to an empty community adds ~95 MB more, nearly all anonymous memory in the web process.
-- **A voice call on the web path adds ~115–150 MB and was still growing**: +116 MB about 45 s in and +157 MB about 75 s later (two samples of one call; whether it levels off was not measured). The 2026-11-20 harness figure of +77 MB was a bare page with the codec pieces, not the app. Receiving one camera adds ~165–180 MB.
+- **A voice call on the web path adds ~115 MB at 45 s. The 2026-11-20 harness figure of +77 MB was a bare page with the codec pieces, not the app.** Receiving one camera adds ~165–180 MB.
+- **The web process grows for as long as a call lasts, at roughly 0.7–0.9 MB per second** (anonymous memory; six samples over six minutes rose in a straight line from 204 to 525 MB). Outside a call it is flat (four samples over four minutes within 1.5 MB). It is not the audio codec path: the growth is the same on the native engine. It continued after the page's microphone track was stopped and after the other participant left. The Chromium client in the same call did not grow: its JavaScript heap after a forced collection was 16.4, 15.1 and 15.0 MB at the same three moments the desktop's web process went 340, 412, 481 MB. So it is specific to the WebKitGTK side: the engine itself, something the app does that only leaks there, or WebDriver automation, which has not been ruled out. Not traced further. At this rate an hour-long call would add about 3 GB.
 - **The Rust host is not where the weight is.** Wabi's host process is 27 MB above hello-world's at the entry screen and does not grow in a call.
 
 What this means for the target of "about as light as Discord (~300 MB)": on this machine an empty Tauri window is already 164–327 MB, so a logged-in Wabi cannot reach 300 MB in this webview with the GPU renderer, whatever is done to the UI. Reaching it needs both a lighter UI (roughly 215 MB of Wabi-attributable memory when logged in) and a rendering path that stays cheap at real window sizes, or a UI that is not a webview. A native voice engine removes the in-call growth only. Discord was not installed, so there is no like-for-like figure for it.
 
 Not measured: a populated community (history, members, images), long sessions, other GPUs and drivers, heap attribution inside the web process (no heap profiler is installed; the split above is by mapping type).
+
+## Step 3: native voice engine (2026-11-21, branch `feat/linux-native-voice`)
+
+### What was measured first
+
+- **LiveKit's Rust client is light at run time and heavy to build.** A minimal client (`livekit` 0.12) in a room with another participant: 14 MB PSS, flat over 30 s, audio both ways. It adds about 29 MB to a stripped binary, downloads a 156 MB prebuilt libwebrtc at build time and needs clang 21 or newer (measured in a Fedora 44 container; the test machine has no clang).
+- **The test machine cannot build anything that needs audio headers**: no ALSA, PipeWire or PulseAudio development files and no clang. That rules out `cpal` and libwebrtc for the default build.
+
+### Design
+
+```text
+page (unchanged owner of admission, signalling, the relay socket)
+  │  received relay pages (base64, as they arrive)      ▲ microphone as relay pages
+  ▼                                                     │
+shell: src-tauri/src/voice.rs  (voice_* commands, watchdog)
+  ▼                                                     │
+crates/wabi-voice
+  Mixer: Ogg → Opus decode → jitter queue → mix ──► playback ──► speakers
+                                              └──► echo reference
+  microphone ──► WebRTC processing (AEC3, noise suppression, AGC2) ──► Opus → Ogg pages
+                                                                  └──► LiveKit track (feature `livekit`)
+```
+
+- **Wire format unchanged.** The engine reads and writes what `relayAudioCapture.ts` and opus-recorder do: Ogg Opus, mono 48 kHz, two 20 ms packets per page, OpusHead and OpusTags as envelopes 0 and 1. Browser clients and the server need no change.
+- **Processing** is WebRTC's pipeline through `sonora` 0.3, a pure-Rust port (first released February 2026). It sits behind a trait so it can be swapped.
+- **Devices** go through the PulseAudio protocol with the pure-Rust `pulseaudio` client. PipeWire desktops (pipewire-pulse) and PulseAudio desktops both serve it, and it is the audio socket Flatpak grants. Nothing audio-related is linked and no headers are needed; libopus is built from source by `opusic-sys` (needs cmake and a C compiler).
+- **Off by default.** `WABI_NATIVE_VOICE=1` in the environment, or `localStorage.wabi_native_voice = '1'`, switches the relay to the engine; `'0'` in localStorage refuses it. Everything else keeps the web path.
+- **The microphone cannot outlive the page.** It closes when the page's microphone track is muted or ended, when the page stops polling for five seconds, and when the webview starts loading a document.
+
+### Verified
+
+- `crates/wabi-voice`, 13 unit tests: Ogg framing against the `ogg` crate both ways, the header convention, a tone through encode, decode and mixing, restarts, deafen, per-call volume, overflow, and echo removal on a synthetic echo path (44.6 dB).
+- Real PipeWire devices, `examples/echo.rs` with a `pw-loopback` echo path: what would be sent back fell from −19.6 dB to −78.2 dB with echo cancellation on. That is a wired, linear echo path, the easiest case.
+- `scripts/desktop-voice-native-smoke.mjs` with `WABI_SMOKE_NATIVE_VOICE=1`: the same two-client call passes on the engine in both directions with no decode failures, and the engine's microphone closes within 10 s of a page reload and of the page going silent (`WABI_SMOKE_HOT_MIC=watchdog`). The default web path, with video, was re-run on the final build and passes.
+- LiveKit, engine level (`examples/livekit_room.rs`, built in a container, against a local `livekit-server` and a second client): each side heard the other. The whole engine process in the room: 24 MB.
+- Memory: the engine alone is 3–4 MB. In the app, the web process at the first in-call sample (~45 s) was 306–340 MB across five runs on the engine against 393–395 MB across two on the web path, so roughly 55–85 MB lower. The growth described under Memory is unchanged.
+- Cost to the app: +2.2 MB of binary. `frontend` type check passes; 8 new bridge tests; shell tests 60/60.
+
+### Not done
+
+- **Nobody has listened to it.** Every check is a counter or a level. Whether it sounds right, with a real voice, real speakers and a real room, needs a person.
+- **LiveKit is not reachable from the app yet.** The shell has `voice_livekit_join`/`leave`/`set_muted` behind the `livekit` cargo feature, but `callingLivekit.ts` still uses the browser client and the chain still drops `sfu` without peer connections. Wiring it means a second, audio-only implementation of that module's state (participants, moderation, token refresh). It could not be tested here: the server side is behind `experimental-livekit-broker` and needs a media node.
+- **No device picker.** The engine uses the system defaults, or `WABI_VOICE_SOURCE`/`WABI_VOICE_SINK`. The page's saved microphone choice is a WebKit device id and does not apply.
+- **The page still opens its own microphone** (for mute state and the local speaking indicator), so two captures run. Dropping it is the next memory step.
+- **Not carried over from the web path:** per-user spatial position, the call-recording tap, screen-share audio capture (received screen audio is played).
+- **Packet loss:** no concealment or reordering beyond a 60 ms playout buffer; Opus in-band FEC is switched on for sending but not used when receiving.
+- **Build:** CI's Linux job now compiles libopus (cmake). `src-tauri/Cargo.lock` gained the optional LiveKit tree and `tokio-util` moved 0.7.18 → 0.7.20. Not run in CI.
+- macOS, Windows, Android and iOS: the commands are written to report the engine as unavailable there, but the shell was only compiled on Linux after this change.
+- The shell's LiveKit commands compile with `--features livekit` (checked in a Fedora 44 container) and have never run; only the crate-level module was exercised.
 
 ## Call paths without peer connections (read from code, not run)
 
@@ -133,6 +183,11 @@ frontend/node_modules/.bin/tauri build --no-bundle
 WABI_SMOKE_VIDEO=1 WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 cage -- \
   node scripts/desktop-voice-native-smoke.mjs "$PWD/src-tauri/target/release/wabi-desktop"
 # Memory at each stage: WABI_SMOKE_CHECKPOINT=<script calling smaps_profile.py "$1" "$2" out.json>
+
+# The same call on the native engine, then the hot-microphone checks:
+WABI_SMOKE_NATIVE_VOICE=1 WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 cage -- \\
+  node scripts/desktop-voice-native-smoke.mjs "$PWD/src-tauri/target/release/wabi-desktop"
+(cd crates/wabi-voice && cargo test && cargo run --release --example loopback -- --list)
 
 # Engine capability table, relay audio path, memory:
 WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 cage -- \

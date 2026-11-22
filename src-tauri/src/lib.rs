@@ -20,7 +20,9 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             use tauri::Manager;
             if payload.event() == tauri::webview::PageLoadEvent::Started {
-                webview.state::<voice::VoiceState>().shutdown("the page is loading a new document");
+                // Closing streams talks to the audio server; keep that off the main thread.
+                let voice = webview.state::<voice::VoiceState>().inner().clone();
+                std::thread::spawn(move || voice.shutdown("the page is loading a new document"));
             }
         })
         .plugin(tauri_plugin_dialog::init())
@@ -113,6 +115,9 @@ pub fn run() {
             voice::voice_set_group_volume,
             voice::voice_set_deafened,
             voice::voice_poll,
+            voice::voice_livekit_join,
+            voice::voice_livekit_leave,
+            voice::voice_livekit_set_muted,
             voice::voice_shutdown
         ])
         .build(tauri::generate_context!())

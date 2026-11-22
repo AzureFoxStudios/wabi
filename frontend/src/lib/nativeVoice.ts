@@ -58,8 +58,9 @@ export function resetNativeVoiceForTests(): void {
 	enabled = null;
 	playbacks.clear();
 	subscribers.clear();
-	captureWanted = false;
-	captureGeneration++;
+	wantedStream = 0;
+	engineStream = 0;
+	captureQueue = Promise.resolve();
 	outputMuted = false;
 	sessionVolumes.clear();
 	stopPolling();
@@ -128,6 +129,18 @@ export function setNativeSessionVolume(audioSessionId: string, volume: number): 
 	if (playbackStarted) {
 		void invoke('voice_set_group_volume', { prefix: groupPrefix(audioSessionId), volume: clamped / 100 }).catch(() => undefined);
 	}
+}
+
+/** Closes the engine's streams once no call uses it, so an idle app holds no
+ * playback stream open. */
+function releaseEngineIfIdle(): void {
+	if (playbacks.size || subscribers.size || !playbackStarted) return;
+	playbackStarted = null;
+	captureQueue = captureQueue.then(async () => {
+		if (playbacks.size || subscribers.size) return; // a call started meanwhile
+		engineStream = 0;
+		await invoke('voice_shutdown');
+	}).catch(() => undefined);
 }
 
 function ensurePlayback(): Promise<void> {
@@ -247,6 +260,7 @@ export class NativeRelayPlayback {
 		for (const user of [...this.readyUsers]) this.markUnavailable(user);
 		this.streams.clear();
 		void invoke('voice_remove_group', { prefix: this.prefix }).catch(() => undefined);
+		releaseEngineIfIdle();
 	}
 }
 
@@ -259,8 +273,13 @@ export class NativeRelayPlayback {
 
 type Emit = (page: Uint8Array, seq: number) => void;
 const subscribers = new Map<object, { emit: Emit; track: MediaStreamTrack }>();
-let captureWanted = false;
-let captureGeneration = 0;
+/** Bumped whenever a new stream (fresh headers) is needed. */
+let wantedStream = 0;
+/** The stream the engine is capturing, or 0 when its microphone is closed. */
+let engineStream = 0;
+/** Start and stop reach the shell one at a time and in order, so a stop can
+ * never be overtaken by the start it was meant to cancel. */
+let captureQueue: Promise<void> = Promise.resolve();
 let captureWatch: ReturnType<typeof setInterval> | null = null;
 
 function microphoneOpen(): boolean {
@@ -269,28 +288,38 @@ function microphoneOpen(): boolean {
 	return false;
 }
 
-async function startEngineCapture(): Promise<void> {
-	const generation = ++captureGeneration;
-	const channel = new Channel<Page>();
-	channel.onmessage = page => {
-		if (generation !== captureGeneration) return;
-		let bytes: Uint8Array | null = null;
-		for (const { emit, track } of subscribers.values()) {
-			if (track.readyState !== 'live' || !track.enabled) continue;
-			bytes ??= base64ToBytes(page.payload);
-			emit(bytes, page.seq);
+/** Brings the engine's microphone in line with what the page wants now. */
+function reconcileCapture(): Promise<void> {
+	captureQueue = captureQueue.then(async () => {
+		// Decided here, after everything queued earlier has finished.
+		const target = microphoneOpen() ? wantedStream : 0;
+		if (target === engineStream) return;
+		if (target === 0) {
+			engineStream = 0;
+			await invoke('voice_capture_stop');
+			return;
 		}
-	};
-	captureWanted = true;
-	await invoke('voice_capture_start', { device: null, onPage: channel });
-	if (generation !== captureGeneration || !microphoneOpen()) await stopEngineCapture();
-}
-
-async function stopEngineCapture(): Promise<void> {
-	captureGeneration++;
-	if (!captureWanted) return;
-	captureWanted = false;
-	await invoke('voice_capture_stop').catch(() => undefined);
+		const channel = new Channel<Page>();
+		channel.onmessage = page => {
+			if (engineStream !== target) return; // a retired stream's page still in flight
+			let bytes: Uint8Array | null = null;
+			for (const { emit, track } of subscribers.values()) {
+				if (track.readyState !== 'live' || !track.enabled) continue;
+				bytes ??= base64ToBytes(page.payload);
+				emit(bytes, page.seq);
+			}
+		};
+		engineStream = target;
+		try {
+			await invoke('voice_capture_start', { device: null, onPage: channel });
+		} catch (error) {
+			engineStream = 0;
+			throw error;
+		}
+	});
+	const settled = captureQueue;
+	captureQueue = captureQueue.catch(() => undefined);
+	return settled;
 }
 
 function watchCapture(): void {
@@ -299,11 +328,9 @@ function watchCapture(): void {
 		if (!subscribers.size) {
 			clearInterval(captureWatch!);
 			captureWatch = null;
-			return;
 		}
-		const open = microphoneOpen();
-		if (open && !captureWanted) void startEngineCapture().catch(() => undefined);
-		else if (!open && captureWanted) void stopEngineCapture();
+		// Mute and unmute change only the track's `enabled` flag, with no event.
+		if ((microphoneOpen() ? wantedStream : 0) !== engineStream) void reconcileCapture().catch(() => undefined);
 	}, POLL_MS);
 }
 
@@ -320,12 +347,14 @@ export class NativeRelayCapture {
 		subscribers.set(this, { emit, track });
 		ensurePolling();
 		watchCapture();
-		if (microphoneOpen()) await startEngineCapture();
+		wantedStream++; // this relay's listeners need the header pages
+		await reconcileCapture();
 	}
 
 	stop(): void {
 		this.current = null;
 		if (!subscribers.delete(this)) return;
-		if (!microphoneOpen()) void stopEngineCapture();
+		void reconcileCapture().catch(() => undefined);
+		releaseEngineIfIdle();
 	}
 }

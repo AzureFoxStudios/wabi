@@ -12,6 +12,11 @@ rust-version = "1.93"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Native LiveKit rooms on Linux (crates/wabi-voice). Off by default: the build
+# downloads a prebuilt libwebrtc and needs clang 21 or newer.
+livekit = ["wabi-voice/livekit"]
+
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }
 

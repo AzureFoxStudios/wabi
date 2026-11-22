@@ -345,6 +345,8 @@ LiveKit participants; that is unverified. Evidence, memory figures and the
 native voice engine decision are in the
 [Linux desktop media work record](../plans/2026-11-20-linux-desktop-media.md).
 
+**Native voice engine (2026-11-21, opt-in, Linux desktop).** With `WABI_NATIVE_VOICE=1` the relay hands audio to the shell instead of the WebAudio graph: `crates/wabi-voice` captures and processes the microphone (echo cancellation, noise suppression, gain control), encodes the same Ogg Opus pages, and decodes, mixes and plays received pages. The page still owns admission, signalling, the socket, mute and deafen. Spatial position, the recording tap and device choice are not carried over. Design, evidence and limits: [linux desktop media](../plans/2026-11-20-linux-desktop-media.md), Step 3.
+
 Synthetic headful Chromium tests exercise actual codecs, worklets, local ICE,
 mute, replacement, DSP recovery, and receive handover under the desktop CSP.
 They do not certify physical microphones/speakers, NAT/TURN, two authenticated

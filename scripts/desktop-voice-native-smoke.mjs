@@ -129,9 +129,19 @@ async function click(label) {
   await execute('Array.from(document.querySelectorAll("button")).find(button=>button.textContent.trim()===arguments[0]&&!button.disabled).click()', [label]);
 }
 
+let peerPage;
 async function checkpoint(label) {
   if (!process.env.WABI_SMOKE_CHECKPOINT) return;
   await sleep(Number(process.env.WABI_SMOKE_SETTLE_MS || 15000));
+  if (peerPage) {
+    // The browser client's JavaScript heap after a forced collection, to set
+    // beside the desktop's figure: growth in both points at the app's code.
+    const cdp = await peerPage.context().newCDPSession(peerPage);
+    await cdp.send('HeapProfiler.collectGarbage');
+    const { usedSize } = await cdp.send('Runtime.getHeapUsage');
+    await cdp.detach();
+    console.log(`chromium-${label}: JS heap ${(usedSize / 1048576).toFixed(1)} MB`);
+  }
   execFileSync(process.env.WABI_SMOKE_CHECKPOINT, [String(driver.pid), label], { stdio: 'inherit' });
 }
 
@@ -254,6 +264,7 @@ try {
   await page.locator('#repeat-password').fill('Disposable-Voice-Peer-2026!');
   await page.getByRole('button', { name: 'Accept invitation & create account' }).click();
   await page.locator('.app-container').waitFor();
+  peerPage = page;
 
   // Both join the first voice room.
   await waitFor(async () => (await execute(`return ${VOICE_ROOMS}`)).length > 0, 'a voice room in the desktop sidebar');

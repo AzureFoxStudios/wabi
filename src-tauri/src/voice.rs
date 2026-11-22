@@ -28,6 +28,8 @@ pub struct VoiceCapabilities {
     pub available: bool,
     /// Set by `WABI_NATIVE_VOICE=1`: use the engine without the page opting in.
     pub requested: bool,
+    /// The shell was built with the `livekit` feature and can join LiveKit rooms.
+    pub livekit: bool,
     pub reason: Option<String>,
 }
 
@@ -76,7 +78,7 @@ mod linux {
     use base64::Engine as _;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::{Duration, Instant};
-    use wabi_voice::engine::Engine;
+    use wabi_voice::engine::{Engine, RemoteSink};
     use wabi_voice::processing::ProcessingOptions;
 
     /// Without a poll for this long the microphone is stopped.
@@ -85,30 +87,44 @@ mod linux {
     #[derive(Default)]
     struct Inner {
         engine: Option<Engine>,
+        #[cfg(feature = "livekit")]
+        livekit: Option<wabi_voice::livekit::LiveKitCall>,
         last_poll: Option<Instant>,
         watchdog_running: bool,
     }
 
+    /// `engine` is held across audio-server round trips (opening a Bluetooth
+    /// microphone can take a while). Received audio therefore goes through
+    /// `sink`, which only ever guards the mixer, so the stream of relay pages
+    /// never waits behind a device operation.
     #[derive(Default, Clone)]
-    pub struct VoiceState(Arc<Mutex<Inner>>);
+    pub struct VoiceState {
+        engine: Arc<Mutex<Inner>>,
+        sink: Arc<Mutex<Option<RemoteSink>>>,
+    }
 
     impl VoiceState {
         fn lock(&self) -> MutexGuard<'_, Inner> {
-            self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+            self.engine.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
         }
 
         fn with_engine<T>(&self, run: impl FnOnce(&mut Engine) -> Result<T, String>) -> Result<T, String> {
             let mut inner = self.lock();
             if inner.engine.is_none() {
-                inner.engine = Some(
-                    Engine::connect("Wabi", ProcessingOptions::default()).map_err(|error| error.to_string())?,
-                );
+                let engine = Engine::connect("Wabi", ProcessingOptions::default()).map_err(|error| error.to_string())?;
+                *self.sink() = Some(engine.remote_sink());
+                inner.engine = Some(engine);
             }
             run(inner.engine.as_mut().expect("engine was just created"))
         }
 
+        fn sink(&self) -> MutexGuard<'_, Option<RemoteSink>> {
+            self.sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        }
+
         /// Stops the microphone and playback and forgets every stream.
         pub fn shutdown(&self, why: &str) {
+            *self.sink() = None;
             let mut inner = self.lock();
             if let Some(mut engine) = inner.engine.take() {
                 let was_capturing = engine.stats().capturing;
@@ -119,6 +135,12 @@ mod linux {
                 }
             }
             inner.last_poll = None;
+            // Dropping the call without `leave` still ends it: its tasks stop
+            // when the room handle goes, and the server times the peer out.
+            #[cfg(feature = "livekit")]
+            {
+                inner.livekit = None;
+            }
         }
 
         fn ensure_watchdog(&self) {
@@ -162,6 +184,7 @@ mod linux {
         VoiceCapabilities {
             available: true,
             requested: std::env::var("WABI_NATIVE_VOICE").as_deref() == Ok("1"),
+            livekit: cfg!(feature = "livekit"),
             reason: None,
         }
     }
@@ -218,15 +241,64 @@ mod linux {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(payload)
             .map_err(|error| error.to_string())?;
-        if let Some(engine) = state.lock().engine.as_ref() {
-            engine.push_remote(stream, &bytes);
+        if let Some(sink) = state.sink().as_ref() {
+            sink.push(stream, &bytes);
         }
         Ok(())
     }
 
-    pub fn with_running(state: &VoiceState, run: impl FnOnce(&Engine)) {
-        if let Some(engine) = state.lock().engine.as_ref() {
-            run(engine);
+    pub fn with_sink(state: &VoiceState, run: impl FnOnce(&RemoteSink)) {
+        if let Some(sink) = state.sink().as_ref() {
+            run(sink);
+        }
+    }
+
+    /// Joins a LiveKit room on the engine's microphone and speakers. Streams
+    /// from the room are keyed `{prefix}{participant identity}`.
+    #[cfg(feature = "livekit")]
+    pub async fn livekit_join(state: &VoiceState, url: String, token: String, prefix: String) -> Result<(), String> {
+        use wabi_voice::livekit::LiveKitCall;
+        livekit_leave(state).await;
+        let sink = state.with_engine(|engine| Ok(engine.remote_sink()))?;
+        let (call, microphone) = LiveKitCall::connect(&url, &token, sink, &prefix)
+            .await
+            .map_err(|error| error.to_string())?;
+        let started = state.with_engine(|engine| {
+            engine
+                .start_playback(device_or_env(None, "WABI_VOICE_SINK").as_deref())
+                .map_err(|error| error.to_string())?;
+            engine
+                .start_capture_tapped(
+                    device_or_env(None, "WABI_VOICE_SOURCE").as_deref(),
+                    |_| {},
+                    move |frame| microphone.send(frame),
+                )
+                .map_err(|error| error.to_string())
+        });
+        if let Err(error) = started {
+            call.leave().await;
+            return Err(error);
+        }
+        state.lock().livekit = Some(call);
+        state.lock().last_poll = Some(Instant::now());
+        state.ensure_watchdog();
+        Ok(())
+    }
+
+    #[cfg(feature = "livekit")]
+    pub async fn livekit_leave(state: &VoiceState) {
+        let call = state.lock().livekit.take();
+        if let Some(call) = call {
+            capture_stop(state);
+            call.leave().await;
+        }
+    }
+
+    /// Mutes for the room and closes the microphone, or reopens it.
+    #[cfg(feature = "livekit")]
+    pub fn livekit_set_muted(state: &VoiceState, muted: bool) {
+        if let Some(call) = state.lock().livekit.as_ref() {
+            call.set_microphone_muted(muted);
         }
     }
 
@@ -283,6 +355,7 @@ pub fn voice_capabilities() -> VoiceCapabilities {
     VoiceCapabilities {
         available: false,
         requested: false,
+        livekit: false,
         reason: Some(UNAVAILABLE.into()),
     }
 }
@@ -351,7 +424,7 @@ pub fn voice_push(state: tauri::State<'_, VoiceState>, stream: String, payload: 
 #[tauri::command]
 pub fn voice_remove_group(state: tauri::State<'_, VoiceState>, prefix: String) {
     #[cfg(target_os = "linux")]
-    linux::with_running(&state, |engine| engine.remove_remote_group(&prefix));
+    linux::with_sink(&state, |sink| sink.remove_group(&prefix));
     let _ = (&state, &prefix);
 }
 
@@ -359,20 +432,21 @@ pub fn voice_remove_group(state: tauri::State<'_, VoiceState>, prefix: String) {
 #[tauri::command]
 pub fn voice_set_group_volume(state: tauri::State<'_, VoiceState>, prefix: String, volume: f32) {
     #[cfg(target_os = "linux")]
-    linux::with_running(&state, |engine| engine.set_remote_group_volume(&prefix, volume));
+    linux::with_sink(&state, |sink| sink.set_group_volume(&prefix, volume));
     let _ = (&state, &prefix, volume);
 }
 
 #[tauri::command]
 pub fn voice_set_deafened(state: tauri::State<'_, VoiceState>, deafened: bool) {
     #[cfg(target_os = "linux")]
-    linux::with_running(&state, |engine| engine.set_deafened(deafened));
+    linux::with_sink(&state, |sink| sink.set_deafened(deafened));
     let _ = (&state, deafened);
 }
 
 /// Counters, and the page's sign of life: capture stops when this is not
-/// called for a few seconds.
-#[tauri::command]
+/// called for a few seconds. Runs off the main thread: it shares a lock with
+/// device operations.
+#[tauri::command(async)]
 pub fn voice_poll(state: tauri::State<'_, VoiceState>) -> VoiceStatus {
     #[cfg(target_os = "linux")]
     return linux::poll(&state);
@@ -381,6 +455,42 @@ pub fn voice_poll(state: tauri::State<'_, VoiceState>) -> VoiceStatus {
         let _ = state;
         VoiceStatus::default()
     }
+}
+
+#[cfg(not(all(target_os = "linux", feature = "livekit")))]
+const NO_LIVEKIT: &str = "This build of the app cannot join LiveKit rooms natively.";
+
+/// Joins a LiveKit room with the engine's microphone and speakers. `token` is
+/// what the Authority's `/livekit/token` returned for this device.
+#[tauri::command]
+pub async fn voice_livekit_join(
+    state: tauri::State<'_, VoiceState>,
+    url: String,
+    token: String,
+    prefix: String,
+) -> Result<(), String> {
+    #[cfg(all(target_os = "linux", feature = "livekit"))]
+    return linux::livekit_join(&state, url, token, prefix).await;
+    #[cfg(not(all(target_os = "linux", feature = "livekit")))]
+    {
+        let _ = (state, url, token, prefix);
+        Err(NO_LIVEKIT.into())
+    }
+}
+
+#[tauri::command]
+pub async fn voice_livekit_leave(state: tauri::State<'_, VoiceState>) -> Result<(), String> {
+    #[cfg(all(target_os = "linux", feature = "livekit"))]
+    linux::livekit_leave(&state).await;
+    let _ = &state;
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn voice_livekit_set_muted(state: tauri::State<'_, VoiceState>, muted: bool) {
+    #[cfg(all(target_os = "linux", feature = "livekit"))]
+    linux::livekit_set_muted(&state, muted);
+    let _ = (&state, muted);
 }
 
 /// Stops the microphone and playback and forgets every stream.

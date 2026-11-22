@@ -362,6 +362,19 @@ impl RemoteSink {
     pub fn remove_group(&self, prefix: &str) {
         self.mixer().remove_group(prefix);
     }
+
+    /// Relay pages received from one sender's stream.
+    pub fn push(&self, stream: &str, bytes: &[u8]) {
+        self.mixer().push(stream, bytes);
+    }
+
+    pub fn set_group_volume(&self, prefix: &str, volume: f32) {
+        self.mixer().set_group_volume(prefix, volume);
+    }
+
+    pub fn set_deafened(&self, deafened: bool) {
+        self.mixer().set_deafened(deafened);
+    }
 }
 
 impl Drop for Engine {
