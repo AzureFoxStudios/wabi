@@ -13,5 +13,20 @@ pulseaudio = "0.3"
 log = "0.4"
 futures = { version = "0.3", default-features = false, features = ["executor", "std"] }
 
+# Joining LiveKit rooms. Off by default: it downloads a prebuilt libwebrtc
+# (about 156 MB) at build time, needs clang 21 or newer, and adds about 29 MB
+# to the binary.
+livekit = { version = "0.12", optional = true, features = ["rustls-tls-native-roots"] }
+tokio = { version = "1", optional = true, features = ["rt", "sync", "macros"] }
+futures-util = { version = "0.3", optional = true, default-features = false }
+
+[features]
+livekit = ["dep:livekit", "dep:tokio", "dep:futures-util"]
+
+[[example]]
+name = "livekit_room"
+required-features = ["livekit"]
+
 [dev-dependencies]
 ogg = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

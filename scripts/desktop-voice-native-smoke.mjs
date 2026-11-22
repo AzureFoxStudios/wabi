@@ -231,6 +231,11 @@ try {
   await waitFor(() => execute('return Boolean(document.querySelector(".app-container"))'), 'owner workspace');
 
   await checkpoint('workspace');
+  // Further samples of the idle workspace, 75 s apart: the baseline for call growth.
+  for (let sample = 2; sample <= Number(process.env.WABI_SMOKE_WORKSPACE_SAMPLES || 1); sample++) {
+    await sleep(60000);
+    await checkpoint(`workspace-${sample}`);
+  }
 
   const require = createRequire(new URL('../frontend/package.json', import.meta.url));
   const { chromium } = require('playwright');

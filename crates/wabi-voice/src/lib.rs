@@ -8,6 +8,8 @@
 //! produces.
 
 pub mod engine;
+#[cfg(feature = "livekit")]
+pub mod livekit;
 pub mod ogg;
 pub mod pipeline;
 pub mod processing;

@@ -144,7 +144,19 @@ impl Engine {
     pub fn start_capture(
         &mut self,
         device: Option<&str>,
+        on_page: impl FnMut(OutPage) + Send + 'static,
+    ) -> Result<(), Error> {
+        self.start_capture_tapped(device, on_page, |_| {})
+    }
+
+    /// As [`start_capture`](Self::start_capture), and hands each processed
+    /// 10 ms microphone frame (480 samples) to `on_frame`, for a transport
+    /// that encodes for itself.
+    pub fn start_capture_tapped(
+        &mut self,
+        device: Option<&str>,
         mut on_page: impl FnMut(OutPage) + Send + 'static,
+        mut on_frame: impl FnMut(&[f32]) + Send + 'static,
     ) -> Result<(), Error> {
         self.stop_capture();
         self.next_serial = self.next_serial.wrapping_add(1);
@@ -165,7 +177,7 @@ impl Engine {
             leftover.drain(..whole);
             let pages = {
                 let mut processor = shared.processor.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                chain.push(&samples, processor.as_mut())
+                chain.push_tapped(&samples, processor.as_mut(), &mut on_frame)
             };
             shared.capture_level_bits.store(chain.level().to_bits(), Ordering::Relaxed);
             match pages {
@@ -274,6 +286,16 @@ impl Engine {
         self.mixer().push(stream, bytes);
     }
 
+    /// Mono 48 kHz samples from one sender, already decoded.
+    pub fn push_remote_pcm(&self, stream: &str, pcm: &[f32]) {
+        self.mixer().push_pcm(stream, pcm);
+    }
+
+    /// A handle for pushing received audio from other threads.
+    pub fn remote_sink(&self) -> RemoteSink {
+        RemoteSink(self.shared.clone())
+    }
+
     pub fn remove_remote(&self, stream: &str) {
         self.mixer().remove(stream);
     }
@@ -317,6 +339,28 @@ impl Engine {
 
     fn mixer(&self) -> std::sync::MutexGuard<'_, Mixer> {
         self.shared.mixer.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// Pushes received audio into an [`Engine`] from any thread.
+#[derive(Clone)]
+pub struct RemoteSink(Arc<Shared>);
+
+impl RemoteSink {
+    fn mixer(&self) -> std::sync::MutexGuard<'_, Mixer> {
+        self.0.mixer.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn push_pcm(&self, stream: &str, pcm: &[f32]) {
+        self.mixer().push_pcm(stream, pcm);
+    }
+
+    pub fn remove(&self, stream: &str) {
+        self.mixer().remove(stream);
+    }
+
+    pub fn remove_group(&self, prefix: &str) {
+        self.mixer().remove_group(prefix);
     }
 }
 

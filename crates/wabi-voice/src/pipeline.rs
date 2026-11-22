@@ -127,6 +127,17 @@ impl CaptureChain {
         samples: &[f32],
         processor: &mut dyn Processor,
     ) -> Result<Vec<OutPage>, Error> {
+        self.push_tapped(samples, processor, &mut |_| {})
+    }
+
+    /// As [`push`](Self::push), and hands each processed 10 ms frame to `tap`:
+    /// the same microphone signal for a transport that does its own encoding.
+    pub fn push_tapped(
+        &mut self,
+        samples: &[f32],
+        processor: &mut dyn Processor,
+        tap: &mut dyn FnMut(&[f32]),
+    ) -> Result<Vec<OutPage>, Error> {
         let mut pages = Vec::new();
         if !self.headers_sent {
             pages.extend(self.header_pages());
@@ -140,6 +151,7 @@ impl CaptureChain {
             offset += FRAME;
             processor.process_capture(&mut frame);
             self.level = frame.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+            tap(&frame);
             self.processed.extend_from_slice(&frame);
         }
         self.unprocessed.drain(..offset);
@@ -247,6 +259,21 @@ impl RemoteStream {
         }
     }
 
+    /// Audio that arrives already decoded (a transport with its own codec).
+    fn push_pcm(&mut self, pcm: &[f32]) {
+        self.stats.decode_ok += 1;
+        if pcm.iter().any(|sample| sample.abs() > AUDIBLE) {
+            self.stats.audible_chunks += 1;
+            self.active = true;
+        }
+        self.queue.extend(pcm);
+        if self.queue.len() > MAX_BUFFER_SAMPLES {
+            let excess = self.queue.len() - MAX_BUFFER_SAMPLES;
+            self.queue.drain(..excess);
+            self.stats.dropped_overflow_samples += excess as u64;
+        }
+    }
+
     fn mix_into(&mut self, out: &mut [f32], gain: f32) {
         if !self.playing {
             if self.queue.len() < PREBUFFER_SAMPLES {
@@ -293,6 +320,11 @@ impl Mixer {
     /// microphone/screen).
     pub fn push(&mut self, stream: &str, bytes: &[u8]) {
         self.entry(stream).push(bytes);
+    }
+
+    /// Mono 48 kHz samples from one sender, already decoded.
+    pub fn push_pcm(&mut self, stream: &str, pcm: &[f32]) {
+        self.entry(stream).push_pcm(pcm);
     }
 
     fn entry(&mut self, stream: &str) -> &mut RemoteStream {
@@ -513,6 +545,22 @@ mod tests {
         assert!(block.iter().all(|sample| *sample == 0.0));
         mixer.remove_group("lo");
         assert_eq!(mixer.stats().len(), 1);
+    }
+
+    #[test]
+    fn the_tap_sees_the_processed_microphone_and_decoded_audio_can_be_mixed() {
+        let mut chain = CaptureChain::new(8).unwrap();
+        let mut tapped = Vec::new();
+        chain
+            .push_tapped(&tone(4800 + 100, 440.0, 0.3), &mut Passthrough, &mut |frame| tapped.extend_from_slice(frame))
+            .unwrap();
+        assert_eq!(tapped.len(), 4800, "whole 10 ms frames only");
+        let mut mixer = Mixer::new();
+        mixer.push_pcm("dave", &tapped);
+        let mut block = vec![0.0f32; 4800];
+        mixer.pull(&mut block);
+        assert!((0.25..0.35).contains(&amplitude_at(&block, 440.0)));
+        assert_eq!(mixer.stats()[0].1.audible_chunks, 1);
     }
 
     #[test]
