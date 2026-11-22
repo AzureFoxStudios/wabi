@@ -120,6 +120,8 @@ export interface WabidbMediaRelayDiagnostics {
   decodeOk: number;
   decodeFail: number;
   playedChunks: number;
+  /** Decoded chunks with a sample above 0.01: received audio that is not silence. */
+  audibleChunks: number;
   /** 2026-08-27 wire-level counters feeding CallDebugPanel on this transport. */
   sentBytes: number;
   recvBytes: number;
@@ -263,6 +265,7 @@ export class WabidbMediaRelay {
     decodeOk: 0,
     decodeFail: 0,
     playedChunks: 0,
+    audibleChunks: 0,
     sentBytes: 0,
     recvBytes: 0,
     lostPackets: 0,
@@ -601,7 +604,9 @@ export class WabidbMediaRelay {
         for (let i = 0; i < pcm.length; i++) pcm[i] += (channel[i] ?? 0) / buffers.length;
       }
       this.counters.decodeOk++;
-      if (!screen && pcm.some(sample => Math.abs(sample) > 0.01)) this.onRemoteAudioActivity?.(userId);
+      const audible = pcm.some(sample => Math.abs(sample) > 0.01);
+      if (audible) this.counters.audibleChunks++;
+      if (!screen && audible) this.onRemoteAudioActivity?.(userId);
       state.pcm.push(pcm);
       state.pendingSamples += pcm.length;
       const limit = (this.audioContext?.sampleRate ?? 48000) / 2;

@@ -53,6 +53,18 @@ export function getWabidbLaneDiagnostics(): WabidbVideoLaneDiagnostics | null {
 	return currentVideoSession()?.lane.diag ?? null;
 }
 
+/**
+ * Read-only counters for the native smoke checks, which drive the built app
+ * from outside and cannot import this module
+ * (scripts/desktop-voice-native-smoke.mjs). Registered when a relay connects.
+ */
+function exposeCallDiagnostics(): void {
+	(globalThis as any).__wabiCallDiagnostics ??= () => ({
+		relays: getWabidbRelayDiagnostics(),
+		video: getWabidbLaneDiagnostics()
+	});
+}
+
 export function formatWabidbLaneDiagnostics(d: WabidbVideoLaneDiagnostics | null): string {
 	if (!d) return '';
 	const none = { framesEncoded: 0, envelopesSent: 0, encodeErrors: 0 };
@@ -591,6 +603,7 @@ async function doConnectWabidbCall(
 			await relay.start(stream);
 			check();
 			relayTransmitTargets.set(relay, isDirectCall ? undefined : targetChannelId);
+			exposeCallDiagnostics();
 			wabidbMediaRelays.set(targetChannelId, relay);
 			ensureAudioGestureResume();
 			// Phase 3: also index by the graph/session id (direct:{peer} for

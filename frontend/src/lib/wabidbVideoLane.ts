@@ -1113,7 +1113,9 @@ export class WabidbVideoLane {
     }
     if (needConfig) {
       try {
-        decoder.configure({ codec: frame.codec, width: frame.width || 640, height: frame.height || 360 });
+        // VideoDecoderConfig names these codedWidth/codedHeight. Chromium decodes VP8
+        // without them; WebKitGTK reports "Decode error" on every frame.
+        decoder.configure({ codec: frame.codec, codedWidth: frame.width || 640, codedHeight: frame.height || 360 });
         this.decoderConfigured.set(streamKey, true);
       } catch (e) {
         this.onError?.(e instanceof Error ? e : new Error(String(e)));
