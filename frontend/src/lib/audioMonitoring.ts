@@ -14,6 +14,7 @@ import {
 	type SpeakingMonitor,
 	type AudioAnalyzer
 } from './callingTypes';
+import { retireStreamSource } from './streamSourceRetire';
 
 const remoteSpeakingMonitors = new Map<string, SpeakingMonitor>();
 let localSpeakingMonitor: SpeakingMonitor | null = null;
@@ -48,7 +49,7 @@ export function stopRemoteSpeakingMonitor(userId: string): void {
 	if (!monitor) return;
 	clearInterval(monitor.intervalId);
 	try {
-		monitor.source.disconnect();
+		retireStreamSource(monitor.source);
 		monitor.analyser.disconnect();
 	} catch {
 		// no-op
@@ -109,7 +110,7 @@ export function stopLocalSpeakingMonitor(): void {
 	}
 	clearInterval(localSpeakingMonitor.intervalId);
 	try {
-		localSpeakingMonitor.source.disconnect();
+		retireStreamSource(localSpeakingMonitor.source);
 		localSpeakingMonitor.analyser.disconnect();
 	} catch {
 		// no-op
@@ -236,7 +237,7 @@ export function stopAudioMonitoring(userId: string): void {
 	const analyzerState = audioAnalyzers.get(userId);
 	if (!analyzerState) return;
 
-	analyzerState.source.disconnect();
+	retireStreamSource(analyzerState.source);
 	analyzerState.analyser.disconnect();
 	audioAnalyzers.delete(userId);
 }
