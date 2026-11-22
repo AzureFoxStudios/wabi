@@ -1,0 +1,17 @@
+[package]
+name = "wabi-voice"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.93"
+description = "Native voice engine for the Wabi desktop shell: capture, processing, Opus and playback outside the webview."
+
+[dependencies]
+sonora = "0.3"
+opus = "0.4"
+pulseaudio = "0.3"
+log = "0.4"
+futures = { version = "0.3", default-features = false, features = ["executor", "std"] }
+
+[dev-dependencies]
+ogg = "0.9"
