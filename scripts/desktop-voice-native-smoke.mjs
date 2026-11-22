@@ -22,8 +22,9 @@
 // WABI_SMOKE_GPU_RENDERER=1 leaves WebKit's default (DMABUF) renderer on; the
 // default here is WEBKIT_DISABLE_DMABUF_RENDERER=1, as in the host smoke.
 //
-// WABI_SMOKE_CHECKPOINT=/path/to/command runs `command <driver pid> <label> <evidence dir>`
-// after the app has settled at "entry", "workspace", "call" and "video", for
+// WABI_SMOKE_CHECKPOINT=/path/to/command runs `command <driver pid> <label>`
+// after the app has settled at "entry", "workspace", "call", "call-late" (75 s
+// further into the call) and "video", for
 // memory measurements of the app's process tree.
 //
 // Limits: WebKit's automation mode grants microphone permission itself, so
@@ -34,7 +35,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, networkInterfaces } from 'node:os';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
@@ -115,13 +116,7 @@ async function click(label) {
 async function checkpoint(label) {
   if (!process.env.WABI_SMOKE_CHECKPOINT) return;
   await sleep(Number(process.env.WABI_SMOKE_SETTLE_MS || 15000));
-  // What the page has loaded so far, to set beside the memory figure.
-  const loaded = await execute(`const entries = performance.getEntriesByType('resource');
-    const scripts = entries.filter(entry => /\\.js(\\?|$)/.test(entry.name));
-    return { resources: entries.length, scripts: scripts.length, scriptBytes: scripts.reduce((sum, entry) => sum + (entry.decodedBodySize || 0), 0),
-      domNodes: document.getElementsByTagName('*').length }`);
-  await writeFile(join(scratch, `loaded-${label}.json`), JSON.stringify(loaded));
-  execFileSync(process.env.WABI_SMOKE_CHECKPOINT, [String(driver.pid), label, scratch], { stdio: 'inherit' });
+  execFileSync(process.env.WABI_SMOKE_CHECKPOINT, [String(driver.pid), label], { stdio: 'inherit' });
 }
 
 // Page-side helpers shared by both clients, passed as source text.
@@ -255,6 +250,7 @@ try {
 
   console.log(JSON.stringify({ desktopAudio, chromiumAudio }));
   await checkpoint('call');
+  if (process.env.WABI_SMOKE_CHECKPOINT) { await sleep(60000); await checkpoint('call-late'); }
 
   let video = null;
   if (withVideo) {
@@ -309,6 +305,7 @@ try {
   }
   if (driver && driver.exitCode === null) { const exited = once(driver, 'exit'); driver.kill(); await exited; }
   tonePlayer?.kill();
+  await rm(join(scratch, 'tone.wav'), { force: true }); // ~58 MB
   loopback?.kill();
   bus?.kill();
   const defaultSourceAfter = pactl('get-default-source');

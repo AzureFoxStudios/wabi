@@ -20,7 +20,7 @@ The report was "the Linux desktop app cannot find a camera or microphone". The c
 Agreed order (Ronin, 2026-11-20):
 
 1. Make the existing web calling path work in the Linux desktop app, provided it costs no memory at idle. **This branch.**
-2. Profile where the desktop app's memory goes. The target is "about as light as Discord, measured the same way"; ~300 MB was the figure mentioned.
+2. Profile where the desktop app's memory goes. The target is "about as light as Discord, measured the same way"; ~300 MB was the figure mentioned. **Done 2026-11-21; see Memory.**
 3. Native voice engine in Rust, designed with the result of step 2.
 
 A Chromium-based runtime (CEF) was considered and dropped: it would give WebRTC and in-engine audio processing, but it is heavier than the current webview and only exists as a Tauri v3 alpha (source).
@@ -64,22 +64,39 @@ Verification on the test machine:
 - Entry-screen memory, release builds, same method: 415.2 MB before, 415.3 MB after.
 - Live KDE Wayland session, release build, no environment flags: runs for the 60 s tested with the workaround; dies in 1 s with `WABI_NO_GPU_WORKAROUNDS=1`; leaves `WEBKIT_DISABLE_DMABUF_RENDERER=1` alone when the launcher sets it.
 - Shell unit tests 60/60. Frontend `bun run check` and `check:i18n` pass. `bun test`: 126 failures before and after, none new (they fail on `origin/main` in this checkout).
-- Not exercised in the app: the WebGL guard (needs a video call) and everything under "Not verified" below.
+- 2026-11-21, `scripts/desktop-voice-native-smoke.mjs` (release build, staged Authority built from this branch, headless): the desktop app and a Chromium client in one voice channel; each decoded and rendered non-silent audio from the other with no decode failures (desktop microphone was a virtual PipeWire source carrying a tone; `RTCPeerConnection` undefined on the desktop). With `WABI_SMOKE_VIDEO=1` the desktop decoded the Chromium client's relay camera, in both renderer modes; with DMABUF off this exercises the WebGL guard in the real app.
+- Everything under "Not verified" below remains unexercised.
 
-## Memory
+Found by that smoke:
 
-Proportional set size of the whole process tree, test machine, headless, NVIDIA GL (which inflates these figures).
+- **Relay video from other clients never decoded on the Linux desktop.** The lane configured `VideoDecoder` with `width`/`height`, which are not `VideoDecoderConfig` members. Chromium decodes VP8 without dimensions; WebKitGTK reports "Decode error" on every frame until `codedWidth`/`codedHeight` are given (measured in the app: the same Chromium keyframe decodes with them and fails without). Fixed on this branch.
+- **Startup can wait indefinitely on the keyring.** With the KDE wallet locked the app stayed at "Checking your session" and made no request to its server; on a private bus with no secret service it proceeded at once. Inferred from those two runs, not traced to the blocking call. `nativeAuthPersistence.ts` awaits `secure_auth_get` with no timeout.
+- **A plain-HTTP LAN invitation cannot use voice in a browser.** `http://192.168.x.x` is not a secure context, so the browser hides the microphone API; the client says so. The smoke passes Chromium a flag to treat that origin as secure.
 
-| What | Memory |
-|---|---|
-| Blank page in WebKitGTK (harness) | ~230 MB |
-| Wabi desktop, entry screen, not logged in (app, `origin/main`) | ~415 MB |
-| Voice call on the web path, 1 sending and 3 receiving (harness) | +77 MB, flat over 30 s |
-| Voice plus video, 1 sending 640×360 VP8 and 2 receiving (harness) | +320 MB |
-| After the call ended (harness) | ~+90 MB retained |
-| One WebGL context (harness) | +8 MB |
+## Memory (step 2, measured 2026-11-21)
 
-The webview is ~230 MB before Wabi loads anything, and Wabi's UI adds ~185 MB before login. A native voice engine removes the in-call cost; it cannot bring the app near 300 MB without also shrinking or replacing the webview UI. That is what step 2 is for.
+Proportional set size (PSS) from `/proc/<pid>/smaps` for the app's whole process tree, split by process and mapping with `scripts/linux-webview-media-probe/smaps_profile.py`. Release builds, test machine, one sample each unless noted. "Headless" is a 1280×720 `cage` output; "live" is the KDE Wayland session at the app's default window size. "GPU" is WebKit's default DMABUF renderer; "no DMABUF" is `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which the test machine's launcher sets. The bundled Authority (40–55 MB when the app hosts a community) is left out of every figure.
+
+| State | Headless, GPU | Headless, no DMABUF | Live, GPU | Live, no DMABUF |
+|---|---|---|---|---|
+| Hello-world Tauri app (same tauri, wry and WebKitGTK) | 312 MB | 164 MB | 327 MB | 172 MB |
+| Wabi, entry screen, not logged in | 433–438 MB | 309–324 MB | 439 MB | 480 MB |
+| Wabi, logged in, new empty community | 534 MB | 410–414 MB | not measured | not measured |
+| + voice call, one other participant, ~45 s in | 686 MB | 526–528 MB | | |
+| + the same call ~75 s later | not measured | 567 MB | | |
+| + receiving one 640×360 VP8 camera | 852 MB | 708 MB | | |
+
+What the split shows:
+
+- **A webview costs 164–327 MB before Wabi loads anything.** The hello-world host process alone is 128 MB with the GPU renderer (49 MB heap, 20 MB anonymous, NVIDIA and GL libraries) and 72 MB without.
+- **The renderer mode is not a dependable saving.** Without DMABUF the page is rasterised on the CPU and the cost follows the window's pixel count: it saved ~125 MB at 1280×720 headless and cost ~40 MB more than the GPU path on the live session. The WebCodecs abort that used to rule this mode out is covered by the WebGL guard, so the choice is memory against GPU compositing, per machine.
+- **Wabi's own share at the entry screen is ~120 MB** (GPU, headless): ~90 MB in the web process (anonymous memory 123 MB against 63 MB for hello-world, plus more of the WebKit and JavaScriptCore libraries paged in) and ~27 MB in the host (the 61 MB binary, of which ~19 MB is resident; the frontend build is 27 MB before compression). Logging in to an empty community adds ~95 MB more, nearly all anonymous memory in the web process.
+- **A voice call on the web path adds ~115–150 MB and was still growing**: +116 MB about 45 s in and +157 MB about 75 s later (two samples of one call; whether it levels off was not measured). The 2026-11-20 harness figure of +77 MB was a bare page with the codec pieces, not the app. Receiving one camera adds ~165–180 MB.
+- **The Rust host is not where the weight is.** Wabi's host process is 27 MB above hello-world's at the entry screen and does not grow in a call.
+
+What this means for the target of "about as light as Discord (~300 MB)": on this machine an empty Tauri window is already 164–327 MB, so a logged-in Wabi cannot reach 300 MB in this webview with the GPU renderer, whatever is done to the UI. Reaching it needs both a lighter UI (roughly 215 MB of Wabi-attributable memory when logged in) and a rendering path that stays cheap at real window sizes, or a UI that is not a webview. A native voice engine removes the in-call growth only. Discord was not installed, so there is no like-for-like figure for it.
+
+Not measured: a populated community (history, members, images), long sessions, other GPUs and drivers, heap attribution inside the web process (no heap profiler is installed; the split above is by mapping type).
 
 ## Call paths without peer connections (read from code, not run)
 
@@ -89,9 +106,10 @@ The webview is ~230 MB before Wabi loads anything, and Wabi's UI adds ~185 MB be
 
 ## Not verified
 
-- A real call: the app, a server and a second client. This is the acceptance check for step 1. It can be automated: `scripts/desktop-host-native-smoke.mjs` already starts an Authority and admits a second Chromium client, and WebDriver granting media permission is harmless for the call path.
+- A real call between two machines. The automated check above runs both clients on one machine.
 - Real voice (no microphone was attached) and audible playback.
 - Camera capture and screen-share frames end to end; both need a person at the desktop's prompts.
+- The permission handler on a release build (the self-test is debug-only; the handler code is the same).
 - Any other distro, GPU or driver; X11 sessions; the AppImage at runtime.
 - Servers configured for LiveKit: a client without peer connections falls through to the relay, which may leave it in a different media plane from LiveKit participants.
 - Whether P2P file transfer has a non-P2P fallback worth offering here.
@@ -107,9 +125,18 @@ frontend/node_modules/.bin/tauri build --debug --no-bundle
 WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 cage -- dbus-run-session -- \
   node scripts/desktop-media-native-smoke.mjs "$PWD/src-tauri/target/debug/wabi-desktop"
 
+# Two-client voice call, with relay video. Build the Authority from the same
+# source first so the browser client reports its counters:
+(cd frontend && STATIC_BUILD=1 bun run build) && cargo build --release -p wabi-server
+node scripts/stage-desktop-host.mjs --target x86_64-unknown-linux-gnu --binary target/release/wabi-server --overwrite
+frontend/node_modules/.bin/tauri build --no-bundle
+WABI_SMOKE_VIDEO=1 WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 cage -- \
+  node scripts/desktop-voice-native-smoke.mjs "$PWD/src-tauri/target/release/wabi-desktop"
+# Memory at each stage: WABI_SMOKE_CHECKPOINT=<script calling smaps_profile.py "$1" "$2" out.json>
+
 # Engine capability table, relay audio path, memory:
 WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 cage -- \
   python3 scripts/linux-webview-media-probe/probe.py --origin tauri --csp --permissions allow --mode matrix --out /tmp/matrix.json
 ```
 
-Do not run camera or screen-share probes with nobody at the machine: an unanswered camera prompt is stored as a refusal (`flatpak permissions devices` shows it).
+Do not run camera or screen-share probes with nobody at the machine: an unanswered camera prompt is stored as a refusal (`flatpak permissions devices` shows it). Run app-driving checks on a private session bus (the voice smoke does this itself): on the real one they can raise wallet prompts and store throwaway tokens in the person's keyring.
