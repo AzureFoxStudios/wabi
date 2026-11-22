@@ -278,6 +278,16 @@ impl Engine {
         self.mixer().remove(stream);
     }
 
+    /// Drops every stream whose key starts with `prefix` (a call ended).
+    pub fn remove_remote_group(&self, prefix: &str) {
+        self.mixer().remove_group(prefix);
+    }
+
+    /// Volume for present and future streams whose key starts with `prefix`.
+    pub fn set_remote_group_volume(&self, prefix: &str, volume: f32) {
+        self.mixer().set_group_volume(prefix, volume);
+    }
+
     pub fn clear_remotes(&self) {
         self.mixer().clear();
     }

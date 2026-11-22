@@ -14,6 +14,15 @@ pub fn run() {
         .manage(hosting::HostState::default())
         .manage(lore_local::LocalWorkspaceState::default())
         .manage(lore_local::detection::LocalDetectionState::default())
+        .manage(voice::VoiceState::default())
+        // A document starting to load means the previous page is gone and
+        // cannot stop its own microphone.
+        .on_page_load(|webview, payload| {
+            use tauri::Manager;
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                webview.state::<voice::VoiceState>().shutdown("the page is loading a new document");
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init());
 
@@ -93,7 +102,18 @@ pub fn run() {
             lore_local::lore_local_publish,
             lore_local::lore_local_pull,
             lore_local::detection::lore_local_watch_poll,
-            lore_local::detection::lore_local_watch_stop
+            lore_local::detection::lore_local_watch_stop,
+            voice::voice_capabilities,
+            voice::voice_devices,
+            voice::voice_capture_start,
+            voice::voice_capture_stop,
+            voice::voice_playback_start,
+            voice::voice_push,
+            voice::voice_remove_group,
+            voice::voice_set_group_volume,
+            voice::voice_set_deafened,
+            voice::voice_poll,
+            voice::voice_shutdown
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -151,4 +171,5 @@ mod viewer;
 mod hosting;
 mod personal_planner;
 
+mod voice;
 mod workspace_export;

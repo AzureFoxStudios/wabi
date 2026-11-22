@@ -11,13 +11,18 @@
 //   WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 cage -- \
 //     node scripts/desktop-voice-native-smoke.mjs /absolute/wabi-desktop
 //
-// The desktop side gets a temporary virtual PipeWire microphone carrying a
-// tone, selected through the app's own microphone preference; it is removed
+// The desktop side gets a temporary virtual PipeWire microphone carrying
+// bursts of noise, selected through the app's own microphone preference; it is removed
 // afterwards and the default devices are not changed. The app runs on a
 // private session bus with no secret service: on a real session the keyring
 // lookup can wait on a wallet unlock prompt, and it would store throwaway
 // tokens in the person's wallet. WABI_SMOKE_VIDEO=1 also turns on Chromium's
 // fake camera so the desktop decodes relay video.
+//
+// WABI_SMOKE_NATIVE_VOICE=1 runs the desktop on the shell's native voice engine
+// (WABI_NATIVE_VOICE=1) instead of the webview's audio path, and then checks
+// that the engine's microphone closes when the page reloads, or, with
+// WABI_SMOKE_HOT_MIC=watchdog, when the page merely stops polling.
 //
 // WABI_SMOKE_GPU_RENDERER=1 leaves WebKit's default (DMABUF) renderer on; the
 // default here is WEBKIT_DISABLE_DMABUF_RENDERER=1, as in the host smoke.
@@ -60,10 +65,18 @@ const videoSources = JSON.parse(execFileSync('pw-dump', { encoding: 'utf8', maxB
   .filter(node => node.info?.props?.['media.class'] === 'Video/Source');
 assert.equal(videoSources.length, 0, 'A PipeWire camera is present; run this by hand with someone at the desktop prompt');
 
-// 48 kHz mono 16-bit sine, 440 Hz at 0.3 of full scale.
-function toneWav(seconds) {
+// 48 kHz mono 16-bit: noise in syllable-length bursts. A steady tone would be
+// removed as noise by the native engine's noise suppression.
+function burstsWav(seconds) {
   const rate = 48000, samples = rate * seconds, data = Buffer.alloc(samples * 2);
-  for (let i = 0; i < samples; i++) data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 0.3 * 32767), i * 2);
+  let state = 0x2545f491, lowPass = 0;
+  for (let i = 0; i < samples; i++) {
+    state ^= state << 13; state ^= state >>> 17; state ^= state << 5; state >>>= 0;
+    lowPass += ((state / 0xffffffff) * 2 - 1 - lowPass) * 0.3;
+    const phase = (i % (rate * 0.4)) / (rate * 0.4); // 400 ms cycle, 250 ms of sound
+    const envelope = phase < 0.625 ? Math.sin(Math.PI * phase / 0.625) : 0;
+    data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, lowPass * envelope * 1.2)) * 32767), i * 2);
+  }
   const header = Buffer.alloc(44);
   header.write('RIFF', 0); header.writeUInt32LE(36 + data.length, 4); header.write('WAVEfmt ', 8);
   header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
@@ -77,6 +90,9 @@ const micLabel = `Wabi-smoke-tone-${process.pid}`;
 const defaultSourceBefore = pactl('get-default-source');
 const defaultSinkBefore = pactl('get-default-sink');
 let loopback;
+let outputSink;
+const nativeVoice = process.env.WABI_SMOKE_NATIVE_VOICE === '1';
+const sinkName = `wabi_smoke_out_${process.pid}`;
 let bus;
 const peerConsole = [];
 let tonePlayer;
@@ -119,6 +135,15 @@ async function checkpoint(label) {
   execFileSync(process.env.WABI_SMOKE_CHECKPOINT, [String(driver.pid), label], { stdio: 'inherit' });
 }
 
+// Whether the native engine holds a microphone stream open, as the audio server sees it.
+function engineMicrophoneOpen() {
+  // Only streams on this run's virtual microphone: another run or the person's
+  // own Wabi may have one open too.
+  const source = JSON.parse(pactl('-f', 'json', 'list', 'sources')).find(candidate => candidate.name === micName)?.index;
+  return JSON.parse(pactl('-f', 'json', 'list', 'source-outputs'))
+    .some(output => output.source === source && output.properties?.['media.name'] === 'Wabi microphone');
+}
+
 // Page-side helpers shared by both clients, passed as source text.
 const VOICE_ROOMS = `Array.from(document.querySelectorAll('.voice-section [data-channel-id]')).map(row => ({ id: row.dataset.channelId, name: row.querySelector('.channel-btn')?.textContent.trim() ?? '' }))`;
 const ROSTER = `Array.from(document.querySelectorAll('.voice-member-item')).map(item => ({ name: item.querySelector('.voice-member-name')?.textContent.trim() ?? '', speaking: item.classList.contains('speaking') }))`;
@@ -130,8 +155,12 @@ try {
   loopback = spawn('pw-loopback', ['--channels', '1',
     '--capture-props', `media.class=Audio/Sink node.name=${micName}_in node.description=${micLabel}-input`,
     '--playback-props', `media.class=Audio/Source node.name=${micName} node.description=${micLabel}`], { stdio: 'ignore' });
-  await waitFor(() => pactl('list', 'short', 'sources').includes(micName), 'virtual microphone', 10000);
-  await writeFile(join(scratch, 'tone.wav'), toneWav(600));
+  // The desktop app plays into a throwaway sink, not the person's speakers.
+  outputSink = spawn('pw-loopback', ['--channels', '1',
+    '--capture-props', `media.class=Audio/Sink node.name=${sinkName} node.description=${micLabel}-output`,
+    '--playback-props', `media.class=Audio/Source node.name=${sinkName}_tap`], { stdio: 'ignore' });
+  await waitFor(() => pactl('list', 'short', 'sources').includes(micName) && pactl('list', 'short', 'sinks').includes(sinkName), 'virtual microphone and output', 10000);
+  await writeFile(join(scratch, 'tone.wav'), burstsWav(600));
   tonePlayer = spawn('pw-cat', ['--playback', '--target', `${micName}_in`, join(scratch, 'tone.wav')], { stdio: 'ignore' });
 
   await writeFile(join(scratch, 'bus.conf'), `<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
@@ -142,7 +171,8 @@ try {
 
   driver = spawn(process.env.WABI_WEBKIT_DRIVER || 'WebKitWebDriver', [`--port=${port}`, '--host=127.0.0.1'], {
     env: { ...process.env, DBUS_SESSION_BUS_ADDRESS: String(busAddress).trim(), XDG_DATA_HOME: join(scratch, 'data'), XDG_CONFIG_HOME: join(scratch, 'config'), XDG_CACHE_HOME: join(scratch, 'cache'),
-      TAURI_WEBVIEW_AUTOMATION: 'true', WABI_SKIP_VIEWER_TEST: '1',
+      TAURI_WEBVIEW_AUTOMATION: 'true', WABI_SKIP_VIEWER_TEST: '1', PULSE_SINK: sinkName,
+      ...(nativeVoice ? { WABI_NATIVE_VOICE: '1', WABI_VOICE_SOURCE: micName, WABI_VOICE_SINK: sinkName } : {}),
       ...(process.env.WABI_SMOKE_GPU_RENDERER === '1' ? {} : { WEBKIT_DISABLE_DMABUF_RENDERER: '1' }) },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -231,11 +261,12 @@ try {
   // Each side must decode and render non-silent audio from the other within 30 seconds.
   const DIAGNOSTICS = `(typeof __wabiCallDiagnostics === 'function' ? __wabiCallDiagnostics() : null)`;
   const audio = diagnostics => {
-    const total = { sent: 0, received: 0, decoded: 0, decodeFailed: 0, audible: 0, played: 0, context: null };
+    const total = { sent: 0, received: 0, decoded: 0, decodeFailed: 0, audible: 0, played: 0, context: null, nativeEngine: false };
     for (const relay of diagnostics?.relays ?? []) {
       total.sent += relay.sentEnvelopes ?? 0; total.received += relay.recvEnvelopes ?? 0; total.decoded += relay.decodeOk ?? 0;
       total.decodeFailed += relay.decodeFail ?? 0; total.audible += relay.audibleChunks ?? 0; total.played += relay.playedChunks ?? 0;
       total.context ??= relay.audioContextState ?? null;
+      total.nativeEngine ||= relay.nativeEngine === true;
     }
     return total;
   };
@@ -250,7 +281,13 @@ try {
 
   console.log(JSON.stringify({ desktopAudio, chromiumAudio }));
   await checkpoint('call');
-  if (process.env.WABI_SMOKE_CHECKPOINT) { await sleep(60000); await checkpoint('call-late'); }
+  if (process.env.WABI_SMOKE_CHECKPOINT) {
+    // Later samples of the same call, 75 s apart, to tell a plateau from growth.
+    for (let sample = 1; sample <= Number(process.env.WABI_SMOKE_LATE_SAMPLES || 1); sample++) {
+      await sleep(60000);
+      await checkpoint(sample === 1 ? 'call-late' : `call-late-${sample}`);
+    }
+  }
 
   let video = null;
   if (withVideo) {
@@ -271,17 +308,33 @@ try {
   const state = await execute(`return { roster: ${ROSTER}, peerConnection: typeof RTCPeerConnection, userAgent: navigator.userAgent, video: ${DIAGNOSTICS}?.video ?? null }`);
   await writeFile(join(scratch, 'chromium-console.log'), peerConsole.join('\n'));
   await page.screenshot({ path: join(scratch, 'chromium.png') });
+  let hotMic = null;
+  if (nativeVoice) {
+    // The engine's microphone must close without the page's help.
+    assert.ok(engineMicrophoneOpen(), 'the engine microphone is not open during the call');
+    if (process.env.WABI_SMOKE_HOT_MIC === 'watchdog') {
+      // The page stops polling (as if its script had hung) but stays loaded.
+      await execute('for (let id = 1; id < 200000; id++) clearInterval(id);');
+      hotMic = 'closed within 10 s of the page going silent';
+    } else {
+      await request('POST', `/session/${session}/refresh`, {});
+      hotMic = 'closed within 10 s of the page reloading';
+    }
+    await waitFor(() => !engineMicrophoneOpen(), `engine microphone ${hotMic}`, 10000);
+  }
+
   const passed = hears(desktopAudio) && hears(chromiumAudio) && desktopAudio.decodeFailed === 0 && chromiumAudio.decodeFailed === 0;
-  const report = { passed, binary, room, desktopAudio, chromiumAudio, video, desktop: state,
+  const report = { passed, binary, room, desktopAudio, chromiumAudio, video, hotMic, desktop: state,
     limits: ['WebKit automation grants microphone permission itself', 'Both clients on one machine',
-      'Desktop microphone is a virtual PipeWire source carrying a 440 Hz tone; Chromium sends its fake-device beep',
+      'Desktop microphone is a virtual PipeWire source carrying noise bursts; Chromium sends its fake-device beep',
       'Counters prove non-silent audio was decoded and rendered on the far side, not how it sounds'] };
   await writeFile(join(scratch, 'report.json'), JSON.stringify(report, null, 2));
+  assert.equal(desktopAudio.nativeEngine, nativeVoice, nativeVoice ? 'the desktop did not use the native voice engine' : 'the desktop used the native voice engine unasked');
   assert.equal(state.peerConnection, 'undefined', 'expected the desktop webview to have no RTCPeerConnection (relay-only path)');
   assert.ok(hears(desktopAudio), 'desktop did not decode and render non-silent audio from the Chromium client');
   assert.ok(hears(chromiumAudio), 'Chromium did not decode and render non-silent audio from the desktop client');
   assert.equal(desktopAudio.decodeFailed + chromiumAudio.decodeFailed, 0, 'audio decode failures');
-  console.log(`PASS voice channel "${room.name}": non-silent audio rendered in both directions${withVideo ? ', relay video decoded on the desktop' : ''}. Evidence: ${scratch}`);
+  console.log(`PASS voice channel "${room.name}": non-silent audio rendered in both directions${withVideo ? ', relay video decoded on the desktop' : ''}${hotMic ? `; engine microphone ${hotMic}` : ''}. Evidence: ${scratch}`);
 } catch (error) {
   if (session) {
     const state = await execute(`return {url:location.href,text:document.body.innerText,rooms:${VOICE_ROOMS},roster:${ROSTER}}`).catch(failure => ({ unreachable: String(failure) }));
@@ -307,6 +360,7 @@ try {
   tonePlayer?.kill();
   await rm(join(scratch, 'tone.wav'), { force: true }); // ~58 MB
   loopback?.kill();
+  outputSink?.kill();
   bus?.kill();
   const defaultSourceAfter = pactl('get-default-source');
   if (defaultSourceAfter !== defaultSourceBefore) console.error(`Default source changed from ${defaultSourceBefore} to ${defaultSourceAfter}`);

@@ -16,6 +16,8 @@
  * outside the browser, so unit tests can import this module freely.
  */
 
+import { setNativeOutputMuted, setNativeSessionVolume } from './nativeVoice';
+
 // Browser guard without $app/environment — this module is imported (via the
 // relay) from bun:test, which cannot resolve SvelteKit virtual modules.
 const isBrowserAudioAvailable = (): boolean =>
@@ -100,6 +102,7 @@ export async function resumeCallAudioGraph(): Promise<boolean> {
  * semantics; toggleDeafen handles the force-mute coupling instead).
  */
 export function setGraphOutputMuted(muted: boolean): void {
+	setNativeOutputMuted(muted); // the native engine plays outside this graph
 	if (!ctx || !master) return;
 	const target = muted ? 0 : 1;
 	try {
@@ -171,6 +174,7 @@ export function attachSessionSource(sessionId: string, node: AudioNode): boolean
 
 /** 0..100 session volume → gain. */
 export function setSessionVolume(sessionId: string, volume: number): void {
+	setNativeSessionVolume(sessionId, volume);
 	const chain = chains.get(sessionId);
 	if (!chain) return;
 	const clamped = Math.max(0, Math.min(100, volume));

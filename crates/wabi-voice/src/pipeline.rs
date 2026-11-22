@@ -187,6 +187,8 @@ struct RemoteStream {
     queue: VecDeque<f32>,
     playing: bool,
     volume: f32,
+    /// Volume of the group (call) this stream belongs to.
+    group_volume: f32,
     stats: StreamStats,
     /// Set when a packet was audible; cleared by `Mixer::take_activity`.
     active: bool,
@@ -200,6 +202,7 @@ impl RemoteStream {
             queue: VecDeque::new(),
             playing: false,
             volume: 1.0,
+            group_volume: 1.0,
             stats: StreamStats::default(),
             active: false,
         }
@@ -253,7 +256,7 @@ impl RemoteStream {
         }
         let available = self.queue.len().min(out.len());
         for (slot, sample) in out.iter_mut().zip(self.queue.drain(..available)) {
-            *slot += sample * self.volume * gain;
+            *slot += sample * self.volume * self.group_volume * gain;
         }
         self.stats.played_samples += available as u64;
         if available < out.len() {
@@ -265,6 +268,8 @@ impl RemoteStream {
 /// Relay pages from any number of senders to one mono speaker signal.
 pub struct Mixer {
     streams: HashMap<String, RemoteStream>,
+    /// Volume per key prefix. One call's streams share a prefix.
+    group_volumes: Vec<(String, f32)>,
     deafened: bool,
 }
 
@@ -278,6 +283,7 @@ impl Mixer {
     pub fn new() -> Self {
         Self {
             streams: HashMap::new(),
+            group_volumes: Vec::new(),
             deafened: false,
         }
     }
@@ -286,10 +292,38 @@ impl Mixer {
     /// and source (the browser client keys by account, socket and
     /// microphone/screen).
     pub fn push(&mut self, stream: &str, bytes: &[u8]) {
-        self.streams
-            .entry(stream.to_owned())
-            .or_insert_with(RemoteStream::new)
-            .push(bytes);
+        self.entry(stream).push(bytes);
+    }
+
+    fn entry(&mut self, stream: &str) -> &mut RemoteStream {
+        let group_volumes = &self.group_volumes;
+        self.streams.entry(stream.to_owned()).or_insert_with(|| {
+            let mut created = RemoteStream::new();
+            if let Some((_, volume)) = group_volumes.iter().find(|(prefix, _)| stream.starts_with(prefix.as_str())) {
+                created.group_volume = *volume;
+            }
+            created
+        })
+    }
+
+    /// Drops every stream whose key starts with `prefix`, and that prefix's
+    /// volume: a call ended.
+    pub fn remove_group(&mut self, prefix: &str) {
+        self.streams.retain(|key, _| !key.starts_with(prefix));
+        self.group_volumes.retain(|(known, _)| known != prefix);
+    }
+
+    /// Volume for every present and future stream whose key starts with
+    /// `prefix`. 1.0 is unchanged; clamped to 0..=4.
+    pub fn set_group_volume(&mut self, prefix: &str, volume: f32) {
+        let volume = volume.clamp(0.0, 4.0);
+        self.group_volumes.retain(|(known, _)| known != prefix);
+        self.group_volumes.push((prefix.to_owned(), volume));
+        for (key, stream) in self.streams.iter_mut() {
+            if key.starts_with(prefix) {
+                stream.group_volume = volume;
+            }
+        }
     }
 
     pub fn remove(&mut self, stream: &str) {
@@ -298,14 +332,12 @@ impl Mixer {
 
     pub fn clear(&mut self) {
         self.streams.clear();
+        self.group_volumes.clear();
     }
 
     /// 1.0 is unchanged; values are clamped to 0..=4.
     pub fn set_volume(&mut self, stream: &str, volume: f32) {
-        self.streams
-            .entry(stream.to_owned())
-            .or_insert_with(RemoteStream::new)
-            .volume = volume.clamp(0.0, 4.0);
+        self.entry(stream).volume = volume.clamp(0.0, 4.0);
     }
 
     /// While deafened, streams keep decoding and draining so that undeafening
@@ -460,21 +492,27 @@ mod tests {
         let mut mixer = Mixer::new();
         for (name, frequency) in [("low", 300.0), ("high", 2000.0)] {
             let mut chain = CaptureChain::new(5).unwrap();
-            for page in chain.push(&tone(SAMPLE_RATE as usize, frequency, 0.2), &mut Passthrough).unwrap() {
+            for page in chain.push(&tone(SAMPLE_RATE as usize * 2, frequency, 0.2), &mut Passthrough).unwrap() {
                 mixer.push(name, &page.bytes);
             }
         }
         mixer.set_volume("high", 0.5);
-        let mut block = vec![0.0f32; 9600];
+        let mut block = vec![0.0f32; 4800];
         mixer.pull(&mut block); // settle the decoder
         mixer.pull(&mut block);
         let low = amplitude_at(&block, 300.0);
         let high = amplitude_at(&block, 2000.0);
         assert!((0.15..0.25).contains(&low), "low {low}");
         assert!((0.07..0.13).contains(&high), "high at half volume {high}");
+        mixer.set_group_volume("lo", 0.5); // "low" belongs to group "lo"
+        mixer.pull(&mut block);
+        let halved = amplitude_at(&block, 300.0);
+        assert!((0.07..0.13).contains(&halved), "low at half group volume {halved}");
         mixer.set_deafened(true);
         mixer.pull(&mut block);
         assert!(block.iter().all(|sample| *sample == 0.0));
+        mixer.remove_group("lo");
+        assert_eq!(mixer.stats().len(), 1);
     }
 
     #[test]

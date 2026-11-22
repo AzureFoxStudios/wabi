@@ -50,6 +50,8 @@ zbus-secret-service-keyring-store = { version = "=1.0.1", features = ["crypto-ru
 # Same crate and version tauri/wry already resolve; needed to answer WebKitGTK's
 # capture-device permission requests (src/linux_media.rs).
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+# Native voice engine: capture, processing, Opus and playback outside the webview.
+wabi-voice = { path = "../crates/wabi-voice" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
