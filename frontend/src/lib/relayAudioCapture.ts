@@ -83,9 +83,11 @@ export class RelayAudioCapture {
 	}
 
 	private close(capture: Capture): void {
-		retireStreamSource(capture.source);
 		// Live calls discard final pages on mute/leave; flushing via stop()
 		// would retain a worker waiter and emit buffered speech after mute.
 		try { void capture.recorder.close().catch(() => {}); } catch { /* partially initialized */ }
+		// After the recorder: its close() disconnects the source itself, which
+		// would undo the parking that keeps WebKitGTK from queueing its audio.
+		retireStreamSource(capture.source);
 	}
 }
