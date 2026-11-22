@@ -39,7 +39,7 @@ export class RelayAudioCapture {
 				encoderPath: new URL('opus-recorder/dist/encoderWorker.min.js', import.meta.url).href
 			});
 		} catch (error) {
-			source.disconnect();
+			retireStreamSource(source);
 			throw error;
 		}
 		let cancel!: () => void;
