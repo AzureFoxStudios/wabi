@@ -1,4 +1,5 @@
 import OpusRecorder from 'opus-recorder';
+import { retireStreamSource } from './streamSourceRetire';
 
 type RecorderFactory = (config: ConstructorParameters<typeof OpusRecorder>[0]) => OpusRecorder;
 interface Capture {
@@ -82,7 +83,7 @@ export class RelayAudioCapture {
 	}
 
 	private close(capture: Capture): void {
-		try { capture.source.disconnect(); } catch { /* already detached */ }
+		retireStreamSource(capture.source);
 		// Live calls discard final pages on mute/leave; flushing via stop()
 		// would retain a worker waiter and emit buffered speech after mute.
 		try { void capture.recorder.close().catch(() => {}); } catch { /* partially initialized */ }

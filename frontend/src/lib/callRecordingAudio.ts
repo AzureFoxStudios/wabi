@@ -5,6 +5,7 @@
 
 import { doesCallMuteAffectLocalRecording } from './mediaRuntime';
 import type { CallRecordingSnapshot, RecordingAudioInput } from './callRecordingTypes';
+import { retireStreamSource } from './streamSourceRetire';
 
 export type RecordingAudioInputResolver = (snapshot: CallRecordingSnapshot, respectLocalMute: boolean) => RecordingAudioInput[];
 
@@ -66,7 +67,7 @@ export class RecordingAudioMixer {
 		for (const [sourceId, entry] of this.sourceNodes.entries()) {
 			const next = desired.get(sourceId);
 			if (!next) {
-				entry.source.disconnect();
+				retireStreamSource(entry.source);
 				entry.gain.disconnect();
 				this.sourceNodes.delete(sourceId);
 				continue;
