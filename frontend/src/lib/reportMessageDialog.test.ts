@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { inEnglish } from './i18n/sourceEnglish';
 
 // Report message (design contract §7.13 dialog, §9 truth words, golden rule 14). Read as text: a
 // regression that brings back the private blurred backdrop, raw colours or the server's raw error
 // on screen fails here. Styles are compared with comments removed by a loop that repeats one
 // pattern until nothing changes (never a single-pass replace).
-const source = readFileSync(new URL('./components/ReportMessageDialog.svelte', import.meta.url), 'utf8');
+const source = inEnglish(readFileSync(new URL('./components/ReportMessageDialog.svelte', import.meta.url), 'utf8'));
 const stripComments = (text: string) => {
 	let previous = '';
 	let current = text;

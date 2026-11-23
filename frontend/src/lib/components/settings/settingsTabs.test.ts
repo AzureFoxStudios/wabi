@@ -9,8 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { CONNECTION_DETAILS_KEY, readConnectionDetailsPreference, shouldMirrorConnectionDetails, writeConnectionDetailsPreference } from './connectionDetailsSetting';
 import { OFFICE_ADDON_ROWS, RETIRED_LOCAL_ADDON_CONTROLS, officeAddonState } from './officeAddonsSetting';
 import { LOCAL_ADDON_CONTROL_META } from './addonSettingsRegistry';
+import { inEnglish } from '../../i18n/sourceEnglish';
 
-const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
+const read = (path: string) => inEnglish(readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8'));
 
 const tabs = {
 	profile: read('./ProfileSettingsTab.svelte'),

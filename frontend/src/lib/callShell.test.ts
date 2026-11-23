@@ -20,9 +20,10 @@ import {
 	type DockMenuState
 } from './callShell';
 import { isIconName } from './components/ui/icons';
+import { inEnglish } from './i18n/sourceEnglish';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const read = (path: string) => readFileSync(join(here, path), 'utf8');
+const read = (path: string) => inEnglish(readFileSync(join(here, path), 'utf8'));
 
 const noop = () => {};
 const actions = {

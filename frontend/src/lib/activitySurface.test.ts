@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { inEnglish } from './i18n/sourceEnglish';
 
 // Activity and Following (design contract §8.11, §7.16; critique mobile#8). Sources are read as
 // text: a regression that brings back the second header band, boxed cards, a bar for unread, the
 // duplicated Friends panel or legacy colours fails here. Styles are compared with comments
 // removed by a loop that repeats one pattern until nothing changes (never a single-pass replace).
-const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const read = (path: string) => inEnglish(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const stripComments = (source: string) => {
 	let previous = '';
 	let current = source;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { inEnglish } from './i18n/sourceEnglish';
 
 // Contract: design spec §8.7 (forum list, article, votes, replies, reply dock, new thread), §2
 // (rules not boxes, ink primary, words over glyphs, nothing moves under the pointer), §4.6
@@ -7,7 +8,7 @@ import { readFileSync } from 'node:fs';
 // Sources are read as text so a regression fails without a browser. Comments are removed by
 // scanning, never by a regex replace over styles or markup.
 
-const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const read = (path: string) => inEnglish(readFileSync(new URL(path, import.meta.url), 'utf8'));
 
 const forumCss = read('../styles/components/forum.css');
 const readingCss = read('../styles/surfaces/reading.css');
