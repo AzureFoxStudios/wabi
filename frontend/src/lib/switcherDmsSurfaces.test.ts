@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { inEnglish } from '../lib/i18n/sourceEnglish';
 
 // Server switcher, server rail, DMs hub and DM conversations (design contract §8.1, §8.10, §9.2).
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -62,7 +63,7 @@ describe('switcher and rail stylesheets are on roles', () => {
 	test('the switcher head ends on the shared 96px masthead rule; the one-account line sits under it', () => {
 		const css = withoutComments(read('../styles/components/server-switcher.css'));
 		expect(css).toMatch(/\.server-switcher \.switcher-head\s*\{[^}]*min-height: var\(--w-mast, 96px\);[^}]*padding: 4px 12px 0 20px;/);
-		const template = templateOf(read('../lib/components/ServerSwitcherPanel.svelte'));
+		const template = templateOf(inEnglish(read('../lib/components/ServerSwitcherPanel.svelte')));
 		const head = template.slice(template.indexOf('<header class="switcher-head">'), template.indexOf('</header>'));
 		expect(head).not.toContain('Each server keeps its own account.');
 		expect(head).not.toContain('<HostLink');
@@ -106,10 +107,11 @@ describe('switcher and rail stylesheets are on roles', () => {
 describe('server switcher', () => {
 	const panel = read('../lib/components/ServerSwitcherPanel.svelte');
 	const template = templateOf(panel);
+	const panelEn = inEnglish(panel), templateEn = templateOf(panelEn);
 
 	test('says what it is: saved servers, the current host without scheme, one account per server', () => {
-		expect(template).toContain('Saved servers');
-		expect(template).toContain('Each server keeps its own account.');
+		expect(templateEn).toContain('Saved servers');
+		expect(templateEn).toContain('Each server keeps its own account.');
 		expect(template).toContain('serverHostLabel(showcaseServer.url)');
 		expect(panel).not.toContain('#2dd4bf');
 	});
@@ -119,7 +121,7 @@ describe('server switcher', () => {
 		const remove = panel.slice(panel.indexOf('async function removeServer'), panel.indexOf('function rowMenuItems'));
 		expect(remove.indexOf('confirmAction')).toBeGreaterThan(-1);
 		expect(remove.indexOf('confirmAction')).toBeLessThan(remove.indexOf('removeSavedServer('));
-		expect(panel).toContain("label: 'Remove saved server', icon: 'trash', danger: true");
+		expect(panelEn).toContain("label: 'Remove saved server', icon: 'trash', danger: true");
 	});
 
 	test('"Add server" is a default kit button; Esc closes the desktop overlay', () => {
@@ -137,6 +139,7 @@ describe('server switcher', () => {
 describe('DMs hub', () => {
 	const hub = read('../lib/components/DmHub.svelte');
 	const template = templateOf(hub);
+	const templateEn = templateOf(inEnglish(hub));
 
 	test('is titled DMs with a Conversations | Friends segment and no Server home pseudo-tab', () => {
 		expect(template).toContain("$_('places.dms')");
@@ -148,15 +151,15 @@ describe('DMs hub', () => {
 	});
 
 	test('row B is the hub search and the New message primary', () => {
-		expect(template).toContain('placeholder="Search DMs"');
-		expect(template).toContain('class="w-btn w-btn--primary dm-hub-new-btn"');
-		expect(template).toContain('>New message</button>');
+		expect(templateEn).toContain('placeholder="Search DMs"');
+		expect(templateEn).toContain('class="w-btn w-btn--primary dm-hub-new-btn"');
+		expect(templateEn).toContain('>New message</button>');
 	});
 
 	test('one primary per view: the empty and no-match actions are default buttons', () => {
-		expect(template).not.toContain('action="Clear search"');
-		expect(template).toMatch(/<button type="button" class="w-btn" on:click=\{\(\) => \{ hubQuery = ''; searchInput\?\.focus\(\); \}\}>Clear search<\/button>/);
-		expect(template.match(/w-btn--primary/g)?.length).toBe(2); // the split "New message ▾": two halves of one control
+		expect(templateEn).not.toContain('action="Clear search"');
+		expect(templateEn).toMatch(/<button type="button" class="w-btn" on:click=\{\(\) => \{ hubQuery = ''; searchInput\?\.focus\(\); \}\}>Clear search<\/button>/);
+		expect(templateEn.match(/w-btn--primary/g)?.length).toBe(2); // the split "New message ▾": two halves of one control
 	});
 
 	test('a row keeps its visible words in its accessible name; extras are visually hidden', () => {
@@ -195,7 +198,7 @@ describe('DM conversations: truthful privacy, no raw errors, no jargon', () => {
 
 		test(`${name} says "experimental" wherever it offers encryption, and the lifetime in the §9.2 words`, () => {
 			expect(source).not.toContain('Encrypt new messages');
-			expect(source).toContain("'Turn on experimental encryption'");
+			expect(inEnglish(source)).toContain("'Turn on experimental encryption'");
 			expect(source).not.toContain("'until deleted'");
 			expect(source).toContain('dmRetentionControlLabel(retentionValue)');
 			expect(source).not.toContain('<Select');
@@ -236,11 +239,11 @@ describe('DM conversations: truthful privacy, no raw errors, no jargon', () => {
 
 	test('the phone ⋯ sheet has one lifetime row that opens its own sheet, not every choice inline', () => {
 		const source = read('../lib/components/DmConversationView.svelte');
-		const menu = source.slice(source.indexOf('$: phoneMenuItems = ['), source.indexOf('</script>'));
+		const menu = inEnglish(source).slice(inEnglish(source).indexOf('$: phoneMenuItems = ['), inEnglish(source).indexOf('</script>'));
 		expect(menu).not.toContain("type: 'kicker'");
 		expect(menu).not.toContain('retentionOptions.map');
 		expect(menu).toContain("{ id: 'kept', label: retentionWords, icon: 'clock', keepCase: true, hint: 'Change', onSelect: openKeptSheet }");
-		expect(templateOf(source)).toMatch(/<Menu\s+items=\{retentionItems\}\s+label="Keep new messages for"\s+anchor=\{keptSheetAnchor\}\s+bind:open=\{keptSheetOpen\}/);
+		expect(templateOf(inEnglish(source))).toMatch(/<Menu\s+items=\{retentionItems\}\s+label="Keep new messages for"\s+anchor=\{keptSheetAnchor\}\s+bind:open=\{keptSheetOpen\}/);
 	});
 
 	test('the paused row stands in the 80px footer band, its top on the footer rule', () => {

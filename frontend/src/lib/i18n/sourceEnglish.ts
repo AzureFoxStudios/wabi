@@ -33,7 +33,7 @@ function closeOf(source: string, open: number): number {
 	return -1;
 }
 
-const CALL = /\$_\(\s*(['"])([\w.-]+)\1\s*(?=[,)])/g;
+const CALL = /\$[_t]\(\s*(['"])([\w.-]+)\1\s*(?=[,)])/g;
 
 export function inEnglish(source: string): string {
 	let out = '', last = 0;

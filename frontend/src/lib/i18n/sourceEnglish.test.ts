@@ -17,6 +17,9 @@ describe('inEnglish', () => {
 	test('script becomes a string literal, with arguments consumed', () => {
 		expect(inEnglish(`const a = $_('${KEY}'); const b = $_("${KEY}", { values: { n: f(1) } });`)).toBe(`const a = '${WORDS}'; const b = '${WORDS}';`);
 	});
+	test('the $t alias reads the same way', () => {
+		expect(inEnglish(`<p>{$t('${KEY}')}</p>`)).toBe(`<p>${WORDS}</p>`);
+	});
 	test('unknown keys and plain text are left alone', () => {
 		const text = `{$_('no.such.key')} and $_(dynamic)`;
 		expect(inEnglish(text)).toBe(text);
