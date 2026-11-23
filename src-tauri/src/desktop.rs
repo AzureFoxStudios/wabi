@@ -126,6 +126,10 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tray_available,
     });
     if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "linux")]
+        if let Err(error) = crate::linux_media::install(&window) {
+            log::warn!("Microphone and camera permissions could not be set up: {error}");
+        }
         let handle = window.clone();
         let app_handle = app.handle().clone();
         // The title bar X, Alt+F4 and the taskbar's Close all arrive as this

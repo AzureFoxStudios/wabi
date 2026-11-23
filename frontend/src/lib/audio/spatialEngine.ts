@@ -1,3 +1,5 @@
+import { retireStreamSource } from '../streamSourceRetire';
+
 export type SpatialRenderMode = 'pan_distance' | 'full_3d' | 'stereo';
 
 export interface SpatialPosition {
@@ -195,7 +197,7 @@ export class SpatialAudioEngine {
 		const nodes = this.sources.get(id);
 		if (!nodes) return;
 		try {
-			nodes.sourceNode.disconnect();
+			retireStreamSource(nodes.sourceNode);
 			nodes.pannerNode?.disconnect();
 			nodes.gainNode.disconnect();
 		} catch {

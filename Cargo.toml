@@ -15,6 +15,7 @@ members = [
 ]
 exclude = [
   "src-tauri",
+  "crates/wabi-voice",
   "frontend/src-tauri",
 ]
 resolver = "2"

@@ -12,6 +12,11 @@ rust-version = "1.93"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Native LiveKit rooms on Linux (crates/wabi-voice). Off by default: the build
+# downloads a prebuilt libwebrtc and needs clang 21 or newer.
+livekit = ["wabi-voice/livekit"]
+
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }
 
@@ -47,6 +52,11 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store = { version = "=1.0.1", features = ["crypto-rust"] }
+# Same crate and version tauri/wry already resolve; needed to answer WebKitGTK's
+# capture-device permission requests (src/linux_media.rs).
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+# Native voice engine: capture, processing, Opus and playback outside the webview.
+wabi-voice = { path = "../crates/wabi-voice" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }

@@ -417,7 +417,7 @@ This candidate also contains the production-finish entry-page, mobile-panel and 
 - One Rust `wabi-server` core containing the API, realtime services, embedded static frontend, and WabiDB.
 - WabiDB as the in-process durable state engine; no external SQL/STDB database is required for the normal Authority deployment.
 - Docker/Podman single-machine deployment.
-- Tauri desktop source/build path.
+- Tauri desktop source/build path. On Linux the desktop app's calls are relay-only: the system webview (WebKitGTK) has no WebRTC, so direct P2P calls, LiveKit and P2P file transfer are refused there, and it applies no echo cancellation. Microphone permission and a two-client relay voice call (with received relay video) are checked by native smokes on one machine; camera and screen share from the Linux desktop app, and a call between two machines, are not yet verified. An opt-in native voice engine (`WABI_NATIVE_VOICE=1`) adds echo cancellation, noise suppression and gain control on the relay path; it passes the same automated call but nobody has listened to it, and LiveKit is not reachable through it from the app yet. See the [Linux desktop media work record](plans/2026-11-20-linux-desktop-media.md).
 - Optional coturn, LiveKit, SRT media gateway, Cloudflare tunnel profiles, and other helper services.
 - Optional Tailcat private-access transport for supported desktop clients.
 - Plugin package integrity/signing/scanning/audit machinery and runtime loading framework, with plugin mode opt-in.

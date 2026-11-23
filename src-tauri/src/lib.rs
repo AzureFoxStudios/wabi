@@ -1,5 +1,8 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before GTK or any thread exists: this may set an environment variable.
+    #[cfg(target_os = "linux")]
+    linux_media::apply_rendering_workarounds();
     let builder = tauri::Builder::default();
     // Register before other plugins so secondary launches never initialize resources.
     #[cfg(not(mobile))]
@@ -11,6 +14,17 @@ pub fn run() {
         .manage(hosting::HostState::default())
         .manage(lore_local::LocalWorkspaceState::default())
         .manage(lore_local::detection::LocalDetectionState::default())
+        .manage(voice::VoiceState::default())
+        // A document starting to load means the previous page is gone and
+        // cannot stop its own microphone.
+        .on_page_load(|webview, payload| {
+            use tauri::Manager;
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                // Closing streams talks to the audio server; keep that off the main thread.
+                let voice = webview.state::<voice::VoiceState>().inner().clone();
+                std::thread::spawn(move || voice.shutdown("the page is loading a new document"));
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init());
 
@@ -90,7 +104,21 @@ pub fn run() {
             lore_local::lore_local_publish,
             lore_local::lore_local_pull,
             lore_local::detection::lore_local_watch_poll,
-            lore_local::detection::lore_local_watch_stop
+            lore_local::detection::lore_local_watch_stop,
+            voice::voice_capabilities,
+            voice::voice_devices,
+            voice::voice_capture_start,
+            voice::voice_capture_stop,
+            voice::voice_playback_start,
+            voice::voice_push,
+            voice::voice_remove_group,
+            voice::voice_set_group_volume,
+            voice::voice_set_deafened,
+            voice::voice_poll,
+            voice::voice_livekit_join,
+            voice::voice_livekit_leave,
+            voice::voice_livekit_set_muted,
+            voice::voice_shutdown
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -128,6 +156,8 @@ pub fn run() {
 mod commands;
 #[cfg(not(mobile))]
 mod desktop;
+#[cfg(target_os = "linux")]
+mod linux_media;
 #[cfg(not(mobile))]
 mod updater;
 #[cfg(not(mobile))]
@@ -146,4 +176,5 @@ mod viewer;
 mod hosting;
 mod personal_planner;
 
+mod voice;
 mod workspace_export;

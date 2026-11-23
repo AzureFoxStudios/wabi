@@ -17,6 +17,7 @@
 	} from '$lib/p2pFileTransfer';
 	import TransferCard from './TransferCard.svelte';
 	import { getSocket } from '$lib/socket';
+	import { showToast } from '$lib/toast';
 	import { serverMembers, users } from '$lib/presenceIdentity';
 
 	const dispatch = createEventDispatcher();
@@ -58,7 +59,12 @@
 	async function handleAccept(offer: IncomingFileOffer) {
 		const socket = getSocket();
 		if (!socket) return;
-		await acceptFileTransfer(socket, offer.transferId);
+		try {
+			await acceptFileTransfer(socket, offer.transferId);
+		} catch (error) {
+			// e.g. a web engine without WebRTC: say why instead of failing silently.
+			showToast(error instanceof Error ? error.message : String(error), 'warning');
+		}
 	}
 
 	function handleReject(offer: IncomingFileOffer) {

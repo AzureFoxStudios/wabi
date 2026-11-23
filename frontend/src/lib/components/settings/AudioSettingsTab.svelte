@@ -22,6 +22,7 @@
 	import { getTauriPlatform } from '$lib/tauri-platform';
 	import { AudioCaptureOwner } from '$lib/audioCaptureOwner';
 	import { createAudioCaptureSession, disposeAudioCaptureSession } from '$lib/audioCapture';
+	import { getSupportedMimeType } from '$lib/components/audioRecorderEngine';
 	import { isTauriRuntime, loadEffectiveMediaSettingsSnapshot, setAudioProcessingMode, setCallMuteBehavior, setCallRecordingStemMode, setCallTransportMode, setMediaQualityMode, setScreenShareQualityPreset, setScreenShareBitrateKbps, setSpatialAudioDistanceScale, setSpatialAudioEnabled, setSpatialAudioMasterStrength, setSpatialAudioMode, setSpatialAudioQuickToggleVisible, setSpatialAudioWarningMuted, setSrtGatewayEnabled, getPreferredMicDeviceId, setPreferredMicDeviceId, getPreferredCameraDeviceId, setPreferredCameraDeviceId, type AudioProcessingMode, type CallMuteBehavior, type CallRecordingStemMode, type CallTransportMode, type MediaQualityMode, type ServerMediaRuntimeResponse, type ScreenShareQualityPreset, type SpatialAudioMode } from '$lib/mediaRuntime';
 
 	let audioInputDevices = $state<MediaDeviceInfo[]>([]);
@@ -200,7 +201,8 @@
 			source.connect(micTestAnalyser);
 			const data = new Uint8Array(micTestAnalyser.frequencyBinCount);
 			micTestLevelInterval = window.setInterval(() => { if (!micTestAnalyser) return; micTestAnalyser.getByteTimeDomainData(data); let sum = 0; for (let i = 0; i < data.length; i += 1) { const n = (data[i] - 128) / 128; sum += n * n; } micTestLevel = Math.min(1, Math.sqrt(sum / data.length) * 8); }, 80);
-			const recorder = new MediaRecorder(micTestStream);
+			// Name the container: WebKitGTK's default (MP4/AAC) records nothing where no AAC encoder is installed.
+			const recorder = new MediaRecorder(micTestStream, { mimeType: getSupportedMimeType() });
 			micTestRecorder = recorder;
 			recorder.ondataavailable = (event) => { if (generation === micTestGeneration && event.data.size > 0) chunks.push(event.data); };
 			recorder.onstop = () => {

@@ -10,6 +10,7 @@
  */
 
 import { RelayAudioCapture } from './relayAudioCapture';
+import { NativeRelayCapture, NativeRelayPlayback, nativeVoiceEnabled } from './nativeVoice';
 // Decoder worker + its sibling wasm, resolved through the bundler so the
 // build actually ships them (see opus-assets.d.ts for the full story).
 import decoderWorkerSource from 'opus-recorder/dist/decoderWorker.min.js?raw';
@@ -120,6 +121,10 @@ export interface WabidbMediaRelayDiagnostics {
   decodeOk: number;
   decodeFail: number;
   playedChunks: number;
+  /** Decoded chunks with a sample above 0.01: received audio that is not silence. */
+  audibleChunks: number;
+  /** True when the desktop shell's native voice engine handles this relay's audio. */
+  nativeEngine?: boolean;
   /** 2026-08-27 wire-level counters feeding CallDebugPanel on this transport. */
   sentBytes: number;
   recvBytes: number;
@@ -221,7 +226,10 @@ export class WabidbMediaRelay {
   private screenStream: MediaStream | null = null;
   private roomReady = false;
   private onSocketDisconnect = () => { void this.setRoomReady(false); };
-  private micCapture = new RelayAudioCapture();
+  private micCapture: Pick<RelayAudioCapture, 'start' | 'stop'> = new RelayAudioCapture();
+  /** Set when the desktop shell's native voice engine decodes and plays this
+   * relay's audio and supplies its microphone (see nativeVoice.ts). */
+  private nativePlayback: NativeRelayPlayback | null = null;
   private screenCapture = new RelayAudioCapture();
   private audioContext: AudioContext | null = null;
   /** False when the context is the shared call graph's (never close it). */
@@ -263,6 +271,7 @@ export class WabidbMediaRelay {
     decodeOk: 0,
     decodeFail: 0,
     playedChunks: 0,
+    audibleChunks: 0,
     sentBytes: 0,
     recvBytes: 0,
     lostPackets: 0,
@@ -283,7 +292,8 @@ export class WabidbMediaRelay {
       isActive: this.isActive,
       captureEnabled: this.captureEnabled,
       audioContextState: this.audioContext?.state ?? null,
-      ...this.counters
+      ...this.counters,
+      ...(this.nativePlayback ? { ...this.nativePlayback.counters(), nativeEngine: true } : {})
     };
   }
 
@@ -325,7 +335,19 @@ export class WabidbMediaRelay {
         // block receive setup or the host's cancellation/gesture wiring on it.
         void this.audioContext.resume().catch(() => undefined);
       }
-      await loadPlaybackModule(this.audioContext);
+      if (await nativeVoiceEnabled()) {
+        if (!this.isActive) throw new Error('Relay start cancelled');
+        this.micCapture = new NativeRelayCapture();
+        this.nativePlayback = new NativeRelayPlayback(this.audioSessionId, {
+          onRemoteAudioActivity: user => this.onRemoteAudioActivity?.(user),
+          onRemoteAudioReady: user => this.onRemoteAudioReady?.(normalizeStableUserId(user)),
+          onRemoteAudioUnavailable: user => this.onRemoteAudioUnavailable?.(normalizeStableUserId(user)),
+          onError: error => this.onError?.(error),
+          isRoomReady: () => this.isRoomReady()
+        });
+      } else {
+        await loadPlaybackModule(this.audioContext);
+      }
       if (!this.isActive) throw new Error('Relay start cancelled');
 
       this.onIncomingMediaHandler = (msg: any) => {
@@ -434,6 +456,7 @@ export class WabidbMediaRelay {
   async setRoomReady(ready: boolean): Promise<void> {
     this.roomReady = ready && this.isActive;
     if (!this.roomReady) {
+      this.nativePlayback?.markAllUnavailable();
       for (const user of this.readyUsers) this.markAudioUnavailable(user);
       this.micCapture.stop();
       this.screenCapture.stop();
@@ -503,6 +526,10 @@ export class WabidbMediaRelay {
 
   private handleIncomingMedia(key: string, payload: string, userId: string, screen: boolean): void {
     if (!this.isActive) return;
+    if (this.nativePlayback) {
+      this.nativePlayback.push(key, payload, userId, screen);
+      return;
+    }
     try {
       const pages = base64ToUint8Array(payload);
       let state = this.userDecoders.get(key);
@@ -601,7 +628,9 @@ export class WabidbMediaRelay {
         for (let i = 0; i < pcm.length; i++) pcm[i] += (channel[i] ?? 0) / buffers.length;
       }
       this.counters.decodeOk++;
-      if (!screen && pcm.some(sample => Math.abs(sample) > 0.01)) this.onRemoteAudioActivity?.(userId);
+      const audible = pcm.some(sample => Math.abs(sample) > 0.01);
+      if (audible) this.counters.audibleChunks++;
+      if (!screen && audible) this.onRemoteAudioActivity?.(userId);
       state.pcm.push(pcm);
       state.pendingSamples += pcm.length;
       const limit = (this.audioContext?.sampleRate ?? 48000) / 2;
@@ -747,6 +776,8 @@ export class WabidbMediaRelay {
     }
     this.micCapture.stop();
     this.screenCapture.stop();
+    this.nativePlayback?.stop();
+    this.nativePlayback = null;
     // Phase 3: tear down every per-user playback chain.
     for (const chain of this.userPlaybackChains.values()) {
       try {

@@ -34,6 +34,7 @@ export {
 } from './callingScreenShare';
 import { initScreenShareDeps, cancelChannelScreenShare } from './callingScreenShare';
 import { connectWithFallback, refuseEmptyChain, COMMUNITY_VOICE_P2P_REFUSAL, type CallSurface } from './callingFallback';
+import { hasPeerConnection, requirePeerConnection } from './mediaCapabilities';
 import { voiceChannelMembers, _updateVoiceChannelMember, _removeVoiceChannelMember } from './presenceStore';
 import { getStoredDbUserId, getStoredUsername } from './authSession';
 import { clearActiveAudioCaptureSession,
@@ -547,6 +548,7 @@ function createPeerConnection(
 		existing.pc.close();
 	}
 
+	requirePeerConnection();
 	const pc = new RTCPeerConnection(getRTCConfig());
 
 	const state: PeerConnectionState = {
@@ -1451,7 +1453,7 @@ function readmitVoiceSession(socket: Socket, id: string, previous: VoiceRecovery
 			check();
 			const outcome = await connectWithFallback({
 				mode: transport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
-				surface: 'channel', stillWanted: wanted,
+				surface: 'channel', stillWanted: wanted, peerConnections: hasPeerConnection(),
 				expectedParticipants: Math.max(get(voiceChannelMembers)[id]?.length ?? 1, 1),
 				connect: async candidate => {
 					check();
@@ -1564,7 +1566,7 @@ async function joinVoiceChannelAttempt(socket: Socket, channelId: string, signal
 		signal.throwIfAborted();
 		// Refuse an impossible chain (P2P-only on community voice) before the
 		// microphone prompt and before the session is registered.
-		refuseEmptyChain(activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(), 'channel');
+		refuseEmptyChain(activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(), 'channel', 1, hasPeerConnection());
 		const stream = await ensureLocalAudioStream();
 		signal.throwIfAborted();
 		const listenOnly = alreadyInCall || hasPrimaryVoiceChannel;
@@ -1620,6 +1622,7 @@ async function joinVoiceChannelAttempt(socket: Socket, channelId: string, signal
 			mode: activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
 			surface: 'channel' as CallSurface,
 			stillWanted: wanted,
+			peerConnections: hasPeerConnection(),
 			expectedParticipants: Math.max(rosterSize, 1),
 			connect: async (transport) => {
 				if (transport === 'sfu') {
@@ -1986,6 +1989,7 @@ async function enterEstablishedGroupCall(
 		mode: activeTransport === 'sfu' ? 'sfu-preferred' : getStoredCallTransportMode(),
 		surface: 'group' as CallSurface,
 		stillWanted: () => groupRunCurrent(options.run),
+		peerConnections: hasPeerConnection(),
 		expectedParticipants: Math.max(get(groupCallRingingTargets).length + 1, 1),
 		connect: async (transport) => {
 			if (transport === 'sfu') {
@@ -2248,6 +2252,7 @@ export async function answerCall(
 				mode: activeTransport === 'wabidb' ? getStoredCallTransportMode() : (activeTransport === 'sfu' ? 'sfu-preferred' : 'p2p-only'),
 				surface: 'direct' as CallSurface,
 				expectedParticipants: 2,
+				peerConnections: hasPeerConnection(),
 				connect: async (transport) => {
 					if (transport === 'wabidb') {
 						try {
