@@ -8,6 +8,7 @@
 	import { captureGroupAccess } from '$lib/groupAccess';
 	import { get } from 'svelte/store';
 	import { channelMessages, channels, currentChannel, currentUser, editMessage, emojis, getDMOtherUser, sendMessage, sendTyping, userLookup, users, type Emoji, type Message, type MessageEntity, type User } from '$lib/socket';
+	import { isOwnMessage } from '$lib/userLookupStore';
 	import { pinChannel, unpinChannel } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -333,7 +334,8 @@ import type { MediaAlbum } from '$lib/api';
 	export function handleCommandPaletteKeyDown(key: string): boolean { return commandPalette?.handleKeyDown(key) || false; }
 	export async function receiveFiles(files: File[], mode: 'replace' | 'append'): Promise<void> { const prepared = await prepareIncomingFiles(files); if (operationCurrent() && prepared.length > 0) applySelectedFiles(prepared, mode); }
 	export function insertQuickMention(username: string): void { const token = `@${username}`; const needsSpace = messageInput.length > 0 && !/\s$/.test(messageInput); const next = needsSpace ? `${messageInput} ${token} ` : `${token} `; composerEntities = reconcileMessageEntities(messageInput, next, composerEntities); messageInput = next; previousComposerInput = messageInput; showMentionSuggestions = false; textareaElement?.focus(); }
-	export function startEditingLastMessage(): void { const messages = $channelMessages[effectiveChannel] || []; const userMessages = messages.filter((m: Message) => m.userId === $currentUser?.id); if (userMessages.length > 0) { const last = userMessages[userMessages.length - 1]; editingMessage = last; messageInput = last.text; composerEntities = []; previousComposerInput = messageInput; } }
+	export function startEditingLastMessage(): void { const messages = $channelMessages[effectiveChannel] || []; // A message carries the author's socket id or "user-<dbId>" (history loaded after a channel switch uses the latter), so use the same test the message list does.
+		const userMessages = messages.filter((m: Message) => isOwnMessage(m, $currentUser)); if (userMessages.length > 0) { const last = userMessages[userMessages.length - 1]; editingMessage = last; messageInput = last.text; composerEntities = []; previousComposerInput = messageInput; } }
 	function syncComposerEntities() { composerEntities = reconcileMessageEntities(previousComposerInput, messageInput, composerEntities); previousComposerInput = messageInput; }
 	function resetComposerEntityState() { composerEntities = []; previousComposerInput = messageInput; }
 	function resolveOutgoingPlaceEntities(text: string): MessageEntity[] { if (!composerEntities.length || !text) return []; return rebaseMessageEntitiesForText(text, composerEntities); }
@@ -656,7 +658,10 @@ import type { MediaAlbum } from '$lib/api';
 	function clearFilePreviews(): void { videoCompressionController?.clearCompressionMetadata(filePreviews.map(i => i.file)); for (const item of filePreviews) revokePreviewUrl(item.preview); filePreviews = []; selectedFiles = []; createAlbumFromUpload = false; uploadAlbumName = ''; }
 	function applySelectedFiles(files: File[], mode: 'replace' | 'append'): void { if (mode === 'replace') { clearFilePreviews(); selectedFiles = files; filePreviews = buildPreviewEntries(files); } else { selectedFiles = [...selectedFiles, ...files]; filePreviews = [...filePreviews, ...buildPreviewEntries(files)]; } const b = enforcePreviewBudget(filePreviews, selectedFiles, MAX_FILE_PREVIEW_IMAGES); filePreviews = b.previews; selectedFiles = b.files; }
 	async function prepareIncomingFiles(files: File[]): Promise<File[]> { for (const file of files) { if (file.size > MAX_UPLOAD_FILE_BYTES) { showToast($_('chat_composer.file_too_large', { values: { name: file.name, size: formatFileMb(file.size) } }), 'error'); return []; } } const prepared: File[] = []; for (const file of files) { const candidate = videoCompressionController ? await videoCompressionController.maybeCompressVideoFile(file) : file; if (candidate) prepared.push(candidate); } return prepared; }
-	async function handleFileSelect(event: Event) { const input = event.target as HTMLInputElement; const files = Array.from(input.files || []); if (files.length === 0) return; await receiveFiles(files, 'replace'); input.value = ''; }
+	// Picking files again adds to the batch (as paste and drop do) instead of replacing it.
+	// Same file picked twice is ignored so a repeat tap cannot double-send it.
+	async function handleFileSelect(event: Event) { const input = event.target as HTMLInputElement; const files = Array.from(input.files || []); input.value = ''; if (files.length === 0) return; const seen = new Set(selectedFiles.map(fileIdentity)); const fresh = files.filter((file) => { const key = fileIdentity(file); if (seen.has(key)) return false; seen.add(key); return true; }); if (fresh.length > 0) await receiveFiles(fresh, 'append'); }
+	function fileIdentity(file: File): string { return `${file.name}\u0000${file.size}\u0000${file.lastModified}`; }
 	function removeFile(index: number) { const removed = filePreviews[index]; revokePreviewUrl(removed?.preview); if (removed?.file) videoCompressionController?.deleteCompressionMetadata(removed.file); selectedFiles = selectedFiles.filter((_, i) => i !== index); filePreviews = filePreviews.filter((_, i) => i !== index); }
 	function handleAlbumUploadToggle(checked: boolean): void { createAlbumFromUpload = checked; if (!checked) { uploadAlbumName = ''; uploadTargetAlbumId = 0; return; } if (!uploadAlbumName.trim()) uploadAlbumName = buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput); void loadUploadAlbums(); }
 	async function loadUploadAlbums(): Promise<void> {
@@ -716,7 +721,10 @@ import type { MediaAlbum } from '$lib/api';
 	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'weba' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { showToast($_('chat_composer.audio_too_large'), 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
 	function ensureEmojiPickerLoaded(): void { if (EmojiPickerComponent || emojiPickerLoadPromise) return; emojiPickerLoadFailed = false; emojiPickerLoadPromise = import('../EmojiPicker.svelte').then(mod => { EmojiPickerComponent = mod.default; }).catch(err => { console.error('Failed to load EmojiPicker:', err); emojiPickerLoadFailed = true; }).finally(() => { emojiPickerLoadPromise = null; }); }
 	// The attach menu (ui/Menu) closes itself on an outside click, Esc or Tab.
-	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showEmojiPicker = false; showMentionSuggestions = false; }
+	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showEmojiPicker = false; showMentionSuggestions = false;
+		// The inline :emoji suggestions and the /command list also close on a click anywhere except the text field or their own list; they used to stay open, with their buttons, after clicking off.
+		const inField = !!target && (textareaElement?.contains(target) || !!(target as Element).closest?.('.emoji-suggestions, .command-palette'));
+		if (!inField) { showEmojiSuggestions = false; showCommandPalette = false; } }
 	onMount(() => {
 		// An already-issued handoff may settle between construction and mount.
 		const latestDraft = draftOwner.read();
@@ -738,9 +746,19 @@ import type { MediaAlbum } from '$lib/api';
 			}
 		});
 		autoResizeTextarea(); document.addEventListener('click', handleGlobalClick); void loadPlaceRegistry();
+		// A field whose width changes (a side panel opening, the window resizing, a hidden view being shown) wraps its words
+		// differently, so its height has to follow; before, it only recomputed when you typed.
+		let fieldWidth = textareaElement?.clientWidth ?? 0;
+		const fieldObserver = typeof ResizeObserver !== 'undefined' && textareaElement
+			? new ResizeObserver(() => { const width = textareaElement?.clientWidth ?? 0; if (width !== fieldWidth) { fieldWidth = width; autoResizeTextarea(); } })
+			: null;
+		if (fieldObserver && textareaElement) fieldObserver.observe(textareaElement);
 		const stopTrackingStream = trackStream();
-		return () => { unsubscribeSend(); document.removeEventListener('click', handleGlobalClick); stopTrackingStream(); };
+		return () => { unsubscribeSend(); document.removeEventListener('click', handleGlobalClick); stopTrackingStream(); fieldObserver?.disconnect(); };
 	});
+	// Text that changes without typing (a restored draft, editing your last message, a mention or emoji inserted, a send
+	// that clears it) must also reshape the field; only the input event did before.
+	$effect(() => { void messageInput; void tick().then(() => autoResizeTextarea()); });
 	// The stream this field writes under (composerGeometry): end where its rules end (its
 	// scrollbar included) and keep its newest message in view while the field grows.
 	function trackStream(): () => void {

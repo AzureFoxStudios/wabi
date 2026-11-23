@@ -10,6 +10,7 @@ export type SettingsTab =
 	| 'notifications'
 	| 'appearance'
 	| 'accessibility'
+	| 'keyboard'
 	| 'audio'
 	| 'games'
 	| 'addons'
@@ -20,7 +21,7 @@ export type SettingsTab =
 
 /** Values other surfaces may ask Settings to open (MainLayout, wabi:open-settings, the phone's
  *  You page, which opens Appearance and Privacy & security directly). */
-export type SettingsRequest = 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | 'admin' | 'appearance' | 'privacy';
+export type SettingsRequest = 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | 'admin' | 'appearance' | 'privacy' | 'keyboard';
 
 export type SettingsIcon =
 	| 'user'
@@ -28,6 +29,7 @@ export type SettingsIcon =
 	| 'bell'
 	| 'palette'
 	| 'accessibility'
+	| 'keyboard'
 	| 'headphones'
 	| 'gamepad'
 	| 'puzzle'
@@ -59,6 +61,7 @@ const PAGES: Record<SettingsTab, SettingsPage> = {
 	notifications: { id: 'notifications', labelKey: 'settings.tabs.notifications', label: 'Notifications', icon: 'bell' },
 	appearance: { id: 'appearance', labelKey: 'settings.tabs.appearance', label: 'Appearance', icon: 'palette' },
 	accessibility: { id: 'accessibility', labelKey: 'settings.tabs.accessibility', label: 'Accessibility', icon: 'accessibility' },
+	keyboard: { id: 'keyboard', labelKey: 'settings.tabs.keyboard', label: 'Keyboard', icon: 'keyboard' },
 	audio: { id: 'audio', labelKey: 'settings.tabs.audio', label: 'Audio & video', icon: 'headphones' },
 	games: { id: 'games', labelKey: 'settings.tabs.games', label: 'Games', icon: 'gamepad' },
 	addons: { id: 'addons', labelKey: 'settings.tabs.addons', label: 'Add-ons', icon: 'puzzle' },
@@ -77,7 +80,7 @@ export function settingsNavGroups(communityName: string, canManageAdmin: boolean
 	const allowed = (page: SettingsPage) => !page.adminOnly || canManageAdmin;
 	return [
 		{ id: 'account', label: 'Account', pages: [PAGES.profile, PAGES.privacy, PAGES.notifications] },
-		{ id: 'device', label: 'This device', pages: [PAGES.appearance, PAGES.accessibility, PAGES.audio, PAGES.games, PAGES.addons] },
+		{ id: 'device', label: 'This device', pages: [PAGES.appearance, PAGES.accessibility, PAGES.keyboard, PAGES.audio, PAGES.games, PAGES.addons] },
 		{
 			id: 'community',
 			label: communityName.trim() || 'This community',
@@ -253,6 +256,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
 	{ tab: 'accessibility', label: 'Reduce motion', keywords: ['animation', 'vestibular'] },
 	{ tab: 'accessibility', label: 'Motion polish', keywords: ['transitions', 'animation preset', 'speed'] },
 	{ tab: 'accessibility', label: 'Name colors', keywords: ['role colors', 'role colours', 'usernames'] },
+	{ tab: 'keyboard', label: 'Keyboard shortcuts', keywords: ['hotkeys', 'keybindings', 'key bindings', 'shortcuts', 'keys', 'keyboard', 'ctrl', 'command'] },
 	{ tab: 'audio', label: 'Microphone', keywords: ['input', 'mic', 'push to talk', 'voice activity'] },
 	{ tab: 'audio', label: 'Camera', keywords: ['video', 'webcam'] },
 	{ tab: 'audio', label: 'Noise suppression', keywords: ['echo', 'noise', 'gain'] },

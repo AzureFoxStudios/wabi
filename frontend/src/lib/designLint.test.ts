@@ -26,8 +26,8 @@ const RULES = {
 type Rule = keyof typeof RULES;
 
 // Debt carried in from before the contract (counts at the commit that added this test). The
-// projector letterbox in slides.css / present.css is deliberately black: it is the room around the
-// slide, not app chrome.
+// projector letterbox in slides.css / present.css is deliberately black, and the W key's blank screen
+// there is deliberately white (the counterpart of B): they are the room around the slide, not app chrome.
 const LEDGER: Record<string, Partial<Record<Rule, number>>> = {
 	'lib/components/DesktopTitlebar.css': { legacy: 20 },
 	'lib/components/FfxivReferencePanel.css': { hex: 10, rgb: 21, legacy: 27, frost: 1 },
@@ -41,7 +41,7 @@ const LEDGER: Record<string, Partial<Record<Rule, number>>> = {
 	'lib/components/plugins/YouTubeWatchEmbed.css': { hex: 16, rgb: 8, legacy: 9, named: 3 },
 	'lib/components/readerCode.css': { hex: 20, systemUi: 2 },
 	'lib/components/userPanel.css': { hex: 2, rgb: 1, legacy: 17, named: 3 },
-	'lib/workspaces/present/present.css': { named: 1 },
+	'lib/workspaces/present/present.css': { named: 2 },
 	'lib/workspaces/slides.css': { named: 1 },
 	'styles/accessibility.css': { rgb: 3, legacy: 8, frost: 2 },
 	'styles/animations.css': { legacy: 3 },

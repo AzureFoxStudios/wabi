@@ -248,6 +248,16 @@ async fn require_rules_for_mutation(
 /// Returns the channel it checked, so callers can use its persisted kind.
 pub async fn require_participation(state: &AppState, user_id: i64, channel_id: &str) -> Result<Channel> {
     let channel = require_access(state, user_id, channel_id).await?;
+    // Timeouts stop write paths everywhere, not only chat messages. require_access
+    // leaves them alone so timed-out members can still read. Every caller of this
+    // gate is a write path.
+    let blacklist = state
+        .get_blacklist()
+        .await
+        .ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
+    if blacklist.is_channel_timed_out(channel_id, user_id).await.is_some() {
+        return Err(AppError::Forbidden("You are timed out in this channel".into()));
+    }
     require_rules_for_mutation(state, user_id, channel.channel_kind).await?;
     Ok(channel)
 }

@@ -164,7 +164,7 @@ export function toggleInlineMark(text: string, selFrom: number, selTo: number, m
 
 const URL_LIKE = /^(?:https?:\/\/|www\.)\S+$/i;
 
-/** Link (Ctrl Shift K): `[text](https://)` with the address selected, ready to paste over. */
+/** Link (Ctrl K): `[text](https://)` with the address selected, ready to paste over. */
 export function linkSelection(text: string, selFrom: number, selTo: number): TextEdit {
 	const [rawFrom, rawTo] = clampRange(text, selFrom, selTo);
 	let from = rawFrom;

@@ -14,14 +14,26 @@
 	Alt + arrows, removed with Delete. Edits to a slide that is not a canvas never show here:
 	canvas slides draw only their objects, so the title, text and image fields stay hidden for
 	them (their stored values are kept).
+
+	Selection is a list: click, Shift/Ctrl/Cmd + click toggles, a rubber band on empty slide area
+	selects what it fully encloses, Ctrl + A selects all, Tab / Shift + Tab move the selection
+	with focus. Every edit to several objects (move, nudge, delete, paste, align, arrange) is one
+	Yjs transaction, so one undo reverses it. Dragging snaps edges and centres to the slide and to
+	other objects within 1% (Alt turns snapping off); Ctrl + arrows nudge 0.2%.
 -->
+<script lang="ts" module>
+	/** Copied slide objects, shared by every slide and deck in this window (objects are not text, so they stay in the app). */
+	const objectClipboard: { object: Omit<SceneObject, 'id' | 'z'> | null; group: Omit<SceneObject, 'id' | 'z'>[] } = { object: null, group: [] };
+</script>
+
 <script lang="ts">
-	import { onDestroy, type Snippet } from 'svelte';
+	import { onDestroy, tick as settle, untrack, type Snippet } from 'svelte';
 	import AudienceSlideView from '../AudienceSlide.svelte';
 	import type { ArtifactSession } from '../session';
 	import type { DeckSlide } from './model';
-	import type { SceneObject, SceneKind, SceneTheme } from '../scene';
-	import { readDesign, presetDesign, setDesign, addSceneObject, patchSceneObject, removeSceneObject, setSceneTheme, type ScenePreset } from './nativeScene';
+	import { scenePalette, type SceneObject, type SceneKind, type SceneTheme } from '../scene';
+	import { readDesign, presetDesign, setDesign, addSceneObject, patchSceneObject, patchSceneObjects, removeSceneObject, removeSceneObjects, addSceneObjects, setSceneTheme, type ScenePreset } from './nativeScene';
+	import { boundsOf, clampShift, dragShift, type Box } from './snap';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Menu from '$lib/components/ui/Menu.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
@@ -46,21 +58,32 @@
 	}
 	let { session, slide, aspect, selectedObjectId = null, onselect = () => {}, onerror = () => {}, slideFields, slideFooter, below }: Props = $props();
 
-	let tick = $state(0), selected = $state(''), busy = $state(false), preset = $state<ScenePreset>('body');
+	let tick = $state(0), ids = $state<string[]>([]), busy = $state(false), preset = $state<ScenePreset>('body');
 	let tab = $state<'slide' | 'object'>('slide');
 	let stage = $state<HTMLDivElement>(), imageInput = $state<HTMLInputElement>(), arrangeAnchor = $state<HTMLElement | null>(null), arrangeOpen = $state(false);
 	let resizing = $state<{ id: string; w: number; h: number } | null>(null);
+	let editingText = $state<string | null>(null), textEditor = $state<HTMLTextAreaElement>();
 	const abort = new AbortController();
 	let disposed = false;
 
 	const design = $derived.by(() => { tick; try { return slide.layout === 'canvas' ? readDesign(session.data, slide.id) : null; } catch { return null; } });
+	/** The one selected object, or '' when none or several are selected. */
+	const selected = $derived(ids.length === 1 ? ids[0] : '');
 	const chosen = $derived(design?.objects.find((object) => object.id === selected) || null);
+	/** Every selected object, in slide (stacking) order. */
+	const chosenSet = $derived(design ? design.objects.filter((object) => ids.includes(object.id)) : []);
+	const multi = $derived(chosenSet.length > 1);
+	const groupBounds = $derived(boundsOf(chosenSet));
 	const editable = $derived.by(() => { tick; return session.editable && !session.isClosed; });
 	const ratio = $derived(Number.isFinite(aspect) ? Math.max(0.5, Math.min(3, aspect)) : 16 / 9);
 
-	$effect(() => { if (selectedObjectId && design?.objects.some((object) => object.id === selectedObjectId)) { selected = selectedObjectId; tab = 'object'; } });
+	$effect(() => { if (selectedObjectId && design?.objects.some((object) => object.id === selectedObjectId)) { untrack(() => { if (ids.length !== 1 || ids[0] !== selectedObjectId) ids = [selectedObjectId]; tab = 'object'; }); } });
 	$effect(() => session.state.subscribe((value) => (tick = value.tick)));
-	$effect(() => { if (selected && !design?.objects.some((object) => object.id === selected)) { selected = ''; onselect(null); } });
+	$effect(() => {
+		const live = design ? ids.filter((id) => design.objects.some((object) => object.id === id)) : [];
+		if (live.length !== ids.length) { ids = live; onselect(live.length === 1 ? live[0] : null); }
+	});
+	$effect(() => { if (editingText && (selected !== editingText || !editable)) editingText = null; });
 	$effect(() => { if (!design && tab === 'object') tab = 'slide'; });
 	onDestroy(() => { disposed = true; abort.abort(); });
 
@@ -92,7 +115,14 @@
 		{ value: 'chart', label: 'Pinned chart' }
 	];
 
-	function choose(id: string) { selected = id; tab = 'object'; onselect(id); }
+	/** Replace the selection; the parent hears about a single object only (its anchor names one). */
+	function setSelection(next: string[]) {
+		ids = next;
+		if (next.length) tab = 'object';
+		onselect(next.length === 1 ? next[0] : null);
+	}
+	function choose(id: string) { setSelection([id]); }
+	function toggle(id: string) { setSelection(ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id]); }
 	function run(fn: () => void, cause = "That change wasn't applied") {
 		try { if (!session.scope.isCurrent()) throw new Error('The account or server changed. Nothing was changed.'); fn(); }
 		catch (e) { onerror(e, cause); }
@@ -101,7 +131,7 @@
 		run(() => {
 			if (!editable) return;
 			session.doc.transact(() => setDesign(session.data, slide.id, presetDesign(preset, slide.title, slide.body, design?.theme || 'paper')), session.origin);
-			selected = ''; tab = 'slide'; onselect(null);
+			ids = []; tab = 'slide'; onselect(null);
 		}, "Couldn't apply that layout");
 	}
 	function add(kind: SceneKind) { run(() => choose(addSceneObject(session, slide.id, kind)), "Couldn't add that to the slide"); }
@@ -139,55 +169,181 @@
 		finally { if (!disposed) busy = false; }
 	}
 
-	/** Arrows move the focused object (Shift: 5%), Alt + arrows resize it, Delete removes it. */
-	function keys(event: KeyboardEvent, object: SceneObject) {
+	const strip = (object: SceneObject) => { const { id: _id, z: _z, ...rest } = object; return rest; };
+	/** Keys on the stage (a handle or the stage itself has focus). Arrows move the selection (Shift: 5%, Ctrl: 0.2%), Alt + arrows resize it, Delete removes it. */
+	function keys(event: KeyboardEvent) {
+		if ((event.target as HTMLElement).closest('textarea')) return;
+		const mod = event.ctrlKey || event.metaKey, lower = event.key.toLowerCase();
+		if (mod && !event.altKey && !event.shiftKey && lower === 'a') { event.preventDefault(); if (design?.objects.length) setSelection(design.objects.map((o) => o.id)); return; }
+		const group = chosenSet;
+		if (event.key === 'Escape' && group.length) { event.preventDefault(); setSelection([]); stage?.focus(); return; }
+		// Paste works with nothing selected (after a cut, say).
+		if (mod && !event.altKey && !event.shiftKey && lower === 'v' && editable) { event.preventDefault(); if (objectClipboard.group.length) pasteItems(objectClipboard.group); else pasteObject(objectClipboard.object); return; }
+		if (!group.length) return;
+		const object = group[0];
+		if (mod && !event.altKey && !event.shiftKey && lower === 'c') { event.preventDefault(); copyObjects(group); return; }
 		if (!editable) return;
+		if (mod && !event.altKey && !event.shiftKey) {
+			if (lower === 'x') { event.preventDefault(); copyObjects(group); removeAll(group); return; }
+			if (lower === 'd') { event.preventDefault(); pasteItems(group.map(strip)); return; }
+		}
+		// Enter or F2 on a text object edits its words on the slide, as in PowerPoint; Esc comes back to the object.
+		if (group.length === 1 && object.kind === 'text' && (event.key === 'Enter' || event.key === 'F2') && !mod) { event.preventDefault(); void startTextEdit(object); return; }
 		if (event.key === 'Delete' || event.key === 'Backspace') {
 			event.preventDefault();
-			run(() => removeSceneObject(session, slide.id, object.id));
+			removeAll(group);
 			return;
 		}
 		if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
 		event.preventDefault();
-		const step = event.shiftKey ? 0.05 : 0.01;
+		const step = mod ? 0.002 : event.shiftKey ? 0.05 : 0.01;
 		const dx = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
 		const dy = event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
 		if (event.altKey) {
-			run(() => patchSceneObject(session, slide.id, object.id, { w: Math.max(0.02, Math.min(1 - object.x, object.w + dx)), h: Math.max(0.02, Math.min(1 - object.y, object.h + dy)) }));
+			run(() => patchSceneObjects(session, slide.id, group.map((o) => ({ id: o.id, patch: { w: Math.max(0.02, Math.min(1 - o.x, o.w + dx)), h: Math.max(0.02, Math.min(1 - o.y, o.h + dy)) } }))));
 			return;
 		}
-		run(() => patchSceneObject(session, slide.id, object.id, { x: Math.max(0, Math.min(1 - object.w, object.x + dx)), y: Math.max(0, Math.min(1 - object.h, object.y + dy)) }));
+		const shift = clampShift(groupBounds!, dx, dy);
+		run(() => patchSceneObjects(session, slide.id, group.map((o) => ({ id: o.id, patch: { x: Math.max(0, Math.min(1 - o.w, o.x + shift.dx)), y: Math.max(0, Math.min(1 - o.h, o.y + shift.dy)) } }))));
 	}
 
-	let drag: { id: string; slideId: string; x: number; y: number; px: number; py: number; width: number; height: number; target: HTMLElement; pointer: number } | null = null;
-	function startDrag(event: PointerEvent, object: SceneObject) {
+	function copyObjects(list: SceneObject[]) {
+		const items = list.map(strip);
+		objectClipboard.object = items[0] ?? null;
+		objectClipboard.group = items.length > 1 ? items : [];
+	}
+	/** One transaction for the whole group; focus returns to the slide so the keys keep working. */
+	function removeAll(list: SceneObject[]) {
+		run(() => removeSceneObjects(session, slide.id, list.map((o) => o.id)));
+		void settle().then(() => stage?.focus());
+	}
+	/** A pasted or duplicated object lands a little down and right of where it came from, on top, and is selected. */
+	function pasteObject(source: Omit<SceneObject, 'id' | 'z'> | SceneObject | null) {
+		if (!source) return;
+		const { id: _id, z: _z, ...rest } = source as SceneObject;
+		pasteItems([rest]);
+	}
+	/** Pastes copies of a group together (same relative layout, one transaction, one undo) and selects them. */
+	function pasteItems(items: Omit<SceneObject, 'id' | 'z'>[]) {
+		const box = boundsOf(items);
+		if (!box) return;
+		run(() => {
+			const dx = Math.max(0, Math.min(0.02, 1 - box.x - box.w)), dy = Math.max(0, Math.min(0.02, 1 - box.y - box.h));
+			setSelection(addSceneObjects(session, slide.id, items.map((item) => ({ ...item, x: item.x + dx, y: item.y + dy }))));
+		}, "Couldn't paste that object");
+	}
+	async function startTextEdit(object: SceneObject) {
+		if (!editable || object.kind !== 'text') return;
 		choose(object.id);
+		editingText = object.id;
+		await settle();
+		textEditor?.focus();
+		textEditor?.setSelectionRange(textEditor.value.length, textEditor.value.length);
+	}
+	/** Leaving the text puts focus back on the object, so the arrow keys move it again. */
+	function endTextEdit(refocus = false) {
+		const id = editingText;
+		editingText = null;
+		if (refocus && id) void settle().then(() => stage?.querySelector<HTMLElement>('.object-handle.chosen')?.focus());
+	}
+
+	/** Snap guides while dragging: slide fractions of the lines the moving group sits on. */
+	let guides = $state<{ x: number[]; y: number[] }>({ x: [], y: [] });
+	let drag: { ids: string[]; slideId: string; starts: Map<string, { x: number; y: number }>; bounds: Box; others: Box[]; elements: HTMLElement[]; px: number; py: number; width: number; height: number; target: HTMLElement; pointer: number; moved: boolean } | null = null;
+	const additive = (event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => event.shiftKey || event.ctrlKey || event.metaKey;
+	function startDrag(event: PointerEvent, object: SceneObject) {
+		// Shift / Ctrl / Cmd + click toggles the object in the selection and never starts a drag.
+		if (event.button === 0 && additive(event)) { toggle(object.id); return; }
+		const inside = ids.includes(object.id);
+		const members = inside ? chosenSet : [object];
+		if (!inside) choose(object.id);
 		if (!editable || event.button !== 0 || !stage) return;
 		const rect = stage.getBoundingClientRect();
 		const target = event.currentTarget as HTMLElement;
 		target.setPointerCapture(event.pointerId);
-		drag = { id: object.id, slideId: slide.id, x: object.x, y: object.y, px: event.clientX, py: event.clientY, width: rect.width, height: rect.height, target, pointer: event.pointerId };
+		const memberIds = members.map((o) => o.id);
+		drag = {
+			ids: memberIds, slideId: slide.id, starts: new Map(members.map((o) => [o.id, { x: o.x, y: o.y }])),
+			bounds: boundsOf(members)!, others: (design?.objects || []).filter((o) => !memberIds.includes(o.id)),
+			elements: Array.from(stage.querySelectorAll<HTMLElement>('.object-handle')).filter((el) => memberIds.includes(el.dataset.id || '')),
+			px: event.clientX, py: event.clientY, width: rect.width, height: rect.height, target, pointer: event.pointerId, moved: false
+		};
+	}
+	/** The group's shift for this pointer position: clamped to the slide, snapped unless Alt is held. */
+	function shiftFor(event: PointerEvent) {
+		const d = drag!;
+		if (Math.hypot(event.clientX - d.px, event.clientY - d.py) >= 3) d.moved = true;
+		return dragShift(d.bounds, d.others, (event.clientX - d.px) / d.width, (event.clientY - d.py) / d.height, { snap: !event.altKey, moved: d.moved });
 	}
 	function dragMove(event: PointerEvent) {
-		if (drag && event.pointerId === drag.pointer) drag.target.style.transform = `translate(${event.clientX - drag.px}px,${event.clientY - drag.py}px)`;
+		if (!drag || event.pointerId !== drag.pointer) return;
+		const shift = shiftFor(event);
+		for (const element of drag.elements) element.style.transform = `translate(${shift.dx * drag.width}px,${shift.dy * drag.height}px)`;
+		guides = shift.guides;
 	}
 	function finishDrag(event: PointerEvent, cancel = false) {
 		const previous = drag;
-		drag = null;
 		if (!previous) return;
-		previous.target.style.transform = '';
+		const shift = cancel ? { dx: 0, dy: 0 } : shiftFor(event);
+		drag = null;
+		guides = { x: [], y: [] };
+		for (const element of previous.elements) element.style.transform = '';
 		if (previous.target.hasPointerCapture(previous.pointer)) previous.target.releasePointerCapture(previous.pointer);
 		if (cancel || previous.slideId !== slide.id || !session.scope.isCurrent()) return;
-		const current = design?.objects.find((o) => o.id === previous.id);
-		if (!current) return;
-		if (current.x !== previous.x || current.y !== previous.y) {
-			onerror(new Error('Another editor moved this object. Your drag was not applied over their move; try from its new position.'), '');
-			return;
+		const moving = previous.ids.map((id) => design?.objects.find((o) => o.id === id));
+		if (moving.some((o) => !o)) return;
+		for (const o of moving as SceneObject[]) {
+			const start = previous.starts.get(o.id)!;
+			if (o.x !== start.x || o.y !== start.y) {
+				onerror(new Error('Another editor moved this object. Your drag was not applied over their move; try from its new position.'), '');
+				return;
+			}
 		}
-		run(() => patchSceneObject(session, slide.id, current.id, {
-			x: Math.max(0, Math.min(1 - current.w, current.x + (event.clientX - previous.px) / previous.width)),
-			y: Math.max(0, Math.min(1 - current.h, current.y + (event.clientY - previous.py) / previous.height))
-		}));
+		if (!shift.dx && !shift.dy) return;
+		run(() => patchSceneObjects(session, slide.id, (moving as SceneObject[]).map((o) => ({
+			id: o.id,
+			patch: { x: Math.max(0, Math.min(1 - o.w, o.x + shift.dx)), y: Math.max(0, Math.min(1 - o.h, o.y + shift.dy)) }
+		}))));
+	}
+
+	/** A rubber band on empty slide area selects the objects it fully encloses (Shift / Ctrl / Cmd adds to the selection). */
+	let band = $state<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+	let sweep: { pointer: number; rect: DOMRect; px: number; py: number; base: string[]; add: boolean; moved: boolean } | null = null;
+	function startBand(event: PointerEvent) {
+		const target = event.target as HTMLElement;
+		if (event.button !== 0 || !stage || !design || target.closest('.object-handle, .object-grip, .object-editor')) return;
+		event.preventDefault();
+		stage.focus();
+		stage.setPointerCapture(event.pointerId);
+		const add = additive(event);
+		sweep = { pointer: event.pointerId, rect: stage.getBoundingClientRect(), px: event.clientX, py: event.clientY, base: add ? ids : [], add, moved: false };
+	}
+	function bandMove(event: PointerEvent) {
+		if (!sweep || event.pointerId !== sweep.pointer || !design) return;
+		if (!sweep.moved && Math.hypot(event.clientX - sweep.px, event.clientY - sweep.py) < 3) return;
+		sweep.moved = true;
+		const at = (x: number, y: number) => ({ x: Math.max(0, Math.min(1, (x - sweep!.rect.left) / sweep!.rect.width)), y: Math.max(0, Math.min(1, (y - sweep!.rect.top) / sweep!.rect.height)) });
+		const a = at(sweep.px, sweep.py), b = at(event.clientX, event.clientY);
+		band = { x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y), x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y) };
+		const box = band;
+		const inside = design.objects.filter((o) => o.x >= box.x0 && o.y >= box.y0 && o.x + o.w <= box.x1 && o.y + o.h <= box.y1).map((o) => o.id);
+		const next = design.objects.map((o) => o.id).filter((id) => inside.includes(id) || sweep!.base.includes(id));
+		if (next.length !== ids.length || next.some((id, i) => id !== ids[i])) setSelection(next);
+	}
+	function bandEnd(event: PointerEvent) {
+		const previous = sweep;
+		if (!previous || event.pointerId !== previous.pointer) return;
+		sweep = null;
+		band = null;
+		if (stage?.hasPointerCapture(previous.pointer)) stage.releasePointerCapture(previous.pointer);
+		// A plain click on empty slide area deselects.
+		if (!previous.moved && !previous.add && ids.length) setSelection([]);
+	}
+	/** Keyboard focus on an object selects it, so Tab and Shift + Tab walk the selection through the slide. */
+	function focused(event: FocusEvent, object: SceneObject) {
+		if (!(event.currentTarget as HTMLElement).matches(':focus-visible')) return;
+		if (ids.includes(object.id) && (ids.length === 1 || !event.relatedTarget)) return;
+		choose(object.id);
 	}
 
 	/** The corner grip resizes from the bottom-right; the outline previews, the object follows on release. */
@@ -228,16 +384,23 @@
 	}
 
 	const arrangeItems = $derived.by((): MenuEntry[] => {
-		const object = chosen, objects = design?.objects || [];
-		if (!object) return [];
+		const group = chosenSet, objects = design?.objects || [];
+		if (!group.length) return [];
+		// One object aligns to the slide; several align to each other's bounds (as PowerPoint does).
+		const frame: Box = group.length > 1 ? groupBounds! : { x: 0, y: 0, w: 1, h: 1 };
+		const place = (fn: (o: SceneObject) => Partial<SceneObject>) => run(() => patchSceneObjects(session, slide.id, group.map((o) => ({ id: o.id, patch: fn(o) }))));
+		const top = Math.max(0, ...objects.map((o) => o.z)), bottom = Math.min(0, ...objects.map((o) => o.z));
 		return [
-			{ id: 'left', label: 'Align left', icon: 'alignLeft', disabled: !editable, onSelect: () => patch({ x: 0 }) },
-			{ id: 'center', label: 'Center horizontally', icon: 'alignCenter', disabled: !editable, onSelect: () => patch({ x: (1 - object.w) / 2 }) },
-			{ id: 'right', label: 'Align right', icon: 'alignRight', disabled: !editable, onSelect: () => patch({ x: 1 - object.w }) },
-			{ id: 'middle', label: 'Center vertically', icon: 'columns', disabled: !editable, onSelect: () => patch({ y: (1 - object.h) / 2 }) },
+			{ id: 'left', label: 'Align left', icon: 'alignLeft', disabled: !editable, onSelect: () => place(() => ({ x: frame.x })) },
+			{ id: 'center', label: 'Center horizontally', icon: 'alignCenter', disabled: !editable, onSelect: () => place((o) => ({ x: Math.max(0, frame.x + (frame.w - o.w) / 2) })) },
+			{ id: 'right', label: 'Align right', icon: 'alignRight', disabled: !editable, onSelect: () => place((o) => ({ x: Math.max(0, frame.x + frame.w - o.w) })) },
+			{ id: 'top', label: 'Align top', icon: 'alignLeft', disabled: !editable, onSelect: () => place(() => ({ y: frame.y })) },
+			{ id: 'middle', label: 'Center vertically', icon: 'columns', disabled: !editable, onSelect: () => place((o) => ({ y: Math.max(0, frame.y + (frame.h - o.h) / 2) })) },
+			{ id: 'bottom', label: 'Align bottom', icon: 'alignRight', disabled: !editable, onSelect: () => place((o) => ({ y: Math.max(0, frame.y + frame.h - o.h) })) },
+			{ id: 'duplicate', label: 'Duplicate', icon: 'copy', shortcut: 'Ctrl D', disabled: !editable, onSelect: () => pasteItems(group.map(strip)) },
 			{ id: 'sep', type: 'separator', label: '' },
-			{ id: 'forward', label: 'Bring forward', icon: 'layers', disabled: !editable, onSelect: () => patch({ z: Math.min(999999, Math.max(0, ...objects.map((o) => o.z)) + 1) }) },
-			{ id: 'back', label: 'Send behind', icon: 'layers', disabled: !editable, onSelect: () => patch({ z: Math.max(-999999, Math.min(0, ...objects.map((o) => o.z)) - 1) }) }
+			{ id: 'forward', label: 'Bring forward', icon: 'layers', disabled: !editable, onSelect: () => run(() => patchSceneObjects(session, slide.id, group.map((o, i) => ({ id: o.id, patch: { z: Math.min(999999, top + 1 + i) } })))) },
+			{ id: 'back', label: 'Send behind', icon: 'layers', disabled: !editable, onSelect: () => run(() => patchSceneObjects(session, slide.id, group.map((o, i) => ({ id: o.id, patch: { z: Math.max(-999999, bottom - group.length + i) } })))) }
 		];
 	});
 
@@ -272,7 +435,19 @@
 	{/if}
 	<div class="present-board__stage">
 		<div class="present-board__frame" style:--present-ratio={ratio}>
-			<div class="designer-stage" bind:this={stage}>
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
+			<div
+				class="designer-stage"
+				bind:this={stage}
+				tabindex="-1"
+				role="group"
+				aria-label="Slide objects"
+				onkeydown={keys}
+				onpointerdown={startBand}
+				onpointermove={bandMove}
+				onpointerup={bandEnd}
+				onpointercancel={bandEnd}
+			>
 				<AudienceSlideView {slide} {aspect} />
 				{#if design}
 					{#each design.objects as object, index (object.id)}
@@ -280,16 +455,18 @@
 						<button
 							type="button"
 							class="object-handle"
-							class:chosen={selected === object.id}
+							class:chosen={ids.includes(object.id)}
+							data-id={object.id}
 							style:left={`${object.x * 100}%`}
 							style:top={`${object.y * 100}%`}
 							style:width={`${size.w * 100}%`}
 							style:height={`${size.h * 100}%`}
 							aria-label={`${KIND_NAME[object.kind]} ${index + 1}${object.text ? `: ${object.text.slice(0, 40)}` : ''}`}
-							aria-pressed={selected === object.id}
-							aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Alt+ArrowRight Alt+ArrowDown Delete"
-							onclick={() => choose(object.id)}
-							onkeydown={(event) => keys(event, object)}
+							aria-pressed={ids.includes(object.id)}
+							aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Control+ArrowRight Alt+ArrowRight Alt+ArrowDown Delete Enter Control+A Control+C Control+X Control+V Control+D"
+							onclick={(event) => { if (event.detail === 0) choose(object.id); }}
+							ondblclick={() => void startTextEdit(object)}
+							onfocus={(event) => focused(event, object)}
 							onpointerdown={(event) => startDrag(event, object)}
 							onpointermove={dragMove}
 							onpointerup={(event) => finishDrag(event)}
@@ -308,6 +485,30 @@
 							></span>
 						{/if}
 					{/each}
+					{#each guides.x as at (at)}<span class="snap-guide snap-guide--v" aria-hidden="true" style:left={`${at * 100}%`}></span>{/each}
+					{#each guides.y as at (at)}<span class="snap-guide snap-guide--h" aria-hidden="true" style:top={`${at * 100}%`}></span>{/each}
+					{#if band}<span class="rubber-band" aria-hidden="true" style:left={`${band.x0 * 100}%`} style:top={`${band.y0 * 100}%`} style:width={`${(band.x1 - band.x0) * 100}%`} style:height={`${(band.y1 - band.y0) * 100}%`}></span>{/if}
+					{#if editingText && chosen && chosen.id === editingText && chosen.kind === 'text' && editable}
+						<!-- Opaque, so the slide's own copy of the words does not show through behind the caret. -->
+						<textarea
+							class="object-editor"
+							bind:this={textEditor}
+							aria-label="Slide text"
+							maxlength="6000"
+							value={chosen.text}
+							style:left={`${chosen.x * 100}%`}
+							style:top={`${chosen.y * 100}%`}
+							style:width={`${chosen.w * 100}%`}
+							style:height={`${chosen.h * 100}%`}
+							style:font-size={`${chosen.fontSize / 10}cqw`}
+							style:color={chosen.color}
+							style:background={chosen.fill && chosen.fill !== 'transparent' ? chosen.fill : scenePalette[design?.theme ?? 'paper'].background}
+							style:text-align={chosen.align}
+							oninput={(event) => patch({ text: event.currentTarget.value })}
+							onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); endTextEdit(true); } }}
+							onblur={() => endTextEdit()}
+						></textarea>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -432,6 +633,15 @@
 				</section>
 			{/if}
 			<button type="button" class="w-btn w-btn--quiet w-btn--sm present-inspector__remove" disabled={!editable} onclick={() => { const object = chosen; if (object) run(() => removeSceneObject(session, slide.id, object.id)); }}><Icon name="trash" size={16} />Remove object</button>
+		{:else if multi}
+			<section class="present-inspector__group" aria-labelledby="present-multi-kicker">
+				<h3 class="w-kicker present-inspector__kicker" id="present-multi-kicker">{chosenSet.length} objects selected</h3>
+				<p class="present-hint" role="status">Move, nudge, copy, delete and arrange them together. Pick one object to edit its position, text and look. {groupBounds ? `The group covers ${percent(groupBounds.w)}% by ${percent(groupBounds.h)}% of the slide.` : ''}</p>
+				<button type="button" class="w-btn w-btn--sm present-inspector__wide" aria-haspopup="menu" aria-expanded={arrangeOpen} disabled={!editable} onclick={(event) => { arrangeAnchor = event.currentTarget; arrangeOpen = !arrangeOpen; }}>
+					<Icon name="layers" size={16} />Align and arrange<Icon name="chevDown" size={14} />
+				</button>
+			</section>
+			<button type="button" class="w-btn w-btn--quiet w-btn--sm present-inspector__remove" disabled={!editable} onclick={() => removeAll(chosenSet)}><Icon name="trash" size={16} />Remove {chosenSet.length} objects</button>
 		{:else}
 			<div class="present-inspector__empty">
 				<p class="present-inspector__empty-title">Nothing selected</p>
@@ -440,5 +650,5 @@
 		{/if}
 	</div>
 </aside>
-<Menu label="Arrange" anchor={arrangeAnchor} bind:open={arrangeOpen} items={arrangeItems} heading={chosen ? KIND_NAME[chosen.kind] : null} />
+<Menu label="Arrange" anchor={arrangeAnchor} bind:open={arrangeOpen} items={arrangeItems} heading={chosen ? KIND_NAME[chosen.kind] : multi ? `${chosenSet.length} objects` : null} />
 <input class="workspace-file-input" bind:this={imageInput} type="file" accept="image/png,image/jpeg,image/webp" onchange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void image(file); }} />

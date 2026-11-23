@@ -7,9 +7,14 @@
  */
 const clock = (at: Date) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(at);
 
-export function compactStatus(status: string, at: Date): string {
-	if (status === 'Saved on this device') return `Saved ${clock(at)}`;
-	if (status === 'Synced to this server') return `Synced ${clock(at)}`;
+/**
+ * `where` adds the place to the two settled states, in words that stay visible when the locality
+ * tag collapses to a dot: a private file says "this device only", a shared one says where it
+ * synced. Without it the status is the bare time.
+ */
+export function compactStatus(status: string, at: Date, where?: 'device' | 'server'): string {
+	if (status === 'Saved on this device') return `Saved ${clock(at)}${where === 'device' ? ' · this device only' : ''}`;
+	if (status === 'Synced to this server') return `Synced ${clock(at)}${where === 'server' ? ' · on this server' : ''}`;
 	if (status === 'Saving on this device…') return 'Saving…';
 	if (status === 'Loading') return 'Opening…';
 	return status;

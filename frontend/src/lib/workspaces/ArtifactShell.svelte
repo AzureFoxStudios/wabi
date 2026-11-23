@@ -19,6 +19,9 @@
 	import { describeAnchor, linkAnchor } from './anchors';
 	import { setWorkspaceAddonEnabled } from './addonState';
 	import { compactStatus } from './officeStatus';
+	import { officeKeyAction, keyTarget } from './officeKeys';
+	import { shortcutsFor } from './officeShortcuts';
+	import { requestPersistence, savedPrivatelyMessage } from './persistentStorage';
 	import { clearStageHeader, setStageHeader, type StageHeaderAction } from '$lib/stageHeader';
 	import { confirmAction } from '$lib/confirm';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -99,6 +102,45 @@
 	/** A passing confirmation: a toast, never a band that moves the editor. */
 	function note(message: string) {
 		toast(message, { tone: 'info', timeout: 7000 });
+	}
+
+	/**
+	 * Ctrl/Cmd+S, Z and Y while focus is inside this editor (rules in officeKeys.ts). Save writes the
+	 * file where it lives and says where that is, so the key never opens the browser's own Save dialog.
+	 */
+	let root = $state<HTMLElement | null>(null);
+	let helpOpen = $state(false);
+	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+	const shortcutGroups = $derived(shortcutsFor(tool, isMac));
+	async function saveNow() {
+		await run(async () => {
+			await session.flush();
+			if (!alive) return;
+			if (session.record.meta) {
+				await session.sync();
+				if (alive) note('Synced to this server.');
+			} else {
+				// Saving is a deliberate action, so it is the moment to ask the browser to keep the file, and to say how that went.
+				const persistence = await requestPersistence();
+				if (alive) note(savedPrivatelyMessage(persistence));
+			}
+		});
+	}
+	/** The full, searchable list of every shortcut lives on Settings > Keyboard. */
+	function openKeyboardSettings() {
+		helpOpen = false;
+		window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'keyboard' } }));
+	}
+	function onOfficeKey(event: KeyboardEvent) {
+		if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return;
+		const action = officeKeyAction(event, keyTarget(event.target));
+		if (!action) return;
+		event.preventDefault();
+		if (action === 'help') { helpOpen = !helpOpen; return; }
+		if (action === 'save') { void saveNow(); return; }
+		if (!editable || busy) return;
+		if (action === 'undo') session.undo.undo();
+		else session.undo.redo();
 	}
 
 	function showSharing() {
@@ -281,7 +323,8 @@
 			{ id: 'task', label: 'Create private task', icon: 'calendarCheck', disabled: busy || !meta, hint: meta ? undefined : 'Share it first', onSelect: () => void handoff?.createTask() },
 			{ id: 'sep-2', type: 'separator', label: '' },
 			{ id: 'undo', label: 'Undo', icon: 'undo', shortcut: 'Ctrl Z', disabled: !editable || busy, onSelect: () => { session.undo.undo(); } },
-			{ id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl Shift Z', disabled: !editable || busy, onSelect: () => { session.undo.redo(); } }
+			{ id: 'redo', label: 'Redo', icon: 'redo', shortcut: 'Ctrl Shift Z', disabled: !editable || busy, onSelect: () => { session.undo.redo(); } },
+			{ id: 'shortcuts', label: 'Keyboard shortcuts', icon: 'info', shortcut: 'Ctrl /', onSelect: () => { helpOpen = true; } }
 		);
 		if (tool === 'sheets' || tool === 'present' || isAdmin) items.push({ id: 'sep-3', type: 'separator', label: '' });
 		if (tool === 'sheets' || tool === 'present') items.push({ id: 'off', label: `Turn off ${toolName} on this device…`, icon: 'eyeOff', onSelect: () => void run(turnOffTool) });
@@ -295,6 +338,10 @@
 		if (meta) list.push({ id: 'review', label: openReviews ? `Review, ${openReviews} open` : 'Review', icon: 'chat', iconOnly: true, pressed: reviewOpen, onSelect: () => { reviewOpen = !reviewOpen; } });
 		if (meta?.mode === 'snapshot' && meta.role === 'owner') list.push({ id: 'publish', label: 'Publish revision', icon: 'upload', variant: 'default', disabled: busy, onSelect: () => void run(() => session.sync(true)) });
 		list.push(...actions);
+		// Taking a copy away is one click, not a trip into ⋯: the tool's first export is its headline format
+		// (XLSX, Markdown, PPTX). On a phone it stays in ⋯ > Export, so the title keeps its room.
+		const headline = exports.find((entry) => !entry.disabled && typeof entry.onSelect === 'function' && entry.type !== 'separator' && entry.type !== 'kicker');
+		if (headline && !$isMobile) list.push({ id: 'download', label: `Download a copy (${headline.label})`, icon: 'download', iconOnly: true, disabled: busy, onSelect: () => { headline.onSelect?.(); } });
 		// On a phone Share… is the first row of ⋯ instead, so the title keeps its room.
 		if (isOwner && !$isMobile) list.push({ id: 'share', label: 'Share…', icon: 'share', variant: 'default', disabled: busy, onSelect: showSharing });
 		list.push({ id: 'more', label: `${toolName} options`, icon: 'more', iconOnly: true, onSelect: (anchor) => { moreAnchor = anchor; moreOpen = !moreOpen; } });
@@ -322,7 +369,7 @@
 				ontitle: (value: string) => editText(session.doc.getText('title'), value, session.origin),
 				onlibrary: () => void run(async () => { await session.flush(); if (alive) await onlibrary(); }),
 				shared: meta ? { role: meta.role, mode: meta.mode } : null,
-				status: compactStatus($sessionState.status, statusAt),
+				status: compactStatus($sessionState.status, statusAt, meta ? 'server' : 'device'),
 				selection: selectionAnchor ? selectedReference.label : null,
 				modes
 			},
@@ -336,7 +383,8 @@
 	});
 </script>
 
-<section class="wabi-workspace" aria-label={`${toolName} editor`}>
+<svelte:window onkeydown={onOfficeKey} />
+<section class="wabi-workspace" aria-label={`${toolName} editor`} bind:this={root}>
 	{#if error || $sessionState.error}
 		<Notice class="workspace-notice" title={error || $sessionState.error} text="Your work is still here on this device.">
 			{#snippet actions()}
@@ -430,6 +478,20 @@
 {#if moreAnchor}
 	<Menu items={menuItems} label={`${toolName} options`} anchor={moreAnchor} bind:open={moreOpen} align="end" heading={title} subheading={`${$sessionState.meta ? `Shared · ${$sessionState.meta.role}. Server-readable.` : 'Private · this device.'} ${compactStatus($sessionState.status, statusAt)}`} />
 {/if}
+
+<BaseModal isOpen={helpOpen} onClose={() => { helpOpen = false; }} size="md" padded title="Keyboard shortcuts" ariaLabel="Keyboard shortcuts">
+	<div class="workspace-keys">
+		{#each shortcutGroups as group (group.title)}
+			<section>
+				<h3 class="workspace-keys__title">{group.title}</h3>
+				<dl class="workspace-keys__list">
+					{#each group.rows as row (row.keys)}<dt>{row.keys}</dt><dd>{row.action}</dd>{/each}
+				</dl>
+			</section>
+		{/each}
+		<p class="workspace-keys__more"><button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={openKeyboardSettings}>Every Wabi shortcut, in Settings…</button></p>
+	</div>
+</BaseModal>
 
 <BaseModal isOpen={shareOpen} onClose={() => { if (!busy) shareOpen = false; }} size="md" padded title={`Share ${title}`} ariaLabel="Document sharing">
 	<form class="workspace-share" id="workspace-share-form" onsubmit={(event) => { event.preventDefault(); void run(share); }}>

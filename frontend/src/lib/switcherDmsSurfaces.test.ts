@@ -95,7 +95,9 @@ describe('switcher and rail stylesheets are on roles', () => {
 	test('the rail does not repeat the sidebar: no second ensō button, and Admin dashboard is not a gear', () => {
 		const rail = templateOf(read('../lib/components/ServerRail.svelte'));
 		expect(rail).not.toContain('rail-home');
-		const admin = rail.slice(rail.indexOf('aria-label="Admin dashboard"'), rail.indexOf('</button>', rail.indexOf('aria-label="Admin dashboard"')));
+		// The label is the translated rail.admin_dashboard string now, not literal English.
+		const adminLabel = "aria-label={$_('rail.admin_dashboard')}";
+		const admin = rail.slice(rail.indexOf(adminLabel), rail.indexOf('</button>', rail.indexOf(adminLabel)));
 		expect(admin).toContain('<Icon name="shield" />');
 		expect(admin).not.toContain('"gear"');
 	});

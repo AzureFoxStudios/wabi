@@ -15,15 +15,24 @@
  *   replaces that `/` with the chosen block in one undo step.
  * - `selectionReporter`: measures the main selection after every change that can move it, for
  *   the selection bubble. It reports `null` while the selection is empty or the editor is blurred.
- * - `writingKeymap`: Ctrl B / I / Shift X / E / Shift K for Bold, Italic, Strikethrough, Inline
- *   code and Link (Ctrl K stays the jump palette, D13), Ctrl Enter to tick the checklist item on
- *   the caret's line, and Alt F10 to reach the bubble from the keyboard.
+ * - `writingKeymap`: Ctrl B / I / Shift X / E for Bold, Italic, Strikethrough and Inline code,
+ *   Ctrl K for Link (Ctrl Shift K still works; inside the page Ctrl K is Link, the jump palette
+ *   stays one key away in the sidebar), Ctrl Alt 1-3 / 0 and Ctrl Shift N for headings and
+ *   Normal, Ctrl Shift L / 8 / 7 for bullets and numbers (writingBlocks.ts), Ctrl Enter to tick
+ *   the checklist item on the caret's line, and Alt F10 to reach the bubble from the keyboard.
+ * - Enter continues lists, Tab / Shift-Tab nest them (writingLists.ts); `writingPaste` turns pasted
+ *   HTML into Markdown (writingPaste.ts).
+ * - `writingFind` (writingFind.ts): Ctrl F Find, Ctrl H Find and replace, F3 / Enter to step.
  * - `runEdit`, `formatSelection`, `linkAtSelection`, `insertAtSelection`, `insertText`: dispatch
  *   the pure edits from writingMarkdown.ts as user input, so the host's update listener (and
  *   undo history) treats them like typing.
  */
 import { ChangeSet, Prec, type EditorState, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, placeholder as placeholderText, type DecorationSet, type ViewUpdate } from '@codemirror/view';
+import { setHeading, toggleList } from './writingBlocks';
+import { writingFind } from './writingFind';
+import { continueMarkup, indentListLess, indentListMore } from './writingLists';
+import { writingPaste } from './writingPaste';
 import {
 	activeMarks,
 	insertInline,
@@ -492,8 +501,20 @@ export function writingKeymap(onBubbleKey?: () => boolean): Extension {
 			{ key: 'Mod-i', run: (view) => formatSelection(view, 'italic') },
 			{ key: 'Mod-Shift-x', run: (view) => formatSelection(view, 'strike') },
 			{ key: 'Mod-e', run: (view) => formatSelection(view, 'code') },
+			{ key: 'Mod-k', run: (view) => linkAtSelection(view) },
 			{ key: 'Mod-Shift-k', run: (view) => linkAtSelection(view) },
+			{ key: 'Mod-Alt-1', run: (view) => setHeading(view, 1) },
+			{ key: 'Mod-Alt-2', run: (view) => setHeading(view, 2) },
+			{ key: 'Mod-Alt-3', run: (view) => setHeading(view, 3) },
+			{ key: 'Mod-Alt-0', run: (view) => setHeading(view, 0) },
+			{ key: 'Mod-Shift-n', run: (view) => setHeading(view, 0) },
+			{ key: 'Mod-Shift-l', run: (view) => toggleList(view, 'bullet') },
+			{ key: 'Mod-Shift-8', run: (view) => toggleList(view, 'bullet') },
+			{ key: 'Mod-Shift-7', run: (view) => toggleList(view, 'number') },
 			{ key: 'Mod-Enter', run: (view) => toggleTask(view) },
+			{ key: 'Enter', run: (view) => continueMarkup(view) },
+			{ key: 'Tab', run: (view) => indentListMore(view) },
+			{ key: 'Shift-Tab', run: (view) => indentListLess(view) },
 			{ key: 'Alt-F10', run: () => onBubbleKey?.() ?? false }
 		])
 	);
@@ -518,6 +539,8 @@ export function writingSurface(options: { placeholder?: string; onBubbleKey?: ()
 	return [
 		markdownLineStyles,
 		writingKeymap(options.onBubbleKey),
+		writingFind(),
+		writingPaste(),
 		options.placeholder ? placeholderText(options.placeholder) : [],
 		options.onSlash ? slashTrigger(options.onSlash) : []
 	];

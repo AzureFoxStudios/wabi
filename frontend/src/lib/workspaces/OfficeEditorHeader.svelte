@@ -66,17 +66,22 @@
 	aria-label="Document title"
 	value={title}
 	maxlength="200"
+	placeholder="Untitled"
 	disabled={!editable}
 	oninput={(event) => {
 		const value = event.currentTarget.value;
 		if (value.trim()) ontitle(value);
+	}}
+	onblur={(event) => {
+		// An emptied name is not saved; put the current title back instead of leaving a blank field.
+		if (!event.currentTarget.value.trim()) event.currentTarget.value = title;
 	}}
 />
 {#if shared}
 	<span class="w-seal oeh-chip" title="The server operator can read this file."><Icon name="lockOpen" />Server-readable</span>
 	<span class="w-tag oeh-chip oeh-scope" title={sharedTitle}><span class="w-dot oeh-scope__dot" aria-hidden="true"></span><span class="oeh-scope__words">Shared · {role}</span></span>
 {:else}
-	<span class="w-tag oeh-chip oeh-scope" title="Private on this device. Opening and editing do not upload this file."><span class="w-dot oeh-scope__dot" aria-hidden="true"></span><span class="oeh-scope__words">Private · this device</span></span>
+	<span class="w-tag oeh-chip oeh-scope" title="Saved only in this browser on this device. Other devices can't open it, and clearing this site's data deletes it. Use Backup (.wabi.json) in ⋯ to keep a copy."><span class="w-dot oeh-scope__dot" aria-hidden="true"></span><span class="oeh-scope__words">Private · this device</span></span>
 {/if}
 <span class="oeh-status" role="status">{status}{#if selection}<span class="oeh-selection">{` · ${selection}`}</span>{/if}</span>
 <!-- On a phone the modes are rows in ⋯ (ArtifactShell), so the title keeps row A. -->

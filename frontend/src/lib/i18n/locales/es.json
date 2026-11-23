@@ -33,7 +33,8 @@
       "admin": "Admin",
       "about": "Acerca de",
       "logout": "Cerrar sesión",
-      "privacy": "Privacidad y seguridad"
+      "privacy": "Privacidad y seguridad",
+      "keyboard": "Teclado"
     },
     "sections": {
       "display_name": "Nombre visible",
@@ -78,6 +79,17 @@
       "own_right": "Tus mensajes a la derecha",
       "reduce_motion": "Reducir movimiento",
       "chat_background": "Fondo del chat"
+    },
+    "keyboard": {
+      "title": "Atajos de teclado",
+      "intro": "Las teclas a las que responde Wabi hoy, por zona. Esta página es solo de consulta: no cambia ninguna tecla.",
+      "intro_mac": "Las teclas a las que responde Wabi hoy, por zona. En Mac, la mayoría de los atajos usan la tecla Comando donde otros sistemas usan Ctrl. Esta página es solo de consulta: no cambia ninguna tecla.",
+      "search_label": "Buscar atajos",
+      "search_placeholder": "Busca por tecla o acción, por ejemplo «rellenar» o Ctrl+K",
+      "count_all": "{count} atajos",
+      "count_matching": "{count} coincidencias",
+      "empty": "Ningún atajo coincide con «{query}».",
+      "unlisted": "Solo se muestran las teclas que están asignadas hoy y que se han comprobado. Las llamadas, la pizarra, los mapas y el visor de la galería tienen su propio manejo de teclas que aún no aparece aquí."
     }
   },
   "login": {
@@ -1253,7 +1265,10 @@
   "rail": {
     "servers": "Servidores",
     "add_or_switch": "Añadir o cambiar de servidor",
-    "admin_dashboard": "Panel de administración"
+    "admin_dashboard": "Panel de administración",
+    "saved_servers": "Servidores guardados",
+    "current_server": "servidor actual",
+    "unread": "{count} sin leer"
   },
   "voice": {
     "stop_recording": "Detener grabación",

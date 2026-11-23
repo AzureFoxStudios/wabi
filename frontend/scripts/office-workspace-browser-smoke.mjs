@@ -129,15 +129,22 @@ try {
                     const importInput=a.locator('[data-workspace-tool="present"] .workspace-library input[type="file"]');
                     await importInput.waitFor({state:'attached'});
                     await importInput.setInputFiles({name:fixture.name,mimeType:fixture.mimeType,buffer:fixture.buffer});
-                    await a.getByRole('heading',{name:'Convert a PowerPoint or OpenDocument presentation',exact:true}).waitFor();
-                    assert.equal(uploads,0,'Selecting an Office file must not upload it');checks++;
-                    const converting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/conversion')&&response.request().method()==='POST');
-                    await a.getByRole('button',{name:'Upload original for static conversion',exact:true}).click();
-                    const converted=await converting;const output=await converted.json();assert.equal(converted.status(),200,JSON.stringify(output));
-                    const pages=await a.evaluate(pdf=>window.workspaceTest.pdfText(pdf),output.pdf);
-                    assert.equal(pages.length,1);assert(pages[0].includes(fixture.expected));assert(!pages.join('').includes('PRIVATE_'));checks++;
+                    // .pptx is read in the browser as editable slides; only .odp goes through the converter.
+                    if(/\.pptx$/i.test(fixture.name)){
+                        await a.getByRole('button',{name:'Create private deck',exact:true}).waitFor();
+                        assert.equal(uploads,0,'A PowerPoint file is read in the browser and never uploaded');checks++;
+                    }else{
+                        await a.getByRole('heading',{name:'Convert a PowerPoint or OpenDocument presentation',exact:true}).waitFor();
+                        assert.equal(uploads,0,'Selecting an Office file must not upload it');checks++;
+                        const converting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/conversion')&&response.request().method()==='POST');
+                        await a.getByRole('button',{name:'Upload original for static conversion',exact:true}).click();
+                        const converted=await converting;const output=await converted.json();assert.equal(converted.status(),200,JSON.stringify(output));
+                        const pages=await a.evaluate(pdf=>window.workspaceTest.pdfText(pdf),output.pdf);
+                        assert.equal(pages.length,1);assert(pages[0].includes(fixture.expected));assert(!pages.join('').includes('PRIVATE_'));checks++;
+                    }
                     await a.getByRole('button',{name:'Create private deck',exact:true}).click();
-                    await a.getByLabel('Slide title',{exact:true}).waitFor();
+                    // Every slide has the layout field; a native PowerPoint slide is a canvas, which has no title field.
+                    await a.getByLabel('Slide layout',{exact:true}).waitFor();
                     const records=await a.evaluate(()=>window.workspaceTest.records('present'));const imported=records.find(item=>item.title===fixture.name);
                     assert(imported);assert.equal((await a.evaluate(id=>window.workspaceTest.record(id),imported.id)).originalName,fixture.name);checks++;
                     await a.getByRole('button',{name:'Present library',exact:true}).click();a.off('request',track);

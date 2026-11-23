@@ -86,3 +86,31 @@ export function setSceneTheme(session:ArtifactSession,slideId:string,theme:Scene
     const design=readDesign(session.data,slideId);if(!design)return;const source=collection(session.data).get(slideId)!.get('design') as Y.Map<unknown>,objects=source.get('objects') as Y.Map<Y.Map<unknown>>;
     session.doc.transact(()=>{source.set('theme',theme);for(const object of design.objects){const map=objects.get(object.id)!;if(object.color===scenePalette[design.theme].foreground)map.set('color',scenePalette[theme].foreground);if(object.fill===scenePalette[design.theme].accent)map.set('fill',scenePalette[theme].accent);}},session.origin);
 }
+
+/** Several objects at once, in ONE Yjs transaction so one undo reverses the whole edit. Everything is checked before anything is written. */
+export function patchSceneObjects(session:ArtifactSession,slideId:string,patches:{id:string;patch:Partial<SceneObject>}[]){
+    writable(session);if(!patches.length)return;
+    const design=readDesign(session.data,slideId);if(!design)throw new Error('Choose a native layout first.');
+    const source=collection(session.data).get(slideId)!.get('design') as Y.Map<unknown>,objects=source.get('objects') as Y.Map<Y.Map<unknown>>;
+    const planned=patches.map(({id,patch})=>{
+        const before=design.objects.find(o=>o.id===id);if(!before)throw new Error('Object was removed; the edit was not applied to another object.');
+        return {id,patch,next:cleanSceneObject({...before,...patch,id}),map:objects.get(id)!};
+    });
+    session.doc.transact(()=>{for(const{patch,next,map}of planned)for(const key of Object.keys(patch) as (keyof SceneObject)[]){if(key==='id')continue;if(key==='text'){const text=map.get('text');if(!(text instanceof Y.Text))throw new Error('Object text is not editable.');editText(text,next.text,session.origin);}else map.set(key,next[key]);}},session.origin);
+}
+export function removeSceneObjects(session:ArtifactSession,slideId:string,ids:string[]){
+    writable(session);const source=collection(session.data).get(slideId)?.get('design');if(!(source instanceof Y.Map))return;const objects=source.get('objects');if(!(objects instanceof Y.Map))return;
+    const found=ids.map(id=>objects.get(id)).filter((o):o is Y.Map<unknown>=>o instanceof Y.Map);
+    if(found.length)session.doc.transact(()=>{for(const object of found)object.set('removed',true);},session.origin);
+}
+/** Adds copies (ids and stacking are assigned here, in the given order, on top) in one transaction; returns the new ids. */
+export function addSceneObjects(session:ArtifactSession,slideId:string,items:Omit<SceneObject,'id'|'z'>[]):string[]{
+    writable(session);if(!items.length)return[];
+    const design=readDesign(session.data,slideId);if(!design)throw new Error('Choose a native layout first.');
+    const source=collection(session.data).get(slideId)!.get('design') as Y.Map<unknown>,objects=source.get('objects') as Y.Map<Y.Map<unknown>>;
+    if(objects.size+items.length>64)throw new Error('This release supports 64 stored objects per slide, including recoverable removed objects.');
+    const top=Math.max(0,...design.objects.map(o=>o.z));
+    const made=items.map((item,index)=>cleanSceneObject({...item,id:crypto.randomUUID(),z:top+1+index}));
+    session.doc.transact(()=>{for(const object of made)objects.set(object.id,objectMap(object));},session.origin);
+    return made.map(o=>o.id);
+}

@@ -63,6 +63,25 @@ describe('library', () => {
 	});
 });
 
+describe('keeping a copy', () => {
+	test("the header offers a one-click Download of the tool's first export, and Ctrl+S saves where the file lives", () => {
+		expect(shell).toContain("id: 'download'");
+		expect(shell).toContain('exports.find(');
+		expect(shell).toContain('Download a copy (${headline.label})');
+		expect(shell).toContain('<svelte:window onkeydown={onOfficeKey} />');
+		expect(shell).toContain('savedPrivatelyMessage(persistence)');
+		expect(shell).toContain('await requestPersistence()');
+	});
+
+	test('Ctrl+/ and the options menu open a shortcuts sheet built from the tool\'s own list', () => {
+		expect(shell).toContain("if (action === 'help') { helpOpen = !helpOpen; return; }");
+		expect(shell).toContain("{ id: 'shortcuts', label: 'Keyboard shortcuts'");
+		expect(shell).toContain('const shortcutGroups = $derived(shortcutsFor(tool, isMac));');
+		// ...and links to the full searchable list on Settings > Keyboard.
+		expect(shell).toContain("new CustomEvent('wabi:open-settings', { detail: { tab: 'keyboard' } })");
+	});
+});
+
 describe('editor header in row A', () => {
 	test('the shell registers the header with the stage masthead and clears it on destroy', () => {
 		expect(shell).toContain('setStageHeader(HEADER_OWNER, {');

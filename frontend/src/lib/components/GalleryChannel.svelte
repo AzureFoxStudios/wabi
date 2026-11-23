@@ -517,7 +517,7 @@
 											<span class="doc-kind">{guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model' ? '3D model · opens in the viewer' : 'Document · opens in a new tab'}</span>
 										</div>
 									{:else}
-										<img src={item.attachmentUrl} alt={item.attachmentName} class="recent-media" loading="lazy" />
+										<img src={item.attachmentUrl} alt={item.attachmentName} class="recent-media" loading="lazy" decoding="async" />
 									{/if}
 									<div class="recent-gloss"></div>
 									<div class="recent-card-info">
@@ -619,7 +619,7 @@
 											<span class="doc-kind">{guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model' ? '3D model · opens in the viewer' : 'Document · opens in a new tab'}</span>
 										</div>
 									{:else}
-										<img src={item.attachmentUrl} alt={item.attachmentName} class="card-media" loading="lazy" />
+										<img src={item.attachmentUrl} alt={item.attachmentName} class="card-media" loading="lazy" decoding="async" />
 									{/if}
 									<div class="card-gloss"></div>
 									<div class="card-overlay">
