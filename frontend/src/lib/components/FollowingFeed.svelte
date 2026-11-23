@@ -9,7 +9,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { channels, channelMessages, channelUnreadCounts, currentChannel, switchChannel, type Channel } from '$lib/socket';
 	import {
-		FOLLOW_ALERT_LEVEL_LABELS,
+		FOLLOW_ALERT_LEVEL_KEYS,
 		allServerFollowedChannels,
 		currentServerFollowedChannels,
 		cycleChannelFollowAlertLevel,
@@ -19,7 +19,7 @@
 	import { followedChannelSnapshots } from '$lib/followingSnapshots';
 	import { currentSavedServer, switchToSavedServerChannel } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
-	import { getChannelTypeLabel } from '$lib/channelTypes';
+	import { getChannelTypeLabelKey } from '$lib/channelTypes';
 	import Icon from '$lib/components/ui/Icon.svelte';
 
 	const MAX_FEED_ITEMS = 64;
@@ -80,11 +80,11 @@
 	}
 
 	function summarizeChannel(channel: Channel): string {
-		return getChannelTypeLabel(channel.type);
+		return $_(getChannelTypeLabelKey(channel.type));
 	}
 
 	function summarizeSnapshotChannel(channelType: Channel['type'] | undefined): string {
-		return getChannelTypeLabel(channelType);
+		return $_(getChannelTypeLabelKey(channelType));
 	}
 </script>
 
@@ -118,7 +118,7 @@
 							</span>
 							{#if entry.unreadCount > 0}<span class="w-badge w-badge--sm follow-row__count" aria-label={$_('following.unread_count', { values: { count: entry.unreadCount } })}>{entry.unreadCount}</span>{/if}
 							<span class="follow-row__actions">
-								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={$_('following.alert_level_for', { values: { name: entry.channel.name, level: FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel] } })} title={$_('following.change_alert')} on:click={() => cycleAlert(entry.channel.id)}><Icon name="bell" size={14} />{FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}</button>
+								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={$_('following.alert_level_for', { values: { name: entry.channel.name, level: $_(FOLLOW_ALERT_LEVEL_KEYS[entry.preference.alertLevel]) } })} title={$_('following.change_alert')} on:click={() => cycleAlert(entry.channel.id)}><Icon name="bell" size={14} />{$_(FOLLOW_ALERT_LEVEL_KEYS[entry.preference.alertLevel])}</button>
 								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={$_('following.unfollow_named', { values: { name: entry.channel.name } })} on:click={() => unfollowChannel(entry.channel.id)}>{$_('following.unfollow')}</button>
 							</span>
 							<button type="button" class="follow-row__hit" aria-label={$_('following.open_named', { values: { name: entry.channel.name } })} on:click={() => openChannel(entry.channel.id)}></button>

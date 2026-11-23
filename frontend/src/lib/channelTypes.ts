@@ -9,35 +9,26 @@ export function isRoutedChannelType(type: string | null | undefined): type is Ro
 	return Boolean(type && ROUTED_CHANNEL_TYPES.has(type));
 }
 
-export function getChannelTypeLabel(type: string | null | undefined): string {
+export function getChannelTypeLabelKey(type: string | null | undefined): string {
 	switch (type) {
-		case 'dm':
-			return 'DM';
-		case 'group':
-			return 'Group';
-		case 'voice':
-			return 'Voice';
-		case 'public':
-			return 'Public';
 		case 'thread_public':
 		case 'thread_private':
-			return 'Thread';
-		case 'forum':
-			return 'Forum';
-		case 'gallery':
-			return 'Gallery';
-		case 'wiki':
-			return 'Wiki';
-		case 'stage':
-			return 'Stage';
+			return 'channel_type.thread';
 		case 'lore':
-			return 'Project';
+			return 'channel_type.project';
+		case 'dm':
+		case 'group':
+		case 'voice':
+		case 'public':
+		case 'forum':
+		case 'gallery':
+		case 'wiki':
+		case 'stage':
 		case 'planning':
-			return 'Planning';
 		case 'reception':
-			return 'Reception';
+			return 'channel_type.' + type;
 		default:
-			return 'Text';
+			return 'channel_type.text';
 	}
 }
 

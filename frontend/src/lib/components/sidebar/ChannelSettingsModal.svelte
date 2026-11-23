@@ -29,9 +29,7 @@
 	import Select from '$lib/components/ui/Select.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import {
-		GATE_OPTIONS,
-		MANAGERS_LABEL,
-		MANAGERS_ONLY_HINT,
+		gateOptions,
 		canManageChannel,
 		channelDraftDirty,
 		channelSettingsNote,
@@ -74,7 +72,8 @@
 
 	const uid = `cs-${Math.random().toString(36).slice(2, 8)}`;
 	const formId = `${uid}-form`;
-	const RETENTION_OPTIONS = retentionOptions();
+	$: RETENTION_OPTIONS = retentionOptions($_);
+	$: GATE_OPTIONS = gateOptions($_);
 
 	// ---------------------------------------------------------------- who may do what
 	$: isStaff = canManageChannel($currentUser?.highestRole);
@@ -89,10 +88,10 @@
 	$: isFolder = channelKind === 'category';
 	$: isChatLikeChannel = isChatLikeKind(channelKind);
 	$: isConversation = channelKind === 'dm' || channelKind === 'group';
-	$: settingsTitle = channelSettingsTitle(channelKind);
+	$: settingsTitle = channelSettingsTitle(channelKind, $_);
 	$: placeName = channelSettingsNote(channelKind, channel.name);
 	$: kindNoun = isFolder ? $_('chan_sidebar.noun_folder') : isVoiceChannel ? $_('chset.noun_room') : $_('chan_sidebar.word_channel_one');
-	$: tabs = channelSettingsTabs(channelKind);
+	$: tabs = channelSettingsTabs(channelKind, $_);
 	/** Which section holds the offline-copies switch for this kind (null: none). */
 	$: persistTab = canTogglePersistMessages ? persistToggleTab(channelKind) : null;
 
@@ -766,7 +765,7 @@
 							<div class="w-srow__text">
 								<label class="w-srow__label" for="{uid}-capacity">{$_('chset.capacity')}</label>
 								<p class="w-srow__hint" id="{uid}-capacity-hint">
-									{$_('chset.capacity_hint')}{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
+									{$_('chset.capacity_hint')}{#if !canManageVoiceSettings} {$_('chset_model.managers_only_hint')}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -790,7 +789,7 @@
 							<div class="w-srow__text">
 								<p class="w-srow__label" id="{uid}-solo-label">{$_('chset.focused_audio')}</p>
 								<p class="w-srow__hint" id="{uid}-solo-hint">
-									{$_('chset.focused_hint')}{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
+									{$_('chset.focused_hint')}{#if !canManageVoiceSettings} {$_('chset_model.managers_only_hint')}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -816,7 +815,7 @@
 							<div class="w-srow__text">
 								<p class="w-srow__label" id="{uid}-queue-label">{$_('chset.queue_label')}</p>
 								<p class="w-srow__hint" id="{uid}-queue-hint">
-									{$_('chset.queue_hint', { values: { noun: kindNoun } })}{#if !canManageWatchQueue} {MANAGERS_ONLY_HINT}{/if}
+									{$_('chset.queue_hint', { values: { noun: kindNoun } })}{#if !canManageWatchQueue} {$_('chset_model.managers_only_hint')}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -966,7 +965,7 @@
 								{isStaff ? $_('chset.you_are_one') : $_('chset.ask_one')}
 							</p>
 						</div>
-						<div class="w-srow__control"><span class="cs-fact">{MANAGERS_LABEL}</span></div>
+						<div class="w-srow__control"><span class="cs-fact">{$_('chset_model.managers_label')}</span></div>
 					</div>
 				</div>
 			{:else if activeTab === 'retention'}
@@ -975,7 +974,7 @@
 						<div class="w-srow__text">
 							<p class="w-srow__label" id="{uid}-lifetime-label">{$_('chset.lifetime_label')}</p>
 							<p class="w-srow__hint" id="{uid}-lifetime-hint">
-								{$_('chset.lifetime_hint')}{#if !isStaff} {MANAGERS_ONLY_HINT}{/if}
+								{$_('chset.lifetime_hint')}{#if !isStaff} {$_('chset_model.managers_only_hint')}{/if}
 							</p>
 						</div>
 						<div class="w-srow__control">
