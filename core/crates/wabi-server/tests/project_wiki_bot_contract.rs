@@ -698,6 +698,7 @@ async fn wabi_bot_ping_requires_text_channel_membership_and_is_visible_to_human(
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{human_ping}");
+    let ping = json!({"channel_id":text, "content":"WABI_BOT_PING_OK", "replyTo":human_ping["id"]});
     let (status, bot_history) = request(
         &app,
         Method::GET,
@@ -1016,17 +1017,35 @@ async fn wiki_read_and_delete_recheck_credentials_after_membership_gate_wait() {
     );
 }
 
-/// Send a bot message and return only the status.
+/// Send a bot message (optionally replying to a trigger) and return the status.
 async fn bot_send(app: &Router, credential: &str, channel: &str, content: &str) -> StatusCode {
+    bot_reply(app, credential, channel, content, None).await
+}
+
+async fn bot_reply(app: &Router, credential: &str, channel: &str, content: &str, reply_to: Option<&str>) -> StatusCode {
     request(
         app,
         Method::POST,
         "/bot/send-message",
         credential,
-        json!({"channel_id":channel, "content":content}),
+        json!({"channel_id":channel, "content":content, "replyTo":reply_to}),
     )
     .await
     .0
+}
+
+/// A person posts in a channel; returns the new message ID.
+async fn human_post(app: &Router, credential: &str, channel: &str, content: &str) -> String {
+    let (status, body) = request(
+        app,
+        Method::POST,
+        "/messages",
+        credential,
+        json!({"channel_id":channel, "content":content}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["id"].as_str().unwrap().to_string()
 }
 
 /// The prompt-injection scenario: a bot that reads one channel must not be
@@ -1064,7 +1083,8 @@ async fn bot_reaches_only_owner_granted_channels_and_cannot_join_others() {
         request(&app, Method::POST, "/bot/channel-access", &owner_credential, grant(&granted, true)).await.0,
         StatusCode::OK,
     );
-    assert_eq!(bot_send(&app, &bot_credential, &granted, "in scope").await, StatusCode::OK);
+    let trigger = human_post(&app, &jwt(&state, member), &granted, "@scope-bot hello").await;
+    assert_eq!(bot_reply(&app, &bot_credential, &granted, "in scope", Some(&trigger)).await, StatusCode::OK);
     assert_eq!(
         request(&app, Method::GET, &format!("/messages/{granted}"), &bot_credential, json!(null)).await.0,
         StatusCode::OK,
@@ -1177,4 +1197,129 @@ async fn a_bot_listed_as_admin_gets_no_extra_channel_reach() {
     )
     .await;
     assert!(matches!(status, StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED), "{status} {created}");
+}
+
+/// The commenter's scenario: a bot granted two channels, called in one,
+/// cannot be steered into posting in the other. Every bot post must answer a
+/// recent message from a person, in the same channel, that @-mentions it,
+/// unless the owner allowed unprompted posts there. The audit log records
+/// posts, refusals and owner actions.
+#[tokio::test]
+async fn bot_posts_only_where_a_person_called_it_and_every_attempt_is_audited() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let owner = state.wdb.create_user("trig-owner", None, "test-hash").await.unwrap();
+    state.wdb.claim_owner(owner).await.unwrap();
+    *state.owner_user_id.write().await = Some(owner as i64);
+    let member = state.wdb.create_user("trig-member", None, "test-hash").await.unwrap();
+    let bot = state.wdb.create_user("trig-bot", None, "test-hash").await.unwrap();
+    let other_bot = state.wdb.create_user("other-bot", None, "test-hash").await.unwrap();
+    let (token, _) = state.bot_registry.create(bot).await.unwrap();
+    let (other_token, _) = state.bot_registry.create(other_bot).await.unwrap();
+    let bot_credential = format!("Bot {token}");
+    let owner_credential = jwt(&state, owner);
+    let member_credential = jwt(&state, member);
+    let called = state.wdb.create_channel("called", ChannelKind::Text, owner, false).await.unwrap();
+    let elsewhere = state.wdb.create_channel("elsewhere", ChannelKind::Text, owner, false).await.unwrap();
+    for channel in [&called, &elsewhere] {
+        for user in [owner, member] {
+            state.wdb.add_channel_member(channel, user, MemberRole::Member).await.unwrap();
+        }
+    }
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    for (bot_id, channel) in [(bot, &called), (bot, &elsewhere), (other_bot, &called), (other_bot, &elsewhere)] {
+        assert_eq!(
+            request(&app, Method::POST, "/bot/channel-access", &owner_credential,
+                json!({"botUserId":bot_id, "channelId":channel, "allow":true})).await.0,
+            StatusCode::OK,
+        );
+    }
+
+    let mention = human_post(&app, &member_credential, &called, "@trig-bot please summarize").await;
+    let no_mention = human_post(&app, &member_credential, &elsewhere, "just chatting").await;
+    let lookalike = human_post(&app, &member_credential, &elsewhere, "@trig-bot2 hi").await;
+
+    // Called in one channel, the bot answers there...
+    assert_eq!(bot_reply(&app, &bot_credential, &called, "summary", Some(&mention)).await, StatusCode::OK);
+    // ...but cannot use that call, or anything else, to post elsewhere.
+    assert_eq!(bot_reply(&app, &bot_credential, &elsewhere, "injected", Some(&mention)).await, StatusCode::FORBIDDEN);
+    assert_eq!(bot_reply(&app, &bot_credential, &elsewhere, "injected", None).await, StatusCode::FORBIDDEN);
+    assert_eq!(bot_reply(&app, &bot_credential, &elsewhere, "injected", Some(&no_mention)).await, StatusCode::FORBIDDEN);
+    assert_eq!(bot_reply(&app, &bot_credential, &elsewhere, "injected", Some(&lookalike)).await, StatusCode::FORBIDDEN);
+    assert_eq!(bot_reply(&app, &bot_credential, &elsewhere, "injected", Some("msg_does_not_exist")).await, StatusCode::FORBIDDEN);
+    // A bot's own message, or another bot's, never counts as a call.
+    let other_bot_call = request(&app, Method::POST, "/bot/send-message", &format!("Bot {other_token}"),
+        json!({"channel_id":elsewhere, "content":"@trig-bot go"})).await;
+    assert_eq!(other_bot_call.0, StatusCode::FORBIDDEN, "the other bot needs a call too");
+    state.bot_policy.set_unprompted(other_bot, &elsewhere, true).await.unwrap();
+    let (status, bot_call) = request(&app, Method::POST, "/bot/send-message", &format!("Bot {other_token}"),
+        json!({"channel_id":elsewhere, "content":"@trig-bot go"})).await;
+    assert_eq!(status, StatusCode::OK, "{bot_call}");
+    let bot_call_id = bot_call["messageId"].as_str().unwrap().to_string();
+    assert_eq!(bot_reply(&app, &bot_credential, &elsewhere, "injected", Some(&bot_call_id)).await, StatusCode::FORBIDDEN);
+    // The human send route is closed to bot tokens, so it cannot bypass the rule.
+    assert_eq!(
+        request(&app, Method::POST, "/messages", &bot_credential, json!({"channel_id":elsewhere, "content":"bypass"})).await.0,
+        StatusCode::FORBIDDEN,
+    );
+    let (_, history) = request(&app, Method::GET, &format!("/messages/{elsewhere}"), &owner_credential, json!(null)).await;
+    assert!(!history["messages"].as_array().unwrap().iter()
+        .any(|m| m["content"] == "injected" || m["content"] == "bypass"), "{history}");
+
+    // Only the owner may allow unprompted posts, and only in a granted channel.
+    let unprompted = json!({"botUserId":bot, "channelId":elsewhere, "allow":true});
+    for credential in [&bot_credential, &member_credential] {
+        assert_eq!(request(&app, Method::POST, "/bot/unprompted", credential, unprompted.clone()).await.0, StatusCode::FORBIDDEN);
+    }
+    let ungranted = state.wdb.create_channel("ungranted", ChannelKind::Text, owner, false).await.unwrap();
+    assert_eq!(
+        request(&app, Method::POST, "/bot/unprompted", &owner_credential,
+            json!({"botUserId":bot, "channelId":ungranted, "allow":true})).await.0,
+        StatusCode::BAD_REQUEST,
+    );
+    assert_eq!(request(&app, Method::POST, "/bot/unprompted", &owner_credential, unprompted).await.0, StatusCode::OK);
+    assert_eq!(bot_send(&app, &bot_credential, &elsewhere, "scheduled summary").await, StatusCode::OK);
+    let (_, listed) = request(&app, Method::GET, &format!("/bot/channel-access?botUserId={bot}"), &owner_credential, json!(null)).await;
+    let flags: Vec<(String, bool)> = listed["channels"].as_array().unwrap().iter()
+        .map(|c| (c["channelId"].as_str().unwrap().to_string(), c["unprompted"].as_bool().unwrap())).collect();
+    assert!(flags.contains(&(elsewhere.clone(), true)) && flags.contains(&(called.clone(), false)), "{listed}");
+
+    // Revoking the channel also drops the exception: a re-grant starts trigger-only.
+    for allow in [false, true] {
+        assert_eq!(
+            request(&app, Method::POST, "/bot/channel-access", &owner_credential,
+                json!({"botUserId":bot, "channelId":elsewhere, "allow":allow})).await.0,
+            StatusCode::OK,
+        );
+    }
+    assert_eq!(bot_send(&app, &bot_credential, &elsewhere, "after regrant").await, StatusCode::FORBIDDEN);
+
+    // The audit log is owner-only and shows posts, refusals and owner actions.
+    let audit_path = format!("/bot/audit?botUserId={bot}");
+    for credential in [&bot_credential, &member_credential] {
+        assert_eq!(request(&app, Method::GET, &audit_path, credential, json!(null)).await.0, StatusCode::FORBIDDEN);
+    }
+    let (status, audit) = request(&app, Method::GET, &audit_path, &owner_credential, json!(null)).await;
+    assert_eq!(status, StatusCode::OK, "{audit}");
+    let entries = audit["entries"].as_array().unwrap();
+    let count = |event: &str| entries.iter().filter(|e| e["event"] == event).count();
+    assert_eq!(count("post"), 2, "{audit}");
+    // Six refused replies plus the refusal after the re-grant.
+    assert_eq!(count("post_refused"), 7, "{audit}");
+    assert_eq!(count("channel_granted"), 3, "{audit}");
+    assert_eq!(count("channel_revoked"), 1, "{audit}");
+    assert_eq!(count("unprompted_allowed"), 1, "{audit}");
+    let first_post = entries.iter().find(|e| e["event"] == "post").unwrap();
+    assert_eq!(first_post["channelId"], called.as_str());
+    assert_eq!(first_post["replyTo"], mention.as_str());
+    assert!(entries.iter().all(|e| e["botUserId"] == bot), "other bots' entries must not leak in");
+    let refused_elsewhere = entries.iter()
+        .find(|e| e["event"] == "post_refused" && e["replyTo"] == mention.as_str()).unwrap();
+    assert_eq!(refused_elsewhere["channelId"], elsewhere.as_str());
+    assert!(refused_elsewhere["reason"].as_str().unwrap().contains("not in this channel"), "{refused_elsewhere}");
+    let grant = entries.iter().find(|e| e["event"] == "channel_granted").unwrap();
+    assert_eq!(grant["actorUserId"], owner as i64);
+    let (_, newest) = request(&app, Method::GET, &format!("{audit_path}&limit=1"), &owner_credential, json!(null)).await;
+    assert_eq!(newest["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(newest["entries"][0]["event"], "post_refused");
 }

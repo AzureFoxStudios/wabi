@@ -195,7 +195,26 @@ for Projects) and can list a bot's channels with
 `GET /api/bot/channel-access?botUserId=`. DMs and groups cannot be granted.
 This bounds what a prompt-injected agent can reach to the channels the owner
 chose; read vs. post scopes within a granted channel are not implemented yet.
-Contract: `tests/project_wiki_bot_contract.rs`.
+
+**Bot chat posts must answer a call.** `POST /api/bot/send-message` requires
+`replyTo`: a message in the same channel, not deleted, written by a person (not
+a bot), at most 15 minutes old, that @-mentions the bot's username or handle.
+So text a bot reads in one channel cannot make it post in another channel where
+nobody called it. It does not limit *what* the bot says where it was called.
+The owner can allow unprompted posts (e.g. scheduled summaries) per bot and
+granted channel with `POST /api/bot/unprompted`; these exceptions live in
+`<data_dir>/bot_post_policy.json` and are dropped when the channel is revoked.
+`POST /api/messages` refuses bot tokens, so the rule cannot be bypassed there.
+Bots cannot open Socket.IO sessions (handshakes accept only account JWTs, and
+bot accounts cannot log in). Other workspace writes (wiki, cards, forum) are
+bounded by channel grants only.
+
+**Bot audit log.** `<data_dir>/bot_audit.jsonl` records every bot post, every
+refused post with its reason, and owner grant/revoke/unprompted/rotate/disable
+actions; the owner reads it with `GET /api/bot/audit?botUserId=&limit=`.
+Refused posts are the signal to watch. It is best-effort operator diagnostics,
+not tamper evidence, and rotates once at 8 MiB.
+Contracts: `tests/project_wiki_bot_contract.rs`; unit tests in `src/bot_policy.rs`.
 
 **Owner protections** (cannot be bypassed by a normal admin):
 - Cannot be **banned** (`socketio/dm_moderation.rs:262`).

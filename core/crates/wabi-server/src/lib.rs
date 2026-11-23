@@ -15,6 +15,7 @@ pub mod blacklist;
 pub mod blobs;
 pub mod bootstrap_guard;
 pub mod bot_delivery;
+pub mod bot_policy;
 pub mod bot_registry;
 pub mod call_access;
 pub mod channel_access;

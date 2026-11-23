@@ -24,7 +24,7 @@ Lore credentials) established `channel_access::require_access` as the
 shared REST/Socket.IO channel policy. October's new surface is the
 `game:*` family; see the audit report for its per-event adjudication.
 
-## HTTP routes (348 declarations; 309 under `api/`)
+## HTTP routes (350 declarations; 311 under `api/`)
 
 Rows marked `other` come from `app_router.rs` (operational endpoints),
 the helper/inbox/replica binaries and `socket.rs`, plus test-fixture
@@ -89,12 +89,14 @@ scan, not a claim that a fixture router is production-exposed.
 | `core/crates/wabi-server/src/api/boosters.rs:175` | API | `/boosters` | `/tickets/{id}` | GET | `ticket` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/boosters.rs:176` | API | `/boosters` | `/tickets/{id}/answer` | POST | `answer` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/boosters.rs:177` | API | `/boosters` | `/tickets/{id}/receipt` | POST | `receipt` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/bots.rs:33` | API | `/bot` | `/create` | POST | `handle_create` | AuthUser bearer, owner |
-| `core/crates/wabi-server/src/api/bots.rs:34` | API | `/bot` | `/rotate` | POST | `handle_rotate` | AuthUser bearer, owner |
-| `core/crates/wabi-server/src/api/bots.rs:35` | API | `/bot` | `/disable` | POST | `handle_disable` | AuthUser bearer, owner |
-| `core/crates/wabi-server/src/api/bots.rs:36` | API | `/bot` | `/project-access` | POST | `handle_project_access` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/bots.rs:40` | API | `/bot` | `/channel-access` | GET/POST | `handle_list_channel_access, handle_channel_access` | AuthUser bearer, owner |
-| `core/crates/wabi-server/src/api/bots.rs:44` | API | `/bot` | `/send-message` | POST | `handle_send_message` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/bots.rs:39` | API | `/bot` | `/create` | POST | `handle_create` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:40` | API | `/bot` | `/rotate` | POST | `handle_rotate` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:41` | API | `/bot` | `/disable` | POST | `handle_disable` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:42` | API | `/bot` | `/project-access` | POST | `handle_project_access` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/bots.rs:46` | API | `/bot` | `/channel-access` | GET/POST | `handle_list_channel_access, handle_channel_access` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:50` | API | `/bot` | `/unprompted` | POST | `handle_unprompted` | AuthUser bearer, channel_access module, owner |
+| `core/crates/wabi-server/src/api/bots.rs:51` | API | `/bot` | `/audit` | GET | `handle_audit` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:52` | API | `/bot` | `/send-message` | POST | `handle_send_message` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/cad.rs:63` | API | `/cad` | `/capabilities` | GET | `capabilities` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/cad.rs:64` | API | `/cad` | `/dwg-to-dxf` | POST | `convert_dwg_to_dxf` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/calls.rs:20` | API | `/calls` | `/sessions` | POST | `create_session` | AuthUser bearer |

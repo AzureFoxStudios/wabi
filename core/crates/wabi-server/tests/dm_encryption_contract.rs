@@ -2017,6 +2017,9 @@ async fn bots_post_in_a_new_room_only_after_every_human_member_chose_server_read
         .await;
     let group = sio_a.event("group-created").await["channelId"].as_str().unwrap().to_string();
     state.wdb.add_channel_member(&group, bot, MemberRole::Member).await.unwrap();
+    // This test is about encryption consent, not triggers: let the bot post
+    // without one, so only the consent rule decides each answer below.
+    state.bot_policy.set_unprompted(bot, &group, true).await.unwrap();
     let post = |text: &str| {
         let (app, credential, ch, text) = (app.clone(), format!("Bot {bot_token}"), group.clone(), text.to_string());
         async move { request(&app, Method::POST, "/bot/send-message", &credential, json!({"channel_id":ch,"content":text})).await }

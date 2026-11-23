@@ -19,6 +19,7 @@ mod blacklist;
 mod blobs;
 mod bootstrap_guard;
 mod bot_delivery;
+mod bot_policy;
 mod bot_registry;
 mod call_access;
 mod channel_access;

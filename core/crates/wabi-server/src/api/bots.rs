@@ -6,6 +6,11 @@
 //! - POST /api/bot/disable — owner-only, revokes a bot token
 //! - POST /api/bot/channel-access — owner-only, grants or removes one channel
 //! - GET  /api/bot/channel-access?botUserId= — owner-only, lists a bot's channels
+//! - POST /api/bot/unprompted — owner-only, allows untriggered posts in one channel
+//! - GET  /api/bot/audit?botUserId= — owner-only, the bot's audit log
+//!
+//! Bot chat posts must reply (`replyTo`) to a recent message from a person in
+//! the same channel that @-mentions the bot; see `crate::bot_policy`.
 //!
 //! A bot token is one credential per bot, but it reaches only the channels the
 //! owner granted: bots cannot join channels themselves and never count as
@@ -20,6 +25,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::auth_extractor::AuthUser;
+use crate::bot_policy::AuditEvent;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
@@ -41,6 +47,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/channel-access",
             axum::routing::get(handle_list_channel_access).post(handle_channel_access),
         )
+        .route("/unprompted", axum::routing::post(handle_unprompted))
+        .route("/audit", axum::routing::get(handle_audit))
         .route("/send-message", axum::routing::post(handle_send_message))
         .with_state(state)
 }
@@ -123,8 +131,10 @@ async fn handle_rotate(
     Json(req): Json<BotUserRequest>,
 ) -> Result<Json<BotRotateResponse>> {
     require_owner(&state, &auth).await?;
+    let actor = auth.user_id;
+    let bot_user_id = req.bot_user_id;
 
-    state
+    let result = state
         .owner_bot_operation(auth, move |state| async move {
             let bot_token = state
                 .bot_registry
@@ -136,7 +146,11 @@ async fn handle_rotate(
                 bot_token,
             }))
         })
-        .await
+        .await;
+    if result.is_ok() {
+        state.bot_policy.record(AuditEvent::new(bot_user_id, "token_rotated").actor(actor)).await;
+    }
+    result
 }
 
 /// POST /api/bot/disable — revoke a bot's token and disable the account.
@@ -146,8 +160,10 @@ async fn handle_disable(
     Json(req): Json<BotUserRequest>,
 ) -> Result<Json<serde_json::Value>> {
     require_owner(&state, &auth).await?;
+    let actor = auth.user_id;
+    let bot_user_id = req.bot_user_id;
 
-    state
+    let result = state
         .owner_bot_operation(auth, move |state| async move {
             if !state.bot_registry.disable(req.bot_user_id).await? {
                 return Err(AppError::NotFound(format!(
@@ -159,7 +175,11 @@ async fn handle_disable(
                 json!({ "success": true, "botUserId": req.bot_user_id }),
             ))
         })
-        .await
+        .await;
+    if result.is_ok() {
+        state.bot_policy.record(AuditEvent::new(bot_user_id, "disabled").actor(actor)).await;
+    }
+    result
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,12 +229,14 @@ async fn handle_list_channel_access(
     if !state.bot_registry.is_bot(query.bot_user_id).await {
         return Err(AppError::NotFound("Bot not found".into()));
     }
+    let unprompted = state.bot_policy.unprompted_channels(query.bot_user_id).await;
     let channels: Vec<serde_json::Value> = state
         .wdb
         .list_channels(Some(query.bot_user_id))
         .await?
         .into_iter()
         .map(|channel| json!({
+            "unprompted": unprompted.contains(&channel.channel_id),
             "channelId": channel.channel_id,
             "name": channel.name,
             "kind": channel.channel_kind,
@@ -230,10 +252,12 @@ async fn set_bot_channel_access(
     projects_only: bool,
 ) -> Result<Json<serde_json::Value>> {
     require_owner(&state, &auth).await?;
+    let actor = auth.user_id;
+    let (bot_user_id, channel_id, allow) = (req.bot_user_id, req.channel_id.clone(), req.allow);
     // Serialize admission changes with in-flight channel, Project and wiki
     // writes, so a removed bot cannot commit after revocation completes.
     let membership = state.membership_gate.clone().write_owned().await;
-    state.owner_bot_operation(auth, move |state| async move {
+    let result = state.owner_bot_operation(auth, move |state| async move {
     let _membership = membership;
     if !state.bot_registry.is_bot(req.bot_user_id).await {
         return Err(AppError::NotFound("Bot not found".into()));
@@ -252,8 +276,73 @@ async fn set_bot_channel_access(
     } else if !req.allow && member {
         state.wdb.remove_channel_member(&req.channel_id, req.bot_user_id).await?;
     }
+    if !req.allow {
+        // A later re-grant starts trigger-only again.
+        state.bot_policy.set_unprompted(req.bot_user_id, &req.channel_id, false).await
+            .map_err(|error| AppError::Internal(format!("bot post policy: {error}")))?;
+    }
     Ok(Json(json!({ "botUserId": req.bot_user_id, "channelId": req.channel_id, "allowed": req.allow })))
-    }).await
+    }).await;
+    if result.is_ok() {
+        let event = if allow { "channel_granted" } else { "channel_revoked" };
+        state.bot_policy.record(AuditEvent::new(bot_user_id, event).channel(&channel_id).actor(actor)).await;
+    }
+    result
+}
+
+/// POST /api/bot/unprompted — owner allows (or stops allowing) one bot to post
+/// in one granted channel without a trigger, e.g. for scheduled summaries.
+async fn handle_unprompted(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<BotProjectAccessRequest>,
+) -> Result<Json<serde_json::Value>> {
+    require_owner(&state, &auth).await?;
+    let actor = auth.user_id;
+    if !state.bot_registry.is_bot(req.bot_user_id).await {
+        return Err(AppError::NotFound("Bot not found".into()));
+    }
+    if req.allow && !crate::channel_access::is_member(&state, req.bot_user_id as i64, &req.channel_id).await? {
+        return Err(AppError::BadRequest("Grant the bot this channel before allowing unprompted posts".into()));
+    }
+    state
+        .bot_policy
+        .set_unprompted(req.bot_user_id, &req.channel_id, req.allow)
+        .await
+        .map_err(|error| AppError::Internal(format!("bot post policy: {error}")))?;
+    let event = if req.allow { "unprompted_allowed" } else { "unprompted_removed" };
+    state
+        .bot_policy
+        .record(AuditEvent::new(req.bot_user_id, event).channel(&req.channel_id).actor(actor))
+        .await;
+    Ok(Json(json!({ "botUserId": req.bot_user_id, "channelId": req.channel_id, "unprompted": req.allow })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BotAuditQuery {
+    bot_user_id: u64,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// GET /api/bot/audit?botUserId=&limit= — owner-only: the newest audit
+/// entries for one bot (default 100, at most 1000), oldest first.
+async fn handle_audit(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    axum::extract::Query(query): axum::extract::Query<BotAuditQuery>,
+) -> Result<Json<serde_json::Value>> {
+    require_owner(&state, &auth).await?;
+    if !state.bot_registry.is_bot(query.bot_user_id).await {
+        return Err(AppError::NotFound("Bot not found".into()));
+    }
+    let entries = state
+        .bot_policy
+        .read_audit(query.bot_user_id, query.limit.unwrap_or(100))
+        .await
+        .map_err(|error| AppError::Internal(format!("bot audit: {error}")))?;
+    Ok(Json(json!({ "botUserId": query.bot_user_id, "entries": entries })))
 }
 
 /// POST /api/bot/send-message — send a message as the authenticated bot.
@@ -273,35 +362,22 @@ async fn handle_send_message(
         ));
     }
     let sender_id = auth.user_id as u64;
-    let sender_username = auth.username;
+    let sender_username = auth.username.clone();
 
     // Reuse the same WDB write path as REST /api/messages.
     let retention_guard = state.retention_policy_lock.lock().await;
-    crate::channel_access::require_participation(&state, auth.user_id, &req.channel_id).await?;
-    let blacklist = state
-        .get_blacklist()
-        .await
-        .ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
-    if blacklist
-        .is_channel_timed_out(&req.channel_id, auth.user_id)
-        .await
-        .is_some()
-    {
-        return Err(AppError::Forbidden(
-            "Bot is timed out in this channel".into(),
-        ));
-    }
-    crate::api::e2ee::require_bot_post_allowed(&state, &req.channel_id).await?;
-    if state
-        .channel_auto_delete_label
-        .read()
-        .await
-        .get(&req.channel_id)
-        .is_some_and(|label| label == "live")
-    {
-        return Err(AppError::BadRequest(
-            "Bot sends are unavailable in Live rooms because this endpoint stores messages".into(),
-        ));
+    if let Err(error) = authorize_bot_post(&state, &auth, &req).await {
+        drop(retention_guard);
+        state
+            .bot_policy
+            .record(
+                AuditEvent::new(sender_id, "post_refused")
+                    .channel(&req.channel_id)
+                    .reply_to(req.reply_to.as_deref())
+                    .reason(&error.to_string()),
+            )
+            .await;
+        return Err(error);
     }
     let created_at_micros = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -323,6 +399,15 @@ async fn handle_send_message(
         .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[])
         .await?;
     drop(retention_guard);
+    state
+        .bot_policy
+        .record(
+            AuditEvent::new(sender_id, "post")
+                .channel(&req.channel_id)
+                .message(&message_id)
+                .reply_to(req.reply_to.as_deref()),
+        )
+        .await;
 
     let message_view = json!({
         "id": message_id.clone(),
@@ -408,6 +493,83 @@ pub async fn ensure_hermes_bot(state: &AppState) -> Result<String> {
     Ok(format!("user-{}", user_id))
 }
 
+/// Every check a bot post must pass before it is stored: channel access,
+/// moderation, encryption, retention mode, and the trigger rule.
+async fn authorize_bot_post(state: &AppState, auth: &AuthUser, req: &BotSendMessageRequest) -> Result<()> {
+    crate::channel_access::require_participation(state, auth.user_id, &req.channel_id).await?;
+    let blacklist = state
+        .get_blacklist()
+        .await
+        .ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
+    if blacklist
+        .is_channel_timed_out(&req.channel_id, auth.user_id)
+        .await
+        .is_some()
+    {
+        return Err(AppError::Forbidden(
+            "Bot is timed out in this channel".into(),
+        ));
+    }
+    crate::api::e2ee::require_bot_post_allowed(state, &req.channel_id).await?;
+    if state
+        .channel_auto_delete_label
+        .read()
+        .await
+        .get(&req.channel_id)
+        .is_some_and(|label| label == "live")
+    {
+        return Err(AppError::BadRequest(
+            "Bot sends are unavailable in Live rooms because this endpoint stores messages".into(),
+        ));
+    }
+    require_trigger(state, auth.user_id as u64, &req.channel_id, req.reply_to.as_deref()).await
+}
+
+/// A bot may post only in reply to a recent message from a person, in the
+/// same channel, that @-mentions the bot, unless the owner allowed
+/// unprompted posts for this bot in this channel. Text the bot read in one
+/// channel therefore cannot make it post anywhere a person did not call it.
+async fn require_trigger(state: &AppState, bot_user_id: u64, channel_id: &str, reply_to: Option<&str>) -> Result<()> {
+    if state.bot_policy.allows_unprompted(bot_user_id, channel_id).await {
+        return Ok(());
+    }
+    let refuse = |reason: &str| Err(AppError::Forbidden(reason.into()));
+    let Some(reply_to) = reply_to.filter(|id| !id.is_empty()) else {
+        return refuse("Bot posts must reply (replyTo) to a recent message that @-mentions the bot");
+    };
+    // Missing and other-channel triggers get the same answer, so a bot cannot
+    // probe which message IDs exist elsewhere.
+    let Some(trigger) = state
+        .wdb
+        .get_message_typed(reply_to)
+        .await?
+        .filter(|message| !message.is_deleted && message.channel_id == channel_id)
+    else {
+        return refuse("The trigger message is not in this channel");
+    };
+    if trigger.author_user_id == bot_user_id || state.bot_registry.is_bot(trigger.author_user_id).await {
+        return refuse("Only a person's message can trigger a bot post");
+    }
+    let age = crate::bot_policy::now_micros() - trigger.created_at_micros;
+    if age > crate::bot_policy::TRIGGER_MAX_AGE_MICROS {
+        return refuse("The trigger message is too old (15 minute limit)");
+    }
+    let bot = state
+        .wdb
+        .get_user(bot_user_id)
+        .await?
+        .ok_or_else(|| AppError::Forbidden("Bot account is unavailable".into()))?;
+    let mentioned = crate::bot_policy::mentions(&trigger.content, &bot.username)
+        || bot
+            .handle
+            .as_deref()
+            .is_some_and(|handle| crate::bot_policy::mentions(&trigger.content, handle));
+    if !mentioned {
+        return refuse("The trigger message does not @-mention this bot");
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 struct BotSendMessageRequest {
     channel_id: String,
@@ -415,6 +577,10 @@ struct BotSendMessageRequest {
     message_type: Option<String>,
     #[serde(default)]
     is_spoiler: bool,
+    /// The message this post answers: a recent message from a person in the
+    /// same channel that @-mentions the bot.
+    #[serde(default, alias = "replyTo")]
+    reply_to: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

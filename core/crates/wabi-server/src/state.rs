@@ -123,6 +123,8 @@ pub struct AppState {
     pub blob_registry: BlobRegistry,
     /// Bot account registry (opaque-token lifecycle: create/rotate/disable)
     pub bot_registry: BotRegistry,
+    /// Where bots may post without a trigger, and the bot audit log.
+    pub bot_policy: crate::bot_policy::BotPolicy,
     /// Ownership registry for files under `/uploads/` (ops metadata, not authz)
     pub upload_registry: UploadRegistry,
     /// Media room routing registry (voice/video assignment to helper nodes)
@@ -393,6 +395,7 @@ impl AppState {
         let bot_registry = BotRegistry::new_persistent_with_operations(
             PathBuf::from(&config.data_dir), instance_operations.clone(),
         )?;
+        let bot_policy = crate::bot_policy::BotPolicy::load(PathBuf::from(&config.data_dir))?;
         let upload_registry = UploadRegistry::new_for_authority(
             PathBuf::from(&config.data_dir),
             PathBuf::from(&config.uploads_dir),
@@ -588,6 +591,7 @@ impl AppState {
             job_queue,
             blob_registry,
             bot_registry,
+            bot_policy,
             upload_registry,
             media_registry,
             sio: std::sync::RwLock::new(None),

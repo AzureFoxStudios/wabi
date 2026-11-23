@@ -10,6 +10,7 @@ pub const NAMES: &[&str] = &[
     "admin_policies.json",
     "blacklist.txt",
     "blob_registry.json",
+    "bot_post_policy.json",
     "bots.json",
     "channel_retention.json",
     "community_roster.json",

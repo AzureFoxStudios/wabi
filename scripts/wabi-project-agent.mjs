@@ -81,9 +81,12 @@ switch (command) {
     break;
   }
   case 'ping': {
-    const [content] = args;
-    if (!content) fail('Usage: ping MESSAGE');
-    result = await request('POST', '/bot/send-message', { channel_id: channelId, content });
+    // Bot posts must answer a recent message from a person in this channel
+    // that @-mentions the bot (REPLY_TO_MESSAGE_ID), unless the owner
+    // allowed unprompted posts here (POST /api/bot/unprompted).
+    const [content, replyTo] = args;
+    if (!content) fail('Usage: ping MESSAGE [REPLY_TO_MESSAGE_ID]');
+    result = await request('POST', '/bot/send-message', { channel_id: channelId, content, ...(replyTo ? { replyTo } : {}) });
     break;
   }
   default:

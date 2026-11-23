@@ -144,6 +144,13 @@ async fn send_message(
     auth: AuthUser,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<MessageResponse>> {
+    // Bots post only through /api/bot/send-message, where the trigger rule
+    // and the bot audit log apply. Accepting a bot token here would bypass both.
+    if auth.is_bot {
+        return Err(AppError::Forbidden(
+            "Bots post through /api/bot/send-message".into(),
+        ));
+    }
     let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
     let operation_state = state.clone();
     admission.run(&operation_state, async move {
