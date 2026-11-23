@@ -630,6 +630,8 @@ async fn wabi_bot_ping_requires_text_channel_membership_and_is_visible_to_human(
         .create_user("ping-human", None, "test-hash")
         .await
         .unwrap();
+    state.wdb.claim_owner(human).await.unwrap();
+    *state.owner_user_id.write().await = Some(human as i64);
     let bot = state
         .wdb
         .create_user("ping-bot", None, "test-hash")
@@ -662,6 +664,7 @@ async fn wabi_bot_ping_requires_text_channel_membership_and_is_visible_to_human(
         .0,
         StatusCode::FORBIDDEN,
     );
+    // A bot cannot join a text channel by itself; the owner grants it.
     assert_eq!(
         request(
             &app,
@@ -669,6 +672,18 @@ async fn wabi_bot_ping_requires_text_channel_membership_and_is_visible_to_human(
             &format!("/channels/{text}/join"),
             &bot_credential,
             json!(null)
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            "/bot/channel-access",
+            &jwt(&state, human),
+            json!({"botUserId":bot, "channelId":text, "allow":true})
         )
         .await
         .0,
@@ -999,4 +1014,167 @@ async fn wiki_read_and_delete_recheck_credentials_after_membership_gate_wait() {
             .body,
         "original"
     );
+}
+
+/// Send a bot message and return only the status.
+async fn bot_send(app: &Router, credential: &str, channel: &str, content: &str) -> StatusCode {
+    request(
+        app,
+        Method::POST,
+        "/bot/send-message",
+        credential,
+        json!({"channel_id":channel, "content":content}),
+    )
+    .await
+    .0
+}
+
+/// The prompt-injection scenario: a bot that reads one channel must not be
+/// able to join, read or post in any other channel the owner did not grant.
+#[tokio::test]
+async fn bot_reaches_only_owner_granted_channels_and_cannot_join_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let owner = state.wdb.create_user("scope-owner", None, "test-hash").await.unwrap();
+    state.wdb.claim_owner(owner).await.unwrap();
+    *state.owner_user_id.write().await = Some(owner as i64);
+    let member = state.wdb.create_user("scope-member", None, "test-hash").await.unwrap();
+    let bot = state.wdb.create_user("scope-bot", None, "test-hash").await.unwrap();
+    let (token, _) = state.bot_registry.create(bot).await.unwrap();
+    let bot_credential = format!("Bot {token}");
+    let owner_credential = jwt(&state, owner);
+    let granted = state.wdb.create_channel("granted", ChannelKind::Text, owner, false).await.unwrap();
+    let other = state.wdb.create_channel("other", ChannelKind::Text, owner, false).await.unwrap();
+    for channel in [&granted, &other] {
+        for user in [owner, member] {
+            state.wdb.add_channel_member(channel, user, MemberRole::Member).await.unwrap();
+        }
+    }
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let grant = |channel: &str, allow: bool| json!({"botUserId":bot, "channelId":channel, "allow":allow});
+
+    // Nobody but the owner can grant, including the bot itself.
+    for credential in [&bot_credential, &jwt(&state, member)] {
+        assert_eq!(
+            request(&app, Method::POST, "/bot/channel-access", credential, grant(&granted, true)).await.0,
+            StatusCode::FORBIDDEN,
+        );
+    }
+    assert_eq!(
+        request(&app, Method::POST, "/bot/channel-access", &owner_credential, grant(&granted, true)).await.0,
+        StatusCode::OK,
+    );
+    assert_eq!(bot_send(&app, &bot_credential, &granted, "in scope").await, StatusCode::OK);
+    assert_eq!(
+        request(&app, Method::GET, &format!("/messages/{granted}"), &bot_credential, json!(null)).await.0,
+        StatusCode::OK,
+    );
+
+    // Everything outside the grant is refused: joining, reading and posting.
+    assert_eq!(
+        request(&app, Method::POST, &format!("/channels/{other}/join"), &bot_credential, json!(null)).await.0,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(bot_send(&app, &bot_credential, &other, "injected").await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        request(&app, Method::GET, &format!("/messages/{other}"), &bot_credential, json!(null)).await.0,
+        StatusCode::FORBIDDEN,
+    );
+    let (_, other_history) =
+        request(&app, Method::GET, &format!("/messages/{other}"), &owner_credential, json!(null)).await;
+    assert!(!other_history["messages"].as_array().unwrap().iter().any(|m| m["content"] == "injected"));
+
+    // The owner can review the bot's reach.
+    let path = format!("/bot/channel-access?botUserId={bot}");
+    assert_eq!(request(&app, Method::GET, &path, &jwt(&state, member), json!(null)).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(request(&app, Method::GET, &path, &bot_credential, json!(null)).await.0, StatusCode::FORBIDDEN);
+    let (status, listed) = request(&app, Method::GET, &path, &owner_credential, json!(null)).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let ids: Vec<&str> = listed["channels"].as_array().unwrap().iter().map(|c| c["channelId"].as_str().unwrap()).collect();
+    assert_eq!(ids, vec![granted.as_str()]);
+
+    // Revoking the grant ends reading and posting at once.
+    assert_eq!(
+        request(&app, Method::POST, "/bot/channel-access", &owner_credential, grant(&granted, false)).await.0,
+        StatusCode::OK,
+    );
+    assert_eq!(bot_send(&app, &bot_credential, &granted, "after revoke").await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        request(&app, Method::GET, &format!("/messages/{granted}"), &bot_credential, json!(null)).await.0,
+        StatusCode::FORBIDDEN,
+    );
+    let (_, listed) = request(&app, Method::GET, &path, &owner_credential, json!(null)).await;
+    assert!(listed["channels"].as_array().unwrap().is_empty(), "{listed}");
+}
+
+/// Conversation membership belongs to the people in it, not the owner.
+#[tokio::test]
+async fn owner_cannot_grant_a_bot_a_dm_or_group() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let owner = state.wdb.create_user("dm-owner", None, "test-hash").await.unwrap();
+    state.wdb.claim_owner(owner).await.unwrap();
+    *state.owner_user_id.write().await = Some(owner as i64);
+    let bot = state.wdb.create_user("dm-bot", None, "test-hash").await.unwrap();
+    let (token, _) = state.bot_registry.create(bot).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    for kind in [ChannelKind::Dm, ChannelKind::GroupDm] {
+        let conversation = state.wdb.create_channel("private", kind, owner, false).await.unwrap();
+        state.wdb.add_channel_member(&conversation, owner, MemberRole::Member).await.unwrap();
+        assert_eq!(
+            request(
+                &app,
+                Method::POST,
+                "/bot/channel-access",
+                &jwt(&state, owner),
+                json!({"botUserId":bot, "channelId":conversation, "allow":true})
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST,
+        );
+        assert!(!state.wdb.list_channel_members(&conversation).await.unwrap().iter().any(|m| m.user_id == bot));
+        assert_eq!(bot_send(&app, &format!("Bot {token}"), &conversation, "x").await, StatusCode::FORBIDDEN);
+    }
+}
+
+/// Listing a bot in admin_user_ids must not turn its token into access to
+/// every ordinary channel, or into permission to create channels.
+#[tokio::test]
+async fn a_bot_listed_as_admin_gets_no_extra_channel_reach() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let owner = state.wdb.create_user("admin-owner", None, "test-hash").await.unwrap();
+    state.wdb.claim_owner(owner).await.unwrap();
+    let bot = state.wdb.create_user("admin-bot", None, "test-hash").await.unwrap();
+    let (token, _) = state.bot_registry.create(bot).await.unwrap();
+    let channel = state.wdb.create_channel("staff-only", ChannelKind::Text, owner, false).await.unwrap();
+    state.wdb.add_channel_member(&channel, owner, MemberRole::Member).await.unwrap();
+
+    let mut config = state.config.clone();
+    config.admin_user_ids = vec![bot as i64];
+    drop(state);
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
+    assert!(!state.is_admin(bot as i64).await, "a bot must never count as an admin");
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let credential = format!("Bot {token}");
+
+    assert_eq!(bot_send(&app, &credential, &channel, "as admin").await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        request(&app, Method::GET, &format!("/messages/{channel}"), &credential, json!(null)).await.0,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        request(&app, Method::POST, &format!("/channels/{channel}/join"), &credential, json!(null)).await.0,
+        StatusCode::FORBIDDEN,
+    );
+    let (status, created) = request(
+        &app,
+        Method::POST,
+        "/channels",
+        &credential,
+        json!({"name":"bot-made", "channel_type":"text"}),
+    )
+    .await;
+    assert!(matches!(status, StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED), "{status} {created}");
 }

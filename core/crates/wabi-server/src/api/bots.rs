@@ -4,6 +4,12 @@
 //! - POST /api/bot/create — owner-only, mints a bot account + opaque token
 //! - POST /api/bot/rotate  — owner-only, rotates an existing bot's token
 //! - POST /api/bot/disable — owner-only, revokes a bot token
+//! - POST /api/bot/channel-access — owner-only, grants or removes one channel
+//! - GET  /api/bot/channel-access?botUserId= — owner-only, lists a bot's channels
+//!
+//! A bot token is one credential per bot, but it reaches only the channels the
+//! owner granted: bots cannot join channels themselves and never count as
+//! admins (see `AppState::is_admin`).
 //!
 //! Bots authenticate with `Authorization: Bot <token>` (see auth_extractor).
 //! The token is high-entropy and stored only as a hash in the bot registry.
@@ -30,6 +36,10 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/project-access",
             axum::routing::post(handle_project_access),
+        )
+        .route(
+            "/channel-access",
+            axum::routing::get(handle_list_channel_access).post(handle_channel_access),
         )
         .route("/send-message", axum::routing::post(handle_send_message))
         .with_state(state)
@@ -166,8 +176,61 @@ async fn handle_project_access(
     auth: AuthUser,
     Json(req): Json<BotProjectAccessRequest>,
 ) -> Result<Json<serde_json::Value>> {
+    set_bot_channel_access(state, auth, req, true).await
+}
+
+/// POST /api/bot/channel-access — owner-controlled admission to any ordinary
+/// channel. Bots cannot join channels themselves, so this is the only way a
+/// bot gains a channel. DMs and groups are refused: their membership belongs
+/// to the people in them, not to the server owner.
+async fn handle_channel_access(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<BotProjectAccessRequest>,
+) -> Result<Json<serde_json::Value>> {
+    set_bot_channel_access(state, auth, req, false).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BotChannelListQuery {
+    bot_user_id: u64,
+}
+
+/// GET /api/bot/channel-access?botUserId= — every channel a bot is a member
+/// of, so an owner can review (and revoke) a bot's reach, including channels
+/// it joined itself before bots needed a grant.
+async fn handle_list_channel_access(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    axum::extract::Query(query): axum::extract::Query<BotChannelListQuery>,
+) -> Result<Json<serde_json::Value>> {
     require_owner(&state, &auth).await?;
-    // Serialize Project admission changes with in-flight Project and wiki
+    if !state.bot_registry.is_bot(query.bot_user_id).await {
+        return Err(AppError::NotFound("Bot not found".into()));
+    }
+    let channels: Vec<serde_json::Value> = state
+        .wdb
+        .list_channels(Some(query.bot_user_id))
+        .await?
+        .into_iter()
+        .map(|channel| json!({
+            "channelId": channel.channel_id,
+            "name": channel.name,
+            "kind": channel.channel_kind,
+        }))
+        .collect();
+    Ok(Json(json!({ "botUserId": query.bot_user_id, "channels": channels })))
+}
+
+async fn set_bot_channel_access(
+    state: Arc<AppState>,
+    auth: AuthUser,
+    req: BotProjectAccessRequest,
+    projects_only: bool,
+) -> Result<Json<serde_json::Value>> {
+    require_owner(&state, &auth).await?;
+    // Serialize admission changes with in-flight channel, Project and wiki
     // writes, so a removed bot cannot commit after revocation completes.
     let membership = state.membership_gate.clone().write_owned().await;
     state.owner_bot_operation(auth, move |state| async move {
@@ -176,9 +239,12 @@ async fn handle_project_access(
         return Err(AppError::NotFound("Bot not found".into()));
     }
     let channel = state.wdb.get_channel(&req.channel_id).await?
-        .ok_or_else(|| AppError::NotFound("Project channel not found".into()))?;
-    if !matches!(channel.channel_kind, wabidb::domain::ChannelKind::Planning | wabidb::domain::ChannelKind::Lore) {
+        .ok_or_else(|| AppError::NotFound(if projects_only { "Project channel not found" } else { "Channel not found" }.into()))?;
+    if projects_only && !matches!(channel.channel_kind, wabidb::domain::ChannelKind::Planning | wabidb::domain::ChannelKind::Lore) {
         return Err(AppError::BadRequest("Bot project access requires a Planning or Project channel".into()));
+    }
+    if crate::channel_access::is_conversation(channel.channel_kind) {
+        return Err(AppError::BadRequest("Bots cannot be granted DMs or groups; their members decide who joins".into()));
     }
     let member = crate::channel_access::is_member(&state, req.bot_user_id as i64, &req.channel_id).await?;
     if req.allow && !member {

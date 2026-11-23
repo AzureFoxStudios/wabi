@@ -185,6 +185,18 @@ unmanageable. The hardening below defends against both:
 
 `has_role(user_id, role)` (`state.rs:342`) checks the same `rbac_roles` index.
 
+**Bots are never admins.** `is_admin` returns `false` for any account in the
+bot registry, even one listed in `admin_user_ids` or holding the `Admin` role.
+Bot tokens (`Authorization: Bot …`) are accepted by ordinary `AuthUser` routes,
+and admin status widens channel access, so a bot counted as admin would reach
+every ordinary channel. A bot also cannot join a channel itself: the owner
+grants each one with `POST /api/bot/channel-access` (or `/api/bot/project-access`
+for Projects) and can list a bot's channels with
+`GET /api/bot/channel-access?botUserId=`. DMs and groups cannot be granted.
+This bounds what a prompt-injected agent can reach to the channels the owner
+chose; read vs. post scopes within a granted channel are not implemented yet.
+Contract: `tests/project_wiki_bot_contract.rs`.
+
 **Owner protections** (cannot be bypassed by a normal admin):
 - Cannot be **banned** (`socketio/dm_moderation.rs:262`).
 - Cannot be **demoted or removed**; only the owner may grant the `Owner` role,

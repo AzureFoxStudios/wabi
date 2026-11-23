@@ -763,7 +763,15 @@ impl AppState {
 
     /// Returns true if the user is the server owner, is listed in the
     /// configured `admin_user_ids`, or holds the `Admin` (or higher) role.
+    ///
+    /// Bot accounts are never admins, whatever role or config entry they hold.
+    /// Bot tokens are accepted by `AuthUser` routes, and admin status widens
+    /// channel access, so a bot holding an admin role would otherwise reach
+    /// every ordinary channel without the owner granting each one.
     pub async fn is_admin(&self, user_id: i64) -> bool {
+        if user_id > 0 && self.bot_registry.is_bot(user_id as u64).await {
+            return false;
+        }
         if self.is_owner(user_id).await {
             return true;
         }

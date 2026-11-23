@@ -524,8 +524,16 @@ async fn join_channel(
         return if already_member { Ok(Json(serde_json::json!({ "joined": true, "channelId": id }))) }
             else { Err(AppError::Forbidden("Conversation membership required".into())) };
     }
-    if auth.is_bot && matches!(channel.channel_kind, wabidb::domain::ChannelKind::Planning | wabidb::domain::ChannelKind::Lore) && !already_member {
-        return Err(AppError::Forbidden("The server owner must grant this bot project access".into()));
+    // Bots never join by themselves: the owner grants each channel through
+    // /api/bot/channel-access (or /api/bot/project-access for Projects). A bot
+    // token reaches only channels someone chose for it, so text a bot reads in
+    // one channel cannot steer it into joining and posting in another.
+    if auth.is_bot && !already_member {
+        return Err(AppError::Forbidden(if matches!(channel.channel_kind, wabidb::domain::ChannelKind::Planning | wabidb::domain::ChannelKind::Lore) {
+            "The server owner must grant this bot project access".into()
+        } else {
+            "The server owner must grant this bot access to this channel".into()
+        }));
     }
     if !crate::channel_access::channel_role_allows(&state, user_id, &id).await? {
         return Err(AppError::Forbidden("Channel requires a role you have not chosen or been assigned".into()));

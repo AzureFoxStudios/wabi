@@ -24,7 +24,7 @@ Lore credentials) established `channel_access::require_access` as the
 shared REST/Socket.IO channel policy. October's new surface is the
 `game:*` family; see the audit report for its per-event adjudication.
 
-## HTTP routes (355 declarations; 316 under `api/`)
+## HTTP routes (348 declarations; 309 under `api/`)
 
 Rows marked `other` come from `app_router.rs` (operational endpoints),
 the helper/inbox/replica binaries and `socket.rs`, plus test-fixture
@@ -89,11 +89,12 @@ scan, not a claim that a fixture router is production-exposed.
 | `core/crates/wabi-server/src/api/boosters.rs:175` | API | `/boosters` | `/tickets/{id}` | GET | `ticket` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/boosters.rs:176` | API | `/boosters` | `/tickets/{id}/answer` | POST | `answer` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/boosters.rs:177` | API | `/boosters` | `/tickets/{id}/receipt` | POST | `receipt` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/bots.rs:27` | API | `/bot` | `/create` | POST | `handle_create` | AuthUser bearer, owner |
-| `core/crates/wabi-server/src/api/bots.rs:28` | API | `/bot` | `/rotate` | POST | `handle_rotate` | AuthUser bearer, owner |
-| `core/crates/wabi-server/src/api/bots.rs:29` | API | `/bot` | `/disable` | POST | `handle_disable` | AuthUser bearer, owner |
-| `core/crates/wabi-server/src/api/bots.rs:30` | API | `/bot` | `/project-access` | POST | `handle_project_access` | AuthUser bearer, channel_access module, owner, membership gate, gate |
-| `core/crates/wabi-server/src/api/bots.rs:34` | API | `/bot` | `/send-message` | POST | `handle_send_message` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/bots.rs:33` | API | `/bot` | `/create` | POST | `handle_create` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:34` | API | `/bot` | `/rotate` | POST | `handle_rotate` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:35` | API | `/bot` | `/disable` | POST | `handle_disable` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:36` | API | `/bot` | `/project-access` | POST | `handle_project_access` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/bots.rs:40` | API | `/bot` | `/channel-access` | GET/POST | `handle_list_channel_access, handle_channel_access` | AuthUser bearer, owner |
+| `core/crates/wabi-server/src/api/bots.rs:44` | API | `/bot` | `/send-message` | POST | `handle_send_message` | AuthUser bearer, channel_access module |
 | `core/crates/wabi-server/src/api/cad.rs:63` | API | `/cad` | `/capabilities` | GET | `capabilities` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/cad.rs:64` | API | `/cad` | `/dwg-to-dxf` | POST | `convert_dwg_to_dxf` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/calls.rs:20` | API | `/calls` | `/sessions` | POST | `create_session` | AuthUser bearer |
@@ -114,12 +115,12 @@ scan, not a claim that a fixture router is production-exposed.
 | `core/crates/wabi-server/src/api/community.rs:16` | API | `/community` | `/roster` | GET/PUT | `get_roster, put_roster` | AuthUser bearer, membership gate, gate |
 | `core/crates/wabi-server/src/api/conversation_notes.rs:52` | API | `/conversation-notes` | `/{channel_id}` | GET/POST | `list_notes, create_note` | AuthUser bearer, membership gate, gate |
 | `core/crates/wabi-server/src/api/conversation_notes.rs:53` | API | `/conversation-notes` | `/{channel_id}/{note_id}` | PUT/DELETE | `update_note, delete_note` | AuthUser bearer, membership gate, gate |
-| `core/crates/wabi-server/src/api/e2ee.rs:265` | API | `/e2ee` | `/devices` | GET/POST | `list_my_devices, register_device` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/e2ee.rs:266` | API | `/e2ee` | `/devices/{device_id}` | DELETE | `revoke_device` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/e2ee.rs:267` | API | `/e2ee` | `/channels/{channel_id}` | GET | `room_status` | AuthUser bearer, membership gate, gate |
-| `core/crates/wabi-server/src/api/e2ee.rs:268` | API | `/e2ee` | `/channels/{channel_id}/enable` | POST | `enable_room` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/e2ee.rs:269` | API | `/e2ee` | `/channels/{channel_id}/rekey` | POST | `rekey_room` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/e2ee.rs:270` | API | `/e2ee` | `/channels/{channel_id}/allow-server-readable` | POST | `allow_server_readable` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/e2ee.rs:268` | API | `/e2ee` | `/devices` | GET/POST | `list_my_devices, register_device` | AuthUser bearer |
+| `core/crates/wabi-server/src/api/e2ee.rs:269` | API | `/e2ee` | `/devices/{device_id}` | DELETE | `revoke_device` | AuthUser bearer |
+| `core/crates/wabi-server/src/api/e2ee.rs:270` | API | `/e2ee` | `/channels/{channel_id}` | GET | `room_status` | AuthUser bearer, membership gate, gate |
+| `core/crates/wabi-server/src/api/e2ee.rs:271` | API | `/e2ee` | `/channels/{channel_id}/enable` | POST | `enable_room` | AuthUser bearer |
+| `core/crates/wabi-server/src/api/e2ee.rs:272` | API | `/e2ee` | `/channels/{channel_id}/rekey` | POST | `rekey_room` | AuthUser bearer |
+| `core/crates/wabi-server/src/api/e2ee.rs:273` | API | `/e2ee` | `/channels/{channel_id}/allow-server-readable` | POST | `allow_server_readable` | AuthUser bearer, channel_access module |
 | `core/crates/wabi-server/src/api/emoji.rs:253` | API | `/emoji` | `/upload` | POST | `upload_emoji` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/field.rs:224` | API | `/field` | `/capability` | GET | `pilot_disabled` | no handler-level token — REVIEW |
 | `core/crates/wabi-server/src/api/field.rs:230` | API | `/field` | `/capability` | GET | `pilot_capability` | no handler-level token — REVIEW |
@@ -161,34 +162,34 @@ scan, not a claim that a fixture router is production-exposed.
 | `core/crates/wabi-server/src/api/jobs.rs:48` | API | `/jobs` | `/{job_id}/cancel` | POST | `cancel_job` | AuthUser bearer, admin |
 | `core/crates/wabi-server/src/api/lan.rs:78` | API | `/lan` | `/discover` | GET | `get_lan_discover` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/lan.rs:79` | API | `/lan` | `/route` | GET | `get_lan_route` | AuthUser bearer |
-| `core/crates/wabi-server/src/api/lore.rs:314` | API | `(nested)` | `/repos` | POST | `create_repo` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:315` | API | `(nested)` | `/repos/import` | POST | `import_repo` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:316` | API | `(nested)` | `/repos/{channel_id}/link` | POST | `link_repo` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:317` | API | `(nested)` | `/repos/{channel_id}` | GET/DELETE/PATCH | `get_repo, update_repo, delete_repo` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:323` | API | `(nested)` | `/repos/{channel_id}/external` | POST | `register_external_mirror` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:327` | API | `(nested)` | `/repos/{channel_id}/mirror/refresh` | POST | `refresh_mirror_cache` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:331` | API | `(nested)` | `/repos/{channel_id}/snapshot` | POST | `snapshot` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:336` | API | `(nested)` | `/repos/{channel_id}/files` | GET | `list_files` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:337` | API | `(nested)` | `/repos/{channel_id}/archive` | GET | `repo_archive` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:341` | API | `(nested)` | `/repos/{channel_id}/files/{*path}` | GET/PUT/DELETE | `upload_file, download_file, delete_file` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:348` | API | `(nested)` | `/repos/{channel_id}/manifest` | GET | `repo_manifest` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:352` | API | `(nested)` | `/repos/{channel_id}/changes` | GET | `repo_changes` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:357` | API | `(nested)` | `/repos/{channel_id}/connect-tokens` | GET/POST | `mint_connect_token, list_connect_tokens` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:361` | API | `(nested)` | `/repos/{channel_id}/connect-tokens/{token_hash}` | DELETE | `revoke_connect_token` | AuthUser bearer, membership gate, gate |
-| `core/crates/wabi-server/src/api/lore.rs:366` | API | `(nested)` | `/repos/{channel_id}/lock/{*path}` | POST/DELETE | `lock_file, unlock_file` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:370` | API | `(nested)` | `/repos/{channel_id}/history/{*path}` | GET | `file_level_history` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:374` | API | `(nested)` | `/repos/{channel_id}/diff/{*path}` | GET | `file_diff` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:379` | API | `(nested)` | `/repos/{channel_id}/signed-url` | GET | `signed_download_url` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:384` | API | `(nested)` | `/repos/{channel_id}/history` | GET | `repo_history` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:389` | API | `(nested)` | `/repos/{channel_id}/branches` | GET/POST | `list_branches, create_branch` | channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:393` | API | `(nested)` | `/repos/{channel_id}/branches/{branch_name}/merge` | POST | `merge_branch` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:398` | API | `(nested)` | `/repos/{channel_id}/review/{branch_name}/approve` | POST | `approve_review_branch` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:402` | API | `(nested)` | `/repos/{channel_id}/review/{branch_name}/reject` | POST | `reject_review_branch` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:407` | API | `(nested)` | `/binding/{channel_id}` | GET/PUT/DELETE | `get_binding, set_binding, delete_binding` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:414` | API | `(nested)` | `/promote/from-message` | POST | `promote_from_message` | AuthUser bearer, channel_access module, gate |
-| `core/crates/wabi-server/src/api/lore.rs:418` | API | `(nested)` | `/promotes/{message_id}` | GET | `promotes_for_message` | AuthUser bearer, channel_access module |
-| `core/crates/wabi-server/src/api/lore.rs:423` | API | `(nested)` | `/health` | GET | `health_check` | no handler-level token — REVIEW |
-| `core/crates/wabi-server/src/api/lore.rs:425` | API | `(nested)` | `/recordings` | POST | `upload_recording` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:320` | API | `(nested)` | `/repos` | POST | `create_repo` | AuthUser bearer, channel_access module, gate |
+| `core/crates/wabi-server/src/api/lore.rs:321` | API | `(nested)` | `/repos/import` | POST | `import_repo` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:322` | API | `(nested)` | `/repos/{channel_id}/link` | POST | `link_repo` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:323` | API | `(nested)` | `/repos/{channel_id}` | GET/DELETE/PATCH | `get_repo, update_repo, delete_repo` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:329` | API | `(nested)` | `/repos/{channel_id}/external` | POST | `register_external_mirror` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:333` | API | `(nested)` | `/repos/{channel_id}/mirror/refresh` | POST | `refresh_mirror_cache` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:337` | API | `(nested)` | `/repos/{channel_id}/snapshot` | POST | `snapshot` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:342` | API | `(nested)` | `/repos/{channel_id}/files` | GET | `list_files` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:343` | API | `(nested)` | `/repos/{channel_id}/archive` | GET | `repo_archive` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:347` | API | `(nested)` | `/repos/{channel_id}/files/{*path}` | GET/PUT/DELETE | `upload_file, download_file, delete_file` | channel_access module, gate |
+| `core/crates/wabi-server/src/api/lore.rs:354` | API | `(nested)` | `/repos/{channel_id}/manifest` | GET | `repo_manifest` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:358` | API | `(nested)` | `/repos/{channel_id}/changes` | GET | `repo_changes` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:363` | API | `(nested)` | `/repos/{channel_id}/connect-tokens` | GET/POST | `mint_connect_token, list_connect_tokens` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:367` | API | `(nested)` | `/repos/{channel_id}/connect-tokens/{token_hash}` | DELETE | `revoke_connect_token` | AuthUser bearer, membership gate, gate |
+| `core/crates/wabi-server/src/api/lore.rs:372` | API | `(nested)` | `/repos/{channel_id}/lock/{*path}` | POST/DELETE | `lock_file, unlock_file` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:376` | API | `(nested)` | `/repos/{channel_id}/history/{*path}` | GET | `file_level_history` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:380` | API | `(nested)` | `/repos/{channel_id}/diff/{*path}` | GET | `file_diff` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:385` | API | `(nested)` | `/repos/{channel_id}/signed-url` | GET | `signed_download_url` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:390` | API | `(nested)` | `/repos/{channel_id}/history` | GET | `repo_history` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:395` | API | `(nested)` | `/repos/{channel_id}/branches` | GET/POST | `list_branches, create_branch` | channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:399` | API | `(nested)` | `/repos/{channel_id}/branches/{branch_name}/merge` | POST | `merge_branch` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:404` | API | `(nested)` | `/repos/{channel_id}/review/{branch_name}/approve` | POST | `approve_review_branch` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:408` | API | `(nested)` | `/repos/{channel_id}/review/{branch_name}/reject` | POST | `reject_review_branch` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:413` | API | `(nested)` | `/binding/{channel_id}` | GET/PUT/DELETE | `get_binding, set_binding, delete_binding` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:420` | API | `(nested)` | `/promote/from-message` | POST | `promote_from_message` | AuthUser bearer, channel_access module, gate |
+| `core/crates/wabi-server/src/api/lore.rs:424` | API | `(nested)` | `/promotes/{message_id}` | GET | `promotes_for_message` | AuthUser bearer, channel_access module |
+| `core/crates/wabi-server/src/api/lore.rs:429` | API | `(nested)` | `/health` | GET | `health_check` | no handler-level token — REVIEW |
+| `core/crates/wabi-server/src/api/lore.rs:431` | API | `(nested)` | `/recordings` | POST | `upload_recording` | AuthUser bearer, channel_access module |
 | `core/crates/wabi-server/src/api/media.rs:86` | API | `/media` | `/rooms` | POST | `create_room` | AuthUser bearer, channel policy, channel_access module |
 | `core/crates/wabi-server/src/api/media.rs:87` | API | `/media` | `/rooms` | GET | `list_rooms` | AuthUser bearer |
 | `core/crates/wabi-server/src/api/media.rs:88` | API | `/media` | `/rooms/{room_id}` | GET | `get_room` | AuthUser bearer, channel policy, channel_access module |
@@ -353,11 +354,11 @@ scan, not a claim that a fixture router is production-exposed.
 | `core/crates/wabi-server/src/anchor.rs:1520` | other | `(root/helper/test)` | `/socket.io/` | GET | `close_with_reason` | no handler-level token — REVIEW |
 | `core/crates/wabi-server/src/anchor.rs:1550` | other | `(root/helper/test)` | `/socket.io/` | GET | `(inline closure)` | inline closure — REVIEW (usually a test/router fixture) |
 | `core/crates/wabi-server/src/anchor.rs:1597` | other | `(root/helper/test)` | `/socket.io/` | GET | `(inline closure)` | inline closure — REVIEW (usually a test/router fixture) |
-| `core/crates/wabi-server/src/app_router.rs:827` | other | `(root/helper/test)` | `/health` | GET | `health_check` | no handler-level token — REVIEW |
-| `core/crates/wabi-server/src/app_router.rs:829` | other | `(root/helper/test)` | `/livez` | GET | `liveness_check` | no handler-level token — REVIEW |
-| `core/crates/wabi-server/src/app_router.rs:831` | other | `(root/helper/test)` | `/readyz` | GET | `readiness_check` | no handler-level token — REVIEW |
+| `core/crates/wabi-server/src/app_router.rs:890` | other | `(root/helper/test)` | `/health` | GET | `health_check` | no handler-level token — REVIEW |
+| `core/crates/wabi-server/src/app_router.rs:892` | other | `(root/helper/test)` | `/livez` | GET | `liveness_check` | no handler-level token — REVIEW |
+| `core/crates/wabi-server/src/app_router.rs:894` | other | `(root/helper/test)` | `/readyz` | GET | `readiness_check` | no handler-level token — REVIEW |
 | `core/crates/wabi-server/src/app_router.rs:897` | other | `(root/helper/test)` | `/metrics` | GET | `metrics_handler` | admin_auth (legacy admin extractor) |
-| `core/crates/wabi-server/src/app_router.rs:850` | other | `(root/helper/test)` | `/uploads/{filename}` | GET/HEAD | `serve_upload, head_upload` | AuthUser bearer |
+| `core/crates/wabi-server/src/app_router.rs:917` | other | `(root/helper/test)` | `/uploads/{filename}` | GET/HEAD | `serve_upload, head_upload` | AuthUser bearer |
 | `core/crates/wabi-server/src/bin/wabi-db-replica-dev.rs:229` | other | `(root/helper/test)` | `/livez` | GET | `(inline closure)` | inline closure — REVIEW (usually a test/router fixture) |
 | `core/crates/wabi-server/src/bin/wabi-db-replica-dev.rs:230` | other | `(root/helper/test)` | `/api/v1/sync/status` | GET | `status` | AuthUser bearer |
 | `core/crates/wabi-server/src/bin/wabi-db-replica-dev.rs:231` | other | `(root/helper/test)` | `/api/v1/sync/push` | POST | `push` | no handler-level token — REVIEW |
@@ -429,61 +430,61 @@ scan, not a claim that a fixture router is production-exposed.
 | `wiring.rs:359` | `wabidb-ping` | `(inline)` | REVIEW: no scoped wrapper | router-level only |
 | `wiring.rs:368` | `call-offer` | `on_call_offer` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
 | `wiring.rs:376` | `call-answer-sdp` | `(inline)` | scoped_socket_event + membership_gate.read_owned() | router-level only |
-| `wiring.rs:399` | `call-ice-candidate` | `(inline)` | scoped_socket_event + membership_gate.read_owned() | router-level only |
-| `wiring.rs:422` | `get-emojis` | `handle_get_emojis` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:430` | `delete-emoji` | `handle_delete_emoji` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:438` | `add-emoji-reaction` | `on_add_emoji_reaction` | scoped_socket_event + membership_gate.read_owned() | channel policy, owner |
-| `wiring.rs:446` | `remove-emoji-reaction` | `on_remove_emoji_reaction` | scoped_socket_event + membership_gate.read_owned() | channel policy |
-| `wiring.rs:454` | `get-role-definitions` | `handle_get_role_definitions` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:462` | `assign-role` | `handle_assign_role` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, owner, gate |
-| `wiring.rs:472` | `admin-ban-user` | `handle_admin_ban_user` | membership_gate.read_owned() + instance_operations::scoped | socket identity, owner, authentication helper |
-| `wiring.rs:482` | `admin-unban-user` | `handle_admin_unban_user` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:491` | `toggle-reception` | `handle_toggle_reception` | scoped_socket_event + membership_gate.read_owned() | socket identity, owner |
-| `wiring.rs:499` | `remove-role` | `handle_remove_role` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, owner, gate |
-| `wiring.rs:507` | `lore-roles-list` | `handle_lore_roles_list` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:516` | `lore-roles-upsert` | `handle_lore_roles_upsert` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:525` | `lore-roles-delete` | `handle_lore_roles_delete` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:533` | `lore-roles-set-default` | `handle_lore_roles_set_default` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:541` | `get-badge-catalog` | `handle_get_badge_catalog` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:549` | `assign-badge` | `handle_assign_badge` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:557` | `remove-badge` | `handle_remove_badge` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:565` | `update-channel-settings` | `handle_update_channel_settings` | scoped_socket_event + membership_gate.read_owned() | channel policy, gate |
-| `wiring.rs:573` | `set-role-display-name` | `handle_set_role_display_name` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:581` | `join-wabidb-call` | `on_join_wabidb_call` | scoped_socket_event + membership_gate.read_owned() | channel policy, channel_access module, socket identity, gate |
-| `wiring.rs:591` | `wabidb-media` | `on_wabidb_media` | scoped_socket_event + membership_gate.read_owned() | channel policy, channel_access module, socket identity, authentication helper, gate |
-| `wiring.rs:599` | `start-screen-share` | `on_start_screen_share` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:607` | `stop-screen-share` | `on_stop_screen_share` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:617` | `call-recording-set-active` | `on_call_recording_set_active` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:625` | `webrtc-offer` | `on_webrtc_offer` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:633` | `webrtc-answer` | `on_webrtc_answer` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:641` | `webrtc-ice-candidate` | `on_webrtc_ice_candidate` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:649` | `p2p-offer` | `on_p2p_offer` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:657` | `p2p-answer` | `on_p2p_answer` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:665` | `p2p-ice-candidate` | `on_p2p_ice_candidate` | scoped_socket_event + membership_gate.read_owned() | socket identity |
-| `wiring.rs:673` | `create-thread` | `on_create_thread` | scoped_socket_event + membership_gate.read_owned() | channel policy, channel_access module |
-| `wiring.rs:681` | `pin-channel` | `on_pin_channel` | scoped_socket_event + membership_gate.read_owned() | channel policy |
-| `wiring.rs:689` | `unpin-channel` | `on_unpin_channel` | scoped_socket_event + membership_gate.read_owned() | channel policy |
-| `wiring.rs:697` | `reorder-channels` | `on_reorder_channels` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, gate |
-| `wiring.rs:705` | `retry-message` | `on_retry_message` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:713` | `mark-messages-as-read` | `on_mark_messages_as_read` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:721` | `mark-channel-as-read` | `on_mark_channel_as_read` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:729` | `sync-newer` | `on_sync_newer` | scoped_socket_event + membership_gate.read_owned() | channel policy |
-| `wiring.rs:737` | `create-breakout-rooms` | `on_create_breakout_rooms` | scoped_socket_event + membership_gate.read_owned() | gate |
-| `wiring.rs:745` | `close-breakout-rooms` | `on_close_breakout_rooms` | scoped_socket_event + membership_gate.read_owned() | channel policy |
-| `wiring.rs:753` | `move-user-to-breakout` | `on_move_user_to_breakout` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:761` | `move-user-to-voice-channel` | `on_move_user_to_voice_channel` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:769` | `whiteboard:join` | `on_whiteboard_join` | scoped_socket_event + membership_gate.read_owned() | socket identity, gate |
-| `wiring.rs:777` | `whiteboard:leave` | `on_whiteboard_leave` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
-| `wiring.rs:785` | `whiteboard:snapshot` | `on_whiteboard_snapshot` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, gate |
-| `wiring.rs:793` | `whiteboard:patch` | `on_whiteboard_patch` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, gate |
-| `wiring.rs:801` | `whiteboard:cursor` | `on_whiteboard_cursor` | scoped_socket_event + membership_gate.read_owned() | channel policy, socket identity, gate |
-| `wiring.rs:810` | `game:join` | `on_game_join` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
-| `wiring.rs:817` | `game:leave` | `on_game_leave` | scoped_socket_event + membership_gate.read_owned() | no resource guard by design: only removes the caller's own socket from a broadcast room; runtime add-on gate + bounded channelId applied. Refusing to leave on revoked access would keep a removed user subscribed (2026-11 audit F-08) |
-| `wiring.rs:824` | `game:create` | `on_game_create` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
-| `wiring.rs:831` | `game:claim` | `on_game_claim` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
-| `wiring.rs:838` | `game:move` | `on_game_move` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
-| `wiring.rs:845` | `game:pass` | `on_game_pass` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
-| `wiring.rs:852` | `game:resign` | `on_game_resign` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
+| `wiring.rs:400` | `call-ice-candidate` | `(inline)` | scoped_socket_event + membership_gate.read_owned() | router-level only |
+| `wiring.rs:424` | `get-emojis` | `handle_get_emojis` | scoped_socket_event + membership_gate.read_owned() | socket identity |
+| `wiring.rs:432` | `delete-emoji` | `handle_delete_emoji` | scoped_socket_event + membership_gate.read_owned() | socket identity |
+| `wiring.rs:440` | `add-emoji-reaction` | `on_add_emoji_reaction` | scoped_socket_event + membership_gate.read_owned() | channel policy |
+| `wiring.rs:448` | `remove-emoji-reaction` | `on_remove_emoji_reaction` | scoped_socket_event + membership_gate.read_owned() | channel policy |
+| `wiring.rs:456` | `get-role-definitions` | `handle_get_role_definitions` | scoped_socket_event + membership_gate.read_owned() | socket identity |
+| `wiring.rs:464` | `assign-role` | `handle_assign_role` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, owner, gate |
+| `wiring.rs:474` | `admin-ban-user` | `handle_admin_ban_user` | membership_gate.read_owned() + instance_operations::scoped | socket identity, owner, authentication helper |
+| `wiring.rs:484` | `admin-unban-user` | `handle_admin_unban_user` | scoped_socket_event + membership_gate.read_owned() | socket identity |
+| `wiring.rs:493` | `toggle-reception` | `handle_toggle_reception` | scoped_socket_event + membership_gate.read_owned() | socket identity, owner |
+| `wiring.rs:501` | `remove-role` | `handle_remove_role` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, owner, gate |
+| `wiring.rs:509` | `lore-roles-list` | `handle_lore_roles_list` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:518` | `lore-roles-upsert` | `handle_lore_roles_upsert` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:527` | `lore-roles-delete` | `handle_lore_roles_delete` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:535` | `lore-roles-set-default` | `handle_lore_roles_set_default` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:543` | `get-badge-catalog` | `handle_get_badge_catalog` | scoped_socket_event + membership_gate.read_owned() | socket identity |
+| `wiring.rs:551` | `assign-badge` | `handle_assign_badge` | scoped_socket_event + membership_gate.read_owned() | socket identity |
+| `wiring.rs:559` | `remove-badge` | `handle_remove_badge` | scoped_socket_event + membership_gate.read_owned() | socket identity |
+| `wiring.rs:567` | `update-channel-settings` | `handle_update_channel_settings` | scoped_socket_event + membership_gate.read_owned() | channel policy, gate |
+| `wiring.rs:575` | `set-role-display-name` | `handle_set_role_display_name` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:583` | `join-wabidb-call` | `on_join_wabidb_call` | scoped_socket_event + membership_gate.read_owned() | channel policy, channel_access module, socket identity |
+| `wiring.rs:593` | `wabidb-media` | `on_wabidb_media` | scoped_socket_event + membership_gate.read_owned() | authentication helper |
+| `wiring.rs:601` | `start-screen-share` | `on_start_screen_share` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:609` | `stop-screen-share` | `on_stop_screen_share` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:619` | `call-recording-set-active` | `on_call_recording_set_active` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:627` | `webrtc-offer` | `on_webrtc_offer` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:635` | `webrtc-answer` | `on_webrtc_answer` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:643` | `webrtc-ice-candidate` | `on_webrtc_ice_candidate` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:651` | `p2p-offer` | `on_p2p_offer` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:659` | `p2p-answer` | `on_p2p_answer` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:667` | `p2p-ice-candidate` | `on_p2p_ice_candidate` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:675` | `create-thread` | `on_create_thread` | scoped_socket_event + membership_gate.read_owned() | channel policy, channel_access module |
+| `wiring.rs:683` | `pin-channel` | `on_pin_channel` | scoped_socket_event + membership_gate.read_owned() | channel policy |
+| `wiring.rs:691` | `unpin-channel` | `on_unpin_channel` | scoped_socket_event + membership_gate.read_owned() | channel policy |
+| `wiring.rs:699` | `reorder-channels` | `on_reorder_channels` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, gate |
+| `wiring.rs:707` | `retry-message` | `on_retry_message` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:715` | `mark-messages-as-read` | `on_mark_messages_as_read` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:723` | `mark-channel-as-read` | `on_mark_channel_as_read` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:731` | `sync-newer` | `on_sync_newer` | scoped_socket_event + membership_gate.read_owned() | channel policy |
+| `wiring.rs:739` | `create-breakout-rooms` | `on_create_breakout_rooms` | scoped_socket_event + membership_gate.read_owned() | gate |
+| `wiring.rs:747` | `close-breakout-rooms` | `on_close_breakout_rooms` | scoped_socket_event + membership_gate.read_owned() | channel policy |
+| `wiring.rs:755` | `move-user-to-breakout` | `on_move_user_to_breakout` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:763` | `move-user-to-voice-channel` | `on_move_user_to_voice_channel` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:771` | `whiteboard:join` | `on_whiteboard_join` | scoped_socket_event + membership_gate.read_owned() | socket identity, gate |
+| `wiring.rs:779` | `whiteboard:leave` | `on_whiteboard_leave` | scoped_socket_event + membership_gate.read_owned() | no handler-level token — REVIEW |
+| `wiring.rs:787` | `whiteboard:snapshot` | `on_whiteboard_snapshot` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, gate |
+| `wiring.rs:795` | `whiteboard:patch` | `on_whiteboard_patch` | scoped_socket_event + membership_gate.read_owned() | channel_access module, socket identity, gate |
+| `wiring.rs:803` | `whiteboard:cursor` | `on_whiteboard_cursor` | scoped_socket_event + membership_gate.read_owned() | channel policy, socket identity, gate |
+| `wiring.rs:812` | `game:join` | `on_game_join` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
+| `wiring.rs:819` | `game:leave` | `on_game_leave` | scoped_socket_event + membership_gate.read_owned() | no resource guard by design: only removes the caller's own socket from a broadcast room; runtime add-on gate + bounded channelId applied. Refusing to leave on revoked access would keep a removed user subscribed (2026-11 audit F-08) |
+| `wiring.rs:826` | `game:create` | `on_game_create` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
+| `wiring.rs:833` | `game:claim` | `on_game_claim` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
+| `wiring.rs:840` | `game:move` | `on_game_move` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
+| `wiring.rs:847` | `game:pass` | `on_game_pass` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
+| `wiring.rs:854` | `game:resign` | `on_game_resign` | scoped_socket_event + membership_gate.read_owned() | channel policy, runtime add-on gate |
 
 ## Known completeness limits
 
