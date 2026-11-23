@@ -12,7 +12,8 @@
  * No script, macro or embedded object is ever run or opened.
  */
 import JSZip from 'jszip';
-import { zipLimits } from '../sheets/fileAdapter';
+import { zipLimits } from '../zipLimits';
+import { escapeCellPipes } from '../../editor/tableCell';
 import { elements, firstElement, parseXml, XmlError, type XmlElement } from './xml';
 
 export interface DocxImport { markdown: string; warnings: string[]; /** The text of a leading Title paragraph, which becomes the document's name. */ title?: string }
@@ -270,7 +271,7 @@ function cellText(ctx: Context, cell: XmlElement, header = false): string {
 			if (text.trim()) parts.push(text.trim());
 		} else if (child.name === 'w:tbl') parts.push(...elements(child, 'w:tr').flatMap((row) => elements(row, 'w:tc').map((c) => cellText(ctx, c))).filter(Boolean));
 	}
-	return parts.join(' ').replace(/\|/g, '\\|');
+	return escapeCellPipes(parts.join(' '));
 }
 
 function readTable(ctx: Context, table: XmlElement): Block | null {

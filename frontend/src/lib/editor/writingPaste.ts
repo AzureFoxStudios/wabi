@@ -15,6 +15,7 @@
 import { EditorView } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
 import { fencedLines } from './writingBlocks';
+import { escapeCellPipes } from './tableCell';
 
 export interface PasteNode {
 	/** Lower-case tag name, or '#text'. */
@@ -149,7 +150,16 @@ const INLINE_BLOCK_TAGS = new Set(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6
 const isBlockNode = (node: PasteNode) => INLINE_BLOCK_TAGS.has(node.tag) || BLOCK.has(node.tag);
 
 /** Hard breaks keep their two trailing spaces except at the end. */
-const tidy = (text: string) => text.replace(/^\s+/, '').replace(/(?:\s*\n)+$/, '').replace(/ +$/g, '');
+const tidy = (text: string) => {
+	const lead = text.trimStart();
+	// Trailing blank lines go entirely; otherwise only trailing spaces do. No
+	// regular expression here: a nested quantifier anchored at the end is slow on
+	// long runs of whitespace.
+	if (lead.endsWith('\n')) return lead.trimEnd();
+	let end = lead.length;
+	while (end > 0 && lead[end - 1] === ' ') end--;
+	return lead.slice(0, end);
+};
 
 /** Block nodes to Markdown blocks (strings; the caller joins them with blank lines). */
 function blocks(nodes: PasteNode[], ctx: Ctx): string[] {
@@ -285,7 +295,7 @@ function tableBlock(table: PasteNode, ctx: Ctx): string | null {
 	const cells = rows.map((row) =>
 		(row.children ?? [])
 			.filter((cell) => cell.tag === 'td' || cell.tag === 'th')
-			.map((cell) => tidy(inline(cell.children ?? [], ctx)).replace(/\s*\n\s*/g, ' ').replace(/\|/g, '\\|').trim())
+			.map((cell) => tidy(inline(cell.children ?? [], ctx)).replace(/\s*\n\s*/g, ' ')).map(escapeCellPipes).map((cell) => cell.trim())
 	);
 	const width = Math.max(0, ...cells.map((row) => row.length));
 	if (!width || !cells.length) return null;

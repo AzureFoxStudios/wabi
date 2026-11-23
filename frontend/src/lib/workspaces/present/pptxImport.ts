@@ -16,7 +16,7 @@
  * executed or opened. Pictures are re-rasterised by the caller's hook, which bounds their size.
  */
 import JSZip from 'jszip';
-import { zipLimits } from '../sheets/fileAdapter';
+import { zipLimits } from '../zipLimits';
 import { elements, firstElement, parseXml, XmlError, type XmlElement } from '../docx/xml';
 import { scenePalette, type SceneObject, type SceneTheme, type SlideDesign } from '../scene';
 

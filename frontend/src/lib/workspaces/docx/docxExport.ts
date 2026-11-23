@@ -24,7 +24,12 @@ const xml = (text: string) =>
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;');
 
-const stripTags = (html: string) => html.replace(/<[^>]*>/g, '');
+/** Repeats until nothing changes, so removing one tag cannot leave another assembled from its neighbours. */
+function stripTags(html: string): string {
+	let text = html, before: string;
+	do { before = text; text = text.replace(/<[^>]*>/g, ''); } while (text !== before);
+	return text;
+}
 
 /** Markdown character references in text (&amp; and friends) become the characters they stand for. */
 function decodeEntities(text: string): string {

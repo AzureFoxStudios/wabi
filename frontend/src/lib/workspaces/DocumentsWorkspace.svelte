@@ -314,7 +314,7 @@
 										maxlength="200"
 										spellcheck="true"
 										placeholder="Untitled"
-										aria-label="Document title"
+										aria-label="Document title on the page"
 										value={title}
 										use:fitTitle
 										oninput={(event) => renameTitle(event.currentTarget.value)}
