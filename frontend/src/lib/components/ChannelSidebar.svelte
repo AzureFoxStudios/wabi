@@ -85,6 +85,8 @@
 	import { currentSavedServer } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
 	import { openDetachedPanel } from '$lib/detachedPanels';
+	import { openChannelInDock } from '$lib/channelDockPanels';
+	import { isTextLikeChannelType } from '$lib/channelTypes';
 	import { floatingPanelStore } from '$lib/windowing/floatingPanelStore';
 	import {
 		FOLLOW_ALERT_LEVEL_KEYS,
@@ -1072,8 +1074,12 @@
 		const items: MenuEntry[] = [];
 
 		if (!isCategory) {
+			items.push({ id: 'open-kicker', type: 'kicker', label: $_('chan_sidebar.kick_open') });
+			// Beside the page: the stage keeps its channel and this one opens in the dock.
+			if (isTextLikeChannelType(ch.type)) {
+				items.push({ id: 'open-side-panel', label: $_('chan_sidebar.open_side'), icon: 'chat', onSelect: () => { openChannelInDock(ch); } });
+			}
 			items.push(
-				{ id: 'open-kicker', type: 'kicker', label: $_('chan_sidebar.kick_open') },
 				{ id: 'open-floating-panel', label: $_('chan_sidebar.open_float'), icon: 'chat', onSelect: () => openChannelFloatingPanel(ch) },
 				{ id: 'open-os-window', label: $_('chan_sidebar.open_window'), icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) }
 			);

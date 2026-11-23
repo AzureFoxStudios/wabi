@@ -231,6 +231,9 @@
     "drag": {
       "drop_to_upload": "Suelta archivos aquí para subirlos"
     },
+    "companion": {
+      "stage_only": "Este canal se abre en el escenario central."
+    },
     "dm": {
       "badge": "Mensaje directo",
       "call": "Llamar",
@@ -6248,6 +6251,7 @@
     "err_delete_folder": "No se pudo eliminar la carpeta.",
     "kick_open": "Abrir",
     "open_float": "Abrir en un panel flotante",
+    "open_side": "Abrir junto a la página",
     "open_window": "Abrir en una ventana nueva",
     "open_whiteboard": "Abrir pizarra",
     "new_thread": "Nuevo hilo",

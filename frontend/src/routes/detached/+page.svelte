@@ -194,7 +194,7 @@
 			</div>
 		{/if}
 		{#if panelState?.kind === 'channel-chat'}
-			<Chat />
+			<Chat channelId={panelState.channelId} surface="companion" />
 		{:else if panelState?.kind === 'server-map'}
 			<MapWorkspace variant="detached" initialPlaceId={panelState.placeId || null} />
 		{:else if panelState?.kind === 'workspace-panel' && panelState.panelId}
