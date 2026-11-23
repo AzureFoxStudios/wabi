@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS_SEARCH_INDEX, type SettingsTab } from './settingsFrame';
+import { inEnglish } from '../../i18n/sourceEnglish';
 
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
 const exists = (path: string) => existsSync(fileURLToPath(new URL(path, import.meta.url)));
@@ -74,7 +75,7 @@ describe('Settings frame', () => {
 	test('language moved out of the header into Appearance, still translated', () => {
 		expect(settings).not.toContain('setAppLocale');
 		expect(appearance).toContain('setAppLocale');
-		expect(appearance).toContain("translatedOr($t, 'settings.language', 'Language')");
+		expect(appearance).toContain("translatedOr($t, 'settings.language', $t('settings.language'))");
 		expect(appearance).toContain('ariaLabel={languageLabel}');
 	});
 
@@ -129,7 +130,7 @@ describe('Search settings', () => {
 
 	test('every result names words that are on its page, so it never promises a setting that is not there', () => {
 		const missing = SETTINGS_SEARCH_INDEX.filter((entry) => {
-			const text = pageSources[entry.tab].map(read).join('\n').toLowerCase();
+			const text = pageSources[entry.tab].map((path) => inEnglish(read(path))).join('\n').toLowerCase();
 			return !text.includes(entry.label.toLowerCase());
 		}).map((entry) => `${entry.tab}: ${entry.label}`);
 		expect(missing).toEqual([]);
@@ -155,7 +156,7 @@ describe('Appearance', () => {
 
 	test('a failed theme save can be retried: choosing the theme again, or Try again', () => {
 		expect(appearance).toContain('themeChoiceAction(themeId, $themeStore.themeId, Boolean(themeSaveError))');
-		expect(appearance).toMatch(/<button[^>]*aria-busy=\{themeRetrying\}[^>]*on:click=\{retryThemeSave\}>Try again<\/button/);
+		expect(inEnglish(appearance)).toMatch(/<button[^>]*aria-busy=\{themeRetrying\}[^>]*on:click=\{retryThemeSave\}>Try again<\/button/);
 		expect(appearance).not.toContain('choose it again to retry');
 	});
 
@@ -194,7 +195,7 @@ describe('Appearance', () => {
 
 	test('"Panels pinned side by side" offers every limit the store accepts (1 to MAX_DOCK_STACK_LIMIT)', () => {
 		expect(appearance).toContain('dockLimitOptions(MAX_DOCK_STACK_LIMIT)');
-		expect(appearance).toMatch(/<Select\s+ariaLabel="Panels pinned side by side"[\s\S]*?options=\{dockLimits\}/);
+		expect(inEnglish(appearance)).toMatch(/<Select\s+ariaLabel="Panels pinned side by side"[\s\S]*?options=\{dockLimits\}/);
 	});
 
 	test('Customize theme is its own disclosure row, and collapsed disclosures point at nothing', () => {

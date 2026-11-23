@@ -11,6 +11,7 @@ import {
 	profileSaveUnconfirmed,
 	publishedAfterSave
 } from './profileForm';
+import { inEnglish } from '../../i18n/sourceEnglish';
 
 const published = { name: 'Mira', status: '', bio: 'Making room for good ideas.' };
 
@@ -51,7 +52,7 @@ describe('Settings › Profile is one form with one save', () => {
 	});
 
 	test('the tab renders one form, one save bar, no byte counters and no per-field save buttons', () => {
-		const source = readFileSync(new URL('./ProfileSettingsTab.svelte', import.meta.url), 'utf8');
+		const source = inEnglish(readFileSync(new URL('./ProfileSettingsTab.svelte', import.meta.url), 'utf8'));
 		expect(source).not.toMatch(/bytes/);
 		expect(source).not.toMatch(/Save bio|Save status message|profile-mock/);
 		expect(source).not.toMatch(/\balert\(|window\.confirm|<details/);
@@ -85,7 +86,7 @@ describe('Settings › Profile is one form with one save', () => {
 	});
 
 	test('the save bar shows mapped words, keeps the edits, and drops a stale failure on the next edit', () => {
-		const source = readFileSync(new URL('./ProfileSettingsTab.svelte', import.meta.url), 'utf8');
+		const source = inEnglish(readFileSync(new URL('./ProfileSettingsTab.svelte', import.meta.url), 'utf8'));
 		expect(source).toContain('saveError = profileSaveFailure(error);');
 		expect(source).not.toMatch(/saveError = error instanceof Error \? error\.message/);
 		expect(source).not.toMatch(/mediaStatus = e(rror)? instanceof Error \? e(rror)?\.message/);
@@ -94,7 +95,7 @@ describe('Settings › Profile is one form with one save', () => {
 	});
 
 	test('the name style studio waits behind a closed disclosure under a serif title', () => {
-		const source = readFileSync(new URL('./ProfileSettingsTab.svelte', import.meta.url), 'utf8');
+		const source = inEnglish(readFileSync(new URL('./ProfileSettingsTab.svelte', import.meta.url), 'utf8'));
 		const block = source.slice(source.indexOf('class="settings-block w-profile__studio"'));
 		expect(block).toMatch(/^[^]*?<h3 class="settings-block__title" id="profile-name-style-title">Name style<\/h3>/);
 		expect(source).toContain('let nameStyleOpen = $state(false);');

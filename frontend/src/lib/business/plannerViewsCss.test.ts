@@ -8,6 +8,8 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ASIDE_BESIDE_FROM } from './plannerCalendar';
+import { inEnglish } from '../i18n/sourceEnglish';
+import catalog from '../i18n/locales/en.json';
 
 const SRC = join(import.meta.dir, '..', '..');
 
@@ -212,16 +214,19 @@ describe('the calendar never completes a task by accident', () => {
 	});
 
 	test('completing offers Undo', () => {
-		expect(source).toMatch(/toast\(`Marked[^`]*`, \{\s*action: 'Undo'/);
+		expect(source).toMatch(/toast\(\$_\('project_detail\.marked_done'[^)]*\), \{\s*action: \$_\('project_detail\.undo'\)/);
+		expect(catalog.project_detail.marked_done).toBe('Marked “{title}” done');
+		expect(catalog.project_detail.undo).toBe('Undo');
 	});
 
 	test('each day has its own "Add on <date>" button and overflow is "+N more", measured per cell', () => {
-		expect(source).toContain('aria-label={`Add on ${dayMonthFormat.format(day)}`}');
+		expect(source).toContain("aria-label={$_('planner.add_on_date', { values: { date: dayMonthFormat.format(day) } })}");
+		expect(catalog.planner.add_on_date).toBe('Add on {date}');
 		expect(source).toContain('use:fitDayLines={{ key, onfit: onFit }}');
 		expect(source).not.toContain('cellLines(');
 		// "+N more" sits in the head row beside the date, so the list spends its height on titles.
 		const head = source.slice(source.indexOf('<div class="cal-cell__head">'), source.indexOf('<ul class="cal-lines"'));
-		expect(head).toContain('<span>+{hidden}</span><span class="cal-more__word">more</span>');
+		expect(inEnglish(head)).toContain('<span>+{hidden}</span><span class="cal-more__word">more</span>');
 		expect(head).toContain('{#if hidden > 0}');
 		expect(source).not.toContain('data-fit-more');
 		expect(source).toContain('{@const hidden = total ? Math.min(total, hiddenByDay[key] ?? 0) : 0}');
@@ -253,7 +258,7 @@ describe('the Journal is honest and boxless', () => {
 	test('no lock emoji, and the personal marker never claims privacy', () => {
 		expect(source).not.toContain('🔒');
 		expect(source).not.toMatch(/title="Private"/);
-		expect(source).toContain('It does not change who can read this entry.');
+		expect(inEnglish(source)).toContain('It does not change who can read this entry.');
 	});
 
 	test('the locality is not repeated inside the Journal (row A says it once)', () => {
@@ -273,10 +278,10 @@ describe('the Journal is honest and boxless', () => {
 	});
 
 	test('in My Planner the masthead New entry is the one primary: no second "Write today’s entry"', () => {
-		expect(source).toContain("action={isReadOnly || embedded ? undefined : 'Write today’s entry'}");
+		expect(inEnglish(source)).toContain("action={isReadOnly || embedded ? undefined : 'Write today’s entry'}");
 		expect(source).toContain('(todayEntry || !embedded)');
 		// A past day's own action is a default button beside the masthead's ink New entry.
-		expect(source).toMatch(/\{:else if embedded && !onToday && !isReadOnly\}[\s\S]{0,600}<button type="button" class="w-btn" on:click=\{startEditing\}>Write this entry<\/button>/);
+		expect(inEnglish(source)).toMatch(/\{:else if embedded && !onToday && !isReadOnly\}[\s\S]{0,600}<button type="button" class="w-btn" on:click=\{startEditing\}>Write this entry<\/button>/);
 	});
 
 	test('the personal marker is a switch row, delete asks first', () => {
@@ -329,7 +334,7 @@ describe('the Tasks companion and the avatars', () => {
 		const source = raw('lib/components/business/ProjectDetail.svelte');
 		expect(source).toMatch(/class="w-btn"[^>]*on:click=\{\(\) => onOpenSprintModal\(\)\}/);
 		expect(source).not.toMatch(/w-btn--primary/);
-		expect(source).toContain('Add time estimates to tasks to see a burndown');
+		expect(inEnglish(source)).toContain('Add time estimates to tasks to see a burndown');
 		expect(source).not.toMatch(/stroke="#[0-9a-f]{3,6}"/i);
 	});
 
@@ -354,8 +359,11 @@ describe('planner views: recheck follow-ups', () => {
 
 	test('the Journal empty states name the New control the person can see (a bare + on the phone)', () => {
 		const diary = raw('lib/components/business/DiaryView.svelte');
-		expect(diary).toContain("$: newEntryWords = $isMobile ? '+' : 'New entry';");
+		expect(inEnglish(diary)).toContain("$: newEntryWords = $isMobile ? '+' : 'New entry';");
 		expect(diary).not.toContain("'Use New entry to write");
-		expect(diary.match(/Use \$\{newEntryWords\} to write/g)?.length).toBe(2);
+		// Both empty states say "Use {words} to write…", with the control's visible words filled in.
+		expect(diary.match(/\{ values: \{ words: newEntryWords \} \}/g)?.length).toBe(2);
+		expect(catalog.diary.empty_embedded).toContain('Use {words} to write');
+		expect(catalog.diary.empty_day_embedded).toContain('Use {words} to write');
 	});
 });

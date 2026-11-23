@@ -29,6 +29,7 @@ import {
 	reportCornerBar
 } from './callShell';
 import { ICONS, ICON_STROKE } from './components/ui/icons';
+import { inEnglish } from './i18n/sourceEnglish';
 
 const read = (relative: string) => readFileSync(new URL(relative, import.meta.url), 'utf8');
 const mainLayout = read('./components/MainLayout.svelte');
@@ -102,7 +103,8 @@ describe('one docking semantics', () => {
 
 		const minimize = block(callModal, 'function minimizeToDocked(): void {');
 		expect(minimize).toContain("dockCallPanel('minimize', { close: () => channelCallPanelOpen.set(false), dismiss: dismissChannelCallPanel })");
-		const minimizeButton = callModal.slice(callModal.indexOf('aria-label="Minimize call"'), callModal.indexOf('aria-label="Minimize call"') + 120);
+		const callModalEn = inEnglish(callModal);
+		const minimizeButton = callModalEn.slice(callModalEn.indexOf('aria-label="Minimize call"'), callModalEn.indexOf('aria-label="Minimize call"') + 120);
 		expect(minimizeButton).toContain('on:click={minimizeToDocked}');
 	});
 

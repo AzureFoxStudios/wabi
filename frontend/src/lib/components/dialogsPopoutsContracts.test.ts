@@ -5,8 +5,10 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { inEnglish } from '../i18n/sourceEnglish';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const readEn = (path: string) => inEnglish(read(path));
 const locale = (code: string) => JSON.parse(read(`../i18n/locales/${code}.json`)) as Record<string, any>;
 
 describe('dialogs on the kit frame', () => {
@@ -28,16 +30,16 @@ describe('dialogs on the kit frame', () => {
 	});
 
 	test('New group says the encryption state in the §9.2 words, never more', () => {
-		const group = read('./CreateGroupModal.svelte');
+		const group = readEn('./CreateGroupModal.svelte');
 		expect(group).toContain("New groups start encryption-pending and use experimental encryption once everyone's devices are ready.");
-		expect(read('./CreateDMModal.svelte')).toContain('New conversations start encryption-pending');
+		expect(readEn('./CreateDMModal.svelte')).toContain('New conversations start encryption-pending');
 		for (const source of [group, read('./CreateDMModal.svelte')]) {
 			expect(source).not.toMatch(/end-to-end|E2EE|\bsecure\b|operator-blind|\bverified\b/i);
 		}
 	});
 
 	test('New group says why Create group is disabled, and its footer rule follows the scroll', () => {
-		const group = read('./CreateGroupModal.svelte');
+		const group = readEn('./CreateGroupModal.svelte');
 		expect(group).toContain("'Name the group to create it'");
 		expect(group).toContain("'Pick at least one person'");
 		expect(group).toContain('aria-describedby="{uid}-foot"');
@@ -55,8 +57,8 @@ describe('dialogs on the kit frame', () => {
 	});
 
 	test('dialog titles are sentence case', () => {
-		expect(read('./CreateGroupModal.svelte')).toContain('title="New group"');
-		expect(read('./CreateDMModal.svelte')).toContain('title="New message"');
+		expect(readEn('./CreateGroupModal.svelte')).toContain('title="New group"');
+		expect(readEn('./CreateDMModal.svelte')).toContain('title="New message"');
 		expect(read('./CreateGroupModal.svelte')).not.toContain('Create Group');
 		expect(read('./CreateDMModal.svelte')).not.toContain('Start a Direct Message');
 	});
@@ -80,7 +82,8 @@ describe('sign in (§8.9, settings#17, beta-sweep#20)', () => {
 			'password_rules_placeholder',
 			'confirm_password_placeholder'
 		]) {
-			expect(login).not.toContain(`login.auth.${key}`);
+			// These keys are the visible captions now; what must not exist is a placeholder echoing them.
+			expect(login).not.toContain(`placeholder={$_('login.auth.${key}')}`);
 		}
 		expect(login).not.toContain('login.guest.name_placeholder');
 		// The handle keeps an example, which is allowed (§7.3).
@@ -88,7 +91,8 @@ describe('sign in (§8.9, settings#17, beta-sweep#20)', () => {
 	});
 
 	test('every owner-wizard field has a visible label', () => {
-		const wizard = login.slice(login.indexOf('wizardMode && wizardStep === 1'), login.indexOf('wizardMode && wizardStep === 2'));
+		const loginEn = inEnglish(login);
+		const wizard = loginEn.slice(loginEn.indexOf('wizardMode && wizardStep === 1'), loginEn.indexOf('wizardMode && wizardStep === 2'));
 		for (const caption of ['Display name', 'Permanent handle', 'Password', 'Confirm password']) {
 			expect(wizard).toContain(`<span class="field-caption">${caption}</span>`);
 		}
@@ -139,7 +143,7 @@ describe('sign in (§8.9, settings#17, beta-sweep#20)', () => {
 	});
 
 	test('the change-server prompt shows a danger edge with an icon, and a way back', () => {
-		const prompt = read('./login/LoginConnectionPrompt.svelte');
+		const prompt = readEn('./login/LoginConnectionPrompt.svelte');
 		expect(prompt).toContain("aria-invalid={connectionError ? 'true' : undefined}");
 		expect(prompt).toMatch(/class="w-field-error connection-error"[^>]*><Icon name="alert" size=\{14\} \/>/);
 		expect(prompt).toContain('Back to sign in');

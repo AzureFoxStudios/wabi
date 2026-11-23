@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import { get } from 'svelte/store';
+import { inEnglish } from './i18n/sourceEnglish';
 
 // Bun's mock.module registry is process-wide: other suites' mocks break this
 // file's transitive imports when the full `bun test src/lib` suite runs in one
@@ -591,7 +592,7 @@ if (process.env[FILES_WORKSPACE_FIXTURE] !== '1') {
 			expect(source).toContain('readOnly: isMirror');
 			expect(source).toContain('(job.id)');
 			expect(source).not.toContain('(job.dest)');
-			expect(source).toContain('Retry');
+			expect(inEnglish(source)).toContain('Retry');
 			expect(source).toContain('session.retryUpload');
 			expect(source).toContain('session.dismissUpload');
 		});

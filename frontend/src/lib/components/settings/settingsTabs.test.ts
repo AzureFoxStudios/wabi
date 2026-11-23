@@ -9,8 +9,10 @@ import { fileURLToPath } from 'node:url';
 import { CONNECTION_DETAILS_KEY, readConnectionDetailsPreference, shouldMirrorConnectionDetails, writeConnectionDetailsPreference } from './connectionDetailsSetting';
 import { OFFICE_ADDON_ROWS, RETIRED_LOCAL_ADDON_CONTROLS, officeAddonState } from './officeAddonsSetting';
 import { LOCAL_ADDON_CONTROL_META } from './addonSettingsRegistry';
+import { inEnglish } from '../../i18n/sourceEnglish';
+import catalog from '../../i18n/locales/en.json';
 
-const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
+const read = (path: string) => inEnglish(readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8'));
 
 const tabs = {
 	profile: read('./ProfileSettingsTab.svelte'),
@@ -253,8 +255,9 @@ describe('settings recheck follow-ups', () => {
 	});
 
 	test('the boost card gives the unknown-status reason once, not on both rows', () => {
-		const boost = read('./VolunteerBoostCard.svelte');
-		expect(boost).toContain("const statusWordUnknown = \"Not available until this server's status is known.\";");
+		const boost = readFileSync(fileURLToPath(new URL('./VolunteerBoostCard.svelte', import.meta.url)), 'utf8');
+		expect(boost).toContain("const statusWordUnknown = $_('volunteer_boost.status_unknown');");
+		expect(catalog.volunteer_boost.status_unknown).toBe("Not available until this server's status is known.");
 		expect(boost).toContain("{statusWord === statusWordUnknown ? '' : statusWord}");
 	});
 });

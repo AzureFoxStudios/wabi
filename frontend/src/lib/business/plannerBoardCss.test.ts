@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { inEnglish } from '../i18n/sourceEnglish';
 
 const SRC = join(import.meta.dir, '..', '..');
 
@@ -148,7 +149,7 @@ describe('Planner board markup', () => {
 	const columns = readFileSync(join(SRC, 'lib/components/business/KanbanBoardColumns.svelte'), 'utf8');
 
 	test('the board is a named region, and the Planner asks for the lane grid', () => {
-		expect(impl).toMatch(/class="kanban-board-wrapper"\s+role="region"\s+aria-label="Task board"/);
+		expect(inEnglish(impl)).toMatch(/class="kanban-board-wrapper"\s+role="region"\s+aria-label="Task board"/);
 		expect(impl).toMatch(/<KanbanBoardColumns\s+layout="grid"/);
 		expect(columns).toMatch(/export let layout: 'grid' \| 'row' = 'row'/);
 	});
@@ -166,12 +167,12 @@ describe('Planner board markup', () => {
 
 	test('deleting a column says what really happens to its tasks', () => {
 		expect(impl).not.toMatch(/show the lane again from Edit columns/);
-		expect(impl).toMatch(/Its tasks are kept but hidden until you add a column with the same name\./);
+		expect(inEnglish(impl)).toMatch(/Its tasks are kept but hidden until you add a column with the same name\./);
 	});
 
 	test('filters that hide every task say so, and Clear filters is not a second primary', () => {
 		const empty = impl.slice(impl.indexOf('{#if filtersHideAll}'), impl.indexOf('{/if}', impl.indexOf('{#if filtersHideAll}')));
-		expect(empty).toMatch(/title="No tasks match these filters"/);
+		expect(inEnglish(empty)).toMatch(/title="No tasks match these filters"/);
 		expect(empty).toMatch(/class="w-btn planner-clear-filters" on:click=\{clearFilters\}/);
 		expect(empty).not.toMatch(/w-btn--primary|action="/);
 	});
@@ -198,7 +199,7 @@ describe('Planner phone shell (§8.12)', () => {
 		expect(content).toMatch(/aria-label=\{phoneBoard \? VIEWS\.find/);
 		expect(content).toMatch(/<PlannerStageHeader part="views"/);
 		expect(content).toMatch(/<PlannerStageHeader part="new"/);
-		expect(impl).toMatch(/class="w-seg planner-lane-switch" role="group" aria-label="Lanes"/);
+		expect(inEnglish(impl)).toMatch(/class="w-seg planner-lane-switch" role="group" aria-label="Lanes"/);
 	});
 });
 

@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { inEnglish } from './i18n/sourceEnglish';
+import catalog from './i18n/locales/en.json';
 
 const css = readFileSync(new URL('./components/RightStubStrip.css', import.meta.url), 'utf8');
 const layout = readFileSync(new URL('../styles/components/main-layout-part1.css', import.meta.url), 'utf8');
@@ -453,15 +455,18 @@ describe('companion panel frame (§7.21)', () => {
 describe('rail menu and stowed note for assistive tech', () => {
 	const strip = readFileSync(new URL('./components/RightStubStrip.svelte', import.meta.url), 'utf8');
 	const menu = strip.slice(strip.indexOf('const menuItems = $derived.by('), strip.indexOf('const menuPanel'));
+	// The words a person reads: the same source with each catalog key replaced by its English.
+	const stripEn = inEnglish(strip);
+	const menuEn = stripEn.slice(stripEn.indexOf('const menuItems = $derived.by('), stripEn.indexOf('const menuPanel'));
 
 	test('the stowed state is said in words in the stub tooltip, which describes the stub', () => {
-		expect(strip).toContain("const STOWED_NOTE = 'Pinned, shown when there is room';");
-		expect(strip).toContain('const stowed = isStowed(panel.id) ? ` · ${STOWED_NOTE.toLowerCase()}` : \'\';');
+		expect(catalog.rstub.stowed_note).toBe('Pinned, shown when there is room');
+		expect(strip).toContain("const stowed = isStowed(panel.id) ? ` · ${$_('rstub.stowed_note').toLowerCase()}` : '';");
 	});
 
 	test('the rail menu is the one kit menu: Pin / Unpin first, then Move up / Move down / Remove', () => {
 		expect(strip).toContain("import ContextMenu, { type MenuEntry } from './context-menu/ContextMenu.svelte'");
-		expect(strip).toContain('ariaLabel="Rail options"');
+		expect(stripEn).toContain('ariaLabel="Rail options"');
 		const order = ["id: 'unpin'", "id: 'pin'", "id: 'up'", "id: 'down'", "id: 'remove'"].map((id) => menu.indexOf(id));
 		expect(order.every((index) => index > -1)).toBe(true);
 		expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -471,7 +476,7 @@ describe('rail menu and stowed note for assistive tech', () => {
 		expect(menu.length).toBeGreaterThan(0);
 		// ContextMenu keeps disabled rows focusable (aria-disabled) and shows their hint.
 		expect(menu).toContain('disabled: !$dockCanPin');
-		expect(menu).toContain("hint: $dockCanPin ? undefined : 'Needs a wider window'");
+		expect(menuEn).toContain("hint: $dockCanPin ? undefined : 'Needs a wider window'");
 		// The edges guard themselves, since a focusable unavailable item can still be activated.
 		expect(strip).toMatch(/if \(index < 0 \|\| target < 0 \|\| target >= \$layoutStore\.stubStrip\.length\) return;/);
 	});
@@ -481,7 +486,7 @@ describe('rail menu and stowed note for assistive tech', () => {
 	test('the peek hint is left out while a pinned panel or a held peek is on screen', () => {
 		const tip = strip.slice(strip.indexOf('function stubTip'), strip.indexOf('const tipSide'));
 		expect(tip).toContain("const peek = isOpen(panel.id) || panelCommitted() ? '' : ` · ${peekHint}`;");
-		expect(strip).toContain('>Only while no panel is pinned</span>');
+		expect(stripEn).toContain('>Only while no panel is pinned</span>');
 		expect(strip).toContain('labelledby={`${hoverLabelId} ${hoverNoteId}`}');
 	});
 
@@ -489,9 +494,13 @@ describe('rail menu and stowed note for assistive tech', () => {
 	test('a stub badge is named in words true for its panel', () => {
 		const name = strip.slice(strip.indexOf('function stubName'), strip.indexOf('function badgeText'));
 		expect(strip).toContain('aria-label={stubName(panel, badge)}');
-		expect(name).toContain("if (panel.id === 'dms') return `${panel.label}, ${badge} unread`;");
-		expect(name).toContain('incoming');
-		expect(name).toContain('in progress');
+		// The words live in the catalog; the source picks the right key for each panel.
+		expect(name).toContain("if (panel.id === 'dms') return $_('rstub.dms_unread', { values: { label: panel.label, badge } });");
+		expect(name).toContain("$_('rstub.incoming'");
+		expect(name).toContain("$_('rstub.in_progress'");
+		expect(catalog.rstub.dms_unread).toBe('{label}, {badge} unread');
+		expect(catalog.rstub.incoming).toBe('{count} incoming');
+		expect(catalog.rstub.in_progress).toBe('{count} in progress');
 		expect(name.match(/unread/g)?.length).toBe(1);
 	});
 
@@ -516,10 +525,10 @@ describe('rail menu and stowed note for assistive tech', () => {
 
 	test('Add panels: rows with descriptions, then a Rail group with Side and Open on hover segments and Reset rail', () => {
 		expect(strip).toContain('class="panel-tab-desc"');
-		expect(strip).toContain('>Rail</h3>');
-		expect(strip).toContain("options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}");
-		expect(strip).toContain("options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}");
-		expect(strip).toContain('>Reset rail</button>');
+		expect(stripEn).toContain('>Rail</h3>');
+		expect(stripEn).toContain("options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}");
+		expect(stripEn).toContain("options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}");
+		expect(stripEn).toContain('>Reset rail</button>');
 		expect(rule(css, '.panel-drawer-item')).toContain('min-height: 40px');
 	});
 });
