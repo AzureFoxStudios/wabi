@@ -12,7 +12,8 @@
     import {download,Y,type ArtifactSession,type PrivateDraft} from '../session';
     import {request,type Meta,type ProtectedRange} from '../bridge';
     import {parseAnchor,rangeAnchor} from '../anchors';
-    import {orderedSheets,snapshot,sheets,setCell,setCells,setStyle,styleOf,formatValue,addSheet,renameSheet,reorderSheet,removeSheet,restoreSheet,insertAxis,removeAxis,reorderRows,columnWidth,setColumnWidth,fill,recoverRemoved,cachedResultIsStale,cellKey,heads,inputOf,type CellStyle,type CellTarget} from './model';
+    import {orderedSheets,snapshot,sheets,setCell,setCells,setStyle,styleOf,cfRules,addCfRule,removeCfRule,formatValue,addSheet,renameSheet,reorderSheet,removeSheet,restoreSheet,insertAxis,removeAxis,reorderRows,columnWidth,setColumnWidth,fill,recoverRemoved,cachedResultIsStale,cellKey,heads,inputOf,type CellStyle,type CellTarget} from './model';
+    import {CF_OPS,cfResolve,cfStyleAt,cfSummary,type CfOp,type CfRule} from './conditional';
     import {columnName,literal,type Calculation,type CellVersion,type Scalar} from './formula';
     import {SheetWorker} from './workerClient';
     import {commitDirection,endTarget,homeTarget,jumpTarget,nextInRange,pageTarget,parseAddress,stepTo,type Direction,type Pos} from './gridNav';
@@ -646,6 +647,30 @@
         return calculations.values[key]??typed(heads(current.cells[cellKey(row,column)]||[])[0]);
     }
     const numeric=(row:string,column:string)=>typeof raw(row,column)==='number';
+    // ---- conditional formatting: shared rules, evaluated for display only ----
+    let cfOpen=$state(false),cfOp=$state<CfOp>('gt'),cfA=$state(''),cfB=$state(''),cfUseFill=$state(true),cfUseColor=$state(true),cfFill=$state('#ffc7ce'),cfColor=$state('#9c0006'),cfBold=$state(false);
+    const CF_PRESETS=[{label:'Red',fill:'#ffc7ce',color:'#9c0006'},{label:'Yellow',fill:'#ffeb9c',color:'#7a4a00'},{label:'Green',fill:'#c6efce',color:'#006100'},{label:'Blue',fill:'#c9e2f5',color:'#0b3d66'}];
+    const cfList=$derived.by(():CfRule[]=>{dataEpoch;return ysheet?cfRules(ysheet):[];});
+    const cfResolved=$derived(cfResolve(cfList,rowIndex,colIndex));
+    const cfArgs=$derived(CF_OPS.find(item=>item.op===cfOp)?.args??0);
+    const cellLabel=(ri:number,ci:number)=>`${columnName(ci)}${ri+1}`;
+    function cfAt(ri:number,ci:number,row:string,column:string){
+        if(!cfResolved.length||!current)return undefined;
+        return cfStyleAt(cfResolved,ri,ci,raw(row,column),!!calculations.errors[`${current.id}/${cellKey(row,column)}`]);
+    }
+    function cfRangeLabel(rule:CfRule){
+        const a=rowIndex.get(rule.r0),b=rowIndex.get(rule.r1),c=colIndex.get(rule.c0),d=colIndex.get(rule.c1);
+        if(a===undefined||b===undefined||c===undefined||d===undefined)return'removed range';
+        const first=cellLabel(Math.min(a,b),Math.min(c,d)),last=cellLabel(Math.max(a,b),Math.max(c,d));return first===last?first:`${first}:${last}`;
+    }
+    const selectionLabel=$derived(bounds?cfRangeLabel({r0:selectedRow,r1:endRow||selectedRow,c0:selectedColumn,c1:endColumn||selectedColumn} as CfRule):'');
+    function addRule(){
+        attempt(()=>{
+            if(!current||!bounds)throw new Error('Select the cells to format first.');
+            addCfRule(session.data,current.id,{r0:selectedRow,r1:endRow||selectedRow,c0:selectedColumn,c1:endColumn||selectedColumn,op:cfOp,a:cfArgs>=1?cfA.trim():undefined,b:cfArgs===2?cfB.trim():undefined,fill:cfUseFill?cfFill:undefined,color:cfUseColor?cfColor:undefined,bold:cfBold||undefined},session.origin);
+            cfA='';cfB='';
+        });
+    }
     /** Sum, average and count of the selection: numbers sum and average; count is filled cells. */
     const stats=$derived.by(()=>{
         if(!current||selection.length<2)return null;let sum=0,numbers=0,count=0;
@@ -689,8 +714,9 @@
         const items:MenuEntry[]=[
             {id:'k-cells',type:'kicker',label:'Cells'},
             {id:'wrap',label:'Wrap text',icon:'wrapText',role:'menuitemcheckbox',checked:!!selectedStyle.wrap,disabled:!allowSelected,onSelect:()=>style({wrap:!selectedStyle.wrap})},
-            {id:'plain',label:'Clear formatting',icon:'x',disabled:!allowSelected,onSelect:()=>style({bold:false,italic:false,fill:'',border:false,wrap:false,format:'general'})},
+            {id:'plain',label:'Clear formatting',icon:'x',disabled:!allowSelected,onSelect:()=>style({bold:false,italic:false,fill:'',color:'',border:false,wrap:false,format:'general'})},
             {id:'details',label:'Decimals and column width…',icon:'sliders',onSelect:()=>{formatOpen=true;}},
+            {id:'cf',label:cfList.length?`Conditional formatting (${cfList.length})…`:'Conditional formatting…',icon:'fill',onSelect:()=>{cfOpen=true;}},
             {id:'fill-down',label:'Fill down',icon:'arrowRight',disabled:!editable,shortcut:'Ctrl D',onSelect:()=>fillBlock('down')},
             {id:'fill-right',label:'Fill right',icon:'arrowRight',disabled:!editable,shortcut:'Ctrl R',onSelect:()=>fillBlock('right')},
             {id:'copy',label:'Copy range',icon:'copy',shortcut:'Ctrl C',onSelect:()=>{grid?.focus();document.execCommand('copy');}},
@@ -758,6 +784,12 @@
             <label class="w-ibtn sheet-toolbar__fill" class:disabled={!allowSelected}>
                 <Icon name="fill" /><span class="sheet-toolbar__swatch" style:background-color={selectedStyle.fill||'transparent'}></span>
                 <input class="sheet-toolbar__color" aria-label="Cell fill color" type="color" value={selectedStyle.fill||'#fff3b0'} disabled={!allowSelected} data-rove oninput={event=>style({fill:event.currentTarget.value})} />
+            </label>
+        </Tooltip>
+        <Tooltip text="Text color" placement="bottom">
+            <label class="w-ibtn sheet-toolbar__fill" class:disabled={!allowSelected}>
+                <span class="sheet-toolbar__textcolor" style:border-bottom-color={selectedStyle.color||'currentColor'} aria-hidden="true">A</span>
+                <input class="sheet-toolbar__color" aria-label="Text color" type="color" value={selectedStyle.color||'#9c0006'} disabled={!allowSelected} data-rove oninput={event=>style({color:event.currentTarget.value})} />
             </label>
         </Tooltip>
         <Tooltip text="Borders" placement="bottom"><button type="button" class="w-ibtn" aria-label="Borders" aria-pressed={!!selectedStyle.border} disabled={!allowSelected} data-rove onclick={()=>style({border:!selectedStyle.border})}><Icon name="borders" /></button></Tooltip>
@@ -833,6 +865,26 @@
             {#each protections as range (range.id)}<p class="sheet-panel__row"><span class="w-seal"><Icon name="lock" />{$_('office.sheets.protected')}</span><span>{range.label} · {range.rows.length} × {range.columns.length}</span>{#if $sessionState.meta?.role==='owner'}<button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={protectBusy} onclick={()=>void protect(range.id)}>Remove protection</button>{/if}</p>{/each}
         </section>
     {/if}
+    {#if cfOpen}
+        <section class="sheet-panel sheet-panel--stack" aria-label="Conditional formatting">
+            <div class="sheet-panel__head"><h2 class="sheet-panel__title">Conditional formatting</h2><button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close conditional formatting" onclick={()=>(cfOpen=false)}><Icon name="x" /></button></div>
+            <p class="sheet-panel__text">Colors cells automatically when their value meets a condition. Rules apply for everyone on this sheet and never change a cell's value.</p>
+            {#each cfList as rule (rule.id)}<p class="sheet-panel__row"><span class="sheet-cf-swatch" style:background-color={rule.fill||'transparent'} style:color={rule.color||'inherit'} style:font-weight={rule.bold?'700':undefined}>Aa</span><span>{cfRangeLabel(rule)} · {cfSummary(rule)}</span><button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={!editable} onclick={()=>attempt(()=>removeCfRule(session.data,current!.id,rule.id,session.origin))}>Remove</button></p>{/each}
+            {#if !cfList.length}<p class="sheet-panel__text">No rules yet.</p>{/if}
+            <p class="sheet-panel__text">New rule for <strong>{selectionLabel||'(select cells first)'}</strong>, your current selection.</p>
+            <div class="sheet-cf-form">
+            <label class="sheet-panel__field"><span class="w-label">When the cell</span><select class="w-field" bind:value={cfOp} disabled={!editable}>{#each CF_OPS as item (item.op)}<option value={item.op}>{item.label}</option>{/each}</select></label>
+            {#if cfArgs>=1}<label class="sheet-panel__field"><span class="w-label">{cfArgs===2?'From':'Value'}</span><input class="w-field" bind:value={cfA} disabled={!editable} /></label>{/if}
+            {#if cfArgs===2}<label class="sheet-panel__field"><span class="w-label">To</span><input class="w-field" bind:value={cfB} disabled={!editable} /></label>{/if}
+            <div class="sheet-cf-presets" role="group" aria-label="Color presets">{#each CF_PRESETS as preset (preset.label)}<button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={!editable} onclick={()=>{cfFill=preset.fill;cfColor=preset.color;cfUseFill=true;cfUseColor=true;}}><span class="sheet-cf-swatch" style:background-color={preset.fill} style:color={preset.color}>Aa</span>{preset.label}</button>{/each}</div>
+            <label class="sheet-panel__field sheet-cf-pick"><input type="checkbox" bind:checked={cfUseFill} disabled={!editable} /><span class="w-label">Fill</span><input type="color" aria-label="Rule fill color" bind:value={cfFill} disabled={!editable||!cfUseFill} /></label>
+            <label class="sheet-panel__field sheet-cf-pick"><input type="checkbox" bind:checked={cfUseColor} disabled={!editable} /><span class="w-label">Text</span><input type="color" aria-label="Rule text color" bind:value={cfColor} disabled={!editable||!cfUseColor} /></label>
+            <label class="sheet-panel__field sheet-cf-pick"><input type="checkbox" bind:checked={cfBold} disabled={!editable} /><span class="w-label">Bold</span></label>
+            </div>
+            <p class="sheet-panel__text"><span class="sheet-cf-swatch" style:background-color={cfUseFill?cfFill:'transparent'} style:color={cfUseColor?cfColor:'inherit'} style:font-weight={cfBold?'700':undefined}>Preview 1,234</span></p>
+            <div><button type="button" class="w-btn w-btn--primary w-btn--sm" disabled={!editable||!bounds} onclick={addRule}>Add rule</button></div>
+        </section>
+    {/if}
     {#if recoveryOpen}
         <section class="sheet-panel sheet-panel--stack" aria-label="Cell draft recovery">
             <div class="sheet-panel__head"><h2 class="sheet-panel__title">Unsubmitted cell drafts</h2><button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close cell draft recovery" onclick={()=>(recoveryOpen=false)}><Icon name="x" /></button></div>
@@ -844,7 +896,7 @@
     <div class="sheet-grid" class:freeze id={gridId} bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} oncopy={copyEvent} oncut={event=>copyEvent(event,true)} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
         {#if current}<table role="grid" aria-label={current.name} aria-rowcount={rows.length+1} aria-colcount={current.columns.length+1} aria-multiselectable="true" style:--sheet-row={`${rowHeight}px`} style:width={`${tableWidth}px`}><colgroup><col class="sheet-col-label"/>{#each current.columns as column(column.id)}<col style:width={`${widthOf(column.id)}px`}/>{/each}</colgroup><thead><tr><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label corner" scope="col" title="Select all" onclick={selectAll}><span class="sr-only">Row</span></th>{#each current.columns as column,index(column.id)}<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th scope="col" class:selected-head={selectedColumns.has(column.id)} style:width={`${widthOf(column.id)}px`} onclick={event=>selectColumn(index,event.shiftKey)}>{columnName(index)}<!-- svelte-ignore a11y_no_static_element_interactions --><span class="col-resize" aria-hidden="true" onpointerdown={event=>resizeStart(event,column.id)} onclick={event=>event.stopPropagation()} ondblclick={event=>{event.stopPropagation();autoFit(column.id);}}></span></th>{/each}</tr></thead><tbody>
             {#if first>0}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${first*rowHeight}px`} class="spacer"></td></tr>{/if}
-            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row" onclick={event=>selectRow(ri,event.shiftKey)}>{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===activeRow&&column.id===activeColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-decoration={cellStyle.underline?'underline':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${widthOf(column.id)}px`} style:max-width={`${widthOf(column.id)}px`} class:copied={copied.has(cellKey(row.id,column.id))} class:found={findKeys.has(cellKey(row.id,column.id))} class:fillpreview={!!fillPreview&&ri>=fillPreview.r0&&ri<=fillPreview.r1&&ci>=fillPreview.c0&&ci<=fillPreview.c1} class:pointed={!!pointCells&&ri>=pointCells.r0&&ri<=pointCells.r1&&ci>=pointCells.c0&&ci<=pointCells.c1} title={cellTitle(row.id,column.id)} oncontextmenu={event=>openCellMenu(event,row.id,column.id)} onpointerdown={event=>cellPointerDown(event,ri,ci,row.id,column.id)} data-row={row.id} data-col={column.id} onclick={event=>cellClick(event,row.id,column.id)} ondblclick={()=>{if(choose(row.id,column.id))startEdit();}}>{#if editing&&editSurface==='cell'&&row.id===activeRow&&column.id===activeColumn}<textarea class="sheet-cell-editor" rows={Math.min(8,draft.split('\n').length)} wrap="off" bind:this={cellEditor} role="combobox" aria-label={`Editing ${cellName}`} aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestId} aria-activedescendant={suggestions.length?`${suggestId}-${suggestIndex}`:undefined} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" oninput={cellInput} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} onblur={cellBlur}></textarea>{:else}<span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span>{/if}</td>{/each}</tr>{/each}
+            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions --><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row" onclick={event=>selectRow(ri,event.shiftKey)}>{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}{@const cf=cfAt(ri,ci,row.id,column.id)}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===activeRow&&column.id===activeColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cf?.bold||cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-decoration={cellStyle.underline?'underline':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cf?.fill||cellStyle.fill||undefined} style:color={cf?.color||cellStyle.color||(cf?.fill||cellStyle.fill?'#172326':undefined)} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${widthOf(column.id)}px`} style:max-width={`${widthOf(column.id)}px`} class:copied={copied.has(cellKey(row.id,column.id))} class:found={findKeys.has(cellKey(row.id,column.id))} class:fillpreview={!!fillPreview&&ri>=fillPreview.r0&&ri<=fillPreview.r1&&ci>=fillPreview.c0&&ci<=fillPreview.c1} class:pointed={!!pointCells&&ri>=pointCells.r0&&ri<=pointCells.r1&&ci>=pointCells.c0&&ci<=pointCells.c1} title={cellTitle(row.id,column.id)} oncontextmenu={event=>openCellMenu(event,row.id,column.id)} onpointerdown={event=>cellPointerDown(event,ri,ci,row.id,column.id)} data-row={row.id} data-col={column.id} onclick={event=>cellClick(event,row.id,column.id)} ondblclick={()=>{if(choose(row.id,column.id))startEdit();}}>{#if editing&&editSurface==='cell'&&row.id===activeRow&&column.id===activeColumn}<textarea class="sheet-cell-editor" rows={Math.min(8,draft.split('\n').length)} wrap="off" bind:this={cellEditor} role="combobox" aria-label={`Editing ${cellName}`} aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestId} aria-activedescendant={suggestions.length?`${suggestId}-${suggestIndex}`:undefined} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" oninput={cellInput} onkeydown={editorKeydown} onkeyup={syncCaret} onclick={syncCaret} onblur={cellBlur}></textarea>{:else}<span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span>{/if}</td>{/each}</tr>{/each}
             {#if last<rows.length}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${(rows.length-last)*rowHeight}px`} class="spacer"></td></tr>{/if}
         </tbody></table>{/if}
         {#if fillHandle&&editable&&!editing}<!-- svelte-ignore a11y_no_static_element_interactions --><span class="fill-handle" aria-hidden="true" title="Drag to fill" style:left={`${fillHandle.left}px`} style:top={`${fillHandle.top}px`} onpointerdown={fillStart}></span>{/if}
