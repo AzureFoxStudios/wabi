@@ -176,6 +176,25 @@
 .designer-stage {
 	position: relative;
 	width: 100%;
+	/* The in-place text editor sizes its type in cqw, the same unit the slide draws with. */
+	container-type: inline-size;
+}
+.object-editor {
+	position: absolute;
+	z-index: 4;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0.15em;
+	border: 0;
+	border-radius: 0;
+	outline: 2px solid var(--w-accent);
+	font-family: var(--slide-face, Arial, sans-serif);
+	line-height: 1.25;
+	letter-spacing: 0;
+	overflow: auto;
+	overflow-wrap: anywhere;
+	resize: none;
+	white-space: pre-wrap;
 }
 .object-handle {
 	position: absolute;
@@ -692,4 +711,46 @@
 	.present-proposal__thumb {
 		grid-column: 1 / -1;
 	}
+}
+
+/* ---------- multi-selection, snapping ---------- */
+.designer-stage {
+	user-select: none;
+	-webkit-user-select: none;
+}
+.designer-stage:focus {
+	outline: none;
+}
+.snap-guide {
+	position: absolute;
+	z-index: 3;
+	pointer-events: none;
+	background: var(--w-accent);
+}
+.snap-guide--v {
+	top: 0;
+	bottom: 0;
+	width: 1px;
+}
+.snap-guide--h {
+	left: 0;
+	right: 0;
+	height: 1px;
+}
+.rubber-band {
+	position: absolute;
+	z-index: 3;
+	box-sizing: border-box;
+	pointer-events: none;
+	border: 1px solid var(--w-accent);
+	background: color-mix(in srgb, var(--w-accent) 14%, transparent);
+}
+.present-show__frame {
+	position: relative;
+}
+/* W: a white screen over the slide, the counterpart of B (the audience slide draws its own black). */
+.present-show__white {
+	position: absolute;
+	inset: 0;
+	background: white;
 }

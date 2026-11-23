@@ -26,6 +26,7 @@
 	import StorageSettings from './StorageSettings.svelte';
 	import AboutSettingsTab from './settings/AboutSettingsTab.svelte';
 	import AccessibilitySettingsTab from './settings/AccessibilitySettingsTab.svelte';
+	import KeyboardSettingsTab from './settings/KeyboardSettingsTab.svelte';
 	import AddonSettingsTab from './settings/AddonSettingsTab.svelte';
 	import AdminSettingsTab from './settings/AdminSettingsTab.svelte';
 	import AppearanceSettingsTab from './settings/AppearanceSettingsTab.svelte';
@@ -517,6 +518,8 @@
 					<NotificationsSettingsTab />
 				{:else if activeSettingsTab === 'accessibility'}
 					<AccessibilitySettingsTab />
+				{:else if activeSettingsTab === 'keyboard'}
+					<KeyboardSettingsTab />
 				{:else if activeSettingsTab === 'appearance'}
 					<AppearanceSettingsTab {signedIn} />
 				{:else if activeSettingsTab === 'addons'}

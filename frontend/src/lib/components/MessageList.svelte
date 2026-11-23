@@ -343,6 +343,10 @@
 	let retentionEpochs: RetentionEpoch[] | null = null;
 	let retentionRequestKey = '';
 	let retentionRequestGeneration = 0;
+	// The last timeline seen for each server, account, channel and policy. Switching channels used to blank every
+	// countdown until the request came back (for good if it failed); now a channel you have seen keeps its timers
+	// at once and is refreshed in the background. The key includes the policy, so a changed policy is never served stale.
+	const retentionCache = new Map<string, RetentionEpoch[]>();
 	let lastRenderRetentionEpochs: RetentionEpoch[] | null = null;
 	let lastRenderChannelId = '';
 	let deletionCountdownMode: DeletionCountdownMode = 'static';
@@ -379,6 +383,11 @@
 			});
 			if (!response.ok) return;
 			const epochs = parseRetentionTimeline(await response.json());
+			if (epochs) {
+				retentionCache.delete(key);
+				retentionCache.set(key, epochs);
+				if (retentionCache.size > 64) retentionCache.delete(retentionCache.keys().next().value as string);
+			}
 			if (key === retentionRequestKey && generation === retentionRequestGeneration) retentionEpochs = epochs;
 		} catch {
 			// Unknown policy: leave rows visible until an authoritative delete event.
@@ -391,7 +400,7 @@
 		const key = `${$activeServerUrl}|${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}|${activeChannelId}|${policyKey}`;
 		if (key !== retentionRequestKey) {
 			retentionRequestKey = key;
-			retentionEpochs = null;
+			retentionEpochs = retentionCache.get(key) ?? null;
 			void refreshRetentionEpochs(activeChannelId, key, ++retentionRequestGeneration);
 		}
 	}

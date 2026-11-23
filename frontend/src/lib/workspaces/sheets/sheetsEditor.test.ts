@@ -39,8 +39,46 @@ describe('one toolbar, one formula bar, the grid owns the rest', () => {
 
 	test('the formula bar keeps its label and adds the name box and fx', () => {
 		expect(markup).toContain('aria-label="Cell value or formula"');
-		expect(markup).toContain('<output class="sheet-formula__name" aria-label="Selected cell">');
+		// The name box shows the selected cell and is also where you type an address to go there.
+		expect(markup).toContain('<input class="sheet-formula__name" aria-label="Name box"');
+		expect(markup).toContain('onkeydown={nameKeydown}');
 		expect(markup).toContain('<span class="sheet-formula__fx" aria-hidden="true">fx</span>');
+	});
+
+	test('the fill handle, find bar, underline, date and AutoSum keys exist, and one loop serves every drag', () => {
+		expect(markup).toContain('class="fill-handle"');
+		expect(grid).toContain('fillValues(source,');
+		expect(markup).toContain('role="search" aria-label="Find in sheet"');
+		expect(grid).toContain("(lower==='f'||lower==='h')");
+		expect(grid).toContain("if(lower==='u'&&allowSelected)");
+		expect(grid).toContain("key===';'&&!event.shiftKey");
+		expect(grid).toContain("event.altKey&&!mod&&key==='='");
+		expect(grid).toContain("event.altKey&&el===cellEditor");
+		// Selecting, writing a formula's range and the fill handle share one frame loop that also scrolls at the edges.
+		expect(grid).toContain('function dragLoop()');
+		expect(grid).toContain('document.elementFromPoint(x,y)');
+		// Stepping through matches must not pull the caret out of the find bar.
+		expect(grid).toContain("focused?.closest('.sheet-find')");
+	});
+
+	test('Enter and Tab move the active cell inside a multi-cell selection without changing the selection', () => {
+		expect(grid).toContain('nextInRange(bounds,activePos(),key,shift)');
+		expect(grid).toContain('const activeRow=$derived(inner?.row??selectedRow)');
+		// The highlighted cell, the editor, the name box and formatting all follow the active cell.
+		expect(markup).toContain('class:active={row.id===activeRow&&column.id===activeColumn}');
+		expect(grid).toContain("editing&&editSurface==='cell'&&row.id===activeRow&&column.id===activeColumn");
+		// Any change to the selection itself puts the active cell back on its corner.
+		expect(grid).toContain('void selectedRow;void selectedColumn;void endRow;void endColumn;void sheetId;inner=null;');
+	});
+
+	test('columns can be resized by dragging their edge, and the cell menu opens from mouse and keyboard', () => {
+		expect(markup).toContain('class="col-resize"');
+		expect(markup).toContain('onpointerdown={event=>resizeStart(event,column.id)}');
+		expect(markup).toContain('autoFit(column.id)');
+		expect(markup).toContain('oncontextmenu={event=>openCellMenu(event,row.id,column.id)}');
+		expect(grid).toContain("key==='ContextMenu'||(event.shiftKey&&key==='F10')");
+		// The fixed-layout table must be given its width, or the browser squeezes the columns to the window.
+		expect(markup).toContain('style:width={`${tableWidth}px`}');
 	});
 
 	test('no developer legend; a cached result is named where it is read', () => {
@@ -71,8 +109,31 @@ describe('the grid', () => {
 	});
 
 	test('Shift extends the range from its far corner, not from the anchor', () => {
-		expect(grid).toContain("const extending=event.shiftKey&&event.key!=='Tab';");
-		expect(grid).toContain('item.id===(extending?(endRow||selectedRow):selectedRow)');
+		// The moving corner is the range's far end; the anchor only changes without Shift.
+		expect(grid).toContain('item.id===(endRow||selectedRow)');
+		expect(grid).toContain('const from=event.shiftKey?focusPos():activePos();');
+		expect(grid).toContain('event.shiftKey);return;');
+	});
+
+	test('Excel keys: Enter and Tab move, F2 or typing edits, Ctrl+Arrow jumps, headers select', () => {
+		expect(grid).toContain('// Enter and Tab move; they do not edit. F2, double click or typing opens the editor.');
+		expect(grid).toContain("if(key==='F2'){event.preventDefault();startEdit();return;}");
+		expect(grid).toContain('jumpTarget(isFilled,from,arrow,rows.length,columns)');
+		expect(grid).toContain("void openEditor('enter',key)");
+		expect(grid).toContain('onclick={event=>selectColumn(index,event.shiftKey)}');
+		expect(grid).toContain('onclick={event=>selectRow(ri,event.shiftKey)}');
+		expect(grid).toContain('onclick={selectAll}');
+	});
+
+	test('the cell edits in place, and a formula can point at cells instead of committing', () => {
+		// A textarea, so Alt+Enter can hold a second line; it floats over the cell instead of being clipped by it.
+		expect(grid).toContain('<textarea class="sheet-cell-editor"');
+		// Clicking while a formula wants a reference keeps focus in the editor and writes the address.
+		expect(grid).toContain('draft.startsWith(\'=\')&&(liveSpan(draft,pointSpan)||canPoint(draft,at))');
+		expect(grid).toContain('event.preventDefault();');
+		expect(grid).toContain('pointDragging=true;writePoint();');
+		// The formula bar and the cell share one key handler, so both get F4, autocomplete and Esc.
+		expect(grid).toContain('onkeydown={editorKeydown}');
 	});
 
 	test('numbers are mono and right-aligned; the selection has a perimeter; headers tint', () => {

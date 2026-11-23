@@ -648,3 +648,195 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+
+/* ---- the cell editor, point mode and the function suggestions ---- */
+.sheet-grid td {
+	user-select: none;
+}
+.sheet-grid td .sheet-cell-editor {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--w-text);
+	font: inherit;
+	outline: none;
+	user-select: text;
+}
+/* While a cell is being edited it reads as an input: opaque, with the 2px accent ring it already has. */
+.sheet-grid td.active:has(.sheet-cell-editor) {
+	background-color: var(--w-bg);
+	box-shadow: none;
+}
+/* Cells a click, drag or arrow key has written into the formula being typed. */
+.sheet-grid td.pointed {
+	background-image: linear-gradient(var(--w-accent-soft), var(--w-accent-soft));
+	outline: 1px dashed var(--w-accent);
+	outline-offset: -2px;
+}
+.sheet-suggest {
+	position: fixed;
+	z-index: 60;
+	max-width: min(440px, calc(100vw - 16px));
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font-size: calc(13px * var(--w-fs));
+}
+.sheet-suggest__list {
+	margin: 0;
+	padding: 4px;
+	list-style: none;
+}
+.sheet-suggest__item {
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+	padding: 5px 8px;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+.sheet-suggest__item.active {
+	background: var(--w-accent-soft);
+}
+.sheet-suggest__name {
+	flex: none;
+	font: var(--w-t-mono);
+	font-size: calc(13px * var(--w-fs));
+	font-weight: 600;
+}
+.sheet-suggest__summary {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--w-mute);
+	font-size: calc(12px * var(--w-fs));
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sheet-suggest__hint {
+	margin: 0;
+	padding: 6px 10px;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+	font-size: calc(12px * var(--w-fs));
+}
+.sheet-suggest__list + .sheet-suggest__hint {
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.sheet-suggest__hint strong {
+	color: var(--w-text);
+}
+/* The cells just copied or cut, until the next paste or Esc. */
+.sheet-grid td.copied {
+	outline: 1px dashed var(--w-text);
+	outline-offset: -2px;
+}
+
+/* ---- the name box (an input: type B7 or B2:D9 and press Enter), and column resize ---- */
+input.sheet-formula__name {
+	margin: 0;
+	border-width: 0 var(--w-bw) 0 0;
+	border-radius: 0;
+	background: transparent;
+}
+input.sheet-formula__name:focus {
+	outline: none;
+	box-shadow: inset 0 0 0 2px var(--w-accent);
+}
+.sheet-grid thead th {
+	position: relative;
+}
+.sheet-grid thead th .col-resize {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 2;
+	width: 6px;
+	cursor: col-resize;
+	touch-action: none;
+}
+.sheet-grid thead th .col-resize:hover {
+	background: var(--w-accent-soft);
+}
+
+/* Keep the cell the keyboard moves to clear of the sticky headers when it scrolls into view. */
+.sheet-grid {
+	scroll-padding: calc(var(--sheet-row, 28px) + 4px) 56px 4px 56px;
+}
+
+/* ---- find bar, found cells, the fill handle, and the floating multi-line cell editor ---- */
+.sheet-find {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg2);
+}
+.sheet-find__input {
+	min-width: 140px;
+	flex: 0 1 220px;
+}
+.sheet-find__count {
+	min-width: 56px;
+	color: var(--w-mute);
+	font: var(--w-t-micro);
+}
+.sheet-grid td.found {
+	background-image: linear-gradient(color-mix(in srgb, var(--w-accent) 22%, transparent), color-mix(in srgb, var(--w-accent) 22%, transparent));
+}
+.sheet-grid td.fillpreview {
+	outline: 1px dashed var(--w-accent);
+	outline-offset: -2px;
+	background-image: linear-gradient(var(--w-accent-soft), var(--w-accent-soft));
+}
+.sheet-grid {
+	position: relative;
+}
+.fill-handle {
+	position: absolute;
+	z-index: 8;
+	width: 9px;
+	height: 9px;
+	margin: -5px 0 0 -5px;
+	border: 1px solid var(--w-bg);
+	background: var(--w-accent);
+	cursor: crosshair;
+	touch-action: none;
+}
+/* The editor floats over the cell so a long entry, or a second line (Alt+Enter), is not clipped by it. */
+.sheet-grid td.active:has(.sheet-cell-editor) {
+	position: relative;
+	z-index: 6;
+	overflow: visible;
+}
+.sheet-grid td .sheet-cell-editor {
+	position: absolute;
+	top: 0;
+	left: 0;
+	box-sizing: border-box;
+	/* Auto size, so field-sizing can grow it with its text; the minimums keep it at least as big as the cell. */
+	width: auto;
+	height: auto;
+	min-width: 100%;
+	min-height: 100%;
+	max-width: min(60ch, 70vw);
+	padding: 0 8px;
+	background: var(--w-bg);
+	line-height: calc(var(--sheet-row, 28px) - 2px);
+	outline: 2px solid var(--w-accent);
+	overflow: hidden;
+	resize: none;
+	white-space: pre;
+	field-sizing: content;
+}

@@ -197,3 +197,32 @@ describe('menus opened from elsewhere leave nothing behind', () => {
 		expect(menu).toContain('{#if !anchor && children}');
 	});
 });
+
+describe('editing a slide like PowerPoint', () => {
+	test('text is edited on the slide: Enter, F2 or a double click open an editor over the object, Esc comes back', () => {
+		expect(designer).toContain('class="object-editor"');
+		expect(designer).toContain("object.kind === 'text' && (event.key === 'Enter' || event.key === 'F2')");
+		expect(designer).toContain('ondblclick={() => void startTextEdit(object)}');
+		expect(designer).toContain("if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); endTextEdit(true); }");
+		// The editor types in the slide's own unit, so the words do not jump when it opens.
+		expect(designer).toContain('style:font-size={`${chosen.fontSize / 10}cqw`}');
+	});
+
+	test('objects copy, cut, paste and duplicate, and Duplicate is also in Arrange', () => {
+		for (const key of ["lower === 'c'", "lower === 'x'", "lower === 'v'", "lower === 'd'"]) expect(designer).toContain(key);
+		expect(designer).toContain('objectClipboard.object');
+		expect(designer).toContain("{ id: 'duplicate', label: 'Duplicate'");
+		// A copy lands a little offset and is selected; it never reuses the original's id or stacking order.
+		expect(designer).toContain('const { id: _id, z: _z, ...rest } = source as SceneObject;');
+	});
+});
+
+describe('opening PowerPoint files', () => {
+	const files = read('./files.ts');
+	test('.pptx is read on this device into editable slides; only .odp uses the converter service', () => {
+		expect(files).toContain("await import('./pptxImport')");
+		expect(files).toContain('pptxToSlides(await file.arrayBuffer()');
+		expect(workspace).toContain("if (/\\.odp$/i.test(file.name)) {");
+		expect(workspace).not.toContain("/\\.(pptx|odp)$/i.test(file.name)");
+	});
+});

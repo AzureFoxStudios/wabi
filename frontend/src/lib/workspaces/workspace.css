@@ -558,3 +558,33 @@ textarea.workspace-reviews__field--tall {
 		min-height: 76px;
 	}
 }
+
+/* The keyboard shortcuts sheet (Ctrl+/). */
+.workspace-keys {
+	display: grid;
+	gap: 18px;
+}
+.workspace-keys__title {
+	margin: 0 0 8px;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+}
+.workspace-keys__list {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 6px 18px;
+	margin: 0;
+}
+.workspace-keys__list dt {
+	color: var(--w-text);
+	font: var(--w-t-mono);
+	font-size: calc(12px * var(--w-fs));
+}
+.workspace-keys__list dd {
+	margin: 0;
+	color: var(--w-mute);
+}
+
+.workspace-keys__more {
+	margin: 4px 0 0;
+}

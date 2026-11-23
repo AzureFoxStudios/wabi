@@ -1,6 +1,6 @@
 <!--
 	The selection bubble (design contract §7.15, kit `.w-tool--bubble`, no shadow): Bold, Italic,
-	Strikethrough | Link (Ctrl Shift K), Inline code, and | Comment on a shared document. It
+	Strikethrough | Link (Ctrl K), Inline code, and | Comment on a shared document. It
 	appears for a non-empty selection, 8px below the selection's last line box, left-aligned to
 	its start, and flips above when fewer than 52px remain below inside the scroll viewport, so it
 	never covers the selected words. Pointer presses never take focus from the editor; Alt F10
@@ -40,7 +40,7 @@
 		{ id: 'italic', label: 'Italic', icon: 'italic', shortcut: `${mod} I` },
 		{ id: 'strike', label: 'Strikethrough', icon: 'strike', shortcut: `${mod} Shift X` },
 		null,
-		{ id: 'link', label: 'Link', icon: 'link', shortcut: `${mod} Shift K` },
+		{ id: 'link', label: 'Link', icon: 'link', shortcut: `${mod} K` },
 		{ id: 'code', label: 'Inline code', icon: 'code', shortcut: `${mod} E` }
 	];
 	const keys = $derived<readonly (Key | null)[]>(oncomment ? [...FORMAT, null, { id: 'comment', label: 'Comment', icon: 'chat' }] : FORMAT);

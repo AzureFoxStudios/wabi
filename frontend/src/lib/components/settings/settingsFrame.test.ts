@@ -33,7 +33,7 @@ describe('settings nav', () => {
 		expect(groups.map((group) => group.label)).toEqual(['Account', 'This device', 'Common Ground']);
 		expect(groups.map((group) => group.pages.map((page) => page.id))).toEqual([
 			['profile', 'privacy', 'notifications'],
-			['appearance', 'accessibility', 'audio', 'games', 'addons'],
+			['appearance', 'accessibility', 'keyboard', 'audio', 'games', 'addons'],
 			['emojis', 'storage', 'admin']
 		]);
 		expect(FOOT_PAGE.id).toBe('about');
@@ -51,7 +51,7 @@ describe('settings nav', () => {
 
 	test('tab order is the nav order with About last (arrow keys follow it)', () => {
 		expect(settingsTabOrder(true)).toEqual([
-			'profile', 'privacy', 'notifications', 'appearance', 'accessibility', 'audio', 'games', 'addons', 'emojis', 'storage', 'admin', 'about'
+			'profile', 'privacy', 'notifications', 'appearance', 'accessibility', 'keyboard', 'audio', 'games', 'addons', 'emojis', 'storage', 'admin', 'about'
 		]);
 	});
 

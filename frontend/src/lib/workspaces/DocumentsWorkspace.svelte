@@ -21,7 +21,7 @@
 	import ArtifactLibrary from './ArtifactLibrary.svelte';
 	import CollaborativeText from './CollaborativeText.svelte';
 	import type { OfficeHeaderModes } from './OfficeEditorHeader.svelte';
-	import { ArtifactSession, createArtifact, openArtifact, listLocal, download, Y, from64 } from './session';
+	import { ArtifactSession, createArtifact, openArtifact, listLocal, download, editText, Y, from64 } from './session';
 	import { captureScope, targets, WorkspaceError, type Scope, type Target } from './bridge';
 	import { currentHeading, documentFacts, documentHeadings, documentOutline, startedLine } from './documentPage';
 	import { currentUser, serverMembers } from '$lib/presenceIdentity';
@@ -29,6 +29,7 @@
 	import LoadLine from '$lib/components/ui/LoadLine.svelte';
 	import Notice from '$lib/components/ui/Notice.svelte';
 	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
+	import { toast } from '$lib/toast';
 	import './workspace.css';
 	import './documents.css';
 
@@ -43,6 +44,21 @@
 
 	const text = $derived.by(() => { tick; return active ? active.body.toString() : ''; });
 	const title = $derived.by(() => { tick; return active ? active.title : ''; });
+	const canRename = $derived.by(() => { tick; return !!active && active.editable && mode === 'write'; });
+	/** The page title is the document's name: click it and type, like the heading of a Word page. */
+	function renameTitle(value: string) {
+		if (!active || !value.trim()) return;
+		editText(active.doc.getText('title'), value.replace(/\s*\n\s*/g, ' '), active.origin);
+	}
+	/** Grow with the text, so a long title wraps instead of scrolling inside a one-line box. */
+	function fitTitle(node: HTMLTextAreaElement) {
+		const fit = () => { node.style.height = 'auto'; node.style.height = `${node.scrollHeight}px`; };
+		fit();
+		node.addEventListener('input', fit);
+		const observer = new ResizeObserver(fit);
+		observer.observe(node);
+		return { destroy() { node.removeEventListener('input', fit); observer.disconnect(); } };
+	}
 	const format = $derived(active?.record.format ?? 'markdown');
 	const headings = $derived(documentHeadings(text, format));
 	const outline = $derived(documentOutline(headings));
@@ -90,8 +106,19 @@
 	};
 	const exports = $derived.by((): MenuEntry[] => {
 		const as = EXPORT_AS[format] ?? EXPORT_AS.text;
-		return [{ id: 'export-text', label: as.label, icon: 'download', hint: 'The text only', keepCase: true, onSelect: () => { if (active) download(`${active.title}.${as.extension}`, active.body.toString(), as.type); } }];
+		const entries: MenuEntry[] = [];
+		// Word first for Markdown pages: it is the file most people expect to take away, and the headline Download uses the first entry.
+		if (format === 'markdown') entries.push({ id: 'export-docx', label: 'Word (.docx)', icon: 'download', hint: 'Headings, lists, tables and links', keepCase: true, onSelect: () => { void exportDocx(); } });
+		entries.push({ id: 'export-text', label: as.label, icon: 'download', hint: 'The text only', keepCase: true, onSelect: () => { if (active) download(`${active.title}.${as.extension}`, active.body.toString(), as.type); } });
+		return entries;
 	});
+	async function exportDocx() {
+		if (!active) return;
+		try {
+			const { markdownToDocx, DOCX_MIME } = await import('./docx/docxExport');
+			download(`${active.title || 'Document'}.docx`, await markdownToDocx(active.body.toString(), active.title), DOCX_MIME);
+		} catch (e) { fail(e, "Couldn't export the Word file"); }
+	}
 
 	const current = (own: number, owner: Scope) => alive && own === generation && owner.isCurrent();
 	/**
@@ -141,6 +168,18 @@
 	async function importFile(file: File) {
 		await run(async (owner, own) => {
 			if (file.size > 12 * 1024 * 1024) throw new Error('Document file exceeds the 12 MB import limit.');
+			if (/\.docx$/i.test(file.name)) {
+				// A Word file is read into Markdown here, on this device; the original is kept with the document.
+				const { docxToMarkdown } = await import('./docx/docxImport');
+				const imported = await docxToMarkdown(await file.arrayBuffer());
+				if (!current(own, owner)) return;
+				if (imported.markdown.length > 1048576) throw new Error('Document text exceeds the 1 MB editing limit.');
+				initialShare = undefined;
+				focusAnchor = null;
+				await adopt(await createArtifact(owner, 'document', imported.title || file.name.replace(/\.docx$/i, ''), (doc) => doc.getText('body').insert(0, imported.markdown), 'markdown', undefined, { name: file.name, type: file.type, blob: file }), own, owner);
+				if (imported.warnings.length) toast(imported.warnings.join(' '), { tone: 'info', timeout: 9000 });
+				return;
+			}
 			const raw = await file.text();
 			if (!current(own, owner)) return;
 			let name = file.name, kind = /\.html?$/i.test(file.name) ? 'html' : /\.md$/i.test(file.name) ? 'markdown' : 'text', body = raw;
@@ -267,7 +306,25 @@
 					{/if}
 					<article class="document-sheet" aria-label={title}>
 						<header class="document-head">
-							<h1 class="document-title">{title}</h1>
+							<h1 class="document-title">
+								{#if canRename}
+									<textarea
+										class="document-title__input"
+										rows="1"
+										maxlength="200"
+										spellcheck="true"
+										placeholder="Untitled"
+										aria-label="Document title"
+										value={title}
+										use:fitTitle
+										oninput={(event) => renameTitle(event.currentTarget.value)}
+										onkeydown={(event) => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); editor?.focus(); } }}
+										onblur={(event) => { if (!event.currentTarget.value.trim()) event.currentTarget.value = title; }}
+									></textarea>
+								{:else}
+									{title}
+								{/if}
+							</h1>
 							{#if author || started}
 								<p class="document-meta">
 									{#if author}<PlannerAvatar name={author.name} color={author.color} src={author.src} size="sm" /><span class="document-meta__who">{author.name}</span>{/if}
@@ -291,7 +348,7 @@
 	<section class="wabi-workspace document-library">
 		<LoadLine active={loading} label="Opening document…" class="document-line" />
 		{@render failure()}
-		<ArtifactLibrary {scope} kind="document" label="Documents" onopen={open} onnew={create} onimport={importFile} accept=".txt,.md,.markdown,.html,.htm,.wabi.json" />
+		<ArtifactLibrary {scope} kind="document" label="Documents" onopen={open} onnew={create} onimport={importFile} accept=".txt,.md,.markdown,.html,.htm,.docx,.wabi.json" />
 	</section>
 {:else}
 	<section class="wabi-workspace document-library">
