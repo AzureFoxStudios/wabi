@@ -143,7 +143,8 @@ try {
                         assert.equal(pages.length,1);assert(pages[0].includes(fixture.expected));assert(!pages.join('').includes('PRIVATE_'));checks++;
                     }
                     await a.getByRole('button',{name:'Create private deck',exact:true}).click();
-                    await a.getByLabel('Slide title',{exact:true}).waitFor();
+                    // Every slide has the layout field; a native PowerPoint slide is a canvas, which has no title field.
+                    await a.getByLabel('Slide layout',{exact:true}).waitFor();
                     const records=await a.evaluate(()=>window.workspaceTest.records('present'));const imported=records.find(item=>item.title===fixture.name);
                     assert(imported);assert.equal((await a.evaluate(id=>window.workspaceTest.record(id),imported.id)).originalName,fixture.name);checks++;
                     await a.getByRole('button',{name:'Present library',exact:true}).click();a.off('request',track);
