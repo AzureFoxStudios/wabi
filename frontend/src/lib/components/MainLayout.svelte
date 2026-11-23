@@ -11,6 +11,7 @@
 	import { centerPanelView, centerDmOtherUser, centerGroupChannel, compactSidebarOpen, focusMode, isCompactShell, isNavRail } from '$lib/layoutStoreStates';
 	import { armPeekDismiss, cancelPeekDismiss, peekAnimationGate, setPeekPointerInside } from '$lib/rightPeekGestures';
 	import { dockCanPin, endPeek, peekHeld, peekRequested } from '$lib/layoutStoreRightPanel';
+	import { startChannelDockSync } from '$lib/channelDockPanels';
 	import { DOCK_DEFAULT_PANEL, DOCK_MIN_PANEL, dockWidthFor, resizeKeyWidth } from '$lib/dockClamp';
 	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
 	import { fetchPluginInventory } from '$lib/addonInventory';
@@ -605,6 +606,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		};
 	});
 	onMount(startRemoteFriendRequestPoller);
+	// Docked channels (`channel:<id>` panels) come back with the saved rail after a reload.
+	onMount(startChannelDockSync);
 	onMount(() => {
 		const target = sessionStorage.getItem('wabi.pendingActivityServer');
 		if (!target || target !== (normalizeServerUrl(resolveServerUrl().url) || resolveServerUrl().url)) return;

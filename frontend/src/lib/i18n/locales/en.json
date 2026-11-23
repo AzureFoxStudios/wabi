@@ -231,6 +231,9 @@
     "drag": {
       "drop_to_upload": "Drop files here to upload"
     },
+    "companion": {
+      "stage_only": "This channel opens on center stage."
+    },
     "dm": {
       "badge": "Direct message",
       "call": "Call",
@@ -6248,6 +6251,7 @@
     "err_delete_folder": "Failed to delete folder.",
     "kick_open": "Open",
     "open_float": "Open in a floating panel",
+    "open_side": "Open beside the page",
     "open_window": "Open in a new window",
     "open_whiteboard": "Open whiteboard",
     "new_thread": "New thread",
@@ -8380,5 +8384,72 @@
     "output": "Output",
     "queueing": "Queueing...",
     "queue": "Queue Conversion"
+  },
+  "admin_nav": {
+    "overview": "Overview",
+    "overview_desc": "Community health, server health and things that need attention",
+    "moderation": "Moderation",
+    "moderation_desc": "Reports, staff actions and moderation triage",
+    "safety": "Safety rules",
+    "safety_desc": "Simple automatic rules, filters and escalation behavior",
+    "privacy": "Privacy & retention",
+    "privacy_desc": "Choose retention, private-space automation and local data boundaries",
+    "users": "People",
+    "users_desc": "Members, roles, account recovery and moderation context",
+    "roles": "Roles",
+    "roles_desc": "Understand and manage the built-in permission levels",
+    "channels": "Channels",
+    "channels_desc": "Browse server channels and open their workspaces",
+    "storage": "Storage",
+    "storage_desc": "See what is using disk space and safely revoke uploaded files",
+    "infrastructure": "Infrastructure",
+    "infrastructure_desc": "Connected relays, helpers and node health",
+    "runtime": "Diagnostics",
+    "runtime_desc": "Database readiness, uptime, memory and runtime tuning",
+    "branding": "Branding",
+    "branding_desc": "How this server appears to visitors",
+    "payments": "Payments",
+    "payments_desc": "Who can create payment requests",
+    "group_server": "Server",
+    "group_people": "People",
+    "group_safety": "Safety"
+  },
+  "channel_type": {
+    "dm": "DM",
+    "group": "Group",
+    "voice": "Voice",
+    "public": "Public",
+    "thread": "Thread",
+    "forum": "Forum",
+    "gallery": "Gallery",
+    "wiki": "Wiki",
+    "stage": "Stage",
+    "project": "Project",
+    "planning": "Planning",
+    "reception": "Reception",
+    "text": "Text"
+  },
+  "chset_model": {
+    "title_text": "Channel settings",
+    "title_wiki": "Wiki settings",
+    "title_forum": "Forum settings",
+    "title_gallery": "Gallery settings",
+    "title_voice": "Voice room settings",
+    "title_category": "Folder settings",
+    "tab_general": "General",
+    "tab_permissions": "Permissions",
+    "tab_retention": "Retention",
+    "managers_label": "Admins and owner",
+    "managers_only_hint": "Only admins and the owner can change it.",
+    "gate_all": "All signed-in accounts",
+    "gate_member": "Registered members",
+    "gate_moderator": "Moderators and admins",
+    "group_timed": "Timed"
+  },
+  "follow_level": {
+    "off": "Silent",
+    "mentions": "Mentions",
+    "all": "All Posts",
+    "priority": "Priority"
   }
 }

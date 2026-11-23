@@ -23,6 +23,7 @@
 	import Icon from './ui/Icon.svelte';
 	import GameSyncPanel from '$lib/game-sync/GameSyncPanel.svelte';
 	import { channels, currentChannel } from '$lib/socket';
+	import { channelIdOfPanel } from '$lib/channelDockPanels';
 	import {
 		choosePanelChannel,
 		panelChannelChoice,
@@ -162,12 +163,25 @@
 	</div>
 {:else if panel.component === 'game-sync'}
 	<GameSyncPanel />
+{:else if panel.component === 'channel-chat'}
+	<!-- A docked channel: the same Chat as center stage, told which channel it shows. -->
+	{@const dockedChannelId = channelIdOfPanel(panel.id)}
+	{#if dockedChannelId}
+		<div class="channel-dock">
+			{#await import('./Chat.svelte') then module}
+				{#key dockedChannelId}
+					<svelte:component this={module.default} channelId={dockedChannelId} surface="companion" on:openSettings={(event) => dispatch('openSettings', event.detail)} />
+				{/key}
+			{/await}
+		</div>
+	{/if}
 {:else}
 	<AddonFallbackPanel {panel} />
 {/if}
 
 <style>
 	.channel-companion { display: flex; flex-direction: column; min-height: 0; }
+	.channel-dock { display: flex; flex-direction: column; flex: 1 1 auto; height: 100%; min-height: 0; overflow: hidden; }
 	.right-panel-embedded { flex: 1; min-height: 0; overflow: auto; }
 	/* Row B: the channel the companion reads (a place name, so serif would compete with the
 	   frame title; it is the label face) and the quiet way back to the list. */

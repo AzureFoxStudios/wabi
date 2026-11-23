@@ -4,7 +4,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { channels, currentUser, type Channel } from '$lib/socket';
 	import { createChannel, deleteChannel, updateChannelSettings, type CreateableChannelType } from '$lib/channelStore';
-	import { getChannelTypeLabel } from '$lib/channelTypes';
+	import { getChannelTypeLabelKey } from '$lib/channelTypes';
 	import type { AdminChannelEntry } from '$lib/adminChannelNavigation';
 	import ChannelSettingsModal from '../sidebar/ChannelSettingsModal.svelte';
 
@@ -117,7 +117,7 @@
 			</label>
 			<label class="cc-field cc-type"><span>{$_('channel_access.type')}</span>
 				<select class="w-field" bind:value={newType} aria-label={$_('channel_access.type_label')}>
-					{#each TYPES as type}<option value={type}>{getChannelTypeLabel(type)}</option>{/each}
+					{#each TYPES as type}<option value={type}>{$_(getChannelTypeLabelKey(type))}</option>{/each}
 				</select>
 			</label>
 			<button type="submit" class="w-btn w-btn--primary" disabled={!newName.trim() || creating}>{creating ? $_('channel_access.creating') : $_('channel_access.create')}</button>
@@ -136,7 +136,7 @@
 			{#each ordinary as channel (channel.id)}
 				<div class="cc-row" role="row">
 					<span class="cc-name" role="cell"><b>#{channel.name}</b>{#if channel.description}<small>{channel.description}</small>{/if}</span>
-					<span class="w-mono cc-kind" role="cell">{getChannelTypeLabel(channel.type as any)}</span>
+					<span class="w-mono cc-kind" role="cell">{$_(getChannelTypeLabelKey(channel.type as any))}</span>
 					<span class="w-mono cc-ret" role="cell">{retentionLabel(channel)}</span>
 					<span role="cell">
 						<select class="w-field" aria-label={$_('channel_access.min_role_label', { values: { name: channel.name } })} value={minRoles[channel.id] ?? ''} onchange={(event) => void setRole(channel.id, event.currentTarget.value)} disabled={busy === channel.id || !isStaff}>

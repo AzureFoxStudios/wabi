@@ -768,9 +768,11 @@ describe('Chat.svelte keeps the stream and composer wiring', () => {
 	});
 
 	test('the stream filters by the masthead query and reports back; message keys and the composer are untouched', () => {
-		expect(chat).toContain('$: searchInput = $chatSearch.query;');
-		expect(chat).toContain('$: chatStageInfo.set({');
-		expect(chat).toContain("{#key `${$currentUser?.dbUserId || $currentUser?.id || ''}:${$currentChannel}`}");
+		// Only the stage reads and reports the masthead search; a companion (docked, floating or
+		// detached channel) shows its own channel and leaves the masthead alone.
+		expect(chat).toContain("$: searchInput = companion ? '' : $chatSearch.query;");
+		expect(chat).toContain('$: if (!companion) chatStageInfo.set({');
+		expect(chat).toContain("{#key `${$currentUser?.dbUserId || $currentUser?.id || ''}:${viewChannelId}`}");
 		expect(chat).toContain('<ChatComposer');
 		expect(chat).toContain('bind:this={chatComposer}');
 	});

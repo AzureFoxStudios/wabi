@@ -4,9 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	FOREVER_VALUE,
-	GATE_OPTIONS,
-	MANAGERS_LABEL,
-	MANAGERS_ONLY_HINT,
+	gateOptions,
 	canManageChannel,
 	channelDraftDirty,
 	channelSettingsNote,
@@ -22,6 +20,9 @@ import {
 	type ChannelDraft,
 	type ChannelDraftBaseline
 } from './channelSettingsModel';
+import en from '../../i18n/locales/en.json';
+import type { Translate } from '../../i18n/translate';
+const tr: Translate = (id) => String(id.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], en) ?? id);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const modalSource = readFileSync(join(here, 'ChannelSettingsModal.svelte'), 'utf8');
@@ -42,11 +43,11 @@ const draft = (patch: Partial<ChannelDraft> = {}): ChannelDraft => ({ ...base, r
 
 describe('channel settings words', () => {
 	test('titles are sentence case and named by kind', () => {
-		expect(channelSettingsTitle('text')).toBe('Channel settings');
-		expect(channelSettingsTitle(undefined)).toBe('Channel settings');
-		expect(channelSettingsTitle('wiki')).toBe('Wiki settings');
-		expect(channelSettingsTitle('voice')).toBe('Voice room settings');
-		expect(channelSettingsTitle('category')).toBe('Folder settings');
+		expect(channelSettingsTitle('text', tr)).toBe('Channel settings');
+		expect(channelSettingsTitle(undefined, tr)).toBe('Channel settings');
+		expect(channelSettingsTitle('wiki', tr)).toBe('Wiki settings');
+		expect(channelSettingsTitle('voice', tr)).toBe('Voice room settings');
+		expect(channelSettingsTitle('category', tr)).toBe('Folder settings');
 	});
 
 	test('the scope note names the place without a text glyph', () => {
@@ -55,15 +56,15 @@ describe('channel settings words', () => {
 	});
 
 	test('Retention is a section only where a chat stream keeps messages', () => {
-		expect(channelSettingsTabs('text').map((tab) => tab.id)).toEqual(['general', 'permissions', 'retention']);
-		expect(channelSettingsTabs('forum').map((tab) => tab.id)).toEqual(['general', 'permissions']);
-		expect(channelSettingsTabs('voice').map((tab) => tab.id)).toEqual(['general', 'permissions']);
+		expect(channelSettingsTabs('text', tr).map((tab) => tab.id)).toEqual(['general', 'permissions', 'retention']);
+		expect(channelSettingsTabs('forum', tr).map((tab) => tab.id)).toEqual(['general', 'permissions']);
+		expect(channelSettingsTabs('voice', tr).map((tab) => tab.id)).toEqual(['general', 'permissions']);
 		expect(isChatLikeKind('gallery')).toBe(false);
 		expect(isChatLikeKind('lore')).toBe(true);
 	});
 
 	test('lifetimes read like the colophon chip and never say private', () => {
-		const options = retentionOptions();
+		const options = retentionOptions(tr);
 		expect(options[0]).toEqual({ value: 'live', label: 'Live only · not saved' });
 		expect(options[1]).toEqual({ value: FOREVER_VALUE, label: 'Kept until someone deletes them' });
 		expect(options.find((option) => option.value === '24h')?.label).toBe('Kept 24 hours');
@@ -80,7 +81,7 @@ describe('channel settings words', () => {
 	});
 
 	test('the gate matches the server roles and skips conversations and folders', () => {
-		expect(GATE_OPTIONS.map((option) => option.value)).toEqual(['', 'member', 'moderator', 'admin']);
+		expect(gateOptions(tr).map((option) => option.value)).toEqual(['', 'member', 'moderator', 'admin']);
 		expect(hasChannelGate('text')).toBe(true);
 		expect(hasChannelGate('voice')).toBe(true);
 		for (const kind of ['dm', 'group', 'category', 'reception']) expect(hasChannelGate(kind)).toBe(false);
@@ -95,15 +96,15 @@ describe('channel settings words', () => {
 		expect(persistToggleTab('category')).toBeNull();
 		// Every kind that has no Retention section gets it in General instead.
 		for (const kind of ['voice', 'forum', 'wiki', 'gallery']) {
-			expect(channelSettingsTabs(kind).some((tab) => tab.id === 'retention')).toBe(false);
+			expect(channelSettingsTabs(kind, tr).some((tab) => tab.id === 'retention')).toBe(false);
 		}
 	});
 
 	test('who manages a room reads the same everywhere', () => {
-		expect(GATE_OPTIONS.at(-1)?.label).toBe(MANAGERS_LABEL);
-		expect(MANAGERS_ONLY_HINT).toBe('Only admins and the owner can change it.');
+		expect(gateOptions(tr).at(-1)?.label).toBe(tr('chset_model.managers_label'));
+		expect(tr('chset_model.managers_only_hint')).toBe('Only admins and the owner can change it.');
 		expect(modalSource).not.toMatch(/[Oo]wners and admins/);
-		expect(modalSource).toContain('{MANAGERS_LABEL}');
+		expect(modalSource).toContain("{$_('chset_model.managers_label')}");
 	});
 
 	test('only owners and admins manage a channel', () => {
@@ -172,9 +173,10 @@ describe('ChannelSettingsModal frame (§7.13, §8.9)', () => {
 		expect(modalSource).toContain("window.matchMedia('(max-width: 640px)')");
 		expect(modalSource).toContain('w-srow--seal');
 		// One meaning per glyph (§6): who can open is "who can see it"; the shield is moderation.
-		expect(modalSource).toContain('<Icon name="eye" size={14} />Who can open');
+		expect(modalSource).toContain('<Icon name="eye" size={14} />{$_(\'channel_access.col_who\')} {placeName}');
 		expect(modalSource).not.toContain('name="shield"');
-		expect(modalSource).toContain('retryLabel="Retry lifetime check"');
+		expect(modalSource).toContain("retryLabel={$_('chset.retry_lifetime')}");
+		expect(tr('chset.retry_lifetime')).toBe('Retry lifetime check');
 	});
 
 	test('every section shares one fixed frame, so switching tabs moves nothing', () => {
@@ -218,6 +220,7 @@ describe('ChannelSettingsModal frame (§7.13, §8.9)', () => {
 
 	test('away announcements stay on and say so until the server keeps the choice', () => {
 		expect(modalSource).toMatch(/<Switch labelledby="\{uid\}-afk-label"[^>]*bind:checked=\{tempAfkAnnounce\} disabled \/>/);
-		expect(modalSource).toContain("Always on for now: this server doesn't keep a per-room choice yet.");
+		expect(modalSource).toContain("{$_('chset.afk_hint')}");
+		expect(tr('chset.afk_hint')).toContain("Always on for now: this server doesn't keep a per-room choice yet.");
 	});
 });

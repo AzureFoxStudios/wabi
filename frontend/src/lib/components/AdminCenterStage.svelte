@@ -115,14 +115,14 @@
 			{#each sections as item (item.id)}
 				<button class="admin-nav-item" class:admin-nav-active={section === item.id} aria-current={section === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
 					<span class="admin-nav-icon" aria-hidden="true"><WorkspacePanelIcon icon={icons[item.id] ?? 'settings'} /></span>
-					<span class="admin-nav-label">{item.label}</span>
+					<span class="admin-nav-label">{$_(item.labelKey)}</span>
 				</button>
 			{/each}
 		</nav>
 	</aside>
 	<div class="admin-main">
 		<header class="admin-topbar">
-			<div class="admin-heading"><h1>{selected?.label ?? $_('admin_stage.title')}</h1><p>{selected?.description ?? $_('admin_stage.no_access')}</p></div>
+			<div class="admin-heading"><h1>{selected ? $_(selected.labelKey) : $_('admin_stage.title')}</h1><p>{selected ? $_(selected.descriptionKey) : $_('admin_stage.no_access')}</p></div>
 			{#if canManageServer(role) && (section === 'overview' || section === 'runtime')}
 				<div class="admin-snapshot-controls">
 					<span class:stale>{snapshot.receivedAt ? (stale ? $_('admin_stage.last_snapshot') + ' ' : $_('wiki.updated') + ' ') + new Date(snapshot.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : $_('admin_stage.no_snapshot_yet')}</span>
@@ -130,7 +130,7 @@
 				</div>
 			{/if}
 		</header>
-		<main class="admin-content" aria-label={selected?.label ?? $_('admin_stage.title')}>
+		<main class="admin-content" aria-label={selected ? $_(selected.labelKey) : $_('admin_stage.title')}>
 			{#if snapshot.error && (section === 'overview' || section === 'runtime')}
 				<div class="admin-read-error" role="alert"><strong>{$_('admin_stage.status_unavailable')}</strong><p>{snapshot.error} {snapshot.stats ? $_('admin_stage.last_shown_below') : ''}</p></div>
 			{/if}

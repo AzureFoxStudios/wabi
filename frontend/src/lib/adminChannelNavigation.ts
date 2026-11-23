@@ -1,17 +1,17 @@
-import { getChannelTypeLabel } from './channelTypes';
+import { getChannelTypeLabelKey } from './channelTypes';
 
 const DIRECTORY_CHANNEL_TYPES = ['public', 'text', 'voice', 'forum', 'gallery', 'wiki', 'stage', 'lore', 'planning', 'reception'] as const;
 const directoryKinds = new Set<string>(DIRECTORY_CHANNEL_TYPES);
 type DirectoryChannelType = typeof DIRECTORY_CHANNEL_TYPES[number];
 type ChannelSource = { id: string; name: string; type?: string };
-export type AdminChannelEntry = ChannelSource & { type: DirectoryChannelType; typeLabel: string };
+export type AdminChannelEntry = ChannelSource & { type: DirectoryChannelType; typeLabelKey: string };
 
 /** Ordinary server channels only: never expose private conversations or folders. */
 export function adminChannelDirectory(channels: readonly ChannelSource[]): AdminChannelEntry[] {
 	return channels.flatMap((channel) => {
 		if (!channel.type || !directoryKinds.has(channel.type)) return [];
 		const type = channel.type as DirectoryChannelType;
-		return [{ id: channel.id, name: channel.name, type, typeLabel: getChannelTypeLabel(type) }];
+		return [{ id: channel.id, name: channel.name, type, typeLabelKey: getChannelTypeLabelKey(type) }];
 	});
 }
 

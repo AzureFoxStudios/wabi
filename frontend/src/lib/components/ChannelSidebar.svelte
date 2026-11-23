@@ -85,9 +85,11 @@
 	import { currentSavedServer } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
 	import { openDetachedPanel } from '$lib/detachedPanels';
+	import { openChannelInDock } from '$lib/channelDockPanels';
+	import { isTextLikeChannelType } from '$lib/channelTypes';
 	import { floatingPanelStore } from '$lib/windowing/floatingPanelStore';
 	import {
-		FOLLOW_ALERT_LEVEL_LABELS,
+		FOLLOW_ALERT_LEVEL_KEYS,
 		currentServerFollowedChannels,
 		cycleChannelFollowAlertLevel,
 		toggleChannelFollow
@@ -1072,8 +1074,12 @@
 		const items: MenuEntry[] = [];
 
 		if (!isCategory) {
+			items.push({ id: 'open-kicker', type: 'kicker', label: $_('chan_sidebar.kick_open') });
+			// Beside the page: the stage keeps its channel and this one opens in the dock.
+			if (isTextLikeChannelType(ch.type)) {
+				items.push({ id: 'open-side-panel', label: $_('chan_sidebar.open_side'), icon: 'chat', onSelect: () => { openChannelInDock(ch); } });
+			}
 			items.push(
-				{ id: 'open-kicker', type: 'kicker', label: $_('chan_sidebar.kick_open') },
 				{ id: 'open-floating-panel', label: $_('chan_sidebar.open_float'), icon: 'chat', onSelect: () => openChannelFloatingPanel(ch) },
 				{ id: 'open-os-window', label: $_('chan_sidebar.open_window'), icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) }
 			);
@@ -1091,7 +1097,7 @@
 			items.push(
 				{ id: 'follow-kicker', type: 'kicker', label: $_('chan_sidebar.kick_follow') },
 				{ id: 'toggle-follow', label: $_('chan_sidebar.follow_noun', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'bell', role: 'menuitemcheckbox', checked: followed, onSelect: () => toggleChannelFollowState(ch.id) },
-				{ id: 'follow-alerts', label: followed ? $_('chan_sidebar.change_alerts') : $_('chan_sidebar.follow_noun_alerts', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'flag', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
+				{ id: 'follow-alerts', label: followed ? $_('chan_sidebar.change_alerts') : $_('chan_sidebar.follow_noun_alerts', { values: { noun: $_(noun === 'folder' ? 'chan_sidebar.noun_folder' : noun === 'voice room' ? 'chan_sidebar.noun_voice_room' : noun === 'group' ? 'chan_sidebar.noun_group' : 'chan_sidebar.noun_channel') } }), icon: 'flag', hint: $_(FOLLOW_ALERT_LEVEL_KEYS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off']), onSelect: () => cycleFollowAlert(ch.id) },
 				{ id: 'follow-feed', label: $_('chan_sidebar.open_follow_feed'), icon: 'list', hint: followCount > 0 ? $_('chan_sidebar.n_followed', { values: { count: followCount } }) : $_('chan_sidebar.none_followed'), disabled: followCount === 0, onSelect: openFollowingView }
 			);
 		}

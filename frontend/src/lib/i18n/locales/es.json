@@ -231,6 +231,9 @@
     "drag": {
       "drop_to_upload": "Suelta archivos aquí para subirlos"
     },
+    "companion": {
+      "stage_only": "Este canal se abre en el escenario central."
+    },
     "dm": {
       "badge": "Mensaje directo",
       "call": "Llamar",
@@ -6248,6 +6251,7 @@
     "err_delete_folder": "No se pudo eliminar la carpeta.",
     "kick_open": "Abrir",
     "open_float": "Abrir en un panel flotante",
+    "open_side": "Abrir junto a la página",
     "open_window": "Abrir en una ventana nueva",
     "open_whiteboard": "Abrir pizarra",
     "new_thread": "Nuevo hilo",
@@ -8380,5 +8384,72 @@
     "output": "Salida",
     "queueing": "Encolando...",
     "queue": "Encolar conversión"
+  },
+  "admin_nav": {
+    "overview": "Resumen",
+    "overview_desc": "Estado de la comunidad y del servidor, y lo que requiere atención",
+    "moderation": "Moderación",
+    "moderation_desc": "Informes, acciones del equipo y triaje de moderación",
+    "safety": "Reglas de seguridad",
+    "safety_desc": "Reglas automáticas sencillas, filtros y comportamiento de escalado",
+    "privacy": "Privacidad y retención",
+    "privacy_desc": "Elige la retención, la automatización de los espacios privados y los límites de datos locales",
+    "users": "Personas",
+    "users_desc": "Miembros, roles, recuperación de cuentas y contexto de moderación",
+    "roles": "Roles",
+    "roles_desc": "Comprende y gestiona los niveles de permiso integrados",
+    "channels": "Canales",
+    "channels_desc": "Explora los canales del servidor y abre sus espacios de trabajo",
+    "storage": "Almacenamiento",
+    "storage_desc": "Mira qué ocupa espacio en disco y revoca con seguridad los archivos subidos",
+    "infrastructure": "Infraestructura",
+    "infrastructure_desc": "Relés, ayudantes y estado de los nodos conectados",
+    "runtime": "Diagnósticos",
+    "runtime_desc": "Preparación de la base de datos, tiempo activo, memoria y ajuste del entorno de ejecución",
+    "branding": "Marca",
+    "branding_desc": "Cómo aparece este servidor ante los visitantes",
+    "payments": "Pagos",
+    "payments_desc": "Quién puede crear solicitudes de pago",
+    "group_server": "Servidor",
+    "group_people": "Personas",
+    "group_safety": "Seguridad"
+  },
+  "channel_type": {
+    "dm": "DM",
+    "group": "Grupo",
+    "voice": "Voz",
+    "public": "Pública",
+    "thread": "Hilo",
+    "forum": "Foro",
+    "gallery": "Galería",
+    "wiki": "Wiki",
+    "stage": "Escenario",
+    "project": "Proyecto",
+    "planning": "Planificación",
+    "reception": "Recepción",
+    "text": "Texto"
+  },
+  "chset_model": {
+    "title_text": "Configuración del canal",
+    "title_wiki": "Ajustes de la wiki",
+    "title_forum": "Ajustes del foro",
+    "title_gallery": "Ajustes de la galería",
+    "title_voice": "Ajustes de la sala de voz",
+    "title_category": "Ajustes de la carpeta",
+    "tab_general": "General",
+    "tab_permissions": "Permisos",
+    "tab_retention": "Retención",
+    "managers_label": "Administradores y propietario",
+    "managers_only_hint": "Solo los administradores y el propietario pueden cambiarlo.",
+    "gate_all": "Todas las cuentas que han iniciado sesión",
+    "gate_member": "Miembros registrados",
+    "gate_moderator": "Moderadores y administradores",
+    "group_timed": "Con tiempo"
+  },
+  "follow_level": {
+    "off": "Silencioso",
+    "mentions": "Menciones",
+    "all": "Todas las publicaciones",
+    "priority": "Prioritario"
   }
 }

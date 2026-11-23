@@ -16,11 +16,12 @@ type FollowingState = Record<string, Record<string, FollowedChannelPreference>>;
 
 const DEFAULT_STATE: FollowingState = {};
 
-export const FOLLOW_ALERT_LEVEL_LABELS: Record<FollowAlertLevel, string> = {
-	off: 'Silent',
-	mentions: 'Mentions',
-	all: 'All Posts',
-	priority: 'Priority'
+/** Translation keys for each alert level. Resolve with `$_` where the label is shown. */
+export const FOLLOW_ALERT_LEVEL_KEYS: Record<FollowAlertLevel, string> = {
+	off: 'follow_level.off',
+	mentions: 'follow_level.mentions',
+	all: 'follow_level.all',
+	priority: 'follow_level.priority'
 };
 
 const ALERT_LEVEL_CYCLE: FollowAlertLevel[] = ['off', 'mentions', 'all', 'priority'];
