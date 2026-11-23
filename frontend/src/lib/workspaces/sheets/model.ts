@@ -1,8 +1,9 @@
 import * as Y from 'yjs';
 import {cellKey,heads,literal,parseFormula,renderFormula,shiftFormula,type Axis,type CellVersion,type Expr,type WorkbookSnapshot,type Scalar} from './formula';
+import {CF_MAX_RULES,validateCfRule,type CfRule} from './conditional';
 export interface CellStyle {
     bold?:boolean;italic?:boolean;underline?:boolean;format?:'general'|'number'|'percent'|'currency'|'text'|'date';
-    align?:'left'|'center'|'right';fill?:string;wrap?:boolean;border?:boolean;precision?:number;currency?:string;
+    align?:'left'|'center'|'right';fill?:string;color?:string;wrap?:boolean;border?:boolean;precision?:number;currency?:string;
 }
 export type YSheet=Y.Map<unknown>;
 export interface CellTarget {row:string;column:string;}
@@ -99,9 +100,27 @@ export function setStyle(data:Y.Map<unknown>,sheetId:string,cells:CellTarget[],p
     if(cells.length>20000||styles.size+cells.filter(cell=>!styles.has(cellKey(cell.row,cell.column))).length>200000)throw new Error('Formatting range exceeds the supported limit.');
     if(cells.some(cell=>!rows.has(cell.row)||!columns.has(cell.column)))throw new Error('A formatting target was removed.');
     if(patch.fill&&!/^#[0-9a-f]{6}$/i.test(patch.fill))throw new Error('Use a six-digit hexadecimal fill color.');
+    if(patch.color&&!/^#[0-9a-f]{6}$/i.test(patch.color))throw new Error('Use a six-digit hexadecimal text color.');
     if(patch.precision!==undefined&&(!Number.isInteger(patch.precision)||patch.precision<0||patch.precision>10))throw new Error('Decimal precision must be 0–10.');
     if(patch.currency!==undefined&&!/^[A-Z]{3}$/.test(patch.currency))throw new Error('Use a three-letter currency code.');
     data.doc!.transact(()=>{for(const cell of cells){const key=cellKey(cell.row,cell.column);styles.set(key,{...(styles.get(key)||{}),...patch});}},origin);
+}
+/** Conditional-formatting rules live on the sheet map as flat `cf:<id>` keys (no nested map to race on). */
+const CF_PREFIX='cf:';
+export function cfRules(sheet:YSheet):CfRule[]{
+    const rules:CfRule[]=[];for(const[key,value]of sheet.entries())if(key.startsWith(CF_PREFIX)&&value&&typeof value==='object')rules.push(value as CfRule);
+    return rules.sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id));
+}
+export function addCfRule(data:Y.Map<unknown>,sheetId:string,input:Omit<CfRule,'id'|'order'>,origin:unknown){
+    const sheet=activeSheet(data,sheetId);validateCfRule(input);
+    const rows=new Set(axes(sheet,'rows').map(row=>row.id)),columns=new Set(axes(sheet,'columns').map(column=>column.id));
+    if(![input.r0,input.r1].every(id=>rows.has(id))||![input.c0,input.c1].every(id=>columns.has(id)))throw new Error('The range for this rule was removed.');
+    const existing=cfRules(sheet);if(existing.length>=CF_MAX_RULES)throw new Error(`A sheet can hold up to ${CF_MAX_RULES} conditional formatting rules.`);
+    const rule:CfRule={...input,id:uid(),order:existing.reduce((top,item)=>Math.max(top,item.order),-1)+1};
+    data.doc!.transact(()=>sheet.set(CF_PREFIX+rule.id,rule),origin);return rule;
+}
+export function removeCfRule(data:Y.Map<unknown>,sheetId:string,id:string,origin:unknown){
+    const sheet=activeSheet(data,sheetId);if(!sheet.has(CF_PREFIX+id))return;data.doc!.transact(()=>sheet.delete(CF_PREFIX+id),origin);
 }
 export function fill(data:Y.Map<unknown>,sheetId:string,from:{r:number;c:number},to:{r:number;c:number},origin:unknown){
     const book=snapshot(data),sheet=book.sheets.find(sheet=>sheet.id===sheetId);if(!sheet)throw new Error('Sheet unavailable.');

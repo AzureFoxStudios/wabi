@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import * as XLSX from 'xlsx';
-import { exportBook, importBook, officeCell, safeText, zipLimits } from './fileAdapter';
+import { exportBook, importBook, importedFormat, officeCell, safeText, zipLimits } from './fileAdapter';
 import { parseFormula, type CellVersion, type Scalar, type WorkbookSnapshot } from './formula';
 
 function fixture(values: Scalar[]): WorkbookSnapshot {
@@ -65,5 +65,18 @@ describe('spreadsheet file safety and declared round trip', () => {
         for (const value of [new ArrayBuffer(0), new ArrayBuffer(22), bytes('not a zip')]) expect(() => zipLimits(value)).toThrow();
         await expect(importBook(bytes('text'), 'source.xlsm')).rejects.toThrow('Supported imports');
         await expect(importBook(new ArrayBuffer(12 * 1024 * 1024 + 1), 'source.csv')).rejects.toThrow('12 MB');
+    });
+});
+
+describe('imported number formats', () => {
+    test('common Excel formats map to the native display formats; unknown ones stay General', () => {
+        expect(importedFormat('General')).toEqual({});
+        expect(importedFormat('#,##0.00')).toEqual({ format: 'number', precision: 2 });
+        expect(importedFormat('0')).toEqual({ format: 'number', precision: 0 });
+        expect(importedFormat('0.0%')).toEqual({ format: 'percent', precision: 1 });
+        expect(importedFormat('yyyy-mm-dd')).toEqual({ format: 'date' });
+        expect(importedFormat('"฿"#,##0.00')).toEqual({ format: 'currency', precision: 2, currency: 'THB' });
+        expect(importedFormat('@')).toEqual({ format: 'text' });
+        expect(importedFormat('[h]:mm:ss')).toEqual({});
     });
 });

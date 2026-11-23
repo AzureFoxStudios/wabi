@@ -16,7 +16,7 @@
 	import SheetsGrid from './SheetsGrid.svelte';
 	import { ArtifactSession, createArtifact, openArtifact, download, from64, Y } from '../session';
 	import { captureScope, targets, WorkspaceError, type Scope, type Target } from '../bridge';
-	import { initialize, snapshot, addSheet, axes } from './model';
+	import { initialize, snapshot, addSheet, axes, type CellStyle } from './model';
 	import { parseFormula, type CellVersion } from './formula';
 	import { SheetWorker } from './workerClient';
 	import type { ImportedWorkbook } from './engine.worker';
@@ -121,9 +121,12 @@
 				const created = data.sheets.map((sheet) => addSheet(root, sheet.name, sheet.rows, sheet.columns)), book = snapshot(root);
 				doc.transact(() => {
 					data.sheets.forEach((source, index) => {
-						const target = created[index], rows = axes(target.sheet, 'rows'), columns = axes(target.sheet, 'columns'), ops = target.sheet.get('ops') as Y.Map<CellVersion>;
+						const target = created[index], rows = axes(target.sheet, 'rows'), columns = axes(target.sheet, 'columns'), ops = target.sheet.get('ops') as Y.Map<CellVersion>, styles = target.sheet.get('styles') as Y.Map<CellStyle>, columnMap = target.sheet.get('columns') as Y.Map<Record<string, unknown>>;
+						source.widths?.forEach((width, c) => { const column = columns[c]; if (width && column) { const before = columnMap.get(column.id); if (before) columnMap.set(column.id, { ...before, width }); } });
 						for (const cell of source.cells) {
 							if (!rows[cell.r] || !columns[cell.c] || cell.input.length > 8192) throw new Error('Imported cell exceeds the supported target or text limits.');
+							if (cell.style) styles.set(`${rows[cell.r].id}|${columns[cell.c].id}`, cell.style);
+							if (cell.input === '' && cell.literal === undefined && cell.cached === undefined) continue;
 							const id = crypto.randomUUID(), version: CellVersion = { id, cell: `${rows[cell.r].id}|${columns[cell.c].id}`, input: cell.input, parents: [], imported: true, ...(cell.literal !== undefined ? { literal: cell.literal } : {}), ...(cell.cached !== undefined ? { cached: cell.cached } : {}) };
 							if (cell.input.startsWith('=') && cell.literal === undefined) { try { version.expression = parseFormula(cell.input, book, target.id); } catch (e) { version.parseError = e instanceof Error ? e.message : '#UNSUPPORTED!'; } }
 							ops.set(id, version);
