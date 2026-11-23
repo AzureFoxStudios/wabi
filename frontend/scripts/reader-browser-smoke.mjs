@@ -30,7 +30,9 @@ try {
 		'src/lib/components/ReaderIcon.svelte', 'src/lib/components/readerTabHelpers.ts',
 		'src/lib/components/readerDocumentTools.ts', 'src/lib/components/readerCode.css',
 		'src/lib/readerWorkspace.ts', 'src/lib/readerLibrary.ts', 'src/lib/readerCode.ts',
-		'src/lib/prism.ts', 'src/lib/privacy/remoteMedia.ts', 'src/styles/components/reader-tab.css'
+		'src/lib/prism.ts', 'src/lib/privacy/remoteMedia.ts', 'src/styles/components/reader-tab.css',
+		// The Reader says its words through the catalog, so the fixture carries the real i18n module.
+		'src/lib/i18n/index.ts', 'src/lib/i18n/packs.ts', 'src/lib/i18n/locales/en.json', 'src/lib/i18n/locales/es.json', 'src/lib/i18n/locales/th.json'
 	]) {
 		await mkdir(path.dirname(path.join(fixture, relative)), { recursive: true });
 		await copyFile(path.join(frontend, relative), path.join(fixture, relative));
@@ -49,9 +51,11 @@ try {
 		import { get } from 'svelte/store';
 		import Reader from ${file('src/lib/components/ReaderTabImpl.svelte')};
 		import ${file('src/styles/components/reader-tab.css')};
+		import { initI18n } from ${file('src/lib/i18n/index.ts')};
 		import { readerSelection, readerPreferences, updateReaderPreferences } from ${file('src/lib/readerWorkspace.ts')};
 		import { readerLibrary } from ${file('src/lib/readerLibrary.ts')};
 		import { highlightReaderSearch, clearReaderSearch } from ${file('src/lib/components/readerDocumentTools.ts')};
+		initI18n();
 		updateReaderPreferences({ theme: 'paper', fontSize: 20 });
 		mount(Reader, { target: document.getElementById('app') });
 		window.readerTest = {

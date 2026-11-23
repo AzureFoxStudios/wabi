@@ -24,7 +24,9 @@ try {
         'src/lib/readerWorkspace.ts','src/lib/readerDocuments.ts','src/lib/readerDocumentScope.ts',
         'src/lib/readerLibrary.ts','src/lib/readerCode.ts','src/lib/prism.ts','src/lib/privacy/remoteMedia.ts',
         'src/lib/workspaces/bridge.ts',
-        'src/styles/components/reader-tab.css'
+        'src/styles/components/reader-tab.css',
+        // The Reader says its words through the catalog, so the fixture carries the real i18n module.
+        'src/lib/i18n/index.ts', 'src/lib/i18n/packs.ts', 'src/lib/i18n/locales/en.json', 'src/lib/i18n/locales/es.json', 'src/lib/i18n/locales/th.json'
     ]) {
         await mkdir(path.dirname(path.join(fixture,relative)),{recursive:true});
         await copyFile(path.join(frontend,relative),path.join(fixture,relative));
@@ -50,11 +52,12 @@ try {
         import {mount} from 'svelte';import {get} from 'svelte/store';
         import Reader from ${file('src/lib/components/ReaderTab.svelte')};
         import ${file('src/styles/components/reader-tab.css')};
+        import {initI18n} from ${file('src/lib/i18n/index.ts')};
         import {openReaderDocument,readerSelection,updateReaderPreferences} from ${file('src/lib/readerWorkspace.ts')};
         import {readerDocuments,readerDocumentSaveState,readerDocumentConflicts,readerDocumentScope} from ${file('src/lib/readerDocuments.ts')};
         import {targets} from ${file('src/lib/workspaces/bridge.ts')};
         import {currentUser} from ${file('presenceIdentity.js')};import {activeServerUrl} from ${file('serverUrl.js')};import {setStoredTestDbUserId} from ${file('authSession.js')};
-        updateReaderPreferences({theme:'paper',fontSize:18});mount(Reader,{target:document.getElementById('app')});
+        initI18n();updateReaderPreferences({theme:'paper',fontSize:18});mount(Reader,{target:document.getElementById('app')});
         const openSource=(sourceId,title,content)=>openReaderDocument(title,content,'markdown','chat',undefined,sourceId);
         openSource('message-1','Class notes','# Lesson\\n\\nOriginal line for Timmy.');
         window.readerDocTest={

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { inEnglish } from './i18n/sourceEnglish';
 
 // Truth labels (design contract §9.2, §9.4; AGENTS.md rule 13). Member-facing text never claims
 // verified or operator-blind end-to-end encryption, never calls something "Beta" or "Coming soon",
@@ -73,14 +74,14 @@ describe('member-facing words stay truthful', () => {
 
 	test('the privacy explanation is the contract’s words where privacy is explained', () => {
 		const EXPLANATION = "New DMs and groups start encryption-pending and use experimental encryption once everyone's devices are ready. Sending server-readable instead needs each sender's choice. The encryption has not been independently verified, and it does not hide everything from the server operator.";
-		expect(readFileSync(join(SRC, 'routes/privacy/+page.svelte'), 'utf8')).toContain(EXPLANATION);
-		expect(readFileSync(join(SRC, 'lib/components/admin/PrivacyCenter.svelte'), 'utf8')).toContain(EXPLANATION);
+		expect(inEnglish(readFileSync(join(SRC, 'routes/privacy/+page.svelte'), 'utf8'))).toContain(EXPLANATION);
+		expect(inEnglish(readFileSync(join(SRC, 'lib/components/admin/PrivacyCenter.svelte'), 'utf8'))).toContain(EXPLANATION);
 	});
 });
 
 describe('developer instruments are not member UI (§9.4)', () => {
 	test('Media albums keeps "add item by URL" for dev builds only', () => {
-		const albums = readFileSync(join(SRC, 'lib/components/media-albums/MediaAlbumsTabImpl.svelte'), 'utf8');
+		const albums = inEnglish(readFileSync(join(SRC, 'lib/components/media-albums/MediaAlbumsTabImpl.svelte'), 'utf8'));
 		const gate = albums.indexOf('{#if import.meta.env.DEV}');
 		expect(gate).toBeGreaterThan(-1);
 		expect(albums.indexOf('Advanced: add item by URL')).toBeGreaterThan(gate);

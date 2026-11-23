@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { inEnglish } from './i18n/sourceEnglish';
 
 // Contract: design spec §8.7 (wiki tree, 720 article, ON THIS PAGE, Notes in center stage),
 // §7.15 (selection bubble, no shadow), §2 (rules not boxes, ink primary, words over glyphs),
@@ -239,7 +240,7 @@ describe('WikiChannel (§8.7, forum-wiki#3, #10, #11, #12)', () => {
 		expect(html).toContain('<WritingEditor');
 		expect(html).toContain('class="w-btn w-btn--primary"');
 		expect(html).toContain('label="Insert"');
-		expect(html).toContain('aria-label="Writing mode"');
+		expect(inEnglish(html)).toContain('aria-label="Writing mode"');
 		expect(channel).not.toContain('wiki-editor-toolbar');
 		expect(channel).not.toContain('<textarea');
 		// The Schedule table keeps its place, in the Insert menu.
@@ -275,7 +276,7 @@ describe('WikiChannel (§8.7, forum-wiki#3, #10, #11, #12)', () => {
 		expect(markup(tree)).not.toContain("'No pages yet.'");
 		// A failed reload over pages already shown is said on the overview too.
 		const overview = html.slice(html.indexOf('{:else if allPages.length === 0}'), html.indexOf('wiki-start-title'));
-		expect(overview).toContain('Part of this wiki could not be loaded');
+		expect(inEnglish(overview)).toContain('Part of this wiki could not be loaded');
 	});
 
 	test('the overview keeps the tree (New page, search) where it stacks', () => {
