@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { inEnglish } from './i18n/sourceEnglish';
+import catalog from './i18n/locales/en.json';
+import es from './i18n/locales/es.json';
+import th from './i18n/locales/th.json';
 
 // Activity and Following (design contract §8.11, §7.16; critique mobile#8). Sources are read as
 // text: a regression that brings back the second header band, boxed cards, a bar for unread, the
@@ -51,7 +54,10 @@ describe('Activity', () => {
 	});
 
 	test('empty states say what is missing and what happens next', () => {
-		expect(center).toContain("title: 'Nothing needs you right now.'");
+		// The empty "All" state says its heading through the catalog; the key must exist in every language.
+		expect(center).toContain("title: 'notif.empty_all_title'");
+		expect(catalog.notif.empty_all_title).toBe('Nothing needs you right now.');
+		for (const locale of [es, th]) expect(locale.notif.empty_all_title).toBeTruthy();
 		expect(center).not.toContain('All caught up here');
 	});
 });

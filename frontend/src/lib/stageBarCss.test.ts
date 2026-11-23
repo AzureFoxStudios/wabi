@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { inEnglish } from './i18n/sourceEnglish';
 
 // Contract: design spec §7.10 (folio), §7.23 (stage masthead), §8.2 (one persistent masthead for
 // every center-stage workspace), §8.10 (DM header) and critiques header-nav#1-#18, beta-sweep#1,
@@ -570,7 +571,7 @@ describe('row A for channels and DMs (chat/ChatHeader.svelte)', () => {
 		expect(chip).toContain('title={retention.title}');
 		expect(chip).not.toMatch(/\block|private/i);
 		// About this channel carries it too, so the phone bar (no chip room) can reach it.
-		expect(chatHeader).toContain('<dt>Messages kept</dt>');
+		expect(inEnglish(chatHeader)).toContain('<dt>Messages kept</dt>');
 		expect(chatHeader).toContain('const chipRoom = $derived(retention ? 1 : 2);');
 		// The colophon reads the summary this header publishes, only for its own channel.
 		const composer = read('./components/chat/ChatComposer.svelte');

@@ -3548,6 +3548,7 @@
     "switch_review": "Switch to review",
     "row_label": "{name} {text}, {place}",
     "row_label_where": "{name} {text} {where}, {place}",
+    "empty_all_title": "Nothing needs you right now.",
     "empty_all_text": "Messages to you, mentions and friend requests on this server show up here, newest first.",
     "empty_mentions_title": "No mentions yet",
     "empty_mentions_text": "When someone mentions you in a channel this device has loaded, it shows up here.",

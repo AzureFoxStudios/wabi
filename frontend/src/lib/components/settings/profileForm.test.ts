@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import {
-import { inEnglish } from '../../i18n/sourceEnglish';
 	PROFILE_LIMITS,
 	isProfileDirty,
 	profileCounter,
@@ -12,6 +11,7 @@ import { inEnglish } from '../../i18n/sourceEnglish';
 	profileSaveUnconfirmed,
 	publishedAfterSave
 } from './profileForm';
+import { inEnglish } from '../../i18n/sourceEnglish';
 
 const published = { name: 'Mira', status: '', bio: 'Making room for good ideas.' };
 

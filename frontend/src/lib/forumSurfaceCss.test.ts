@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { inEnglish } from './i18n/sourceEnglish';
+import catalog from './i18n/locales/en.json';
 
 // Contract: design spec §8.7 (forum list, article, votes, replies, reply dock, new thread), §2
 // (rules not boxes, ink primary, words over glyphs, nothing moves under the pointer), §4.6
@@ -8,7 +9,8 @@ import { inEnglish } from './i18n/sourceEnglish';
 // Sources are read as text so a regression fails without a browser. Comments are removed by
 // scanning, never by a regex replace over styles or markup.
 
-const read = (path: string) => inEnglish(readFileSync(new URL(path, import.meta.url), 'utf8'));
+const readRaw = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const read = (path: string) => inEnglish(readRaw(path));
 
 const forumCss = read('../styles/components/forum.css');
 const readingCss = read('../styles/surfaces/reading.css');
@@ -343,7 +345,9 @@ describe('markup: words over glyphs, true labels (§2.6, §9)', () => {
 	test('sentence-case verbs and the reply dock words (§9.3, §9.6)', () => {
 		expect(composer).toContain("'Post thread' : 'Post reply'");
 		expect(markup(composer)).toContain('Draft kept on this device');
-		expect(markup(composer)).toContain("Reply to ${replyTo}…");
+		// The words live in the catalog; the composer fills in whose thread it answers.
+		expect(readRaw('./components/ForumComposer.svelte')).toContain("$_('forum_composer.reply_to', { values: { name: replyTo } })");
+		expect(catalog.forum_composer.reply_to).toBe('Reply to {name}…');
 		expect(markup(channel)).toContain('New thread');
 		for (const source of [channel, composer]) expect(source).not.toMatch(/Post Reply|Create Thread|New Thread\b/);
 	});
@@ -384,7 +388,8 @@ describe('markup: words over glyphs, true labels (§2.6, §9)', () => {
 	test('icon-only controls carry a tooltip; an open reply dock takes the one primary (§2.4, §7.2)', () => {
 		const html = markup(channel);
 		expect(html).toContain('<Tooltip text="New thread" disabled={!newIconOnly}>');
-		expect(html).toContain('<Tooltip text={`Sort: ${sortLabel}`} disabled={!sortIconOnly}>');
+		expect(markup(readRaw('./components/ForumChannel.svelte'))).toContain("<Tooltip text={$_('forum_channel.sort_trigger', { values: { label: sortLabel } })} disabled={!sortIconOnly}>");
+		expect(catalog.forum_channel.sort_trigger).toBe('Sort: {label}');
 		expect(html).toContain('class:w-btn--primary={!inPanel && !dockOpen}');
 		expect(composer).toContain('$: onExpandedChange?.(expanded);');
 	});

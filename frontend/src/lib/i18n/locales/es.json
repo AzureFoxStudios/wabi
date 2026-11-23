@@ -3548,6 +3548,7 @@
     "switch_review": "Cambiar para revisar",
     "row_label": "{name} {text}, {place}",
     "row_label_where": "{name} {text} {where}, {place}",
+    "empty_all_title": "Nada te necesita ahora mismo.",
     "empty_all_text": "Los mensajes para ti, las menciones y las solicitudes de amistad de este servidor aparecen aquí, de las más recientes a las más antiguas.",
     "empty_mentions_title": "Aún no hay menciones",
     "empty_mentions_text": "Cuando alguien te mencione en un canal que este dispositivo haya cargado, aparecerá aquí.",
