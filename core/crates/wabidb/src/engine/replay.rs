@@ -185,6 +185,39 @@ pub(crate) async fn replay_projections_with(
     snapshot_watermark: u64,
     rebuild_read_model: bool,
 ) -> Result<u64> {
+    replay_projections_rebuilding(
+        data_dir,
+        key_registry,
+        bootstrap_key,
+        projection_state,
+        dispatch_table,
+        barrier,
+        snapshot_watermark,
+        rebuild_read_model,
+        &std::collections::HashSet::new(),
+    )
+    .await
+}
+
+/// [`replay_projections_with`], also rebuilding the indexes of domain modules
+/// (`crate::domain_modules`) from the whole log. Events of the types in
+/// `rebuild_event_types` are applied in full even at or below
+/// `snapshot_watermark`; the caller has emptied the indexes they build.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn replay_projections_rebuilding(
+    data_dir: &Path,
+    key_registry: &Mutex<StreamKeyRegistry>,
+    bootstrap_key: &[u8; 32],
+    projection_state: &ProjectionState,
+    dispatch_table: &DispatchTable,
+    barrier: &LinearizabilityBarrier,
+    snapshot_watermark: u64,
+    rebuild_read_model: bool,
+    rebuild_event_types: &std::collections::HashSet<String>,
+) -> Result<u64> {
+    // Either rebuild needs every record of the log, not only those above
+    // the snapshot.
+    let whole_log = rebuild_read_model || !rebuild_event_types.is_empty();
     let mut voice_repair =
         crate::projections::voice_restrictions::LegacyVoiceRepair::from_snapshot(projection_state)?;
     // Refuse to start on an unreadable list rather than skip nothing.
@@ -215,7 +248,7 @@ pub(crate) async fn replay_projections_with(
         if committed.values().filter(|e| !quarantine.contains(&e.commit_seq)).any(|e| {
             e.event_refs.iter().any(|r| {
                 e.commit_seq > snapshot_watermark
-                    || rebuild_read_model
+                    || whole_log
                     || voice_repair
                         .as_ref()
                         .is_some_and(|repair| repair.includes(&r.stream_id_hash))
@@ -249,6 +282,8 @@ pub(crate) async fn replay_projections_with(
         dispatch_table,
         snapshot_watermark,
         rebuild_read_model,
+        whole_log,
+        rebuild_event_types,
         voice_repair,
         quarantine,
         repairs_finished: false,
@@ -671,6 +706,11 @@ struct Applier<'a> {
     snapshot_watermark: u64,
     /// Also rebuild the read model from the commits at or below the watermark.
     rebuild_read_model: bool,
+    /// Recover every record at or below the watermark too.
+    whole_log: bool,
+    /// Event types applied in full at or below the watermark (domain modules
+    /// whose indexes are being rebuilt).
+    rebuild_event_types: &'a std::collections::HashSet<String>,
     voice_repair: Option<crate::projections::voice_restrictions::LegacyVoiceRepair>,
     /// Commits the operator quarantined: never recovered or applied.
     quarantine: BTreeSet<u64>,
@@ -690,7 +730,7 @@ impl Applier<'_> {
     /// pass asks for.
     fn needed(&self, commit_seq: u64, stream_hash: &[u8; 16]) -> bool {
         commit_seq > self.snapshot_watermark
-            || self.rebuild_read_model
+            || self.whole_log
             || self
                 .voice_repair
                 .as_ref()
@@ -755,7 +795,7 @@ impl Applier<'_> {
                     .try_into()
                     .unwrap();
                 if let Some(repair) = self.voice_repair.as_mut() {
-                    if !self.rebuild_read_model || repair.includes(&hash) {
+                    if !self.whole_log || repair.includes(&hash) {
                         repair.observe(event)?;
                     }
                 }
@@ -764,6 +804,13 @@ impl Applier<'_> {
                 for Decoded { event, .. } in &events {
                     if let Some(handler) = self.dispatch_table.get(&event.event_type) {
                         self.apply_one(handler.as_ref(), event, true)?;
+                    }
+                }
+            }
+            for Decoded { event, .. } in &events {
+                if self.rebuild_event_types.contains(&event.event_type) {
+                    if let Some(handler) = self.dispatch_table.get(&event.event_type) {
+                        self.apply_one(handler.as_ref(), event, false)?;
                     }
                 }
             }

@@ -208,6 +208,9 @@ pub struct ProjectionState {
     /// file-backed store before replay; a bare state gets an in-memory one
     /// on first use.
     read_model: OnceLock<Arc<ReadModel>>,
+    /// The domain modules (id and version) whose indexes in this state are
+    /// complete; written into every snapshot. See `crate::domain_modules`.
+    domain_versions: RwLock<std::collections::BTreeMap<String, u32>>,
 }
 
 /// Index names the messages projection used while it lived in the skip maps.
@@ -253,7 +256,19 @@ impl ProjectionState {
             dispatch_count: AtomicU64::new(0),
             incomplete_log_below: AtomicU64::new(0),
             read_model: OnceLock::new(),
+            domain_versions: RwLock::new(std::collections::BTreeMap::new()),
         }
+    }
+
+    /// Declare which domain modules' indexes this state holds completely.
+    pub(crate) fn set_domain_versions(&self, versions: std::collections::BTreeMap<String, u32>) {
+        *self.domain_versions.write().unwrap() = versions;
+    }
+
+    /// Drop every index of one domain module, before it is rebuilt from the log.
+    pub(crate) fn drop_domain_indexes(&self, domain_id: &str) {
+        let prefix = crate::domain_modules::index_prefix_of(domain_id);
+        self.indexes.write().unwrap().retain(|name, _| !name.starts_with(&prefix));
     }
 
     /// Carry the incomplete-log evidence into every snapshot this state writes.
@@ -675,6 +690,12 @@ struct SnapshotData {
     /// ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     incomplete_log_below: Option<u64>,
+    /// The domain modules (id → version) whose indexes in this snapshot are
+    /// complete up to the watermark (`crate::domain_modules`). A build
+    /// without domain modules neither writes nor keeps it, which makes any
+    /// module rebuild its indexes the next time it is present.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    domains: std::collections::BTreeMap<String, u32>,
     indexes: Vec<(String, Vec<SnapshotEntry>)>,
 }
 
@@ -689,6 +710,9 @@ pub(crate) struct LoadedSnapshot {
     pub state: ProjectionState,
     pub watermark: u64,
     pub incomplete_log_below: Option<u64>,
+    /// See `SnapshotData::domains`. The loaded state starts with none
+    /// declared; the engine declares the ones it finds usable.
+    pub domains: std::collections::BTreeMap<String, u32>,
 }
 
 impl ProjectionState {
@@ -780,6 +804,7 @@ impl ProjectionState {
         let data = SnapshotData {
             watermark,
             incomplete_log_below: (incomplete > 0).then_some(incomplete),
+            domains: self.domain_versions.read().unwrap().clone(),
             indexes: snapshot_indexes,
         };
 
@@ -843,6 +868,7 @@ impl ProjectionState {
             state,
             watermark: data.watermark,
             incomplete_log_below: data.incomplete_log_below,
+            domains: data.domains,
         }))
     }
 

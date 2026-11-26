@@ -107,3 +107,4 @@ pub mod stream_log;
 #[cfg(test)]
 pub mod tests;
 pub mod domain;
+pub mod domain_modules;

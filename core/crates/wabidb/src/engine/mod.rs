@@ -159,6 +159,8 @@ pub struct WabiDbEngine {
     /// Set only after the writer-fenced marker has been observed at startup
     /// or its file and parent directory have synced successfully.
     durable_writer_fence: AtomicBool,
+    /// The domain modules this engine was opened with (`crate::domain_modules`).
+    domain_modules: Vec<crate::domain_modules::DomainModule>,
 }
 
 impl std::fmt::Debug for WabiDbEngine {
@@ -202,6 +204,22 @@ impl WabiDbEngine {
     /// worker startup. Keep this operator-configured identity stable across
     /// restarts; it does not grant a distributed lease or enable another writer.
     pub async fn open_with_node_id(config: WabiDbConfig, local_node_id: String) -> Result<Self> {
+        Self::open_with_modules(config, local_node_id, Vec::new()).await
+    }
+
+    /// [`Self::open_with_node_id`] with domain modules: projections over
+    /// their own event types, supplied by crates outside the engine. See
+    /// [`crate::domain_modules`] for what a module is given and what it must
+    /// keep to. Fails before touching the data directory if a module is
+    /// malformed or names an event type that is already taken.
+    pub async fn open_with_modules(
+        config: WabiDbConfig,
+        local_node_id: String,
+        modules: Vec<crate::domain_modules::DomainModule>,
+    ) -> Result<Self> {
+        crate::domain_modules::validate(&modules)?;
+        // Also refuses a module event type that a core projection handles.
+        build_type_registry(&modules)?;
         node_identity::validate(&local_node_id)?;
         if let Some(ref replication) = config.replication_config {
             replication.validate()?;
@@ -301,7 +319,7 @@ impl WabiDbEngine {
         let key_registry = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
 
         // 6. Build type registry and projection dispatch table with all registered handlers
-        let type_registry = build_type_registry()?;
+        let type_registry = build_type_registry(&modules)?;
         let dispatch_table = type_registry.dispatch_table().clone();
 
         // 7. Load the saved projections: the snapshot of the in-memory ones,
@@ -380,6 +398,27 @@ impl WabiDbEngine {
             }
         };
         let rebuild = plan.rebuild;
+        // Domain modules whose indexes the snapshot does not hold at their
+        // current version: new to this directory, absent while their events
+        // were written, or changed. Their indexes are rebuilt from the whole
+        // log, which is only sound while the whole log is there. (With no
+        // snapshot everything is replayed anyway.)
+        let saved_domains = saved.as_ref().map(|loaded| loaded.domains.clone()).unwrap_or_default();
+        let stale_modules: Vec<&crate::domain_modules::DomainModule> = modules
+            .iter()
+            .filter(|module| saved_watermark > 0 && saved_domains.get(module.id) != Some(&module.version))
+            .collect();
+        if let (Some(module), Some(below)) =
+            (stale_modules.first(), incomplete_below.or(plan.record_incomplete_below))
+        {
+            return Err(WabiError::Corrupt {
+                location: data_dir.join("projections").display().to_string(),
+                detail: format!(
+                    "domain module {:?} (version {}) has no current indexes in                      projections/snapshot.json and must be rebuilt from the log, but the log of                      this directory is incomplete below commit {below}: the rebuild would drop                      what the missing commits did. Start without this module, or restore the                      whole data directory from a backup taken before the log lost its commits",
+                    module.id, module.version
+                ),
+            });
+        }
         // Persist the evidence when this start has just learned of a hole.
         let learned = plan.record_incomplete_below.or_else(|| {
             head_lost_below.filter(|below| recorded_incomplete.map_or(true, |r| r < *below))
@@ -434,6 +473,29 @@ impl WabiDbEngine {
         if let Some(below) = incomplete_below {
             state.set_incomplete_log_below(below);
         }
+        // Until replay has succeeded, a snapshot written from this state may
+        // only vouch for the modules whose indexes it loaded intact.
+        let mut rebuild_event_types = std::collections::HashSet::new();
+        for module in &stale_modules {
+            tracing::warn!(
+                "domain module {:?} (version {}) is rebuilt from the log: the snapshot holds {}",
+                module.id,
+                module.version,
+                match saved_domains.get(module.id) {
+                    Some(version) => format!("version {version}"),
+                    None => "no complete indexes for it".to_string(),
+                }
+            );
+            state.drop_domain_indexes(module.id);
+            rebuild_event_types.extend(module.event_types.iter().map(|t| t.to_string()));
+        }
+        state.set_domain_versions(
+            modules
+                .iter()
+                .filter(|module| saved_domains.get(module.id) == Some(&module.version))
+                .map(|module| (module.id.to_string(), module.version))
+                .collect(),
+        );
         state.attach_read_model(Arc::clone(&read_model));
         let projection_state = Arc::new(state);
         // Older snapshots may lack the album ID lookup. Rebuild it before
@@ -455,7 +517,7 @@ impl WabiDbEngine {
         // replayed, rolled back otherwise.
         // Returns the highest commit_seq observed on disk (orphans included).
         read_model.begin_startup(rebuild)?;
-        let replayed = replay::replay_projections_with(
+        let replayed = replay::replay_projections_rebuilding(
             data_dir,
             &key_registry,
             &bootstrap_key,
@@ -464,6 +526,7 @@ impl WabiDbEngine {
             &barrier,
             snapshot_watermark,
             rebuild,
+            &rebuild_event_types,
         )
         .await;
         let replay_high_seq = match replayed {
@@ -476,6 +539,13 @@ impl WabiDbEngine {
         if let Err(error) = read_model.commit_startup(barrier.current()) {
             read_model.rollback();
             return Err(error);
+        }
+        // Every registered module's indexes now match the log. Save a
+        // rebuild at once, so that it is not repeated at every start until
+        // the next checkpoint.
+        projection_state.set_domain_versions(crate::domain_modules::versions(&modules));
+        if !rebuild_event_types.is_empty() {
+            projection_state.save_snapshot(data_dir)?;
         }
         if let Some(first) = head_to_record {
             if let Err(error) = update_manifest(data_dir, |object| {
@@ -695,6 +765,7 @@ impl WabiDbEngine {
             _sync_handle: sync_handle,
             write_fence,
             durable_writer_fence: AtomicBool::new(durable_writer_fence),
+            domain_modules: modules,
         })
     }
 
@@ -768,6 +839,65 @@ impl WabiDbEngine {
                 invariant: "engine not fully initialized (sequencer not running".into(),
             }),
         }
+    }
+
+    /// Write the events of one command of domain module `domain_id` and wait
+    /// until they are durable and applied to its indexes. Only that module's
+    /// registered event types and its own streams (`<id>.<name>`) are
+    /// accepted, at most one event per stream.
+    ///
+    /// `idempotency_key` de-duplicates a retried command only within this
+    /// process's lifetime; it does not yet survive a restart.
+    pub async fn write_domain_events(
+        &self,
+        domain_id: &str,
+        caller_user_id: u64,
+        command_name: &str,
+        idempotency_key: Option<String>,
+        events: Vec<crate::domain_modules::DomainEvent>,
+    ) -> Result<CommandOutcome> {
+        let module = self.domain_module(domain_id)?;
+        crate::domain_modules::check_events(module.id, module.event_types, &events)?;
+        let mut to_write = Vec::with_capacity(events.len());
+        for event in events {
+            self.get_or_create_stream_key(&event.stream_id).await?;
+            to_write.push(crate::sequencer::types::EventToWrite {
+                stream_id: event.stream_id,
+                event_type: event.event_type,
+                stream_kind: 0,
+                record_kind: crate::format::record::RecordKind::Event,
+                plaintext: event.payload,
+            });
+        }
+        self.run_command(CommandCommit {
+            caller_user_id,
+            caller_device_id: "primary".into(),
+            command_name: format!("{}.{command_name}", module.id),
+            idempotency_key,
+            room_owner_precondition: None,
+            events: to_write,
+            essential: true,
+            response_tx: tokio::sync::oneshot::channel().0,
+        })
+        .await
+    }
+
+    /// Read access to the indexes of domain module `domain_id`.
+    pub fn domain_reader(&self, domain_id: &str) -> Result<crate::domain_modules::DomainReader> {
+        let module = self.domain_module(domain_id)?;
+        Ok(crate::domain_modules::DomainReader {
+            state: Arc::clone(&self.projection_state),
+            id: module.id,
+        })
+    }
+
+    fn domain_module(&self, domain_id: &str) -> Result<&crate::domain_modules::DomainModule> {
+        self.domain_modules.iter().find(|module| module.id == domain_id).ok_or_else(|| {
+            WabiError::Validation {
+                command: "domain_module".into(),
+                reason: format!("no domain module {domain_id:?} is registered with this engine"),
+            }
+        })
     }
 
     /// Durably stop local canonical commits. Returns only after any commit
@@ -1132,6 +1262,7 @@ impl WabiDbEngine {
             _sync_handle: None,
             write_fence: Arc::new(RwLock::new(false)),
             durable_writer_fence: AtomicBool::new(false),
+            domain_modules: Vec::new(),
         }
     }
 
@@ -1446,8 +1577,11 @@ impl Drop for WabiDbEngine {
     }
 }
 
-/// Build the type registry with all registered projection handlers.
-fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
+/// Build the type registry with all registered projection handlers: the
+/// engine's own, then one per domain module.
+fn build_type_registry(
+    modules: &[crate::domain_modules::DomainModule],
+) -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::album_items::AlbumItemsProjection;
     use crate::projections::albums::AlbumProjection;
     use crate::projections::audit::AuditProjection;
@@ -1831,7 +1965,23 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
         });
         entries
     };
-    TypeRegistry::new(entries)
+    let mut entries = entries;
+    for module in modules {
+        entries.push(ProjectionRegistration {
+            event_types: module.event_types,
+            handler: Arc::new(crate::domain_modules::DomainHandler::new(module.clone())),
+            index_name: "",
+            record_type_name: "",
+        });
+    }
+    TypeRegistry::new(entries).map_err(|error| match error {
+        // A module naming a taken event type is the host's mistake, not a
+        // broken engine.
+        WabiError::InternalInvariantViolated { invariant } if !modules.is_empty() => {
+            WabiError::Validation { command: "register_domain_module".into(), reason: invariant }
+        }
+        other => other,
+    })
 }
 
 #[cfg(test)]

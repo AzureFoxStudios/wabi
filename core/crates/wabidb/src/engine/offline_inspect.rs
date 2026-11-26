@@ -493,7 +493,7 @@ pub async fn inspect_frozen_locked(
     let state = Arc::new(ProjectionState::new());
     let barrier = LinearizabilityBarrier::new(state.clone());
     let registry = tokio::sync::Mutex::new(StreamKeyRegistry::new());
-    let types = super::build_type_registry()?;
+    let types = super::build_type_registry(&[])?;
     check_time(deadline)?;
     let high = tokio::time::timeout(
         deadline.saturating_duration_since(Instant::now()),
