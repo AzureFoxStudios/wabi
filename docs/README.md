@@ -36,6 +36,7 @@ The product is deliberately **not a federated network**: one client may know man
 | [architecture/INSTANCE_RECOVERY_INVENTORY.md](architecture/INSTANCE_RECOVERY_INVENTORY.md) | State paths and consistency boundary for whole-instance recovery and future standby work |
 | [architecture/SERVER_MESH_PLAN.md](architecture/SERVER_MESH_PLAN.md) | Authority/helper/Anchor/replication/standby boundaries; experimental HA work |
 | [architecture/ADDON_ARCHITECTURE.md](architecture/ADDON_ARCHITECTURE.md) · [ADDONS.md](ADDONS.md) | Curated integrations and runtime plugins |
+| [architecture/DOMAIN_MODULES.md](architecture/DOMAIN_MODULES.md) | Records and routes supplied by a crate outside this repository (first step) |
 | [architecture/ENGINEERING_STANDARDS.md](architecture/ENGINEERING_STANDARDS.md) | Engineering standards |
 
 ## Operating a server

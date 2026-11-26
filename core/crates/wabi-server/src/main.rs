@@ -22,6 +22,7 @@ mod bot_delivery;
 mod bot_registry;
 mod call_access;
 mod channel_access;
+mod domain_modules;
 mod config;
 mod community_roster;
 mod error;

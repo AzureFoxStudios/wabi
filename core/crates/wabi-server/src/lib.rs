@@ -18,6 +18,7 @@ pub mod bot_delivery;
 pub mod bot_registry;
 pub mod call_access;
 pub mod channel_access;
+pub mod domain_modules;
 pub mod config;
 pub mod community_roster;
 pub mod error;

@@ -122,6 +122,9 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         router
     };
 
+    // Routes of domain modules supplied by the host (none in the stock server).
+    let router = crate::domain_modules::mount(router, &state);
+
     router
         // Whiteboard routes (image upload & file serving)
         .nest("/whiteboard", super::whiteboard::routes(state.clone()))

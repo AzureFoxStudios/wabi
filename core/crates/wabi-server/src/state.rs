@@ -57,6 +57,9 @@ pub struct ComposedIndexCache {
 
 /// Shared application state
 pub struct AppState {
+    /// Domain modules this server was started with (`crate::domain_modules`);
+    /// none in the stock server.
+    pub(crate) domain_modules: Vec<crate::domain_modules::DomainModule>,
     pub config: ServerConfig,
     /// Monotonic server lifetime, including initialization; never starts on the
     /// first health/dashboard request. Runtime-only, not a persisted record.
@@ -342,6 +345,25 @@ impl AppState {
         config: ServerConfig,
         desktop_bootstrap_token: Option<String>,
     ) -> anyhow::Result<Self> {
+        Self::open(config, desktop_bootstrap_token, Vec::new()).await
+    }
+
+    /// [`Self::new`] with domain modules: business records and routes
+    /// supplied by crates outside this server (`crate::domain_modules`).
+    pub async fn new_with_modules(
+        config: ServerConfig,
+        modules: Vec<crate::domain_modules::DomainModule>,
+    ) -> anyhow::Result<Self> {
+        Self::open(config, None, modules).await
+    }
+
+    async fn open(
+        config: ServerConfig,
+        desktop_bootstrap_token: Option<String>,
+        domain_modules: Vec<crate::domain_modules::DomainModule>,
+    ) -> anyhow::Result<Self> {
+        let engine_modules: Vec<wabidb::domain_modules::DomainModule> =
+            domain_modules.iter().map(|module| module.engine.clone()).collect();
         anyhow::ensure!(
             crate::config::valid_node_id(&config.node_id),
             "invalid Authority node ID"
@@ -453,12 +475,17 @@ impl AppState {
                 sync_interval_micros
             );
             Arc::new(
-                WdbAdapter::open_with_config_and_node_id(wdb_config, config.node_id.clone())
+                WdbAdapter::open_with_modules(wdb_config, config.node_id.clone(), engine_modules)
                     .await?,
             )
         } else {
             Arc::new(
-                WdbAdapter::open_with_node_id(&wdb_data_dir, config.node_id.clone()).await?,
+                WdbAdapter::open_with_modules(
+                    WdbAdapter::resolved_config(&wdb_data_dir)?,
+                    config.node_id.clone(),
+                    engine_modules,
+                )
+                .await?,
             )
         };
         // Also cover a marker created while the engine was opening.
@@ -555,6 +582,7 @@ impl AppState {
             None
         };
         Ok(Self {
+            domain_modules,
             config,
             started_at,
             network_health: crate::api::network_health::Sampler::default(),

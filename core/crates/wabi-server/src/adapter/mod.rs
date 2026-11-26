@@ -131,7 +131,23 @@ impl WdbAdapter {
         config: WabiDbConfig,
         node_id: String,
     ) -> Result<Self> {
-        let engine = WabiDbEngine::open_with_node_id(config, node_id).await?;
+        Self::open_with_modules(config, node_id, Vec::new()).await
+    }
+
+    /// [`Self::open_with_config_and_node_id`] with domain modules
+    /// (`wabidb::domain_modules`).
+    pub async fn open_with_modules(
+        config: WabiDbConfig,
+        node_id: String,
+        modules: Vec<wabidb::domain_modules::DomainModule>,
+    ) -> Result<Self> {
+        if !crate::config::valid_node_id(&node_id) {
+            return Err(WabiError::Validation {
+                command: "configure_local_node".into(),
+                reason: "invalid node ID".into(),
+            });
+        }
+        let engine = WabiDbEngine::open_with_modules(config, node_id, modules).await?;
         Ok(Self {
             engine: Arc::new(engine),
             group_creation_write: tokio::sync::Mutex::new(()),
