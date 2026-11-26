@@ -202,6 +202,18 @@ async fn wait_for_shutdown(shutdown_on_stdin_close: bool) {
 
 /// Parse the command line and run the server until it is told to stop.
 pub async fn run() -> anyhow::Result<()> {
+    run_with_modules(Vec::new()).await
+}
+
+/// [`run`] for a host executable that carries domain modules
+/// (`crate::domain_modules`). The stock `wabi-server` passes none.
+///
+/// Modules are loaded only by the normal server path. The helper,
+/// recovery-node and Planner modes and the `WABI_PURGE_ORPHANS`
+/// maintenance run open no module.
+pub async fn run_with_modules(
+    modules: Vec<crate::domain_modules::DomainModule>,
+) -> anyhow::Result<()> {
     let args = Args::parse();
     // Dedicated opt-in before logging, maintenance, JWT, AppState/WabiDB and
     // upload setup. Recovery peers never become another community Authority.
@@ -465,7 +477,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     // Create application state
     let state = Arc::new(
-        AppState::new_with_desktop_bootstrap(config.clone(), desktop_bootstrap_token).await?,
+        AppState::new_for_host(config.clone(), desktop_bootstrap_token, modules).await?,
     );
     // Create staging only after the missing-registry recovery guard inspects
     // uploads; an empty fresh instance must not look like lost upload history.

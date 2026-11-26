@@ -1,6 +1,6 @@
 # Domain modules
 
-**Status:** first step. No flag guards it, because the stock server registers no modules. In-memory indexes only. Not yet usable from the shipped `wabi-server` binary (see "Not done yet").
+**Status:** first step. No flag guards it, because the stock server registers no modules. In-memory indexes only.
 
 A domain module is a set of business records and routes that lives in a crate outside this repository and plugs into a Wabi server built by its owner. The stock server has none, names none and advertises none. Someone who only wants to talk sees no difference.
 
@@ -15,7 +15,7 @@ This is not the add-on system (`docs/ADDONS.md`). Add-ons are part of this repos
 | Version | `DomainModule::version` | Identity of the projection logic. Change it whenever the same events would give different indexes. |
 | Routes | `wabi_server::domain_modules::DomainModule::routes` | An Axum router, mounted at `/api/domains/<id>`. |
 
-A host binary passes its modules to `AppState::new_with_modules`, which hands the engine parts to `WabiDbEngine::open_with_modules`.
+A host is its own executable, in its own repository, whose `main` is one call: `wabi_server::startup::run_with_modules(modules)`. That is the whole stock server (command line, static files, Socket.IO, rate limits, background jobs) plus the modules. The stock `wabi-server` executable calls `startup::run()`, which passes none. Tests that want only the API router use `AppState::new_with_modules`.
 
 ## What the engine guarantees
 
@@ -39,7 +39,7 @@ A host binary passes its modules to `AppState::new_with_modules`, which hands th
 
 ## Not done yet
 
-- **The shipped binary cannot host a module.** `core/crates/wabi-server/src/main.rs` declares its own copy of the module tree and does not go through the library. A host today builds its own binary on the `wabi_server` library, as `tests/domain_modules_contract.rs` does, and so misses what `build_app_router` and `main` add (static files, Socket.IO, rate limits, startup jobs). Moving startup into a library entry point is the next step.
+- **Other start modes.** Only the normal server path loads modules. The helper, recovery-node and Planner modes and the `WABI_PURGE_ORPHANS` maintenance run open the data without them; the module's indexes are then rebuilt from the log at the next normal start.
 - **SQL tables.** Indexes are ordered byte maps in memory, saved in the snapshot. Per-module tables in the SQLite read model are a later step.
 - **Admission inside the writer.** A module cannot yet reject a command at the point of sequencing (for example "stock would go negative"), and has no gap-free number series.
 - **Durable command ids.** `idempotency_key` de-duplicates only while the process lives.

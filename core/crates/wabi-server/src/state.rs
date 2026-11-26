@@ -357,6 +357,16 @@ impl AppState {
         Self::open(config, None, modules).await
     }
 
+    /// What `startup` uses: the desktop bootstrap token and the host's
+    /// domain modules together.
+    pub async fn new_for_host(
+        config: ServerConfig,
+        desktop_bootstrap_token: Option<String>,
+        modules: Vec<crate::domain_modules::DomainModule>,
+    ) -> anyhow::Result<Self> {
+        Self::open(config, desktop_bootstrap_token, modules).await
+    }
+
     async fn open(
         config: ServerConfig,
         desktop_bootstrap_token: Option<String>,
