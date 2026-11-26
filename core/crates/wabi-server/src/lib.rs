@@ -1,6 +1,5 @@
-//! Wabi Server library crate for integration testing
-//! Mirrors the module tree of `main.rs` so integration tests can access
-//! the public API (adapter, state, socketio types, etc.)
+//! Wabi Server library crate.
+//! The whole server lives here; `main.rs` only calls [`startup::run`].
 
 pub mod adapter;
 pub mod addon_switches;
@@ -34,6 +33,7 @@ pub mod recovery_node;
 #[cfg(target_os = "linux")]
 pub(crate) mod recovery_publication_jobs;
 pub mod instance_archive;
+pub(crate) mod helper_client;
 pub mod jobs;
 pub mod lan;
 pub mod listener;
@@ -41,6 +41,7 @@ pub mod mdns;
 pub mod media;
 pub mod metrics;
 pub mod nodes;
+pub(crate) mod personal_planner;
 pub mod push_store;
 pub mod rate_limit;
 pub mod replication_transport;
@@ -48,6 +49,7 @@ pub mod secrets;
 pub mod socketio;
 pub mod socketio_impl;
 pub mod standby;
+pub mod startup;
 pub mod state;
 pub mod upload_registry;
 pub mod web_push;
