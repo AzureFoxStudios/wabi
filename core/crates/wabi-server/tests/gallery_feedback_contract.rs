@@ -144,6 +144,32 @@ async fn album_item(state: &AppState, channel: &str, member: u64) -> (String, St
     (album, item, derived)
 }
 
+#[tokio::test]
+async fn a_gallery_item_says_who_submitted_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (member, _other) = users(&state).await;
+    let channel = gallery_channel(&state, member).await;
+    let (album, _item, _derived) = album_item(&state, &channel, member).await;
+    let token = jwt(&state, member);
+
+    // No upload record for the file (older data): nobody is named, rather than a wrong name.
+    let (status, body) = request(&app, Method::GET, &format!("/albums/{album}/items"), &token, json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["items"][0].get("uploaded_by").is_none(), "{body}");
+
+    // The file's upload record names its uploader, and the item carries that.
+    state
+        .upload_registry
+        .record("pic.png", "pic.png", Some(channel.clone()), Some(member as i64), wabi_server::upload_registry::UploadKind::Attachment, 10)
+        .await
+        .unwrap();
+    let (status, body) = request(&app, Method::GET, &format!("/albums/{album}/items"), &token, json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["items"][0]["uploaded_by"], json!(member), "{body}");
+}
+
 fn feedback_payload(comment: &str) -> Value {
     json!({"comment": comment, "xPercent": 12.5, "yPercent": 40.0})
 }

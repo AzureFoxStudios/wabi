@@ -44,6 +44,25 @@ fn item_json(item: &wabidb::domain::AlbumItem) -> Value {
     })
 }
 
+/// The stored file name behind an item's address, when the item is one of this server's uploads.
+fn upload_file_name(url: &str) -> Option<&str> {
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let (_, name) = path.rsplit_once("/uploads/")?;
+    (!name.is_empty() && !name.contains('/')).then_some(name)
+}
+
+/// An item with who submitted it. The album item itself does not record a person, so this is
+/// the uploader of its file, taken from the upload record. Items whose file has no record
+/// (older data, or an address from elsewhere) carry no `uploaded_by`.
+async fn item_json_with_uploader(state: &AppState, item: &wabidb::domain::AlbumItem) -> Value {
+    let mut value = item_json(item);
+    let Some(name) = upload_file_name(&item.url) else { return value };
+    if let Some(uploader) = state.upload_registry.get(name).await.and_then(|meta| meta.uploader_id) {
+        value["uploaded_by"] = json!(uploader);
+    }
+    value
+}
+
 fn preview_items(items: &[wabidb::domain::AlbumItem]) -> Vec<Value> {
     items.iter().take(4).map(item_json).collect()
 }
@@ -251,9 +270,13 @@ async fn list_items(
         s.sort_by_key(|i| i.sort_order);
         s
     };
+    let mut listed = Vec::with_capacity(sorted.len());
+    for item in &sorted {
+        listed.push(item_json_with_uploader(&state, item).await);
+    }
     Ok(Json(json!({
         "album": album_json(&album, sorted.len(), preview_items(&sorted)),
-        "items": sorted.iter().map(item_json).collect::<Vec<_>>()
+        "items": listed
     })))
 }
 
@@ -292,7 +315,7 @@ async fn add_item(
                 .ok_or_else(|| {
                     AppError::Internal("Item missing after projection acknowledgment".into())
                 })?;
-            Ok(Json(json!({ "item": item_json(&item) })))
+            Ok(Json(json!({ "item": item_json_with_uploader(&state, &item).await })))
         })
         .await
 }
