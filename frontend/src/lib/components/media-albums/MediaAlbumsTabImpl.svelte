@@ -779,6 +779,8 @@
 	});
 
 	onDestroy(() => {
+		boundAlbumsSocket?.off('e2ee-room-updated', onRoomUpdated);
+		boundAlbumsSocket = null;
 		if (autoRefreshTimer) {
 			clearInterval(autoRefreshTimer);
 			autoRefreshTimer = null;

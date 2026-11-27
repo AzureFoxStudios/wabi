@@ -129,7 +129,7 @@ content the web client enforces, and tests in a real browser (`scripts/kept-cont
 - albums are the one of those that a conversation's members can open together: each member
   agrees for themselves that album names, captions and files are stored server-readable, albums
   open while every current member has agreed, and any member can withdraw. The server enforces
-  it on each album write and records only who agreed. Messages stay encrypted; a file added from
+  it on each album write and records only who agreed. Messages are not affected; a file added from
   an encrypted message is decrypted on the device and uploaded as a separate copy;
 - "Add to gallery" is off for the same reason, unless the person turns on "Add to gallery from
   private conversations" (Settings, Privacy & security; this device only, off by default). With it

@@ -17,6 +17,19 @@
 	export let onOpenAlbums: (() => void) | undefined = undefined;
 
 	let busy = false;
+
+	// "Not now" hides the notice for this conversation on this device. The Albums panel still
+	// offers the agreement, so nothing is decided for the person by dismissing it.
+	const dismissKey = (id: string) => `wabi.albumsAgreement.notNow:${id}`;
+	function readDismissed(id: string): boolean {
+		try { return localStorage.getItem(dismissKey(id)) === '1'; } catch { return false; }
+	}
+	let dismissed = false;
+	$: dismissed = readDismissed(channelId);
+	function notNow() {
+		try { localStorage.setItem(dismissKey(channelId), '1'); } catch { /* hidden for this view only */ }
+		dismissed = true;
+	}
 	function statusAt(id: string, _revision: number) {
 		return cachedE2eeStatus(id);
 	}
@@ -37,7 +50,7 @@
 </script>
 
 {#if variant === 'notice'}
-	{#if view.askedByOthers}
+	{#if view.askedByOthers && !dismissed}
 		<div class="w-notice w-notice--info albums-agreement-notice" role="status">
 			<p class="w-notice__title">{$_('albums_agreement.asked_title')}</p>
 			<p class="w-notice__text">{$_('albums_agreement.asked_text')}</p>
@@ -46,6 +59,7 @@
 				{#if onOpenAlbums}
 					<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={onOpenAlbums}>{$_('albums_agreement.details')}</button>
 				{/if}
+				<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={notNow}>{$_('albums_agreement.not_now')}</button>
 			</div>
 		</div>
 	{/if}
