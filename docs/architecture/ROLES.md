@@ -14,7 +14,7 @@ Rules:
 - A person can hold **several** listed roles, alongside a staff rank.
 - Each listed role says whether **members may pick it themselves** in Welcome. Roles that do not are given only by staff.
 - Staff give or take any listed role in People.
-- A room can **need a role**. Only holders see and use it. Admins and the owner can always open it; moderators need the role like everyone else.
+- A room can **need a role**. Only holders see and use it. Moderators, admins and the owner can always open it. A room that moderators must not see uses the admin minimum rank instead (the owner can open everything).
 - Signed-in members can see who holds which role (the profile card lists them). Guests cannot.
 
 ## Role reactions

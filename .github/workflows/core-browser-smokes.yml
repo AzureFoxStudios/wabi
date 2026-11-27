@@ -129,6 +129,12 @@ jobs:
           WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
         run: xvfb-run -a node scripts/privacy-labels-browser-smoke.mjs
 
+      - name: Admin panel opens for the owner (every section, both ways in)
+        working-directory: frontend
+        env:
+          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
+        run: xvfb-run -a node scripts/admin-panel-browser-smoke.mjs
+
       - name: DM and group calls (fake media, p2p)
         working-directory: frontend
         run: xvfb-run -a node scripts/dm-call-end-to-end.mjs
