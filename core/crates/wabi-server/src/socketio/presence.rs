@@ -732,7 +732,7 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
     let is_live = state.app.channel_auto_delete_label.read().await
         .get(&channel_id).is_some_and(|label| label == "live");
 
-    let all: Vec<Value> = if is_live {
+    let mut all: Vec<Value> = if is_live {
         let mut msgs = session_msgs;
         msgs.sort_by_key(|m| m.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
         // Collapse duplicate message ids — duplicate keys crash Svelte keyed each.
@@ -818,6 +818,7 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
             .collect()
     };
 
+    attach_reactions(&state, &mut all).await;
     let payload = json!({ "channelId": channel_id, "messages": all, "hasMore": false });
     if let Err(e) = socket.emit("channel-messages", &payload) {
         warn!("[sio] channel-messages failed: {}", e);
@@ -846,5 +847,25 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
         drop(session);
         let snap = json!({ "channelId": channel_id.clone(), "messages": msgs });
         let _ = socket.emit("live-buffer-snapshot", &snap);
+    }
+}
+
+/// Stored reactions travel with the messages a room loads. Without them every
+/// reaction vanished from view on reload or rejoin, though it was still stored.
+/// The shape is the one live reaction events build up: emoji id → `user-N` ids.
+async fn attach_reactions(state: &SioState, messages: &mut [Value]) {
+    for message in messages.iter_mut() {
+        let Some(id) = message.get("id").and_then(Value::as_str).map(str::to_string) else { continue; };
+        let Ok(stored) = state.app.wdb.list_reactions(&id).await else { continue; };
+        if stored.is_empty() { continue; }
+        let mut by_emoji: std::collections::BTreeMap<String, Vec<(i64, String)>> = Default::default();
+        for reaction in stored {
+            by_emoji.entry(reaction.emote).or_default().push((reaction.created_at_micros, format!("user-{}", reaction.user_id)));
+        }
+        let reactions: serde_json::Map<String, Value> = by_emoji.into_iter().map(|(emoji, mut users)| {
+            users.sort();
+            (emoji, json!(users.into_iter().map(|(_, user)| user).collect::<Vec<_>>()))
+        }).collect();
+        if let Some(object) = message.as_object_mut() { object.insert("reactions".into(), Value::Object(reactions)); }
     }
 }

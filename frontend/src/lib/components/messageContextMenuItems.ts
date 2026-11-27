@@ -47,6 +47,8 @@ export interface MessageMenuInput {
 	/** The person allowed gallery copies from kept content (privacy/privateMediaToGallery.ts). */
 	privateMediaToGallery?: boolean;
 	onPromoteToLore?: Action;
+	/** Staff only, on a message in a shared room: link emoji on it to roles. */
+	onRoleReactions?: Action;
 	onEdit: Action;
 	onPin: Action;
 	onTogglePersonalPin?: Action;
@@ -105,6 +107,9 @@ export function buildMessageMenu(input: MessageMenuInput): MenuEntry[] {
 		icon: 'pin',
 		onSelect: input.onPin
 	});
+	if (input.onRoleReactions) {
+		edit.push({ id: 'role-reactions', label: t('context_menu.role_reactions'), icon: 'smilePlus', onSelect: input.onRoleReactions });
+	}
 	if (input.personalPinsEnabled && input.onTogglePersonalPin) {
 		edit.push({
 			id: 'personal-pin',

@@ -822,6 +822,10 @@ export class SocketManager {
 				}).catch(() => {});
 		};
 		on('channel-access-policy-updated', () => { channelAccessPolicyVersion.update(version => version + 1); refreshAccessibleChannels(); void refreshRoleHolders(); });
+		// A reaction gave or took a role (role reactions). The shell says so; this module raises no toasts.
+		on('reaction-role-changed', (payload: { roleName?: string; granted?: boolean; error?: string }) => {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('wabi-reaction-role-changed', { detail: payload ?? {} }));
+		});
 		on('channel-access-revoked', (payload: { channelId?: string }) => {
 			if (payload?.channelId) {
 				const revoked = payload.channelId;

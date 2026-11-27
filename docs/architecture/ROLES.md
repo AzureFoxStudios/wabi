@@ -17,6 +17,16 @@ Rules:
 - A room can **need a role**. Only holders see and use it. Admins and the owner can always open it; moderators need the role like everyone else.
 - Signed-in members can see who holds which role (the profile card lists them). Guests cannot.
 
+## Role reactions
+
+Staff can link emoji on a message to listed roles (message menu, "Role reactions…"). The linked emoji are shown under the message with the role's name.
+
+- Reacting with a linked emoji gives the role; removing the reaction gives it up. The member is told either way.
+- Only roles members may pick themselves can be linked. This is checked when the reaction arrives, not only when the link is saved. A link is dropped when its role leaves the list or becomes staff-given.
+- A reaction never changes a staff rank. The old emoji role rules, which assigned a staff rank on reaction, are no longer applied.
+- Links live on messages in shared rooms, not in conversations, and not in a room that itself needs the linked role.
+- Welcome, staff in People and reactions all change a member's roles through one server function (`commit_member_roles`), so rooms open and close the same way whichever was used.
+
 ## Storage and endpoints
 
 Listed roles were introduced as "community roles", and storage keeps that name so existing servers and older apps keep working. Only the wording changed.
@@ -34,4 +44,3 @@ Room access is decided in `channel_access.rs` (`own_channel_role_allows`).
 - **Artist and Developer** are still values of the single staff-rank slot. Giving one to an admin or moderator replaces that rank.
 - **Repository (Lore) roles** and **service roles** are separate stores with their own editors.
 - **Channel "who can open"** (member, moderator, admin minimum) is a separate control from "needs a role".
-- Old reaction-role rules, where any exist, can still change a staff rank.

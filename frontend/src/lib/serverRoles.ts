@@ -12,6 +12,7 @@
 import { get, writable } from 'svelte/store';
 import { getAuthToken } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
+import { normalizeReactionRoles, reactionRoleMessages, type ReactionRoleRule } from '$lib/reactionRoles';
 
 export interface ListedRole {
 	id: string;
@@ -85,10 +86,12 @@ export function refreshRoleHolders(): Promise<void> {
 					Object.entries(holders).map(([userId, ids]) => [userId, Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []])
 				)
 			);
+			reactionRoleMessages.set(normalizeReactionRoles(body.reactionRoles));
 		} catch {
 			if (server === getServerUrl()) {
 				listedRoles.set([]);
 				roleHolders.set({});
+				reactionRoleMessages.set({});
 			}
 		} finally {
 			refreshing = null;
@@ -110,4 +113,15 @@ export async function setMemberRoles(userId: number, roleIds: string[]): Promise
 
 export function heldRoleIds(userId: number | string): string[] {
 	return get(roleHolders)[String(userId)] ?? [];
+}
+
+/** Staff: set which emoji on a message give which role. An empty list removes them. */
+export async function saveReactionRoles(messageId: string, channelId: string, rules: ReactionRoleRule[]): Promise<void> {
+	await request(`/reaction-roles/${encodeURIComponent(messageId)}`, { method: 'PUT', body: JSON.stringify({ channelId, rules }) });
+	reactionRoleMessages.update((current) => {
+		const next = { ...current };
+		if (rules.length) next[messageId] = { channelId, rules };
+		else delete next[messageId];
+		return next;
+	});
 }

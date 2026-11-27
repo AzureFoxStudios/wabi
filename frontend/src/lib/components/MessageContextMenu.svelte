@@ -26,6 +26,7 @@
 	/** Every member of this conversation agreed to server-readable albums. */
 	export let albumsAgreed = false;
 	export let onPromoteToLore: (() => void) | undefined = undefined;
+	export let onRoleReactions: (() => void) | undefined = undefined;
 	export let onCopyMessageLink: (() => void) | undefined = undefined;
 	export let onCopyQuote: (() => void) | undefined = undefined;
 	export let onForward: (() => void) | undefined = undefined;
@@ -102,6 +103,7 @@
 			onAddToGallery: galleryMedia ? onAddToGallery : undefined,
 			privateMediaToGallery: galleryAllowed,
 			onPromoteToLore,
+			onRoleReactions,
 			onEdit,
 			onPin,
 			onTogglePersonalPin,

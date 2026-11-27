@@ -3016,6 +3016,13 @@ async fn a_reaction_gives_and_takes_only_a_self_chosen_role() {
     assert_eq!(request(&app, Method::POST, &format!("/channels/{jam_room}/join"), &outsider_token, json!(null)).await.0, StatusCode::OK);
     assert_eq!(request(&app, Method::GET, &jam_read, &outsider_token, json!(null)).await.0, StatusCode::OK);
 
+    // The reaction is still on the message when the room is loaded again.
+    socket.emit("join-channel", json!(lobby)).await;
+    let reloaded = socket.event("channel-messages").await;
+    let loaded = reloaded["messages"].as_array().unwrap().iter().find(|loaded| loaded["id"] == json!(message)).unwrap().clone();
+    assert_eq!(loaded["reactions"]["1F34C"], json!([format!("user-{outsider}")]), "{loaded}");
+    assert_eq!(loaded["reactions"]["1F44D"], json!([format!("user-{outsider}")]));
+
     // Removing the reaction takes it back and closes the room.
     socket.emit("remove-emoji-reaction", json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
     assert_eq!(socket.event("reaction-role-changed").await["granted"], json!(false));
