@@ -10,10 +10,10 @@ The client uses Yjs v1 updates, a scope-isolated IndexedDB store, per-operation 
 
 Sheets and Present are independently enabled frontend addons. Their registrations do not import their editors. Browser/desktop client code selection is a build-time decision:
 
-- `WABI_WORKSPACE_ADDONS=none` (default): neither authoring engine is packaged.
+- `WABI_WORKSPACE_ADDONS=none`: neither authoring engine is packaged.
 - `WABI_WORKSPACE_ADDONS=sheets`: Sheets only.
 - `WABI_WORKSPACE_ADDONS=present`: Present only.
-- `WABI_WORKSPACE_ADDONS=all`: both, still disabled on the device until explicitly enabled.
+- `WABI_WORKSPACE_ADDONS=all` (default since 2026-11-27, so server, desktop and mobile builds all carry them): both, still disabled on the device until explicitly enabled.
 
 The lightweight audience viewer and shared Documents remain available without either editor. Runtime installation of downloaded executable addons is not implemented. A minimal client must not label its unavailable editor as installable with one click.
 
