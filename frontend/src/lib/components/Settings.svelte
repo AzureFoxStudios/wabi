@@ -19,6 +19,8 @@
 		privacyWords,
 		type PrivacyState
 	} from '$lib/privacy/privacyState';
+	import { privateMediaToGallery, setPrivateMediaToGallery } from '$lib/privacy/privateMediaToGallery';
+	import Switch from './ui/Switch.svelte';
 	import BaseModal from './BaseModal.svelte';
 	import Icon from './ui/Icon.svelte';
 	import AvatarEditor from './AvatarEditor.svelte';
@@ -508,6 +510,20 @@
 						<p class="settings-block__more">
 							<a href={PRIVACY_LINK_HREF} target="_blank" rel="noopener noreferrer">{PRIVACY_LINK_LABEL}</a>
 						</p>
+					</section>
+					<section class="settings-block" aria-labelledby="privacy-gallery-copy">
+						<h3 class="settings-block__title" id="privacy-gallery-copy">{$t('settings.private_gallery.title')}</h3>
+						<div class="w-srows">
+							<div class="w-srow">
+								<div class="w-srow__text">
+									<p class="w-srow__label" id="privacy-gallery-copy-label">{$t('settings.private_gallery.label')}</p>
+									<p class="w-srow__hint" id="privacy-gallery-copy-hint">{$t('settings.private_gallery.hint')}</p>
+								</div>
+								<div class="w-srow__control">
+									<Switch labelledby="privacy-gallery-copy-label" describedby="privacy-gallery-copy-hint" checked={$privateMediaToGallery} onchange={setPrivateMediaToGallery} />
+								</div>
+							</div>
+						</div>
 					</section>
 					<ServerSettingsTab />
 				{:else if activeSettingsTab === 'games'}

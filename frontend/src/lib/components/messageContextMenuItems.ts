@@ -8,7 +8,7 @@
  * the message actually has files attached.
  */
 import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
-import { albumsHint, forwardHint, type KeepReason } from '$lib/privacy/contentEgress';
+import { albumsHint, forwardHint, galleryHint, type KeepReason } from '$lib/privacy/contentEgress';
 
 type Action = (() => void) | undefined;
 
@@ -40,6 +40,10 @@ export interface MessageMenuInput {
 	onCopyMessageLink?: Action;
 	onDownload?: Action;
 	onAddToAlbum?: Action;
+	/** Present only when the message has media a gallery can show. */
+	onAddToGallery?: Action;
+	/** The person allowed gallery copies from kept content (privacy/privateMediaToGallery.ts). */
+	privateMediaToGallery?: boolean;
 	onPromoteToLore?: Action;
 	onEdit: Action;
 	onPin: Action;
@@ -78,6 +82,13 @@ export function buildMessageMenu(input: MessageMenuInput): MenuEntry[] {
 			keep
 				? { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', disabled: true, hint: albumsHint(keep) }
 				: { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', onSelect: input.onAddToAlbum }
+		);
+	}
+	if (input.hasFile && input.onAddToGallery) {
+		share.push(
+			keep && !input.privateMediaToGallery
+				? { id: 'add-to-gallery', label: t('context_menu.add_to_gallery'), icon: 'image', disabled: true, hint: galleryHint(keep) }
+				: { id: 'add-to-gallery', label: t('context_menu.add_to_gallery'), icon: 'image', onSelect: input.onAddToGallery }
 		);
 	}
 	if (input.hasFile && input.onPromoteToLore && !keep) {

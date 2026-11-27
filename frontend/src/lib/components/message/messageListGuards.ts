@@ -8,27 +8,36 @@ import {
 	albumsHint,
 	blendImportHint,
 	forwardHint,
+	galleryHint,
 	keepReasonFor,
 	loreHint,
 	type KeepReason
 } from '$lib/privacy/contentEgress';
 
-export type ServerReadableAction = 'album' | 'forward' | 'lore' | 'blend';
+export type ServerReadableAction = 'album' | 'forward' | 'lore' | 'blend' | 'gallery';
 
 const HINTS: Record<ServerReadableAction, (reason: KeepReason) => string> = {
 	album: albumsHint,
 	forward: forwardHint,
 	lore: loreHint,
+	gallery: galleryHint,
 	blend: blendImportHint
 };
 
 export function serverReadableActionBlock(
 	action: ServerReadableAction,
 	message: Partial<Message> | null | undefined,
-	room: KeepReason | null
+	room: KeepReason | null,
+	/**
+	 * The person's standing choice (privacy/privateMediaToGallery.ts). It lifts the block for
+	 * 'gallery' only, whatever the reason: every other action ignores it.
+	 */
+	privateMediaToGallery = false
 ): string | null {
 	const reason = keepReasonFor(message, room);
-	return reason ? HINTS[action](reason) : null;
+	if (!reason) return null;
+	if (action === 'gallery' && privateMediaToGallery) return null;
+	return HINTS[action](reason);
 }
 
 /** Translation consent is per server, account and room (contentEgress.mayTranslate). */

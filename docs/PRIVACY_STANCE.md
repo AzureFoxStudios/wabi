@@ -126,6 +126,10 @@ content the web client enforces, and tests in a real browser (`scripts/kept-cont
   text to the configured service;
 - album, Lore, Blender-import and forward actions are off, because those features are
   server-readable;
+- "Add to gallery" is off for the same reason, unless the person turns on "Add to gallery from
+  private conversations" (Settings, Privacy & security; this device only, off by default). With it
+  on, the media is decrypted on the device and uploaded to the chosen gallery as a new,
+  server-readable copy; the picker says so each time. The setting unlocks that one action only;
 - reporting discloses the message's decrypted text to the server's moderators only after the
   reporter ticks an explicit disclosure box.
 

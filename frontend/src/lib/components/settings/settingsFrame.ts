@@ -224,6 +224,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
 	{ tab: 'profile', label: 'About me', keywords: ['bio', 'description'] },
 	{ tab: 'profile', label: 'Password', keywords: ['change password', 'account', 'sign in'] },
 	{ tab: 'privacy', label: 'Privacy & security', keywords: ['encryption', 'server-readable', 'who can read', 'privacy'] },
+	{ tab: 'privacy', label: 'Add to gallery from private conversations', keywords: ['gallery', 'dm', 'private', 'encrypted', 'images'] },
 	{ tab: 'privacy', label: 'Directions GPS', keywords: ['location', 'gps', 'directions'] },
 	{ tab: 'privacy', label: 'Boost this server', keywords: ['bandwidth', 'volunteer', 'relay', 'network address'] },
 	{ tab: 'notifications', label: 'Notifications', keywords: ['alerts', 'desktop notifications', 'push'] },

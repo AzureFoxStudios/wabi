@@ -80,6 +80,9 @@
 	import { isSpotifyUrl } from '$lib/spotifyControls';
 	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
 	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
+	import { addAttachmentsToGallery, galleryAttachmentItems } from '$lib/galleryFromMessage';
+	import { privateMediaToGallery } from '$lib/privacy/privateMediaToGallery';
+	import AddToGalleryDialog from './AddToGalleryDialog.svelte';
 	import { decryptAttachmentBlob } from '$lib/e2ee';
 	import { e2eeStatusRevision, ensureE2eeStatus, roomContentKeepReason } from '$lib/dm/dmE2eeState';
 	import { keepReasonFor, mayTranslate } from '$lib/privacy/contentEgress';
@@ -958,6 +961,85 @@
 		} finally {
 			contextMenuVisible = false;
 		}
+	}
+
+	// "Add to gallery": a new copy of the message's media in a gallery the person chooses.
+	let galleryTargetMessage: Message | null = null;
+	let galleryTargetItems: MessageAttachmentActionItem[] = [];
+	let galleryTargetPrivate = false;
+	let galleryTargetChannelId: string | null = null;
+	let addToGalleryBusy = false;
+	$: galleryChoices = $channels.filter((channel) => channel.type === 'gallery');
+
+	function handleAddToGallery(): void {
+		const targetMessage = contextMenuMessage;
+		contextMenuVisible = false;
+		if (!targetMessage) return;
+		// Galleries are server-readable. Kept content goes only if the person turned the setting on.
+		const hint = serverReadableActionBlock('gallery', targetMessage, roomKeep, $privateMediaToGallery);
+		if (hint) {
+			showToast(hint, 'info');
+			return;
+		}
+		if (!getAuthToken()) {
+			showToast(get(_)('msgl.login_albums'), 'warning');
+			return;
+		}
+		const media = galleryAttachmentItems(getMessageAttachmentActionItems(targetMessage));
+		const selected = selectAttachmentActionItems(media);
+		if (!selected || selected.length === 0) return;
+		galleryTargetItems = selected;
+		galleryTargetPrivate = keepReasonFor(targetMessage, roomKeep) !== null;
+		galleryTargetChannelId = activeChannelId;
+		galleryTargetMessage = targetMessage;
+	}
+
+	function closeAddToGallery(): void {
+		if (addToGalleryBusy) return;
+		galleryTargetMessage = null;
+		galleryTargetItems = [];
+	}
+
+	async function sendToGallery(gallery: Channel): Promise<void> {
+		if (addToGalleryBusy || galleryTargetItems.length === 0) return;
+		const sourceChannelId = galleryTargetChannelId;
+		addToGalleryBusy = true;
+		try {
+			const result = await addAttachmentsToGallery({
+				galleryChannelId: gallery.id,
+				galleryName: gallery.name,
+				items: galleryTargetItems,
+				fetchAttachment: (item) => readAttachmentBlob(item, sourceChannelId)
+			});
+			if (result.uploaded > 0) {
+				showToast(
+					result.uploaded === 1
+						? get(_)('add_to_gallery.sent_one', { values: { gallery: gallery.name } })
+						: get(_)('add_to_gallery.sent_other', { values: { n: result.uploaded, gallery: gallery.name } }),
+					'info'
+				);
+			}
+			if (result.errors.length > 0) {
+				console.error('Add to gallery:', result.errors);
+				showToast(get(_)('add_to_gallery.failed', { values: { n: result.errors.length } }), 'error');
+			}
+		} catch (error) {
+			console.error('Add to gallery failed:', error);
+			showToast(get(_)('add_to_gallery.failed', { values: { n: galleryTargetItems.length } }), 'error');
+		} finally {
+			addToGalleryBusy = false;
+			galleryTargetMessage = null;
+			galleryTargetItems = [];
+		}
+	}
+
+	/** The attachment's bytes as this device can read them: decrypted when it arrived encrypted. */
+	async function readAttachmentBlob(item: MessageAttachmentActionItem, channelId: string | null): Promise<Blob | null> {
+		const blob = await downloadWithBoosters(getFileUrl(item.fileUrl));
+		const encryption = item.attachmentEncryption;
+		if (!encryption || encryption.scheme !== 'dm-e2ee-v1') return blob;
+		if (!channelId) return null;
+		return decryptAttachmentBlob(channelId, new Blob([await blob.arrayBuffer()]), encryption);
 	}
 
 	function getQuoteSourceText(message: Message): string {
@@ -2344,6 +2426,7 @@
 	{handleTogglePersonalPin}
 	{handleDownload}
 	{handleAddToAlbum}
+	{handleAddToGallery}
 	{handleCopyQuote}
 	{handleCopyMessageLink}
 	{handleForward}
@@ -2360,6 +2443,15 @@
 	message={promoteModalMessage}
 	channelId={activeChannelId}
 	onClose={() => (showPromoteModal = false)}
+/>
+
+<AddToGalleryDialog
+	visible={galleryTargetMessage !== null}
+	galleries={galleryChoices}
+	busy={addToGalleryBusy}
+	privateSource={galleryTargetPrivate}
+	onChoose={(gallery) => void sendToGallery(gallery)}
+	onClose={closeAddToGallery}
 />
 
 <style>

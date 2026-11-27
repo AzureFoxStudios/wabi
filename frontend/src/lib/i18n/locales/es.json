@@ -90,6 +90,11 @@
       "count_matching": "{count} coincidencias",
       "empty": "Ningún atajo coincide con «{query}».",
       "unlisted": "Solo se muestran las teclas que están asignadas hoy y que se han comprobado. Las llamadas, la pizarra, los mapas y el visor de la galería tienen su propio manejo de teclas que aún no aparece aquí."
+    },
+    "private_gallery": {
+      "title": "Galerías",
+      "label": "Añadir a la galería desde conversaciones privadas",
+      "hint": "Permite copiar imágenes y vídeos de MD y grupos, incluidos los que usan cifrado experimental, a una galería. Las galerías son legibles por el servidor, así que los miembros de la galería y el operador del servidor pueden ver la copia. Desactivado de forma predeterminada; solo en este dispositivo."
     }
   },
   "login": {
@@ -458,7 +463,8 @@
     "delete_message": "Eliminar mensaje",
     "delete_message_uploads": "Eliminar mensaje y archivos…",
     "delete_message_uploads_hint": "También elimina los archivos adjuntos",
-    "delete_message_unavailable_hint": "Solo puedes eliminar tus propios mensajes"
+    "delete_message_unavailable_hint": "Solo puedes eliminar tus propios mensajes",
+    "add_to_gallery": "Añadir a la galería"
   },
   "forward_dialog": {
     "title": "Reenviar mensaje",
@@ -8467,5 +8473,15 @@
     "mentions": "Menciones",
     "all": "Todas las publicaciones",
     "priority": "Prioritario"
+  },
+  "add_to_gallery": {
+    "title": "Añadir a la galería",
+    "description": "Elige una galería. Se subirá a ella una copia del contenido.",
+    "private_note": "Esto copia el contenido fuera de una conversación privada. La galería es legible por el servidor: sus miembros y el operador del servidor pueden verla.",
+    "none": "Aún no hay galerías aquí. Crea primero un canal de galería.",
+    "sending": "Copiando a la galería…",
+    "sent_one": "Añadido a {gallery}",
+    "sent_other": "{n} archivos añadidos a {gallery}",
+    "failed": "No se pudieron añadir {n} archivo(s) a la galería"
   }
 }
