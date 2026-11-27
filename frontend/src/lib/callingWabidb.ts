@@ -31,6 +31,7 @@ import { hasWebCodecs } from './wabidbVideoLane';
 import { joinRelayRoom } from './relayRoom';
 import { selectRelayAudio } from './peerAudioPlayback';
 import { captureGroupAccess, groupMembership } from './groupAccess';
+import { noteRelayCallLive } from './callingDiagnostics';
 
 // WO-1/WO-2 smoke remediation: diagnostics for CallModal's Diag overlay.
 // The relay Map is double-indexed (channel key AND graph id) — dedupe by
@@ -263,6 +264,7 @@ export async function disconnectWabidbCall(): Promise<void> {
 		try { relay.stop?.(); } catch (_) {}
 	}
 	wabidbMediaRelays.clear();
+	noteRelayCallLive(false);
 	wabidbConnectInflight.clear();
 	teardownWabidbVideoLane();
 	const oldState = wabidbCallState;
@@ -305,6 +307,7 @@ export async function disconnectWabidbChannel(targetChannelId: string,
 		for (const [key, candidate] of wabidbMediaRelays.entries()) {
 			if (candidate === relay) wabidbMediaRelays.delete(key);
 		}
+		if (wabidbMediaRelays.size === 0) noteRelayCallLive(false);
 		// Phase 2.5: if the watchdog served this session, it no longer does.
 		if (activeWatchdogSessionId === targetChannelId && !preserveRecovery) {
 			activeWatchdogSessionId = null;
@@ -709,6 +712,7 @@ async function doConnectWabidbCall(
 		});
 
 		console.log(`[Wabidb] Call connected to session ${newSessionId}`);
+		noteRelayCallLive(true);
 	} catch (error) {
 		console.error('[Wabidb] Connection failed:', error);
 		// Ownership: only tear down what THIS run built. A failed (or

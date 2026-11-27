@@ -43,6 +43,26 @@ describe('actual relay playback processor', () => {
 		expect(p.messages.some(m => m.type === 'rendered' && m.samples === 480)).toBe(true);
 	});
 
+	test('reports what a listener would hear as trouble: cuts and gaps', () => {
+		const p = processor();
+		const last = () => p.messages.filter(m => m.type === 'rendered').at(-1);
+		// Steady audio: nothing to report.
+		p.push(new Float32Array(9600));
+		p.render(4800);
+		expect(last()).toMatchObject({ buffered: 4800, cutSamples: 0, gaps: 0 });
+		// It runs dry mid-stream: one gap, counted once however long the silence lasts.
+		p.render(4800);
+		p.render(128);
+		p.render(128);
+		p.push(new Float32Array(9600));
+		p.render(4800);
+		expect(last()).toMatchObject({ gaps: 1, cutSamples: 0 });
+		// More arrives than half a second holds: the oldest is cut.
+		p.push(new Float32Array(48000));
+		p.render(4800);
+		expect(last().cutSamples).toBe(4800 + 48000 - 24000);
+	});
+
 	test('bounds backlog to half a second and keeps the latest audio', () => {
 		const p = processor();
 		p.push(new Float32Array(48000).fill(1));

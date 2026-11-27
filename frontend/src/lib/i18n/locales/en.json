@@ -1285,6 +1285,9 @@
     "stat_jitter": "Jitter",
     "stat_packet_loss": "Packet loss",
     "stat_rate": "Rate",
+    "stat_playback_buffer": "Playback buffer",
+    "stat_playback_trouble": "Gaps and cuts since joining",
+    "stat_playback_trouble_value": "{gaps} gaps · {cut} s cut",
     "your_screen": "Your screen",
     "empty_title": "No voice rooms yet",
     "empty_text": "A voice room shows up here once someone in this community creates one."
@@ -4985,6 +4988,7 @@
     "tab_notes_short": "Notes",
     "tab_activity": "Activity",
     "could_not_open": "Could not open the conversation.",
+    "screen_load_failed": "Part of Wabi could not be loaded. Reload the page; if it keeps happening, clear this site's stored data in your browser.",
     "welcome_save_failed": "Could not save welcome progress. The guide may reappear next time.",
     "friend_request": "Friend request from {name}. Open Friends to respond.",
     "friend_requests": "{count} new friend requests. Open Friends to respond.",

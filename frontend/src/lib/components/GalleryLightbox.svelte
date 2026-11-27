@@ -270,28 +270,28 @@
 								class="lightbox-image"
 							/>
 						{/if}
+						{#if feedbackList.length > 0 || pendingMarker}
+							<div class="lightbox-markers">
+								{#each feedbackList as fb, idx (fb.feedbackId)}
+									<button
+										class="lightbox-marker-dot"
+										class:active={activeMarkerId === fb.feedbackId}
+										style="left: {fb.xPercent}%; top: {fb.yPercent}%"
+										on:click|stopPropagation={() => handleMarkerClick(fb)}
+										aria-label={$_('gallery.feedback_marker', { values: { n: idx + 1 } })}
+									>
+										{idx + 1}
+									</button>
+								{/each}
+								{#if pendingMarker}
+									<div
+										class="lightbox-marker-dot lightbox-marker-pending"
+										style="left: {pendingMarker.x}%; top: {pendingMarker.y}%"
+									></div>
+								{/if}
+							</div>
+						{/if}
 					</div>
-					{#if feedbackList.length > 0 || pendingMarker}
-						<div class="lightbox-markers">
-							{#each feedbackList as fb, idx (fb.feedbackId)}
-								<button
-									class="lightbox-marker-dot"
-									class:active={activeMarkerId === fb.feedbackId}
-									style="left: {fb.xPercent}%; top: {fb.yPercent}%"
-									on:click|stopPropagation={() => handleMarkerClick(fb)}
-									aria-label={$_('gallery.feedback_marker', { values: { n: idx + 1 } })}
-								>
-									{idx + 1}
-								</button>
-							{/each}
-							{#if pendingMarker}
-								<div
-									class="lightbox-marker-dot lightbox-marker-pending"
-									style="left: {pendingMarker.x}%; top: {pendingMarker.y}%"
-								></div>
-							{/if}
-						</div>
-					{/if}
 				</div>
 				<div class="lightbox-feedback-sidebar" bind:this={feedbackEl}>
 					<div class="lightbox-feedback-header">
@@ -532,6 +532,27 @@
 		max-width: 90vw;
 		max-height: 70vh;
 		border-radius: 2px;
+	}
+
+	/* Beside the feedback list the picture has only its own column, not the whole window: fit it
+	   to that column so the list never covers part of it. The media box stays wrapped to the
+	   picture, because a feedback marker is stored as a position within that box, and the markers
+	   are drawn inside it so they sit on the spot that was pressed. */
+	.lightbox-media-col {
+		container-type: size;
+	}
+
+	.lightbox-media-col .lightbox-media {
+		position: relative;
+		max-width: 100%;
+		max-height: 100%;
+	}
+
+	.lightbox-media-col .lightbox-image,
+	.lightbox-media-col .lightbox-video {
+		display: block;
+		max-width: 100cqw;
+		max-height: 100cqh;
 	}
 
 	.lightbox-info {

@@ -755,6 +755,18 @@ async fn serve_static(
                 )
                     .into_response();
             }
+            // A build file this binary does not hold is missing, not a page.
+            // Answering with the shell and 200 let browsers and the service
+            // worker keep an HTML page under a script's address, after which
+            // that screen could never load there.
+            if path == "_app" || path.starts_with("_app/") {
+                return (
+                    StatusCode::NOT_FOUND,
+                    [(CONTENT_TYPE, "text/plain"), (CACHE_CONTROL, "no-store")],
+                    "Not found",
+                )
+                    .into_response();
+            }
             // SPA fallback — deep links (e.g. /channels/x) get the SAME
             // composed shell as "/", so branding never flickers on
             // non-root navigations.

@@ -15,6 +15,7 @@ import { getAuthToken, getStoredDbUserId, getStoredUsername, authSessionGenerati
 import { getServerUrl } from './serverUrl';
 import { accountPreferenceKey } from './openingSurfacePreference';
 import { showToast } from './toast';
+import { sharedReorderBatch } from './channelReorder';
 import { captureGroupAccess, groupMembership } from './groupAccess';
 
 export const channels = writable<Channel[]>([]);
@@ -242,7 +243,10 @@ export async function unpinChannel(channelId: string): Promise<void> {
 	sock.emit('unpin-channel', { channelId });
 }
 
-export function reorderChannels(orders: { id: string; position: number; parentId: string | null }[]): void {
+export function reorderChannels(requested: { id: string; position: number; parentId: string | null }[]): void {
+	// One private conversation in the batch makes the server refuse all of it.
+	const orders = sharedReorderBatch(requested, get(channels));
+	if (orders.length === 0) return;
 	channels.update(list => list.map(ch => {
 		const order = orders.find(o => o.id === ch.id);
 		return order ? { ...ch, position: order.position, parentId: order.parentId ?? undefined } : ch;

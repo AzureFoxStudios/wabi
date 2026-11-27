@@ -256,3 +256,22 @@
 	color: var(--w-mute);
 	font-size: var(--font-size-sm);
 }
+
+/* Narrow windows and phones: the picture on top at full width, feedback below it. */
+@media (max-width: 800px) {
+	.lightbox-body-row {
+		flex-direction: column;
+		height: 82vh;
+	}
+
+	.lightbox-media-col {
+		flex: 1 1 55%;
+		min-height: 0;
+	}
+
+	.lightbox-feedback-sidebar {
+		width: 100%;
+		flex: 0 1 45%;
+		min-height: 0;
+	}
+}

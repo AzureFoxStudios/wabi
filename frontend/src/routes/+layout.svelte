@@ -34,7 +34,8 @@
 	import AmbientBackground from '$lib/effects/AmbientBackground.svelte';
 	import LocalVisualEffectsHost from '$lib/effects/LocalVisualEffectsHost.svelte';
 	import ConnectionBadge from '$lib/effects/ConnectionBadge.svelte';
-	import { startSocketErrorToasts, socketToasts } from '$lib/socketErrorToasts';
+	import { startSocketErrorToasts, socketToasts, pushSocketToast } from '$lib/socketErrorToasts';
+	import { startFailedScreenLoadNotice } from '$lib/failedScreenLoad';
 	import { startInstallPromptCapture } from '$lib/pwa/installPrompt';
 	import { startMobileShell } from '$lib/pwa/mobileShell';
 	import {
@@ -50,6 +51,8 @@
 
 	initI18n();
 	startSocketErrorToasts();
+	// A screen loaded on demand that cannot be fetched used to fail without a word.
+	startFailedScreenLoadNotice(() => pushSocketToast('screen-load', get(_)('main_layout.screen_load_failed')));
 
 	// The document shell covers every URL, but only the workspace page owns
 	// session/bootstrap readiness. Reveal standalone pages and route errors

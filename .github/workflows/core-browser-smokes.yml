@@ -123,6 +123,12 @@ jobs:
         working-directory: frontend
         run: xvfb-run -a node scripts/e2ee-default-end-to-end.mjs
 
+      - name: Rooms reorder by drag while a direct message exists
+        working-directory: frontend
+        env:
+          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
+        run: xvfb-run -a node scripts/channel-reorder-browser-smoke.mjs
+
       - name: Privacy labels and DM controls
         working-directory: frontend
         env:
