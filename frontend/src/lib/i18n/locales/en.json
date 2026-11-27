@@ -90,6 +90,11 @@
       "count_matching": "{count} matching",
       "empty": "No shortcut matches “{query}”.",
       "unlisted": "Only keys that are bound today and have been checked are listed. Calls, the whiteboard, maps and the gallery viewer have their own key handling that is not listed yet."
+    },
+    "private_gallery": {
+      "title": "Galleries",
+      "label": "Add to gallery from private conversations",
+      "hint": "Lets you copy images and video from DMs and groups, including those with experimental encryption, into a gallery. Galleries are server-readable, so the copy can be seen by the gallery's members and the server operator. Off by default; this device only."
     }
   },
   "login": {
@@ -458,7 +463,8 @@
     "delete_message": "Delete message",
     "delete_message_uploads": "Delete message and uploads…",
     "delete_message_uploads_hint": "Also deletes the attached files",
-    "delete_message_unavailable_hint": "Only your own messages can be deleted"
+    "delete_message_unavailable_hint": "Only your own messages can be deleted",
+    "add_to_gallery": "Add to gallery"
   },
   "forward_dialog": {
     "title": "Forward message",
@@ -8467,5 +8473,15 @@
     "mentions": "Mentions",
     "all": "All Posts",
     "priority": "Priority"
+  },
+  "add_to_gallery": {
+    "title": "Add to gallery",
+    "description": "Choose a gallery. A copy of the media is uploaded to it.",
+    "private_note": "This copies the media out of a private conversation. The gallery is server-readable: its members and the server operator can see it.",
+    "none": "There are no galleries here yet. Create a gallery channel first.",
+    "sending": "Copying to the gallery…",
+    "sent_one": "Added to {gallery}",
+    "sent_other": "Added {n} files to {gallery}",
+    "failed": "{n} file(s) could not be added to the gallery"
   }
 }

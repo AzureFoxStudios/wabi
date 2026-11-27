@@ -120,6 +120,11 @@ function offBecause(reason: KeepReason): string {
 export function albumsHint(reason: KeepReason): string {
 	return `Albums are server-readable. ${offBecause(reason)}`;
 }
+/** The name of the setting that allows "Add to gallery" from kept content (Settings, Privacy & security). */
+export const PRIVATE_MEDIA_TO_GALLERY_SETTING = 'Add to gallery from private conversations';
+export function galleryHint(reason: KeepReason): string {
+	return `Galleries are server-readable. ${offBecause(reason)} To allow it anyway, turn on “${PRIVATE_MEDIA_TO_GALLERY_SETTING}” in Settings, Privacy & security.`;
+}
 export function forwardHint(reason: KeepReason): string {
 	return `Forwarding sends the text as a new server-readable message. ${offBecause(reason)}`;
 }

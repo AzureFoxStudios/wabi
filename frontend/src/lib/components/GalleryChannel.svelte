@@ -321,6 +321,24 @@
 		await runGalleryUpload(files);
 	}
 
+	/** Paste images or files from the clipboard into the open gallery (not while typing in a field). */
+	function handlePaste(event: ClipboardEvent) {
+		const target = event.target;
+		if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [contenteditable]'))) return;
+		const files = Array.from(event.clipboardData?.files || []);
+		if (files.length === 0) return;
+		event.preventDefault();
+		void runGalleryUpload(files.map(namePastedFile));
+	}
+
+	/** A pasted screenshot arrives as "image.png" every time; give each one its own name. */
+	function namePastedFile(file: File, index: number): File {
+		if (file.name && !/^image\.[a-z0-9]+$/i.test(file.name)) return file;
+		const extension = (file.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '') || 'png';
+		const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+		return new File([file], `pasted-${stamp}${index ? `-${index + 1}` : ''}.${extension}`, { type: file.type });
+	}
+
 	async function runGalleryUpload(files: File[]) {
 		if (!effectiveChannel || isUploading) return;
 		if (files.length === 0) return;
@@ -358,6 +376,8 @@
 		galleryWorkspace.dispose();
 	});
 </script>
+
+<svelte:window on:paste={handlePaste} />
 
 <div
 	class="gallery-channel"

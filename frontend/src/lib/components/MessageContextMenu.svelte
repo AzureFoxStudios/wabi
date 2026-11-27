@@ -7,6 +7,9 @@
 	import { getTranslatorSettings } from '$lib/components/message/messageTranslator';
 	import { buildMessageMenu } from './messageContextMenuItems';
 	import { keepReasonFor, type KeepReason } from '$lib/privacy/contentEgress';
+	import { privateMediaToGallery } from '$lib/privacy/privateMediaToGallery';
+	import { galleryAttachmentItems } from '$lib/galleryFromMessage';
+	import { getMessageAttachmentActionItems } from './message/messageAttachmentActions';
 	import { _ } from '$lib/i18n';
 
 	export let message: Message;
@@ -19,6 +22,7 @@
 	export let onReply: () => void;
 	export let onDownload: (() => void) | undefined = undefined;
 	export let onAddToAlbum: (() => void) | undefined = undefined;
+	export let onAddToGallery: (() => void) | undefined = undefined;
 	export let onPromoteToLore: (() => void) | undefined = undefined;
 	export let onCopyMessageLink: (() => void) | undefined = undefined;
 	export let onCopyQuote: (() => void) | undefined = undefined;
@@ -51,6 +55,7 @@
 	})();
 	$: canEditMessage = canManageOwnMessage ?? isOwnMessageByIdentity;
 	$: canDeleteResolved = canDeleteMessage ?? canEditMessage;
+	$: hasGalleryMedia = galleryAttachmentItems(getMessageAttachmentActionItems(message)).length > 0;
 	$: hasFile = message.type === 'file' && (Boolean(message.fileUrl) || (message.files?.length ?? 0) > 0);
 	$: canCopyText = !!message.text?.trim();
 
@@ -65,9 +70,9 @@
 	// `visible` is intentionally an explicit dependency. Translator settings live
 	// in localStorage, so reopening the menu must rebuild actions after an Add-ons
 	// settings change without requiring a page reload.
-	$: items = buildItems(visible, message, roomKeepReason);
+	$: items = buildItems(visible, message, roomKeepReason, hasGalleryMedia, $privateMediaToGallery);
 
-	function buildItems(_menuVisible: boolean, _message: Message, _room: KeepReason | null): MenuEntry[] {
+	function buildItems(_menuVisible: boolean, _message: Message, _room: KeepReason | null, galleryMedia: boolean, galleryAllowed: boolean): MenuEntry[] {
 		return buildMessageMenu({
 			t: get(_),
 			isOwn: isOwnMessageByIdentity,
@@ -91,6 +96,8 @@
 			onCopyMessageLink,
 			onDownload,
 			onAddToAlbum,
+			onAddToGallery: galleryMedia ? onAddToGallery : undefined,
+			privateMediaToGallery: galleryAllowed,
 			onPromoteToLore,
 			onEdit,
 			onPin,
