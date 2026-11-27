@@ -18,12 +18,19 @@ class WabidbAudioPlaybackWorklet extends AudioWorkletProcessor {
     this.length = 0;
     this.reported = false;
     this.sinceReport = 0;
+    // What the listener would hear as trouble, counted for the call's connection details:
+    // samples thrown away because audio arrived faster than it could be played (a cut), and
+    // the times playback ran out of audio mid-stream (a gap).
+    this.cutSamples = 0;
+    this.gaps = 0;
+    this.playing = false;
     this.port.onmessage = ({ data }) => {
       if (data?.type === 'reset') {
         this.length = 0;
         this.readIndex = 0;
         this.sinceReport = 0;
         this.reported = false;
+        this.playing = false;
         return;
       }
       const pcm = data?.pcm;
@@ -32,6 +39,7 @@ class WabidbAudioPlaybackWorklet extends AudioWorkletProcessor {
       const overflow = Math.max(0, this.length + count - this.buffer.length);
       this.readIndex = (this.readIndex + overflow) % this.buffer.length;
       this.length -= overflow;
+      this.cutSamples += overflow + (pcm.length - count);
       let writeIndex = (this.readIndex + this.length) % this.buffer.length;
       for (let i = pcm.length - count; i < pcm.length; i++) {
         this.buffer[writeIndex] = Number.isFinite(pcm[i]) ? pcm[i] : 0;
@@ -53,10 +61,13 @@ class WabidbAudioPlaybackWorklet extends AudioWorkletProcessor {
     }
     this.length -= count;
     this.sinceReport += count;
+    // Running dry after audio had been playing is one gap, however long the silence lasts.
+    if (count < output[0].length && this.playing) { this.gaps++; this.playing = false; }
+    else if (count === output[0].length && this.length > 0) this.playing = true;
     // This proves the processor consumed PCM, not that a physical speaker
     // is audible. Silence is valid audio; do not require someone to talk.
     if (count > 0 && (!this.reported || this.sinceReport >= sampleRate / 10)) {
-      this.port.postMessage({ type: 'rendered', samples: this.sinceReport });
+      this.port.postMessage({ type: 'rendered', samples: this.sinceReport, buffered: this.length, cutSamples: this.cutSamples, gaps: this.gaps });
       this.sinceReport = 0;
       this.reported = true;
     }

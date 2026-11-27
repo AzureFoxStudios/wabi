@@ -254,6 +254,9 @@ async function sampleWabidbTransportDiagnostics(): Promise<{
 	updatedAt: number;
 	packetsSent: number | null;
 	packetsReceived: number | null;
+	playbackBufferMs: number | null;
+	playbackCutMs: number | null;
+	playbackGaps: number | null;
 	source: 'wabidb';
 } | null> {
 	const [{ getWabidbRelayDiagnostics }, { getSocket }] = await Promise.all([
@@ -270,7 +273,13 @@ async function sampleWabidbTransportDiagnostics(): Promise<{
 	let sentEnvelopes = 0;
 	let recvEnvelopes = 0;
 	let jitterMs: number | null = null;
+	let playbackBufferMs: number | null = null;
+	let playbackCutMs: number | null = null;
+	let playbackGaps: number | null = null;
 	for (const relay of relays) {
+		if (typeof relay.playbackBufferMs === 'number') playbackBufferMs = Math.max(playbackBufferMs ?? 0, relay.playbackBufferMs);
+		if (typeof relay.playbackCutMs === 'number') playbackCutMs = (playbackCutMs ?? 0) + relay.playbackCutMs;
+		if (typeof relay.playbackGaps === 'number') playbackGaps = (playbackGaps ?? 0) + relay.playbackGaps;
 		bytesSent += relay.sentBytes ?? 0;
 		bytesReceived += relay.recvBytes ?? 0;
 		lostPackets += relay.lostPackets ?? 0;
@@ -330,6 +339,9 @@ async function sampleWabidbTransportDiagnostics(): Promise<{
 		updatedAt: now,
 		packetsSent,
 		packetsReceived,
+		playbackBufferMs: roundMetric(playbackBufferMs, 0),
+		playbackCutMs: roundMetric(playbackCutMs, 0),
+		playbackGaps,
 		source: 'wabidb'
 	};
 }
@@ -345,7 +357,30 @@ export function startCallDiagnosticsPolling(provider: CallStateProvider, noticeH
 	void sampleCallConnectionDiagnostics();
 }
 
+let relayCallLive = false;
+
+/**
+ * A voice room runs on the server relay and never makes a peer connection, which was the only
+ * thing that started the sampler: its connection details stayed at "Not measured yet". The relay
+ * says when it is live; while it is, the sampler runs and a peer connection ending does not stop it.
+ */
+export function noteRelayCallLive(live: boolean): void {
+	relayCallLive = live;
+	if (typeof window === 'undefined') return;
+	if (live) {
+		if (diagnosticsPollInterval !== null) return;
+		diagnosticsPollInterval = window.setInterval(() => {
+			void sampleCallConnectionDiagnostics();
+		}, 2000);
+		void sampleCallConnectionDiagnostics();
+	} else if (getCallStates().length === 0) {
+		stopCallDiagnosticsPolling('idle');
+	}
+}
+
 export function stopCallDiagnosticsPolling(state: ConnectionLifecycleState = 'idle'): void {
+	// The last peer connection closing must not blind a relay call that is still running.
+	if (relayCallLive) return;
 	if (diagnosticsPollInterval !== null) {
 		clearInterval(diagnosticsPollInterval);
 		diagnosticsPollInterval = null;

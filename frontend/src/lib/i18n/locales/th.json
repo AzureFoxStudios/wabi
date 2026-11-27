@@ -1284,6 +1284,9 @@
     "stat_jitter": "ความผันผวนของการหน่วง",
     "stat_packet_loss": "การสูญหายของแพ็กเก็ต",
     "stat_rate": "อัตรา",
+    "stat_playback_buffer": "บัฟเฟอร์การเล่นเสียง",
+    "stat_playback_trouble": "เสียงขาดและเสียงถูกตัดตั้งแต่เข้าร่วม",
+    "stat_playback_trouble_value": "ขาด {gaps} ครั้ง · ตัด {cut} วินาที",
     "your_screen": "หน้าจอของคุณ",
     "empty_title": "ยังไม่มีห้องเสียง",
     "empty_text": "ห้องเสียงจะแสดงที่นี่เมื่อมีคนในชุมชนนี้สร้างขึ้น"
