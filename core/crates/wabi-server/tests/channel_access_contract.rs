@@ -2951,6 +2951,12 @@ async fn listed_roles_are_self_chosen_only_when_marked_and_staff_can_give_any() 
     assert_eq!(request(&app, Method::GET, &staff_read, &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
     assert_eq!(request(&app, Method::GET, &staff_read, &owner_token, json!(null)).await.0, StatusCode::OK);
 
+    // Demoted, the former moderator is out of the role room again.
+    state.wdb.ingest_event("rbac", "assign_role", &json!({"userId": outsider,
+        "workspaceId": "default-workspace", "role": "Member", "assignedBy": owner})).await.unwrap();
+    assert_eq!(request(&app, Method::GET, &read, &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+    assert!(!listed(outsider_token.clone()).await, "a demoted moderator no longer sees the role room");
+
     // Staff take the role away: the room closes again.
     let (status, body) = request(&app, Method::PUT, &give, &owner_token, json!({"roleIds": []})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
