@@ -16,18 +16,18 @@ export type AdminSection =
 
 type ActiveAdminSection = Exclude<AdminSection, 'uploads' | 'settings'>;
 export const ADMIN_SECTIONS: Array<{ id: ActiveAdminSection; labelKey: string; descriptionKey: string; groupKey: string; staff?: boolean; ownerOnly?: boolean }> = [
-	{ id: 'overview', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
-	{ id: 'moderation', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_safety', staff: true },
-	{ id: 'safety', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_safety' },
-	{ id: 'privacy', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_safety' },
-	{ id: 'users', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_people', staff: true },
-	{ id: 'roles', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_people' },
-	{ id: 'channels', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
-	{ id: 'storage', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
-	{ id: 'infrastructure', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
-	{ id: 'runtime', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
-	{ id: 'branding', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
-	{ id: 'payments', labelKey: 'admin_nav.undefined', descriptionKey: 'admin_nav.undefined_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'overview', labelKey: 'admin_nav.overview', descriptionKey: 'admin_nav.overview_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'moderation', labelKey: 'admin_nav.moderation', descriptionKey: 'admin_nav.moderation_desc', groupKey: 'admin_nav.group_safety', staff: true },
+	{ id: 'safety', labelKey: 'admin_nav.safety', descriptionKey: 'admin_nav.safety_desc', groupKey: 'admin_nav.group_safety' },
+	{ id: 'privacy', labelKey: 'admin_nav.privacy', descriptionKey: 'admin_nav.privacy_desc', groupKey: 'admin_nav.group_safety' },
+	{ id: 'users', labelKey: 'admin_nav.users', descriptionKey: 'admin_nav.users_desc', groupKey: 'admin_nav.group_people', staff: true },
+	{ id: 'roles', labelKey: 'admin_nav.roles', descriptionKey: 'admin_nav.roles_desc', groupKey: 'admin_nav.group_people' },
+	{ id: 'channels', labelKey: 'admin_nav.channels', descriptionKey: 'admin_nav.channels_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'storage', labelKey: 'admin_nav.storage', descriptionKey: 'admin_nav.storage_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'infrastructure', labelKey: 'admin_nav.infrastructure', descriptionKey: 'admin_nav.infrastructure_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'runtime', labelKey: 'admin_nav.runtime', descriptionKey: 'admin_nav.runtime_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'branding', labelKey: 'admin_nav.branding', descriptionKey: 'admin_nav.branding_desc', groupKey: 'admin_nav.group_server' },
+	{ id: 'payments', labelKey: 'admin_nav.payments', descriptionKey: 'admin_nav.payments_desc', groupKey: 'admin_nav.group_server' },
 ];
 
 export function canManageServer(role: string | null | undefined): boolean {
