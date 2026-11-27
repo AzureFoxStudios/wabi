@@ -81,7 +81,12 @@ pub struct CommunityRole {
     pub id: String,
     pub name: String,
     #[serde(default)] pub description: String,
+    /// Members may give themselves this role in Welcome. False: only staff
+    /// give or take it. Roles stored before this field existed were all
+    /// self-chosen, so a missing value means true.
+    #[serde(default = "self_assignable_default")] pub self_assignable: bool,
 }
+fn self_assignable_default() -> bool { true }
 impl Default for PrivacyPolicy {
     fn default() -> Self {
         Self {
@@ -354,6 +359,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/reception", get(get_reception))
         .route("/reception/complete", post(complete_reception))
         .route("/reception/roles", put(put_my_community_roles))
+        .route("/role-holders", get(list_role_holders))
+        .route("/members/{user_id}/roles", put(put_member_roles))
         .route("/storage", get(list_storage))
         .route("/storage/{filename}", delete(delete_storage_file))
         .layer(Extension(store)).with_state(state)
@@ -650,8 +657,20 @@ async fn list_community_roles(
 #[serde(rename_all = "camelCase")]
 struct PutCommunityRolesInput {
     expected_revision: u64,
-    roles: Vec<CommunityRole>,
+    roles: Vec<PutRoleInput>,
     channel_roles: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PutRoleInput {
+    id: String,
+    name: String,
+    #[serde(default)] description: String,
+    /// Omitted by apps from before the field: an existing role then keeps its
+    /// stored value, so an older admin screen cannot open a staff-given role
+    /// to self-choice by saving. A new role without it is self-chosen.
+    self_assignable: Option<bool>,
 }
 
 async fn put_community_roles(
@@ -667,7 +686,13 @@ async fn put_community_roles(
         return json_error(StatusCode::CONFLICT, "Community roles changed; reload before saving");
     }
     let mut candidate = guard.data.clone();
-    candidate.community_roles = input.roles;
+    candidate.community_roles = input.roles.into_iter().map(|role| {
+        let stored = guard.data.community_roles.iter().find(|existing| existing.id == role.id).map(|existing| existing.self_assignable);
+        CommunityRole {
+            self_assignable: role.self_assignable.or(stored).unwrap_or(true),
+            id: role.id, name: role.name, description: role.description,
+        }
+    }).collect();
     candidate.channel_community_roles = input.channel_roles;
     candidate.community_roles_revision = candidate.community_roles_revision.saturating_add(1);
     let valid_ids: std::collections::HashSet<_> = candidate.community_roles.iter().map(|role| role.id.as_str()).collect();
@@ -794,6 +819,18 @@ async fn put_my_community_roles(
     if unique.len() != input.role_ids.len() || !unique.iter().all(|role| valid.contains(role)) {
         return json_error(StatusCode::BAD_REQUEST, "Choose only current community roles");
     }
+    // A member decides only the roles marked for self-choice. A role staff
+    // gave stays whatever this request says, and one staff must give cannot
+    // be picked up here.
+    let staff_given: std::collections::HashSet<&str> = guard.data.community_roles.iter()
+        .filter(|role| !role.self_assignable).map(|role| role.id.as_str()).collect();
+    let held: Vec<String> = guard.data.member_community_roles.get(&auth.user_id).cloned().unwrap_or_default();
+    if input.role_ids.iter().any(|role| staff_given.contains(role.as_str()) && !held.contains(role)) {
+        return json_error(StatusCode::FORBIDDEN, "That role is given by staff and cannot be chosen here");
+    }
+    let mut next: Vec<String> = held.iter().filter(|role| staff_given.contains(role.as_str())).cloned().collect();
+    next.extend(input.role_ids.iter().filter(|role| !staff_given.contains(role.as_str())).cloned());
+    let input = PutMyRolesInput { role_ids: next, expected_role_ids: input.expected_role_ids };
     let before = guard.data.clone();
     if input.role_ids.is_empty() { guard.data.member_community_roles.remove(&auth.user_id); }
     else { guard.data.member_community_roles.insert(auth.user_id, input.role_ids.clone()); }
@@ -816,6 +853,70 @@ async fn put_my_community_roles(
     drop(_membership);
     if let Some(io) = state.socket_io() { let _ = io.broadcast().emit("channel-access-policy-updated", &json!({ "roleChangedUserId": auth.user_id })).await; }
     Json(json!({ "myRoleIds": input.role_ids })).into_response()
+}
+
+/// The role list and who holds each role, for any signed-in member: roles are
+/// shown on people, like the staff marks. Guests see none.
+async fn list_role_holders(
+    auth: AuthUser,
+    Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>,
+) -> Response {
+    if auth.is_guest || auth.user_id <= 0 {
+        return json_error(StatusCode::FORBIDDEN, "Sign in with a member account to see roles");
+    }
+    let guard = store.read().await;
+    Json(json!({ "roles": guard.data.community_roles, "holders": guard.data.member_community_roles,
+        "revision": guard.data.community_roles_revision })).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PutMemberRolesInput { role_ids: Vec<String> }
+
+/// Staff give or take any listed role, self-chosen or not. The staff ranks
+/// (owner, admin, moderator) are not in this list and are never set here.
+async fn put_member_roles(
+    State(state): State<Arc<AppState>>, headers: HeaderMap,
+    Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>, Path(user_id): Path<i64>,
+    Json(input): Json<PutMemberRolesInput>,
+) -> Response {
+    if let Err(resp) = crate::api::admin::admin_auth(&headers, &state).await { return resp; }
+    if input.role_ids.len() > 16 { return json_error(StatusCode::BAD_REQUEST, "Choose at most 16 roles"); }
+    match state.wdb.get_user(user_id.max(0) as u64).await {
+        Ok(Some(user)) if user_id > 0 && user.is_active && !user.password_hash.is_empty() => {}
+        Ok(_) => return json_error(StatusCode::BAD_REQUEST, "Roles are for active member accounts"),
+        Err(error) => { tracing::error!(%error, "member lookup for roles failed"); return json_error(StatusCode::SERVICE_UNAVAILABLE, "The member could not be checked"); }
+    }
+    let _membership = state.membership_gate.write().await;
+    let _message_commit = state.retention_policy_lock.lock().await;
+    let mut guard = store.write().await;
+    let valid: std::collections::HashSet<_> = guard.data.community_roles.iter().map(|role| role.id.as_str()).collect();
+    let unique: std::collections::HashSet<_> = input.role_ids.iter().map(String::as_str).collect();
+    if unique.len() != input.role_ids.len() || !unique.iter().all(|role| valid.contains(role)) {
+        return json_error(StatusCode::BAD_REQUEST, "Choose only roles from the current list");
+    }
+    let before = guard.data.clone();
+    if input.role_ids.is_empty() { guard.data.member_community_roles.remove(&user_id); }
+    else { guard.data.member_community_roles.insert(user_id, input.role_ids.clone()); }
+    if let Err(error) = guard.persist() {
+        guard.data = before;
+        tracing::error!(%error, "member roles could not be saved");
+        return json_error(StatusCode::SERVICE_UNAVAILABLE, "The member's roles could not be saved");
+    }
+    let affected: Vec<String> = guard.data.channel_community_roles.keys().cloned().collect();
+    drop(guard);
+    if let Some(io) = state.socket_io() {
+        for channel_id in &affected {
+            if !matches!(crate::channel_access::channel_role_allows(&state, user_id, channel_id).await, Ok(true)) {
+                crate::socketio::evict_channel_user(&io, &state, channel_id, user_id).await;
+            }
+        }
+        evict_inherited_voice_policy(&io, &state, Some(user_id)).await;
+    }
+    drop(_message_commit);
+    drop(_membership);
+    if let Some(io) = state.socket_io() { let _ = io.broadcast().emit("channel-access-policy-updated", &json!({ "roleChangedUserId": user_id })).await; }
+    Json(json!({ "userId": user_id, "roleIds": input.role_ids })).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -1335,6 +1436,14 @@ pub fn evaluate_safety_rules(data_dir: &str, content: &str, private_conversation
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_role_stored_before_the_self_choice_flag_is_self_chosen() {
+        let role: super::CommunityRole = serde_json::from_str(r#"{"id":"community-old","name":"Old"}"#).unwrap();
+        assert!(role.self_assignable);
+        let role: super::CommunityRole = serde_json::from_str(r#"{"id":"community-new","name":"New","selfAssignable":false}"#).unwrap();
+        assert!(!role.self_assignable);
+    }
+
     use super::*;
     fn rule_data(private_content_automation: bool) -> ServerCenterData {
         ServerCenterData {
