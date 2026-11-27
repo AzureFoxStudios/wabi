@@ -51,6 +51,7 @@ if (process.env[GALLERY_LIFECYCLE_FIXTURE] !== '1') {
 	let membershipDenied = false;
 
 	const usersStore = writable<Array<{ dbUserId: number; username: string }>>([]);
+	const membersStore = writable<Array<{ dbUserId: number; username: string }>>([]);
 
 	type AlbumRow = { id: number; name: string; updatedAt: number };
 	type ItemRow = {
@@ -92,7 +93,7 @@ if (process.env[GALLERY_LIFECYCLE_FIXTURE] !== '1') {
 		getServerUrl: () => serverUrl,
 		normalizeServerUrl: (value: string) => value
 	}));
-	mock.module('$lib/socket', () => ({ users: usersStore, currentUser: writable(null) }));
+	mock.module('$lib/socket', () => ({ users: usersStore, serverMembers: membersStore, currentUser: writable(null) }));
 	mock.module('$lib/api', () => ({
 		listMediaAlbums: async () => {
 			if (albumsResult instanceof Error) throw albumsResult;
@@ -186,6 +187,7 @@ if (process.env[GALLERY_LIFECYCLE_FIXTURE] !== '1') {
 			body: { fileUrl: '/uploads/f.png', fileName: 'f.png', fileSize: 12 }
 		};
 		usersStore.set([]);
+		membersStore.set([]);
 	}
 
 	describe('gallery workspace lifecycle (GF02-GF05)', () => {
@@ -201,6 +203,22 @@ if (process.env[GALLERY_LIFECYCLE_FIXTURE] !== '1') {
 			expect(get(second.galleryChannelStore)).toBeNull();
 			first.dispose();
 			second.dispose();
+		});
+
+		test('a work names its uploader even when they are offline', async () => {
+			resetDeps();
+			// Uploader 7 is a member of the server but is not online.
+			membersStore.set([{ dbUserId: 7, username: 'Somchai' }]);
+			const workspace = createGalleryWorkspace();
+			albumsResult = [album(1)];
+			itemsImpl = async (albumId) => ({ album: album(albumId), items: [row(albumId, 1)] });
+			await workspace.loadGallery('channel-a');
+			expect(get(workspace.galleryItemsStore)[0].creator?.username).toBe('Somchai');
+			// Coming online brings the live profile, which wins.
+			usersStore.set([{ dbUserId: 7, username: 'Somchai (site)' }]);
+			workspace.refreshCreators();
+			expect(get(workspace.galleryItemsStore)[0].creator?.username).toBe('Somchai (site)');
+			workspace.dispose();
 		});
 
 		test('late loads for a previous channel never overwrite newer results', async () => {

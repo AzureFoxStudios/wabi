@@ -4,6 +4,7 @@
 	import { fade } from 'svelte/transition';
 	import type { GalleryItem, GalleryCreator } from '$lib/galleryStore';
 	import { getCreatorInitial, formatGalleryTime } from '$lib/galleryStore';
+	import { serverMembers, users } from '$lib/socket';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { slugify } from '$lib/objectRefRegistry';
 	import {
@@ -17,6 +18,13 @@
 	export let items: GalleryItem[] = [];
 	export let currentIndex = 0;
 	export let creators: GalleryCreator[] = [];
+	// Feedback can come from anyone, not only people with works here, so names come from the
+	// whole member list (whoever is online last, for their live profile).
+	$: feedbackAuthors = new Map(
+		[...$serverMembers, ...$users]
+			.filter((user) => typeof user.dbUserId === 'number')
+			.map((user) => [user.dbUserId as number, { username: user.username, color: user.color || user.roleColor }])
+	);
 	export let onFilterByCreator: (creator: GalleryCreator) => void = () => {};
 	export let channelId: string | null = null;
 	export let workId: string | null = null;
@@ -314,7 +322,7 @@
 							</div>
 						{:else}
 							{#each feedbackList as fb, idx (fb.feedbackId)}
-								{@const author = creators.find((c) => c.dbUserId === fb.authorUserId)}
+								{@const author = feedbackAuthors.get(fb.authorUserId) || creators.find((c) => c.dbUserId === fb.authorUserId)}
 								{@const timeStr = formatGalleryTime(fb.createdAtMicros > 1e12 ? Math.floor(fb.createdAtMicros / 1000) : fb.createdAtMicros)}
 								<div
 									class="lightbox-feedback-item"

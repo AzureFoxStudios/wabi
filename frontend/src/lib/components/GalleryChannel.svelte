@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { currentChannel, channels, users } from '$lib/socket';
+	import { currentChannel, channels, serverMembers, users } from '$lib/socket';
 	import {
 		createGalleryWorkspace,
 		formatGalleryTime,
@@ -70,6 +70,9 @@
 	// Live creator names without refetching; the subscription is owned by this
 	// mount and released on destroy.
 	const stopUsers = users.subscribe(() => {
+		refreshCreators();
+	});
+	const stopMembers = serverMembers.subscribe(() => {
 		refreshCreators();
 	});
 
@@ -364,6 +367,7 @@
 
 	onDestroy(() => {
 		stopUsers();
+		stopMembers();
 		for (const state of videoState.values()) {
 			try {
 				state.el.pause();
