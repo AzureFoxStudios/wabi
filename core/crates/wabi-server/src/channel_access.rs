@@ -148,7 +148,10 @@ async fn own_channel_role_allows(state: &AppState, user_id: i64, channel_id: &st
         Some("admin") => 3,
         _ => return Err(AppError::Internal("Invalid channel role policy".into())),
     };
-    Ok(rank >= minimum && (community_allowed || rank >= 3))
+    // Staff open a room that needs a role without holding it: they cannot
+    // moderate a room they cannot see. A room kept from moderators uses the
+    // admin minimum instead.
+    Ok(rank >= minimum && (community_allowed || rank >= 2))
 }
 
 /// Require a live channel and its current authorization. Never infer membership

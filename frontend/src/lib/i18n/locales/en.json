@@ -4113,7 +4113,7 @@
     "reload": "Reload",
     "staff_rank_note": "Staff rank. Given in People, never self-picked.",
     "self_pick": "Members can pick this role themselves in Welcome",
-    "rooms_note": "Only people holding the role can see and use the room. Admins and the owner can always open it; moderators need the role like everyone else."
+    "rooms_note": "Only people holding the role can see and use the room. Moderators, admins and the owner can always open it. For a room moderators must not see, set its minimum rank to Admin in Channels instead."
   },
   "compression": {
     "na": "n/a",
