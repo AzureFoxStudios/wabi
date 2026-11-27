@@ -8483,5 +8483,20 @@
     "sent_one": "Added to {gallery}",
     "sent_other": "Added {n} files to {gallery}",
     "failed": "{n} file(s) could not be added to the gallery"
+  },
+  "albums_agreement": {
+    "title": "Albums need everyone's agreement",
+    "explain": "Messages in this conversation use experimental encryption. Albums do not: album names, captions and files are stored server-readable, so the server operator could see them.",
+    "rule": "Albums open here once every member agrees. Messages stay as they are. Anyone can withdraw later, which closes albums for new additions.",
+    "nobody": "Nobody has agreed yet.",
+    "others_agreed": "{n} member(s) agreed. Albums open when you and everyone else agree.",
+    "waiting": "You agreed. Waiting for {n} more member(s).",
+    "agree": "Agree to albums here",
+    "withdraw": "Withdraw my agreement",
+    "asked_title": "Someone asked to turn on albums here",
+    "asked_text": "Albums are stored server-readable (the server operator could see them). They open once every member agrees. Messages stay encrypted.",
+    "details": "Details",
+    "open_note": "Everyone here agreed to server-readable albums.",
+    "failed": "The albums agreement could not be saved. Try again."
   }
 }

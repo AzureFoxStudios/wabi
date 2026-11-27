@@ -1408,7 +1408,7 @@ async fn server_stores_only_public_device_keys_and_keys_wrapped_to_registered_de
         serde_json::from_slice(&std::fs::read(dir.path().join("e2ee_state.json")).unwrap()).unwrap();
     let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
     for key in keys(&registry) {
-        assert!(["devices", "rooms", "newRoomPolicies"].contains(&key.as_str()), "registry field {key}");
+        assert!(["devices", "rooms", "newRoomPolicies", "albumAgreements"].contains(&key.as_str()), "registry field {key}");
     }
     let device_fields = [
         "userId", "deviceId", "label", "encryptionPublicKey", "signingPublicKey", "createdAt",
@@ -2231,4 +2231,84 @@ async fn staff_cannot_replace_a_members_ciphertext_even_with_a_valid_envelope() 
     let error = sio_admin.event("edit-error").await;
     assert_eq!(error["error"], "Cannot edit others' messages", "{error}");
     assert_eq!(stored(&state, &room.ch).await, original);
+}
+
+/// Albums are server-readable. In an encrypted conversation they open only
+/// while every current member has agreed, each for themselves; one member's
+/// agreement or withdrawal decides nothing for the others, and messages stay
+/// encrypted throughout.
+#[tokio::test]
+async fn albums_in_an_encrypted_room_need_every_members_own_agreement() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let app = router(&state);
+    let room = encrypted_group(&app, &state, "album-agree", &["a", "b"]).await;
+    let (a, b) = (room.users[0], room.users[1]);
+    let ch = room.ch.clone();
+    let create = |uid: u64, name: &'static str| {
+        let (app, auth, ch) = (app.clone(), bearer(&state, uid), ch.clone());
+        async move {
+            request(&app, Method::POST, "/albums", &auth, json!({"scopeType":"dm","scopeId":ch,"name":name})).await
+        }
+    };
+    let agree = |uid: u64, agree: bool| {
+        let (app, auth, ch) = (app.clone(), bearer(&state, uid), ch.clone());
+        async move {
+            request(&app, Method::POST, &format!("/e2ee/channels/{ch}/albums-agreement"), &auth, json!({"agree":agree})).await
+        }
+    };
+
+    // Nobody agreed: refused.
+    let (status, body) = create(a, "before").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    // Only a agreed: still refused, for a and for b.
+    let (status, body) = agree(a, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["albumsAgreed"], false);
+    assert_eq!(create(a, "a-alone").await.0, StatusCode::FORBIDDEN);
+    assert_eq!(create(b, "b-not-agreed").await.0, StatusCode::FORBIDDEN);
+    let (_, b_status) = room_status(&app, &state, b, &ch).await;
+    assert_eq!(b_status["albumsAgreedByMe"], false);
+    assert_eq!(b_status["albumsAgreed"], false);
+    assert_eq!(b_status["albumsAgreedUserIds"], json!([a]));
+
+    // Both agreed: albums open, and the room is still encrypted.
+    let (status, body) = agree(b, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["albumsAgreed"], true);
+    let (status, album) = create(b, "shared").await;
+    assert_eq!(status, StatusCode::OK, "{album}");
+    let album_id = album["album"]["id"].as_str().or(album["album"]["album_id"].as_str()).unwrap().to_string();
+    let (status, body) = request(
+        &app,
+        Method::POST,
+        &format!("/albums/{album_id}/items"),
+        &bearer(&state, a),
+        json!({"attachmentUrl":"/uploads/x.png","attachmentName":"site.png"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, a_status) = room_status(&app, &state, a, &ch).await;
+    assert_eq!(a_status["enabled"], true);
+    assert_eq!(a_status["albumsAgreed"], true);
+    let (status, _) = request(
+        &app,
+        Method::POST,
+        "/messages",
+        &bearer(&state, a),
+        json!({"channel_id":ch,"content":"plaintext after album agreement"}),
+    )
+    .await;
+    assert_ne!(status, StatusCode::OK, "album agreement must not admit plaintext messages");
+
+    // a withdraws: closed again for both.
+    let (status, body) = agree(a, false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["albumsAgreed"], false);
+    assert_eq!(create(b, "after-withdrawal").await.0, StatusCode::FORBIDDEN);
+
+    // A non-member cannot agree for the room.
+    let outsider = user(&state, "album-agree-outsider").await;
+    assert_ne!(agree(outsider, true).await.0, StatusCode::OK);
 }

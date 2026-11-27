@@ -118,7 +118,17 @@ function offBecause(reason: KeepReason): string {
 
 /** Album actions (menu hint and toast). */
 export function albumsHint(reason: KeepReason): string {
+	if (albumsCanOpenByAgreement(reason)) {
+		return `Albums are server-readable. ${offBecause(reason)} They open here once everyone in the conversation agrees: open Albums to agree.`;
+	}
 	return `Albums are server-readable. ${offBecause(reason)}`;
+}
+/**
+ * The conversation's state is known, so its members can agree to server-readable albums
+ * (dm/dmE2eeState.ts, roomAlbumsAgreed). While the state is unknown there is nothing to agree to.
+ */
+export function albumsCanOpenByAgreement(reason: KeepReason): boolean {
+	return reason === 'experimental-encryption' || reason === 'encryption-pending' || reason === 'encrypted-message';
 }
 /** The name of the setting that allows "Add to gallery" from kept content (Settings, Privacy & security). */
 export const PRIVATE_MEDIA_TO_GALLERY_SETTING = 'Add to gallery from private conversations';

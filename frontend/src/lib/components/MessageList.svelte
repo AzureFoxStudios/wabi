@@ -80,12 +80,13 @@
 	import { isSpotifyUrl } from '$lib/spotifyControls';
 	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
 	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
-	import { addAttachmentsToGallery, galleryAttachmentItems } from '$lib/galleryFromMessage';
+	import { addAttachmentsToGallery, galleryAttachmentItems, galleryFileFrom } from '$lib/galleryFromMessage';
+	import { uploadAlbumFile } from './media-albums/mediaAlbumUpload';
 	import { privateMediaToGallery } from '$lib/privacy/privateMediaToGallery';
 	import AddToGalleryDialog from './AddToGalleryDialog.svelte';
 	import { decryptAttachmentBlob } from '$lib/e2ee';
-	import { e2eeStatusRevision, ensureE2eeStatus, roomContentKeepReason } from '$lib/dm/dmE2eeState';
-	import { keepReasonFor, mayTranslate } from '$lib/privacy/contentEgress';
+	import { confirmAlbumsAgreed, e2eeStatusRevision, ensureE2eeStatus, roomAlbumsAgreed, roomContentKeepReason } from '$lib/dm/dmE2eeState';
+	import { albumsHint, keepReasonFor, mayTranslate } from '$lib/privacy/contentEgress';
 	import {
 		serverReadableActionBlock,
 		shouldFetchPromotes,
@@ -148,6 +149,7 @@
 	// derivation (dmE2eeState.roomContentKeepReason); each message's own flag is added per action.
 	$: roomKeep = roomContentKeepReason(activeChannelId, activeMessageChannel?.type ?? null, $e2eeStatusRevision);
 	$: if (browser && activeChannelIsPrivateConversation && activeChannelId) ensureE2eeStatus(activeChannelId);
+	$: roomAlbumsOpen = roomAlbumsAgreed(activeChannelId, $e2eeStatusRevision);
 	$: contextMenuKeepReason = contextMenuMessage ? keepReasonFor(contextMenuMessage, roomKeep) : null;
 
 	/** Show why an action is off for this message and return true, or return false to go ahead. */
@@ -911,8 +913,12 @@
 	async function handleAddToAlbum(): Promise<void> {
 		if (!contextMenuMessage) return;
 		const targetMessage = contextMenuMessage;
-		// Albums are server-readable: the index keeps the file name and message id.
-		if (blockedForServerReadable('album', targetMessage)) {
+		// Albums are server-readable: the index keeps the file name and message id. Kept content goes
+		// only when every member of the conversation agreed to that, and then as a fresh copy.
+		const keptContent = keepReasonFor(targetMessage, roomKeep) !== null;
+		const albumBlock = serverReadableActionBlock('album', targetMessage, roomKeep, { album: roomAlbumsOpen });
+		if (albumBlock) {
+			showToast(albumBlock, 'info');
 			contextMenuVisible = false;
 			return;
 		}
@@ -943,12 +949,31 @@
 		}
 
 		try {
+			// The cache said everyone agreed; ask the server before a readable copy is uploaded.
+			if (keptContent && !(await confirmAlbumsAgreed(scope.scopeId))) {
+				showToast(albumsHint(keepReasonFor(targetMessage, roomKeep) ?? 'checking'), 'info');
+				return;
+			}
 			const outcome = await addMessageAttachmentsToAlbum({
-				keepOnDevice: serverReadableActionBlock('album', targetMessage, roomKeep) !== null,
+				keepOnDevice: false,
 				messageId: targetMessage.id,
 				items: selectedItems,
 				resolveAlbum: () => resolveTargetAlbum(token, scope.scopeType, scope.scopeId),
-				addItem: (albumId, payload) => addMediaAlbumItem(token, albumId, payload)
+				addItem: async (albumId, payload) => {
+					if (!keptContent) return addMediaAlbumItem(token, albumId, payload);
+					// The conversation's own file is ciphertext, and its message id is not the album's
+					// business: decrypt here and give the album a copy of its own.
+					const source = selectedItems.find((item) => item.fileUrl === payload.attachmentUrl);
+					const blob = source ? await readAttachmentBlob(source, scope.scopeId) : null;
+					if (!source || !blob) throw new Error('The file could not be read on this device');
+					const uploaded = await uploadAlbumFile(token, galleryFileFrom(blob, source));
+					return addMediaAlbumItem(token, albumId, {
+						attachmentUrl: uploaded.fileUrl,
+						attachmentName: source.fileName,
+						attachmentSize: uploaded.fileSize,
+						attachmentMime: uploaded.mimeType ?? undefined
+					});
+				}
 			});
 			if (outcome.status === 'blocked') {
 				blockedForServerReadable('album', targetMessage);
@@ -976,7 +1001,7 @@
 		contextMenuVisible = false;
 		if (!targetMessage) return;
 		// Galleries are server-readable. Kept content goes only if the person turned the setting on.
-		const hint = serverReadableActionBlock('gallery', targetMessage, roomKeep, $privateMediaToGallery);
+		const hint = serverReadableActionBlock('gallery', targetMessage, roomKeep, { gallery: $privateMediaToGallery });
 		if (hint) {
 			showToast(hint, 'info');
 			return;
@@ -2427,6 +2452,7 @@
 	{handleDownload}
 	{handleAddToAlbum}
 	{handleAddToGallery}
+	albumsAgreed={roomAlbumsOpen}
 	{handleCopyQuote}
 	{handleCopyMessageLink}
 	{handleForward}

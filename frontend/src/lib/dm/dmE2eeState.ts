@@ -10,7 +10,7 @@
  * render, and exposes one enable action that both DmConversationView and DMTab
  * call.
  */
-import { allowServerReadableRoom, e2eeClientRealmKey, enableE2eeRoom, ensureE2eeDeviceRegistered, getE2eeRoomStatus, rekeyE2eeRoom, storedE2eeRoomStatus, type E2eeRoomStatus } from '$lib/e2ee';
+import { allowServerReadableRoom, setAlbumsAgreement, e2eeClientRealmKey, enableE2eeRoom, ensureE2eeDeviceRegistered, getE2eeRoomStatus, rekeyE2eeRoom, storedE2eeRoomStatus, type E2eeRoomStatus } from '$lib/e2ee';
 import { roomKeepReason, type KeepReason } from '$lib/privacy/contentEgress';
 import { getServerUrl } from '$lib/serverUrl';
 import { writable } from 'svelte/store';
@@ -180,6 +180,30 @@ export async function prepareNewConversationEncryption(channelId: string): Promi
 
 export async function chooseServerReadable(channelId: string): Promise<E2eeRoomStatus> {
 	await allowServerReadableRoom(channelId);
+	return refreshE2eeStatus(channelId);
+}
+
+/**
+ * Every current member agreed to server-readable albums in this conversation, as far as this
+ * device last heard. The server decides on each album write; callers that are about to upload a
+ * readable copy ask again first (`confirmAlbumsAgreed`). `_revision` is `$e2eeStatusRevision`.
+ */
+export function roomAlbumsAgreed(channelId: string | null | undefined, _revision?: number): boolean {
+	const id = String(channelId ?? '');
+	return id ? cachedE2eeStatus(id)?.albumsAgreed === true : false;
+}
+
+/** Ask the server now: nothing readable is uploaded on the word of a stale cache. */
+export async function confirmAlbumsAgreed(channelId: string): Promise<boolean> {
+	try {
+		return (await refreshE2eeStatus(channelId)).albumsAgreed === true;
+	} catch {
+		return false;
+	}
+}
+
+export async function setRoomAlbumsAgreement(channelId: string, agree: boolean): Promise<E2eeRoomStatus> {
+	await setAlbumsAgreement(channelId, agree);
 	return refreshE2eeStatus(channelId);
 }
 

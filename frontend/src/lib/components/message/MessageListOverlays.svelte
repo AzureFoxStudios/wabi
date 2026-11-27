@@ -58,6 +58,7 @@
 	export let handleDownload: () => void;
 	export let handleAddToAlbum: () => void;
 	export let handleAddToGallery: () => void;
+	export let albumsAgreed = false;
 	export let handlePromoteToLore: (() => void) | undefined = undefined;
 	export let handleCopyQuote: () => void;
 	export let handleCopyMessageLink: () => void;
@@ -140,6 +141,7 @@
 		onDownload={handleDownload}
 		onAddToAlbum={handleAddToAlbum}
 		onAddToGallery={handleAddToGallery}
+		{albumsAgreed}
 		onPromoteToLore={handlePromoteToLore}
 		onCopyQuote={handleCopyQuote}
 		onCopyMessageLink={handleCopyMessageLink}

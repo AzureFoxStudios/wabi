@@ -91,6 +91,11 @@ struct E2eeData {
     // Old rooms without an entry retain their existing server-readable mode.
     #[serde(default)]
     new_room_policies: HashMap<String, NewRoomPolicy>,
+    // Who agreed that albums in a conversation are stored server-readable,
+    // by channel. Albums open in an encrypted or pending room only while
+    // every current member is listed; a member may withdraw at any time.
+    #[serde(default)]
+    album_agreements: HashMap<String, BTreeSet<i64>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -271,6 +276,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/channels/{channel_id}/enable", axum::routing::post(enable_room))
         .route("/channels/{channel_id}/rekey", axum::routing::post(rekey_room))
         .route("/channels/{channel_id}/allow-server-readable", axum::routing::post(allow_server_readable))
+        .route("/channels/{channel_id}/albums-agreement", axum::routing::post(set_albums_agreement))
         .with_state(state)
 }
 
@@ -404,6 +410,12 @@ async fn room_status(
                 policy.mode == NewRoomMode::ServerReadable
                     && policy.consenting_user_ids.contains(&auth.user_id)
             });
+    let albums_agreed_user_ids: Vec<i64> = data
+        .album_agreements
+        .get(&channel_id)
+        .map(|agreed| agreed.intersection(&members).copied().collect())
+        .unwrap_or_default();
+    let albums_agreed = albums_agreed_by_all(&data, &channel_id, &members);
     let expected = device_pairs(devices.iter());
     let actual = room
         .as_ref()
@@ -427,6 +439,10 @@ async fn room_status(
         "pendingDefault": room.is_none() && mode == Some(NewRoomMode::PendingEncryption),
         "serverReadableSelected": room.is_none() && mode == Some(NewRoomMode::ServerReadable),
         "serverReadableAllowedByMe": server_readable_allowed_by_me,
+        "albumsAgreed": albums_agreed,
+        "albumsAgreedByMe": albums_agreed_user_ids.contains(&auth.user_id),
+        "albumsAgreedUserIds": albums_agreed_user_ids,
+        "memberUserIds": members.iter().copied().collect::<Vec<i64>>(),
         "epoch": room.as_ref().map(|r| r.epoch).unwrap_or(0),
         "membershipRevision": room.as_ref().map(|r| r.membership_revision.to_string()).unwrap_or_else(|| current_revision.to_string()),
         "currentMembershipRevision": current_revision.to_string(),
@@ -475,6 +491,67 @@ async fn allow_server_readable(
                 Ok(())
             })?;
             Ok(Json(json!({ "serverReadableSelected": true })))
+        })
+        .await
+}
+
+/// Every current member agreed that this conversation's albums are stored
+/// server-readable. A member who joins later is not listed, so albums close
+/// again until that member agrees too.
+fn albums_agreed_by_all(data: &E2eeData, channel_id: &str, members: &BTreeSet<i64>) -> bool {
+    !members.is_empty()
+        && data
+            .album_agreements
+            .get(channel_id)
+            .is_some_and(|agreed| members.iter().all(|member| agreed.contains(member)))
+}
+
+#[derive(Debug, Deserialize)]
+struct AlbumsAgreementInput {
+    agree: bool,
+}
+
+/// A member's own agreement (or withdrawal) that albums in this conversation
+/// are stored server-readable. It never changes how messages are sent, and it
+/// speaks only for the caller.
+async fn set_albums_agreement(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<String>,
+    Json(input): Json<AlbumsAgreementInput>,
+) -> Result<Json<serde_json::Value>> {
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            if auth.is_guest {
+                return Err(AppError::Forbidden(
+                    "Guests cannot agree to albums in a private conversation".into(),
+                ));
+            }
+            let (members, _) = private_room_members(&state, auth.user_id, &channel_id).await?;
+            // Serialized with album writes, which read the agreement under the same lock.
+            let _policy_guard = state.retention_policy_lock.lock().await;
+            let agreed = mutate_data(&state.config.data_dir, |data| {
+                let entry = data.album_agreements.entry(channel_id.clone()).or_default();
+                if input.agree {
+                    entry.insert(auth.user_id);
+                } else {
+                    entry.remove(&auth.user_id);
+                }
+                if entry.is_empty() {
+                    data.album_agreements.remove(&channel_id);
+                }
+                Ok(albums_agreed_by_all(data, &channel_id, &members))
+            })?;
+            drop(_policy_guard);
+            if let Some(io) = state.socket_io() {
+                let _ = io
+                    .to(channel_id.clone())
+                    .emit("e2ee-room-updated", &json!({ "channelId": channel_id, "albumsAgreed": agreed }))
+                    .await;
+            }
+            Ok(Json(json!({ "albumsAgreedByMe": input.agree, "albumsAgreed": agreed })))
         })
         .await
 }
@@ -647,6 +724,45 @@ pub async fn admit_readable_text<'a>(
     let guard = state.retention_policy_lock.lock().await;
     require_server_readable_text(state, &channel.channel_id, user_id, feature)?;
     Ok(Some(guard))
+}
+
+/// Admission for an album write. Albums are server-readable. In an ordinary
+/// room, or a conversation that already accepts readable text from this
+/// sender, they follow `admit_readable_text`. In a conversation with
+/// experimental encryption enabled or pending they are accepted only while
+/// every current member has agreed to server-readable albums
+/// (`set_albums_agreement`); messages there stay as they are.
+pub async fn admit_album_write<'a>(
+    state: &'a AppState,
+    channel: &wabidb::domain::Channel,
+    user_id: i64,
+) -> Result<Option<tokio::sync::MutexGuard<'a, ()>>> {
+    if !crate::channel_access::is_conversation(channel.channel_kind) {
+        return Ok(None);
+    }
+    let guard = state.retention_policy_lock.lock().await;
+    match require_server_readable_text(state, &channel.channel_id, user_id, "Albums") {
+        Ok(()) => return Ok(Some(guard)),
+        Err(AppError::Forbidden(reason)) if reason == REGISTRY_UNAVAILABLE => {
+            return Err(AppError::Forbidden(reason))
+        }
+        Err(_) => {}
+    }
+    let members: BTreeSet<i64> = state
+        .wdb
+        .list_channel_members(&channel.channel_id)
+        .await?
+        .into_iter()
+        .filter_map(|member| i64::try_from(member.user_id).ok())
+        .collect();
+    let data = read_data(&state.config.data_dir)
+        .map_err(|_| AppError::Forbidden(REGISTRY_UNAVAILABLE.into()))?;
+    if members.contains(&user_id) && albums_agreed_by_all(&data, &channel.channel_id, &members) {
+        return Ok(Some(guard));
+    }
+    Err(AppError::Forbidden(
+        "Albums are stored server-readable. In this conversation they open once every member has agreed to that.".into(),
+    ))
 }
 
 /// A bot cannot confirm server-readable mode on a device of its own, and the

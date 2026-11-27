@@ -13,6 +13,8 @@
     row A with the same type and kit instead of calling setStageHeader.
 -->
 <script lang="ts">
+	import AlbumsAgreement from './media-albums/AlbumsAgreement.svelte';
+	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	import { _ } from '$lib/i18n';
   import { afterUpdate, onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
@@ -641,6 +643,7 @@
   {/if}
 
   <div class="dm-composer" class:hidden={showGroupSettings || showNotes} class:gated={Boolean(sendGate)}>
+    {#if channelId}<AlbumsAgreement {channelId} variant="notice" onOpenAlbums={openMediaAlbumsSurface} />{/if}
     {#if showNoKeyNotice}
       <div class="w-notice dm-notice" role="status">
         <Icon name="alert" size={16} />
