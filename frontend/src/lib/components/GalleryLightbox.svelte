@@ -534,6 +534,23 @@
 		border-radius: 2px;
 	}
 
+	/* Beside the feedback list the picture has only its own column, not the whole window:
+	   fit it to that column so the list never covers part of it. */
+	.lightbox-media-col .lightbox-media {
+		width: 100%;
+		height: 100%;
+		max-width: 100%;
+		max-height: 100%;
+	}
+
+	.lightbox-media-col .lightbox-image,
+	.lightbox-media-col .lightbox-video {
+		max-width: 100%;
+		max-height: 100%;
+		min-width: 0;
+		min-height: 0;
+	}
+
 	.lightbox-info {
 		margin-top: 12px;
 		padding: 10px 16px;
