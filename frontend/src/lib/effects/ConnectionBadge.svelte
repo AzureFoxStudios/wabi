@@ -4,39 +4,19 @@
 	import { connectionState, type ConnectionState } from '$lib/socketConnectionState';
 	import { callCornerClearance } from '$lib/callShell';
 
-	/** Finding 21: badge reflects Wabi socket health + browser network, not navigator.onLine alone. */
-	type BadgeStatus = 'online' | 'offline' | 'connecting' | 'reconnecting' | 'unreachable' | 'idle';
+	import { badgeStatus, type BadgeStatus } from './connectionBadgeStatus';
 
+	/** Finding 21: badge reflects Wabi socket health + browser network, not navigator.onLine alone. */
 	let browserOnline = true;
+	let workOffline = false;
 	let socketState: ConnectionState = 'disconnected';
 	let status: BadgeStatus = 'idle';
 	let unsubSocket: (() => void) | null = null;
 
 	function recompute() {
-		if (!browserOnline) {
-			status = 'offline';
-			return;
-		}
-		switch (socketState) {
-			case 'connected':
-				status = 'online';
-				break;
-			case 'connecting':
-				status = 'connecting';
-				break;
-			case 'reconnecting':
-				status = 'reconnecting';
-				break;
-			case 'failed':
-				status = 'unreachable';
-				break;
-			case 'disconnected':
-			default:
-				// Idle / pre-auth (login screen) — no socket by design. Don't
-				// scream "Server unreachable" when we simply haven't connected.
-				status = 'idle';
-				break;
-		}
+		// "Work offline" is chosen while there is no connection; it ends when one arrives.
+		if (socketState === 'connected') workOffline = false;
+		status = badgeStatus(socketState, browserOnline, workOffline);
 	}
 
 	function onBrowserOnline() {
@@ -50,8 +30,8 @@
 	}
 
 	function onWorkOffline() {
-		browserOnline = false;
-		status = 'offline';
+		workOffline = true;
+		recompute();
 	}
 
 	const labels: Record<Exclude<BadgeStatus, 'idle'>, string> = {
