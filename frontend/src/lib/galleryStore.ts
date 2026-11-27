@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { getAuthToken, onAuthSessionCleared } from '$lib/authSession';
 import { getServerUrl } from '$lib/serverUrl';
-import { users, type User } from '$lib/socket';
+import { serverMembers, users, type User } from '$lib/socket';
 import { groupMembership } from './groupAccess';
 import type { MembershipLease } from './groupMembership';
 import { guessGalleryMediaKind } from './galleryFilter';
@@ -264,10 +264,22 @@ export function createGalleryWorkspace() {
 		return creators;
 	}
 
+	/**
+	 * Everyone a work could belong to: all members of the server, with whoever is online laid
+	 * over the top. The online list alone would leave works by anyone offline with no name.
+	 */
+	function knownPeople(): User[] {
+		const people = new Map<number, User>();
+		for (const user of [...get(serverMembers), ...get(users)]) {
+			if (typeof user?.dbUserId === 'number') people.set(user.dbUserId, user);
+		}
+		return [...people.values()];
+	}
+
 	/** Re-resolve creator labels from the live user list without refetching. */
 	function refreshCreators(): void {
 		if (disposed) return;
-		const allUsers = get(users);
+		const allUsers = knownPeople();
 		galleryItems.update((items) => {
 			const creators = applyCreatorLabels(items, allUsers);
 			galleryCreators.set(creators);
@@ -368,7 +380,7 @@ export function createGalleryWorkspace() {
 			}
 
 			allItems.sort((a, b) => b.uploadedAt - a.uploadedAt);
-			const creators = applyCreatorLabels(allItems, get(users));
+			const creators = applyCreatorLabels(allItems, knownPeople());
 			if (requestId !== loadRequestId || !isCurrent()) return;
 			galleryItems.set(allItems);
 			galleryCreators.set(creators);
