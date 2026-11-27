@@ -115,12 +115,20 @@ async function immutableAssetHandler(request) {
   // A tab opened before an update may still request an old hashed chunk.
   // Activation retains one prior asset cache for exactly this transition.
   const cached = (await cache.match(request)) || (await caches.match(request));
-  if (cached) return cached;
+  if (cached && !isPageInsteadOfAsset(cached)) return cached;
+  // An older server answered a missing file with the page shell and 200, and
+  // that page was stored here as the script. Drop it and ask again.
+  if (cached) await Promise.all((await caches.keys()).map(async (key) => (await caches.open(key)).delete(request)));
   const response = await fetch(request);
-  if (response.ok && response.type === 'basic') {
+  if (response.ok && response.type === 'basic' && !isPageInsteadOfAsset(response)) {
     await cache.put(request, response.clone());
   }
   return response;
+}
+
+// Nothing under /_app/immutable/ is an HTML page.
+function isPageInsteadOfAsset(response) {
+  return (response.headers.get('content-type') || '').toLowerCase().includes('text/html');
 }
 
 async function navigationHandler(request, event) {

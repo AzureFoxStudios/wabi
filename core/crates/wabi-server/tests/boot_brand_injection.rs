@@ -251,3 +251,23 @@ async fn publication_with_unchanged_mtime_cannot_pin_stale_branding() {
     assert!(after.contains("<title>Second identity</title>"));
     assert!(!after.contains("<title>First identity</title>"));
 }
+
+/// A script or style this build does not hold is a 404, never the page shell:
+/// a browser that stored the shell under a script's address could not load
+/// that screen again.
+#[tokio::test]
+async fn a_missing_build_file_is_not_found_not_the_shell() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = fresh_server(dir.path()).await;
+    for path in ["/_app/immutable/chunks/absent-version.js", "/_app/immutable/assets/absent.css", "/_app/version.json.missing"] {
+        let (status, headers, body) = get(&app, path).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        assert!(!headers.get("content-type").unwrap().to_str().unwrap().contains("html"), "{path}");
+        assert_eq!(headers.get("cache-control").unwrap(), "no-store", "{path}");
+        assert!(!body.contains("<html"), "{path}");
+    }
+    // A deep link is still the page.
+    let (status, headers, _) = get(&app, "/channels/x").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.get("content-type").unwrap().to_str().unwrap().contains("html"));
+}

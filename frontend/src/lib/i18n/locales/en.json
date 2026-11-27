@@ -4984,6 +4984,7 @@
     "tab_notes_short": "Notes",
     "tab_activity": "Activity",
     "could_not_open": "Could not open the conversation.",
+    "screen_load_failed": "Part of Wabi could not be loaded. Reload the page; if it keeps happening, clear this site's stored data in your browser.",
     "welcome_save_failed": "Could not save welcome progress. The guide may reappear next time.",
     "friend_request": "Friend request from {name}. Open Friends to respond.",
     "friend_requests": "{count} new friend requests. Open Friends to respond.",
