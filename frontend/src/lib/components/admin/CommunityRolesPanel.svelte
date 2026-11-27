@@ -16,6 +16,8 @@
 	let saving = $state(false);
 	let error = $state('');
 	let saved = $state('');
+	/** Unsaved edits on this screen: a change made elsewhere must not replace them. */
+	let dirty = $state(false);
 	const rooms = $derived($channels.filter(channel => !['dm', 'group', 'category', 'reception'].includes(channel.type)));
 
 	async function request(path: string, init: RequestInit = {}, server = $activeServerUrl) {
@@ -38,6 +40,7 @@
 			roles = normalizeListedRoles(data.roles);
 			channelRoles = data.channelRoles ?? {};
 			revision = data.revision ?? 0;
+			dirty = false;
 		} catch (cause) {
 			if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : $_('community_roles.load_failed');
 		} finally { if (server === $activeServerUrl) loading = false; }
@@ -47,20 +50,20 @@
 		if (roles.length >= 16) return;
 		const unique = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 		roles = [...roles, { id: `community-${unique}`, name: '', description: '', selfAssignable: false }];
-		saved = '';
+		saved = ''; dirty = true;
 	}
 	function updateRole(id: string, field: 'name' | 'description', value: string) {
 		roles = roles.map(role => role.id === id ? { ...role, [field]: value } : role);
-		saved = '';
+		saved = ''; dirty = true;
 	}
 	function setSelfAssignable(id: string, value: boolean) {
 		roles = roles.map(role => role.id === id ? { ...role, selfAssignable: value } : role);
-		saved = '';
+		saved = ''; dirty = true;
 	}
 	function removeRole(id: string) {
 		roles = roles.filter(role => role.id !== id);
 		channelRoles = Object.fromEntries(Object.entries(channelRoles).filter(([, roleId]) => roleId !== id));
-		saved = '';
+		saved = ''; dirty = true;
 	}
 	async function save() {
 		const server = $activeServerUrl;
@@ -74,6 +77,7 @@
 			}) }, server);
 			if (server !== $activeServerUrl) return;
 			revision = data.revision;
+			dirty = false;
 			saved = $_('community_roles.saved');
 			void refreshRoleHolders();
 		} catch (cause) {
@@ -82,14 +86,15 @@
 	}
 
 	$effect(() => { const server = $activeServerUrl; roles = []; channelRoles = {}; saved = ''; void refresh(server); });
-	// Another admin (or another screen) saved the list: take the new revision, so the next save
-	// here is not refused as stale. Skipped while this screen is saving its own change.
+	// The list changed elsewhere and nothing is being edited here: take the new revision, so the
+	// next save is not refused as stale. With unsaved edits the screen is left alone; a save then
+	// gets the server's "reload before saving" and Reload is the person's choice.
 	let seenPolicyVersion = $channelAccessPolicyVersion;
 	$effect(() => {
 		const version = $channelAccessPolicyVersion;
 		if (version === seenPolicyVersion) return;
 		seenPolicyVersion = version;
-		if (!saving && !loading) void refresh($activeServerUrl);
+		if (!saving && !loading && !dirty) void refresh($activeServerUrl);
 	});
 </script>
 
@@ -119,7 +124,7 @@
 			<div class="room-list">
 				{#each rooms as room (room.id)}
 					<label><span>#{room.name}{#if room.description}<small>{room.description}</small>{/if}</span>
-						<select aria-label={$_('community_roles.room_role_label', { values: { name: room.name } })} value={channelRoles[room.id] ?? ''} onchange={event => { channelRoles = { ...channelRoles, [room.id]: event.currentTarget.value }; saved = ''; }}>
+						<select aria-label={$_('community_roles.room_role_label', { values: { name: room.name } })} value={channelRoles[room.id] ?? ''} onchange={event => { channelRoles = { ...channelRoles, [room.id]: event.currentTarget.value }; saved = ''; dirty = true; }}>
 							<option value="">{$_('community_roles.no_role_required')}</option>
 							{#each roles as role (role.id)}<option value={role.id}>{role.name || $_('community_roles.unnamed')}</option>{/each}
 						</select>

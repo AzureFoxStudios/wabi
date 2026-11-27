@@ -618,7 +618,7 @@ async fn set_channel_gate(
     {
         let mut guard = store.write().await;
         if matches!(role, Some("moderator" | "admin")) && guard.data.channel_community_roles.contains_key(&channel_id) {
-            return json_error(StatusCode::BAD_REQUEST, "Remove the self-selected community role before making this a staff-only room");
+            return json_error(StatusCode::BAD_REQUEST, "Remove the room's required role before making this a staff-only room");
         }
         let before = guard.data.clone();
         if let Some(role) = role { guard.data.channel_min_roles.insert(channel_id.clone(), role.into()); }
@@ -683,7 +683,7 @@ async fn put_community_roles(
     let _message_commit = state.retention_policy_lock.lock().await;
     let mut guard = store.write().await;
     if guard.data.community_roles_revision != input.expected_revision {
-        return json_error(StatusCode::CONFLICT, "Community roles changed; reload before saving");
+        return json_error(StatusCode::CONFLICT, "Roles changed; reload before saving");
     }
     let mut candidate = guard.data.clone();
     candidate.community_roles = input.roles.into_iter().map(|role| {
@@ -704,11 +704,11 @@ async fn put_community_roles(
         match state.wdb.get_channel(channel_id).await {
             Ok(Some(channel)) if !crate::channel_access::is_conversation(channel.channel_kind)
                 && !matches!(channel.channel_kind, wabidb::domain::ChannelKind::Category | wabidb::domain::ChannelKind::Reception) => {}
-            Ok(_) => return json_error(StatusCode::BAD_REQUEST, "A selected room is unavailable for community roles"),
+            Ok(_) => return json_error(StatusCode::BAD_REQUEST, "A selected room cannot require a role"),
             Err(error) => { tracing::error!(%error, "community role room lookup failed"); return json_error(StatusCode::SERVICE_UNAVAILABLE, "Room access could not be checked"); }
         }
         if matches!(candidate.channel_min_roles.get(channel_id).map(String::as_str), Some("moderator" | "admin")) {
-            return json_error(StatusCode::BAD_REQUEST, "Staff-only rooms cannot use self-selected community roles");
+            return json_error(StatusCode::BAD_REQUEST, "Staff-only rooms cannot also require a listed role");
         }
     }
     let affected: std::collections::HashSet<String> = guard.data.channel_community_roles.keys()
@@ -717,7 +717,7 @@ async fn put_community_roles(
     if let Err(error) = guard.persist() {
         guard.data = before;
         tracing::error!(%error, "community roles could not be saved");
-        return json_error(StatusCode::SERVICE_UNAVAILABLE, "Community roles could not be saved");
+        return json_error(StatusCode::SERVICE_UNAVAILABLE, "Roles could not be saved");
     }
     let revision = guard.data.community_roles_revision;
     drop(guard);
@@ -798,9 +798,9 @@ async fn put_my_community_roles(
     Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>, Json(input): Json<PutMyRolesInput>,
 ) -> Response {
     if auth.is_guest || auth.is_bot || auth.user_id <= 0 {
-        return json_error(StatusCode::FORBIDDEN, "Sign in with a member account to choose community roles");
+        return json_error(StatusCode::FORBIDDEN, "Sign in with a member account to choose roles");
     }
-    if input.role_ids.len() > 16 { return json_error(StatusCode::BAD_REQUEST, "Choose at most 16 community roles"); }
+    if input.role_ids.len() > 16 { return json_error(StatusCode::BAD_REQUEST, "Choose at most 16 roles"); }
     match state.wdb.get_user(auth.user_id as u64).await {
         Ok(Some(user)) if user.is_active && !user.password_hash.is_empty() => {}
         _ => return json_error(StatusCode::FORBIDDEN, "Active member account required"),
@@ -817,7 +817,7 @@ async fn put_my_community_roles(
     let valid: std::collections::HashSet<_> = guard.data.community_roles.iter().map(|role| role.id.as_str()).collect();
     let unique: std::collections::HashSet<_> = input.role_ids.iter().map(String::as_str).collect();
     if unique.len() != input.role_ids.len() || !unique.iter().all(|role| valid.contains(role)) {
-        return json_error(StatusCode::BAD_REQUEST, "Choose only current community roles");
+        return json_error(StatusCode::BAD_REQUEST, "Choose only roles from the current list");
     }
     // A member decides only the roles marked for self-choice. A role staff
     // gave stays whatever this request says, and one staff must give cannot
@@ -837,7 +837,7 @@ async fn put_my_community_roles(
     if let Err(error) = guard.persist() {
         guard.data = before;
         tracing::error!(%error, "member community roles could not be saved");
-        return json_error(StatusCode::SERVICE_UNAVAILABLE, "Community role choices could not be saved");
+        return json_error(StatusCode::SERVICE_UNAVAILABLE, "Role choices could not be saved");
     }
     let affected: Vec<String> = guard.data.channel_community_roles.keys().cloned().collect();
     drop(guard);

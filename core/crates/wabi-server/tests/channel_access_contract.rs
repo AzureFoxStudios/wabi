@@ -2878,6 +2878,18 @@ async fn listed_roles_are_self_chosen_only_when_marked_and_staff_can_give_any() 
     let read = format!("/messages/{room}");
     assert_eq!(request(&app, Method::GET, &read, &member_token, json!(null)).await.0, StatusCode::FORBIDDEN);
 
+    // Nor does the room appear in the member's room list; the owner's has it.
+    let listed = |token: String| {
+        let (app, room) = (app.clone(), room.clone());
+        async move {
+            let (status, body) = request(&app, Method::GET, "/channels", &token, json!(null)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            body.to_string().contains(&room)
+        }
+    };
+    assert!(!listed(member_token.clone()).await, "a room that needs a role is hidden from non-holders");
+    assert!(listed(owner_token.clone()).await);
+
     // Self-choice: the marked role yes, the staff-given role no, a staff rank never.
     let pick = |role_ids: Value, expected: Value| {
         let (app, token) = (app.clone(), member_token.clone());
