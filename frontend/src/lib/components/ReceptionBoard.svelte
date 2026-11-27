@@ -31,10 +31,14 @@
 		}
 	}
 
-	type CommunityRole = { id: string; name: string; description: string };
+	type CommunityRole = { id: string; name: string; description: string; selfAssignable?: boolean };
+	/** A role only staff give: shown when held, never offered as a choice. */
+	const staffGiven = (role: CommunityRole) => role.selfAssignable === false;
 	type GuidedRoom = { id: string; name: string; description?: string | null; roleId: string };
 	let roles: CommunityRole[] = $state([]);
 	let myRoleIds: string[] = $state([]);
+	/** What Welcome lists: every role a member can pick, plus the staff-given ones they hold. */
+	const offeredRoles = $derived(roles.filter(role => !staffGiven(role) || myRoleIds.includes(role.id)));
 	let guidedRooms: GuidedRoom[] = $state([]);
 	let canChooseRoles = $state(false);
 	let loadingGuide = $state(true);
@@ -184,7 +188,7 @@
 					<div class="poster-block" style:left={`${block.x}%`} style:top={`${block.y}%`} style:width={`${block.width}%`}>
 						{#if block.kind === 'text'}<p>{block.text}</p>
 						{:else if block.kind === 'link'}{@const url = posterLink(block.url)}{#if url}<a href={url} target="_blank" rel="noopener noreferrer">{block.text}</a>{:else}<span>{$_('rb.resource_unavailable')}</span>{/if}
-						{:else if block.kind === 'role'}{@const role = roles.find(item => item.id === block.roleId)}{#if role}<button type="button" disabled={!canChooseRoles || Boolean(changingRole)} aria-pressed={myRoleIds.includes(role.id)} onclick={() => toggleRole(role.id)}>{block.text} · {myRoleIds.includes(role.id) ? $_('media_albums.selected') : canChooseRoles ? $_('rb.choose') : $_('rb.member_needed')}</button>{:else}<span>{$_('rb.role_unavailable')}</span>{/if}{/if}
+						{:else if block.kind === 'role'}{@const role = roles.find(item => item.id === block.roleId)}{#if role}<button type="button" disabled={!canChooseRoles || Boolean(changingRole) || staffGiven(role)} aria-pressed={myRoleIds.includes(role.id)} onclick={() => toggleRole(role.id)}>{block.text} · {myRoleIds.includes(role.id) ? $_('media_albums.selected') : canChooseRoles ? $_('rb.choose') : $_('rb.member_needed')}</button>{:else}<span>{$_('rb.role_unavailable')}</span>{/if}{/if}
 					</div>
 				{/each}
 			</div>
@@ -244,16 +248,16 @@
 			<h2>{$_('rb.find_role')}</h2>
 			<p class="reception-hint">{$_('rb.find_role_desc')}</p>
 			{#if guideError}<p class="guide-error" role="alert">{guideError}</p>{/if}
-			{#if loadingGuide}<p>{$_('rb.loading_guide')}</p>{:else if roles.length === 0}<p class="reception-empty">{$_('rb.no_newcomer_roles')}</p>{:else}
+			{#if loadingGuide}<p>{$_('rb.loading_guide')}</p>{:else if offeredRoles.length === 0}<p class="reception-empty">{$_('rb.no_newcomer_roles')}</p>{:else}
 				<div class="role-list">
-					{#each roles as role (role.id)}
+					{#each offeredRoles as role (role.id)}
 						<div class="role-card">
 							<div><strong>{role.name}</strong>{#if role.description}<p>{role.description}</p>{/if}
 								{#each guidedRooms.filter(room => room.roleId === role.id) as room (room.id)}
 									<div class="guided-room"><span>#{room.name}</span>{#if room.description}<small>{room.description}</small>{/if}{#if myRoleIds.includes(role.id) && $channels.some(channel => channel.id === room.id)}<button type="button" onclick={() => openRoom(room.id)}>{$_('rb.open_room')}</button>{/if}</div>
 								{/each}
 							</div>
-							<button type="button" onclick={() => toggleRole(role.id)} disabled={!canChooseRoles || Boolean(changingRole)} aria-pressed={myRoleIds.includes(role.id)}>{myRoleIds.includes(role.id) ? $_('rb.leave_role') : $_('rb.choose_role')}</button>
+							{#if staffGiven(role)}<span class="role-given">{$_('rb.given_by_staff')}</span>{:else}<button type="button" onclick={() => toggleRole(role.id)} disabled={!canChooseRoles || Boolean(changingRole)} aria-pressed={myRoleIds.includes(role.id)}>{myRoleIds.includes(role.id) ? $_('rb.leave_role') : $_('rb.choose_role')}</button>{/if}
 						</div>
 					{/each}
 				</div>
@@ -365,6 +369,7 @@
 	.role-list{display:grid;gap:10px;margin-top:15px}
 	.role-card{display:flex;justify-content:space-between;align-items:start;gap:12px;padding:14px;border:1px solid var(--border-default);border-radius:12px;background:var(--surface-raised)}
 	.role-card p{margin:5px 0;color:var(--text-secondary);font-size:.85rem}
+	.role-given{flex:none;color:var(--text-secondary);font-size:.85rem}
 	.role-card button,.refresh-guide{flex:none;padding:8px 11px;border:1px solid var(--border-default);border-radius:9px;background:var(--surface-base);color:var(--text-primary);cursor:pointer}
 	.role-card button[aria-pressed="true"]{background:var(--accent-primary);color:var(--text-on-accent,white);border-color:transparent}
 	.role-card button:disabled{opacity:.55;cursor:not-allowed}.refresh-guide{margin-top:12px}

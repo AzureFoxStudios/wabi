@@ -734,7 +734,6 @@
 				{customChannels}
 				onOpenChannel={openAdminChannel}
 			/>
-			<CommunityRolesPanel />
 
 			<RoleGatesUnavailable />
 

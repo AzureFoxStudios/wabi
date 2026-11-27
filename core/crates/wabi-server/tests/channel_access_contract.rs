@@ -2848,3 +2848,95 @@ async fn album_item_media_metadata_survives_rest_write_and_restart() {
     assert_eq!(items[0].size, Some(1234));
     assert_eq!(items[0].mime.as_deref(), Some("image/png"));
 }
+
+/// One role list: a member holds several roles, picks for themselves only the
+/// roles marked for it, staff give or take any of them, and a room that needs
+/// a role opens for its holders. Staff ranks are not in the list.
+#[tokio::test]
+async fn listed_roles_are_self_chosen_only_when_marked_and_staff_can_give_any() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, outsider, owner) = users(&state).await;
+    let room = channel(&state, member, ChannelKind::Text).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (member_token, outsider_token, owner_token) = (jwt(&state, member), jwt(&state, outsider), jwt(&state, owner));
+    let banana = format!("community-{}", uuid::Uuid::new_v4());
+    let kiwi = format!("community-{}", uuid::Uuid::new_v4());
+
+    let (status, body) = request(&app, Method::PUT, "/server-center/community-roles", &owner_token, json!({
+        "expectedRevision": 0,
+        "roles": [
+            {"id": banana, "name": "Banana Jammers", "description": "", "selfAssignable": true},
+            {"id": kiwi, "name": "Kiwi Killers", "description": "", "selfAssignable": false},
+        ],
+        "channelRoles": { room.clone(): kiwi },
+    })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let revision = body["revision"].as_u64().unwrap();
+
+    // The room needs Kiwi Killers: the member cannot read it yet.
+    let read = format!("/messages/{room}");
+    assert_eq!(request(&app, Method::GET, &read, &member_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+
+    // Nor does the room appear in the member's room list; the owner's has it.
+    let listed = |token: String| {
+        let (app, room) = (app.clone(), room.clone());
+        async move {
+            let (status, body) = request(&app, Method::GET, "/channels", &token, json!(null)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            body.to_string().contains(&room)
+        }
+    };
+    assert!(!listed(member_token.clone()).await, "a room that needs a role is hidden from non-holders");
+    assert!(listed(owner_token.clone()).await);
+
+    // Self-choice: the marked role yes, the staff-given role no, a staff rank never.
+    let pick = |role_ids: Value, expected: Value| {
+        let (app, token) = (app.clone(), member_token.clone());
+        async move { request(&app, Method::PUT, "/server-center/reception/roles", &token, json!({"roleIds": role_ids, "expectedRoleIds": expected})).await }
+    };
+    let (status, body) = pick(json!([kiwi]), json!([])).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    for rank in ["owner", "admin", "mod", "moderator"] {
+        assert_eq!(pick(json!([rank]), json!([])).await.0, StatusCode::BAD_REQUEST, "{rank}");
+    }
+    let (status, body) = pick(json!([banana]), json!([])).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(request(&app, Method::GET, &read, &member_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+
+    // Only staff give roles to someone else.
+    let give = format!("/server-center/members/{member}/roles");
+    let (status, _) = request(&app, Method::PUT, &give, &outsider_token, json!({"roleIds": [kiwi]})).await;
+    assert_ne!(status, StatusCode::OK);
+    let (status, body) = request(&app, Method::PUT, &give, &owner_token, json!({"roleIds": [banana, kiwi]})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(request(&app, Method::GET, &read, &member_token, json!(null)).await.0, StatusCode::OK);
+
+    // Roles are visible to members: two roles on one person.
+    let (status, holders) = request(&app, Method::GET, "/server-center/role-holders", &outsider_token, json!(null)).await;
+    assert_eq!(status, StatusCode::OK, "{holders}");
+    assert_eq!(holders["holders"][member.to_string()].as_array().unwrap().len(), 2);
+
+    // Dropping every self-chosen role keeps the one staff gave.
+    let (status, body) = pick(json!([]), json!([banana, kiwi])).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["myRoleIds"], json!([kiwi]));
+    assert_eq!(request(&app, Method::GET, &read, &member_token, json!(null)).await.0, StatusCode::OK);
+
+    // An older admin screen saves the list without the flag: the role stays staff-given.
+    let (status, body) = request(&app, Method::PUT, "/server-center/community-roles", &owner_token, json!({
+        "expectedRevision": revision,
+        "roles": [{"id": banana, "name": "Banana Jammers"}, {"id": kiwi, "name": "Kiwi Killers"}],
+        "channelRoles": { room.clone(): kiwi },
+    })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, holders) = request(&app, Method::GET, "/server-center/role-holders", &owner_token, json!(null)).await;
+    let flag = |id: &str| holders["roles"].as_array().unwrap().iter().find(|role| role["id"] == id).unwrap()["selfAssignable"].clone();
+    assert_eq!(flag(&kiwi), json!(false));
+    assert_eq!(flag(&banana), json!(true));
+
+    // Staff take the role away: the room closes again.
+    let (status, body) = request(&app, Method::PUT, &give, &owner_token, json!({"roleIds": []})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(request(&app, Method::GET, &read, &member_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+}

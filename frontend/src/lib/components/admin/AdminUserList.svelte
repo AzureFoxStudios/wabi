@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { heldRoleIds, listedRoles, refreshRoleHolders, roleHolders, rolesHeldBy, setMemberRoles, toggledRoleIds } from '$lib/serverRoles';
 	import { _ } from '$lib/i18n';
 	import type { User, UserBadge } from '$lib/socket';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
@@ -33,6 +34,22 @@
 	const heldBadges = (user: User): UserBadge[] => (user.badges ?? []).filter(isUsableBadge);
 	const unheldBadges = (user: User): UserBadge[] =>
 		availableBadges.filter((b) => !heldBadges(user).some((h) => h.id === b.id));
+
+	// Listed roles (the one role list): a person can hold several; staff tick them here.
+	let listedRoleBusyUserId = $state<number | null>(null);
+	let listedRoleError = $state('');
+	let listedRoleErrorUserId = $state<number | null>(null);
+	async function toggleListedRole(userId: number, roleId: string, box: HTMLInputElement) {
+		listedRoleBusyUserId = userId; listedRoleError = ''; listedRoleErrorUserId = null;
+		try {
+			await setMemberRoles(userId, toggledRoleIds(heldRoleIds(userId), roleId, box.checked));
+		} catch (cause) {
+			box.checked = !box.checked;
+			listedRoleError = cause instanceof Error ? cause.message : $_('aul.roles_failed');
+			listedRoleErrorUserId = userId;
+		} finally { listedRoleBusyUserId = null; }
+	}
+	$effect(() => { void refreshRoleHolders(); });
 </script>
 
 <section class="admin-people" aria-label="Server members">
@@ -111,6 +128,20 @@
 								{/if}
 							</button>
 						{/if}
+						{#if user.dbUserId && user.isRegistered !== false && $listedRoles.length > 0}
+							<details class="admin-person-badges admin-person-roles">
+								<summary aria-label={$_('aul.manage_roles_for', { values: { username: user.username } })}>{$_('aul.roles')}{#if rolesHeldBy($listedRoles, $roleHolders, user.dbUserId).length > 0}<span class="admin-badge-count">{rolesHeldBy($listedRoles, $roleHolders, user.dbUserId).length}</span>{/if}</summary>
+								<div class="admin-badge-control">
+									{#each $listedRoles as role (role.id)}
+										<label class="admin-role-check">
+											<input type="checkbox" checked={($roleHolders[String(user.dbUserId)] ?? []).includes(role.id)} disabled={listedRoleBusyUserId !== null} onchange={(event) => void toggleListedRole(user.dbUserId!, role.id, event.currentTarget)} />
+											<span>{role.name}</span>
+										</label>
+									{/each}
+								</div>
+								{#if listedRoleError && listedRoleErrorUserId === user.dbUserId}<p class="admin-badge-feedback" role="alert">{listedRoleError}</p>{/if}
+							</details>
+						{/if}
 						{#if canManageTargetUser(user) && onAssignBadge && onRemoveBadge && (heldBadges(user).length > 0 || unheldBadges(user).length > 0)}
 							<details class="admin-person-badges">
 								<summary aria-label={$_('aul.manage_badges_for', { values: { username: user.username } })}>{$_('profile_settings.badges_heading')}{#if heldBadges(user).length > 0}<span class="admin-badge-count">{heldBadges(user).length}</span>{/if}</summary>
@@ -180,6 +211,7 @@
 	.admin-people .admin-select:disabled { opacity: 0.65; cursor: not-allowed; }
 	.admin-person-status { color: var(--w-mute); font-size: 0.875rem; line-height: 1.5; }
 	.admin-person-badges { width: 100%; min-width: 0; }
+	.admin-role-check { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 34px; padding: 0 0.6rem; border: 1px solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); font-size: 0.875rem; color: var(--w-text); }
 	.admin-person-badges summary { width: fit-content; min-height: 44px; padding: 0.65rem 0.25rem; box-sizing: border-box; color: var(--w-mute); font-size: 0.875rem; line-height: 1.5; cursor: pointer; }
 	.admin-person-badges summary:hover { color: var(--w-text); }
 	.admin-badge-count { margin-inline-start: 0.5rem; font-variant-numeric: tabular-nums; }

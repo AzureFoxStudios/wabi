@@ -19,7 +19,6 @@
 	import CommunityRulesPanel from './admin/CommunityRulesPanel.svelte';
 	import RaidModePanel from './admin/RaidModePanel.svelte';
 	import ChannelAccessPanel from './admin/ChannelAccessPanel.svelte';
-	import CommunityRolesPanel from './admin/CommunityRolesPanel.svelte';
 	import SafetyRulesPanel from './admin/SafetyRulesPanel.svelte';
 	import PrivacyCenter from './admin/PrivacyCenter.svelte';
 	import StorageCenter from './admin/StorageCenter.svelte';
@@ -142,7 +141,6 @@
 						{#if canManageServer(role)}<CommunityRulesPanel />{/if}
 						{#if canManageServer(role)}<RaidModePanel />{/if}
 						{#if canManageServer(role)}<ChannelAccessPanel />{/if}
-						{#if canManageServer(role)}<CommunityRolesPanel />{/if}
 						<ModerationCenter />
 					{/key}
 				{:else if section === 'safety'}
