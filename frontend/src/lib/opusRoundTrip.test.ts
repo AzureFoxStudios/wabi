@@ -50,16 +50,27 @@ test('real Opus pages -> real decoder -> actual playback processor preserve a co
 		registerProcessor: (_name: string, p: any) => { Processor = p; }, Float32Array, sampleRate: 48000
 	});
 	const playback = new Processor();
-	let energy = 0;
-	let played = 0;
+	// Playback holds a short reserve before it starts, so what comes out is the decoded audio
+	// delayed by that reserve: every sample, in order, none dropped or repeated.
+	const heard: number[] = [];
+	const render = (frames: number) => {
+		const output = new Float32Array(frames);
+		playback.process([], [[output]]);
+		heard.push(...output);
+	};
 	for (const pcm of chunks) {
 		playback.port.onmessage({ data: { pcm } });
-		const output = new Float32Array(pcm.length);
-		playback.process([], [[output]]);
-		expect(output).toEqual(pcm);
-		for (const sample of output) energy += sample * sample;
-		played += output.length;
+		render(pcm.length);
 	}
+	for (let i = 0; i < 10; i++) render(960);
+	const decoded = chunks.flatMap(pcm => Array.from(pcm));
+	const delay = [0, 1, 2, 3, 4, 5, 6].map(pages => pages * 960)
+		.find(offset => decoded.every((sample, i) => heard[offset + i] === sample));
+	expect(delay).toBeDefined();
+	expect(delay).toBeLessThanOrEqual(5760);
+	let energy = 0;
+	for (const sample of decoded) energy += sample * sample;
+	const played = decoded.length;
 	expect(Math.sqrt(energy / played)).toBeGreaterThan(0.2);
 	expect(Math.sqrt(energy / played)).toBeLessThan(0.35);
 	await encoder.send({ command: 'close' });
