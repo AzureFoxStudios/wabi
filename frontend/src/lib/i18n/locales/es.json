@@ -4113,7 +4113,7 @@
     "reload": "Recargar",
     "staff_rank_note": "Rango del equipo. Se asigna en Personas; nunca se elige por cuenta propia.",
     "self_pick": "Los miembros pueden elegir este rol por sí mismos en Bienvenida",
-    "rooms_note": "Solo quienes tienen el rol pueden ver y usar la sala. Los administradores y el propietario siempre pueden abrirla; los moderadores necesitan el rol como los demás."
+    "rooms_note": "Solo quienes tienen el rol pueden ver y usar la sala. Los moderadores, los administradores y el propietario siempre pueden abrirla. Para una sala que los moderadores no deban ver, pon su rango mínimo en Administrador en Canales."
   },
   "compression": {
     "na": "n/d",
