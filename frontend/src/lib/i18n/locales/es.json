@@ -4984,6 +4984,7 @@
     "tab_notes_short": "Notas",
     "tab_activity": "Actividad",
     "could_not_open": "No se pudo abrir la conversación.",
+    "screen_load_failed": "No se pudo cargar una parte de Wabi. Recarga la página; si sigue ocurriendo, borra los datos guardados de este sitio en tu navegador.",
     "welcome_save_failed": "No se pudo guardar el progreso de bienvenida. Es posible que la guía vuelva a aparecer la próxima vez.",
     "friend_request": "Solicitud de amistad de {name}. Abre Amigos para responder.",
     "friend_requests": "{count} nuevas solicitudes de amistad. Abre Amigos para responder.",

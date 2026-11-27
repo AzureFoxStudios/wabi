@@ -481,7 +481,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: if (isPlannerTabActive && !PlannerWorkspaceCmp) void import('./business/PlannerWorkspace.svelte').then((m) => (PlannerWorkspaceCmp = m.default));
 	$: if (isNotesTabActive && !KeepNotesViewCmp) void import('./KeepNotesView.svelte').then((m) => (KeepNotesViewCmp = m.default));
 	$: if ($voiceViewOpen && !VoiceViewCmp) void import('./VoiceView.svelte').then((m) => (VoiceViewCmp = m.default));
-	$: if ($centerPanelView === 'admin' && !AdminCenterStageCmp) void import('./AdminCenterStage.svelte').then((m) => (AdminCenterStageCmp = m.default));
+	// If the admin screen cannot be loaded, go back to chat: it replaces the whole layout, so a
+	// loading line that never ends would leave no way out. The app-wide notice says what happened.
+	$: if ($centerPanelView === 'admin' && !AdminCenterStageCmp) void import('./AdminCenterStage.svelte').then((m) => (AdminCenterStageCmp = m.default)).catch((error) => { layoutStore.setCenterPanelView('chat'); return Promise.reject(error); });
 	$: if (isGalleryChannel && !GalleryChannelCmp) void import('./GalleryChannel.svelte').then((m) => (GalleryChannelCmp = m.default));
 	$: if (showSettings && !SettingsCmp) void import('./Settings.svelte').then((m) => (SettingsCmp = m.default));
 	$: if (showCallDebugPanel && !CallDebugPanelCmp) void import('./CallDebugPanel.svelte').then((m) => (CallDebugPanelCmp = m.default));
