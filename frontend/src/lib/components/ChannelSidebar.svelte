@@ -64,7 +64,6 @@
 		resolveDropGap,
 		resolveSidebarPlace,
 		sidebarWidthTier,
-		splitRootSections,
 		summarizeGlimpseMessage
 	} from './sidebar/channelSidebarHelpers';
 	import type { ChannelNoun } from './sidebar/channelSidebarHelpers';
@@ -156,7 +155,6 @@
 	}
 	function closeChannelGlimpse() { glimpseChannelId = null; }
 	let isTextSectionExpanded = true;
-	let isVoiceSectionExpanded = true;
 	let collapsedCategories = new Set<string>();
 	// Folder collapse state persists per-server across reloads and surface
 	// switches. Keyed by server URL under one localStorage entry.
@@ -274,7 +272,6 @@
 		...planningChannelsAll,
 	].filter(ch => (ch.type as string | undefined) !== 'category');
 	$: mixedRootItems = buildMixedRoot($channels, unifiedSidebarChannels);
-	$: rootSections = splitRootSections(mixedRootItems);
 	/** Community channels with unread messages: what CHANNELS › Mark all read clears (never DMs). */
 	$: communityUnread = communityUnreadIds($channelUnreadCounts, $channels);
 	/** Unread across DM + group DM channels only — badge for Messages hub. */
@@ -507,9 +504,8 @@
 	let draggedCategoryId: string | null = null;
 
 	let channelListEl: HTMLElement | null = null;
-	/** The CHANNELS and VOICE section bodies: top-level voice rooms render under VOICE. */
+	/** The CHANNELS section body. Voice rooms sit in it with every other kind, in the root order. */
 	let channelSectionEl: HTMLElement | null = null;
-	let voiceSectionEl: HTMLElement | null = null;
 
 	/** Current computed landing gap (drives both the line and the commit). */
 	let activeGap: DropGap | null = null;
@@ -569,30 +565,12 @@
 		}
 	}
 
-	/** True while the row being dragged is a voice room. */
-	function isDraggingVoiceRoom(): boolean {
-		if (!draggedChannelId) return false;
-		return $channels.find((c) => c.id === draggedChannelId)?.type === 'voice';
-	}
-
-	/**
-	 * Anchors the drag may land on, in document order. The line never lies about where the row
-	 * will appear: a top-level voice room always renders under VOICE, so a voice room only
-	 * targets folders and the VOICE rows, and every other row ignores the VOICE section.
-	 */
+	/** Anchors the drag may land on, in document order. */
 	function collectAnchors(): DragAnchor[] {
 		if (!channelListEl) return [];
 		const nodes = channelListEl.querySelectorAll<HTMLElement>('[data-drop-anchor]');
 		const anchors: DragAnchor[] = [];
-		const voiceDrag = isDraggingVoiceRoom();
 		for (const node of nodes) {
-			const inVoiceSection = Boolean(voiceSectionEl?.contains(node));
-			if (voiceDrag) {
-				const looseRootRow = !inVoiceSection && node.dataset.dropAnchor === 'channel' && !node.dataset.parentFolder;
-				if (looseRootRow) continue;
-			} else if (inVoiceSection) {
-				continue;
-			}
 			const rect = node.getBoundingClientRect();
 			if (rect.height <= 0) continue;
 			anchors.push({
@@ -620,20 +598,15 @@
 		if (distanceUp < 0) listEl.scrollTop += Math.max(4, Math.min(18, -distanceUp / 3));
 		else if (distanceDown < 0) listEl.scrollTop -= Math.max(4, Math.min(18, -distanceDown / 3));
 
-		// The tail gap ("end of the list") sits under the section the row will render in.
-		const voiceDrag = isDraggingVoiceRoom();
-		const tailSection = voiceDrag ? voiceSectionEl : channelSectionEl;
-		const tailY = tailSection ? Math.min(tailSection.getBoundingClientRect().bottom, containerRect.bottom) : containerRect.bottom;
-		// A voice room dropped "before/after a folder" would land at the top level, which renders
-		// under VOICE, so for a voice room a folder header only means "into this folder".
+		// The tail gap ("end of the list") sits under the CHANNELS section.
+		const tailY = channelSectionEl ? Math.min(channelSectionEl.getBoundingClientRect().bottom, containerRect.bottom) : containerRect.bottom;
 		const resolved = resolveDropGap(
 			collectAnchors(),
 			lastPointer.y,
 			Boolean(draggedCategoryId),
 			containerRect.top,
 			listEl.scrollTop,
-			tailY,
-			voiceDrag
+			tailY
 		);
 
 		// Collapsed-folder dwell: hovering a collapsed folder's interior target
@@ -1174,11 +1147,12 @@
 		void refreshLoreCapability();
 	}
 
-	/** The CHANNELS kicker menu (spec §8.1): New channel, New folder, Mark all read. */
+	/** The CHANNELS kicker menu (spec §8.1): New channel, New voice room, New folder, Mark all read. */
 	$: channelsMenuItems = [
 		...(canCreateChannel
 			? ([
 					{ id: 'new-channel', label: $_('sidebar.new_channel'), icon: 'plus', onSelect: () => openCreateForm('text') },
+					{ id: 'new-voice-room', label: $_('sidebar.new_voice_room'), icon: 'mic', onSelect: () => openCreateForm('voice') },
 					{ id: 'new-folder', label: $_('sidebar.new_folder'), icon: 'folder', onSelect: openCreateFormForCategory },
 					{ id: 'channels-divider', type: 'separator' }
 				] satisfies MenuEntry[])
@@ -1342,7 +1316,7 @@
 		</div>
 		{#if isTextSectionExpanded}
 		<div class="section-body" bind:this={channelSectionEl} transition:slide={sectionSlideParams}>
-	{#each rootSections.channels as item (item.id)}
+	{#each mixedRootItems as item (item.id)}
 		<div class="mixed-root-item" animate:flip={rootFlipParams}>
 		{#if item.kind === 'folder'}
 		<div
@@ -1387,28 +1361,6 @@
 		</div>
 	{/each}
 		</div>
-		{/if}
-
-		<!-- VOICE: top-level rooms (a room inside a folder stays in its folder). -->
-		{#if rootSections.voice.length > 0 || canCreateChannel}
-			<div class="sb-sec">
-				<button class="sb-sec-toggle" type="button" aria-expanded={isVoiceSectionExpanded} on:click={() => (isVoiceSectionExpanded = !isVoiceSectionExpanded)}>
-					<span class="w-kicker">{$_('sidebar.voice')}</span>
-					<span class="sb-sec-chevron" aria-hidden="true"><Icon name="chevDown" size={12} /></span>
-				</button>
-				{#if canCreateChannel}
-					<button type="button" class="w-ibtn sb-sec-add" aria-label={$_('sidebar.new_voice_room')} title={$_('sidebar.new_voice_room')} on:click={() => openCreateForm('voice')}><Icon name="plus" size={14} /></button>
-				{/if}
-			</div>
-			{#if isVoiceSectionExpanded}
-				<div class="section-body voice-section" bind:this={voiceSectionEl} transition:slide={sectionSlideParams}>
-					{#each rootSections.voice as item (item.id)}
-						<div class="mixed-root-item" animate:flip={rootFlipParams}>
-							<UnifiedChannelList channels={[item.channel]} currentPlace={sidebarPlace} compact={isCompactSidebar} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
-						</div>
-					{/each}
-				</div>
-			{/if}
 		{/if}
 
 		{#if dropLine}
