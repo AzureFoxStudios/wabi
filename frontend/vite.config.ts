@@ -11,7 +11,8 @@ const clientRevision = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(candidateRevision
 const isTauri = process.env.TAURI_ENV_PLATFORM ? true : false;
 const browserTargets = ['edge88', 'firefox78', 'chrome87', 'safari13.1'];
 
-const workspaceSelection = new Set((process.env.WABI_WORKSPACE_ADDONS || 'none').split(',').map(v => v.trim()));
+// Sheets and Present ship in every build unless a build opts out; each user still switches them on.
+const workspaceSelection = new Set((process.env.WABI_WORKSPACE_ADDONS || 'all').split(',').map(v => v.trim()));
 if ([...workspaceSelection].some(v => !['none', 'all', 'sheets', 'present'].includes(v))) throw new Error('WABI_WORKSPACE_ADDONS must be none, all, sheets, present, or sheets,present');
 const workspacePackaged = { sheets: workspaceSelection.has('all') || workspaceSelection.has('sheets'), present: workspaceSelection.has('all') || workspaceSelection.has('present') };
 const workspaceEntry = (name: 'sheets' | 'present') => fileURLToPath(new URL(workspacePackaged[name] ? `./src/lib/workspaces/${name}/addon.ts` : './src/lib/workspaces/addonUnavailable.ts', import.meta.url));

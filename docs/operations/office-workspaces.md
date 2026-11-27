@@ -4,7 +4,7 @@ This guide describes the feature implementation on PR #236. It is not release ac
 
 ## Independent installation and data ownership
 
-Documents use the shared workspace foundation. Sheets and Present are independently selected authoring addons. Build with `WABI_WORKSPACE_ADDONS=none`, `sheets`, `present`, or `all`; the lightweight audience view remains available without importing either authoring package. These are build selections, not a remotely downloadable runtime addon installer.
+Documents use the shared workspace foundation. Sheets and Present are independently selected authoring addons. Build with `WABI_WORKSPACE_ADDONS=none`, `sheets`, `present`, or `all` (the default, used by the server, desktop and mobile builds); the lightweight audience view remains available without importing either authoring package. These are build selections, not a remotely downloadable runtime addon installer.
 
 Enabling a packaged addon in the client and permitting it on the server are separate controls. Disabling an addon does not intentionally delete its local documents, pending edits, originals, recovery data, or private notes. Resolve local storage failures or export recovery before closing a workspace. A browser's own storage eviction or the user clearing site data can still remove device-local information; keep explicit backups for important work.
 
