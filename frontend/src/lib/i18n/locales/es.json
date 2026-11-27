@@ -8483,5 +8483,21 @@
     "sent_one": "Añadido a {gallery}",
     "sent_other": "{n} archivos añadidos a {gallery}",
     "failed": "No se pudieron añadir {n} archivo(s) a la galería"
+  },
+  "albums_agreement": {
+    "title": "Los álbumes necesitan el acuerdo de todos",
+    "explain": "Los álbumes no forman parte del cifrado de esta conversación. Los nombres, las descripciones y los archivos de los álbumes se guardan de forma legible por el servidor, así que el operador del servidor podría verlos.",
+    "rule": "Los álbumes se abren aquí cuando todos los miembros están de acuerdo. Los mensajes no se ven afectados. Cualquiera puede retirar su acuerdo después, lo que cierra los álbumes a nuevas incorporaciones.",
+    "nobody": "Nadie ha aceptado todavía.",
+    "others_agreed": "{n} miembro(s) han aceptado. Los álbumes se abren cuando tú y los demás aceptéis.",
+    "waiting": "Has aceptado. Esperando a {n} miembro(s) más.",
+    "agree": "Aceptar álbumes aquí",
+    "withdraw": "Retirar mi acuerdo",
+    "asked_title": "Alguien ha pedido activar los álbumes aquí",
+    "asked_text": "Los álbumes se guardan de forma legible por el servidor (el operador del servidor podría verlos). Se abren cuando todos los miembros aceptan. Los mensajes no se ven afectados.",
+    "details": "Detalles",
+    "open_note": "Todos aquí han aceptado álbumes legibles por el servidor.",
+    "failed": "No se pudo guardar el acuerdo sobre los álbumes. Inténtalo de nuevo.",
+    "not_now": "Ahora no"
   }
 }

@@ -9,6 +9,8 @@
 	  and a failed request is a notice in plain words, never the raw error and never "E2EE".
 -->
 <script lang="ts">
+	import AlbumsAgreement from './media-albums/AlbumsAgreement.svelte';
+	import { openMediaAlbumsSurface } from '$lib/mediaAlbumsWorkspace';
 	import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { getAuthToken } from '$lib/authSession';
@@ -408,6 +410,7 @@
 				</button>
 			{/if}
 			<div class="dm-conversation-composer" class:gated={Boolean(sendGate)}>
+				{#if channelId}<AlbumsAgreement {channelId} variant="notice" onOpenAlbums={openMediaAlbumsSurface} />{/if}
 				{#if showNoKeyNotice}
 					<div class="w-notice dm-notice" role="status">
 						<Icon name="alert" size={16} />

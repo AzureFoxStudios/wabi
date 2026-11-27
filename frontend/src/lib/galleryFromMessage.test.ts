@@ -67,9 +67,9 @@ describe('Add to gallery: the privacy gate', () => {
 
 	test('the setting lifts the block for every reason, and for the gallery action only', () => {
 		for (const reason of reasons) {
-			expect(serverReadableActionBlock('gallery', { text: 'hi' }, reason, true)).toBeNull();
-			expect(serverReadableActionBlock('album', { text: 'hi' }, reason, true)).not.toBeNull();
-			expect(serverReadableActionBlock('forward', { text: 'hi' }, reason, true)).not.toBeNull();
+			expect(serverReadableActionBlock('gallery', { text: 'hi' }, reason, { gallery: true })).toBeNull();
+			expect(serverReadableActionBlock('album', { text: 'hi' }, reason, { gallery: true })).not.toBeNull();
+			expect(serverReadableActionBlock('forward', { text: 'hi' }, reason, { gallery: true })).not.toBeNull();
 		}
 	});
 

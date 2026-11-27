@@ -23,6 +23,8 @@
 	export let onDownload: (() => void) | undefined = undefined;
 	export let onAddToAlbum: (() => void) | undefined = undefined;
 	export let onAddToGallery: (() => void) | undefined = undefined;
+	/** Every member of this conversation agreed to server-readable albums. */
+	export let albumsAgreed = false;
 	export let onPromoteToLore: (() => void) | undefined = undefined;
 	export let onCopyMessageLink: (() => void) | undefined = undefined;
 	export let onCopyQuote: (() => void) | undefined = undefined;
@@ -70,9 +72,9 @@
 	// `visible` is intentionally an explicit dependency. Translator settings live
 	// in localStorage, so reopening the menu must rebuild actions after an Add-ons
 	// settings change without requiring a page reload.
-	$: items = buildItems(visible, message, roomKeepReason, hasGalleryMedia, $privateMediaToGallery);
+	$: items = buildItems(visible, message, roomKeepReason, hasGalleryMedia, $privateMediaToGallery, albumsAgreed);
 
-	function buildItems(_menuVisible: boolean, _message: Message, _room: KeepReason | null, galleryMedia: boolean, galleryAllowed: boolean): MenuEntry[] {
+	function buildItems(_menuVisible: boolean, _message: Message, _room: KeepReason | null, galleryMedia: boolean, galleryAllowed: boolean, albumsOpen: boolean): MenuEntry[] {
 		return buildMessageMenu({
 			t: get(_),
 			isOwn: isOwnMessageByIdentity,
@@ -96,6 +98,7 @@
 			onCopyMessageLink,
 			onDownload,
 			onAddToAlbum,
+			albumsAgreed: albumsOpen,
 			onAddToGallery: galleryMedia ? onAddToGallery : undefined,
 			privateMediaToGallery: galleryAllowed,
 			onPromoteToLore,

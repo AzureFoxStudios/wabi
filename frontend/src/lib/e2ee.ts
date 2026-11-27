@@ -55,6 +55,15 @@ export type E2eeRoomStatus = {
 	pendingDefault?: boolean;
 	serverReadableSelected?: boolean;
 	serverReadableAllowedByMe?: boolean;
+	/**
+	 * Albums here are stored server-readable. In a conversation with encryption on or pending they
+	 * open only while every current member has agreed (`albumsAgreed`); each member agrees or
+	 * withdraws for themselves.
+	 */
+	albumsAgreed?: boolean;
+	albumsAgreedByMe?: boolean;
+	albumsAgreedUserIds?: number[];
+	memberUserIds?: number[];
 	epoch: number;
 	membershipRevision: string;
 	currentMembershipRevision: string;
@@ -315,6 +324,15 @@ export async function ensureE2eeDeviceRegistered(): Promise<LocalIdentity> {
 
 export async function allowServerReadableRoom(channelId: string): Promise<void> {
 	await responseJson(await authorizedFetch(`/api/e2ee/channels/${encodeURIComponent(channelId)}/allow-server-readable`, { method: 'POST' }));
+}
+
+/** This member's own agreement (or withdrawal) to server-readable albums in a conversation. */
+export async function setAlbumsAgreement(channelId: string, agree: boolean): Promise<void> {
+	await responseJson(await authorizedFetch(`/api/e2ee/channels/${encodeURIComponent(channelId)}/albums-agreement`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ agree })
+	}));
 }
 
 export async function revokeCurrentE2eeDevice(): Promise<void> {

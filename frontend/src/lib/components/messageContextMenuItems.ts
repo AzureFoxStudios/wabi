@@ -40,6 +40,8 @@ export interface MessageMenuInput {
 	onCopyMessageLink?: Action;
 	onDownload?: Action;
 	onAddToAlbum?: Action;
+	/** Every member of the conversation agreed to server-readable albums. */
+	albumsAgreed?: boolean;
 	/** Present only when the message has media a gallery can show. */
 	onAddToGallery?: Action;
 	/** The person allowed gallery copies from kept content (privacy/privateMediaToGallery.ts). */
@@ -79,7 +81,7 @@ export function buildMessageMenu(input: MessageMenuInput): MenuEntry[] {
 	if (input.hasFile && input.onDownload) share.push({ id: 'download', label: t('context_menu.download'), icon: 'download', onSelect: input.onDownload });
 	if (input.hasFile && input.onAddToAlbum) {
 		share.push(
-			keep
+			keep && !input.albumsAgreed
 				? { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', disabled: true, hint: albumsHint(keep) }
 				: { id: 'add-to-album', label: t('context_menu.add_to_album'), icon: 'image', onSelect: input.onAddToAlbum }
 		);

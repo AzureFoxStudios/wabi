@@ -71,6 +71,7 @@
 - `devices`: user, device ID, label, the two public keys, timestamps, and revocation time;
 - `rooms`: per room, the enabled flag, epoch, revision, who enabled it, timestamps, and the current wrapped copies;
 - `newRoomPolicies`: pending or server-readable mode, plus which users consented to server-readable.
+- `albumAgreements`: per conversation, which users agreed that its albums are stored server-readable. User IDs only.
 
 **[tested: `server_stores_only_public_device_keys_and_keys_wrapped_to_registered_devices` checks that only these fields exist and that a room key or private key a client sends by mistake is stored nowhere]** Message ciphertext lives in WabiDB like any other message.
 

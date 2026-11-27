@@ -42,8 +42,10 @@
 		import AlbumUploadForm from './AlbumUploadForm.svelte';
 		import AlbumItemRow from './AlbumItemRow.svelte';
 		import AlbumItemsHeader from './AlbumItemsHeader.svelte';
-		import { e2eeStatusRevision, ensureE2eeStatus, roomContentKeepReason } from '$lib/dm/dmE2eeState';
-		import { albumsUnavailable } from '$lib/privacy/contentEgress';
+		import { e2eeStatusRevision, ensureE2eeStatus, refreshE2eeStatus, roomAlbumsAgreed, roomContentKeepReason } from '$lib/dm/dmE2eeState';
+		import { albumsCanOpenByAgreement, albumsUnavailable } from '$lib/privacy/contentEgress';
+		import AlbumsAgreement from './AlbumsAgreement.svelte';
+		import { socket as liveSocket } from '$lib/socket';
 
 	$: activeChannel = $channels.find((channel) => channel.id === $currentChannel) || null;
 	$: scopeType = (activeChannel?.type === 'dm' || activeChannel?.type === 'group' ? 'dm' : 'channel') as MediaAlbumScopeType;
@@ -53,9 +55,30 @@
 	// experimental encryption enabled or pending, or whose status is still unknown, gets an
 	// explanation instead of the create/upload controls (privacy/contentEgress.ts).
 	$: albumsKeepReason = scopeId ? roomContentKeepReason(scopeId, activeChannel?.type ?? null, $e2eeStatusRevision) : null;
-	$: albumsOffHere = albumsKeepReason !== null;
-	$: albumsOff = albumsKeepReason ? albumsUnavailable(albumsKeepReason) : null;
+	// The exception: every member of the conversation agreed to server-readable albums. Then the
+	// panel works as usual, and a member can withdraw from it.
+	$: albumsAgreedHere = albumsKeepReason !== null && roomAlbumsAgreed(scopeId, $e2eeStatusRevision);
+	$: albumsOffHere = albumsKeepReason !== null && !albumsAgreedHere;
+	$: albumsOff = albumsKeepReason && !albumsAgreedHere ? albumsUnavailable(albumsKeepReason) : null;
+	$: albumsAskAgreement = albumsOffHere && albumsKeepReason !== null && albumsCanOpenByAgreement(albumsKeepReason);
 	$: if (scopeType === 'dm' && scopeId) ensureE2eeStatus(scopeId);
+	// The agreement changes on other members' devices: ask again whenever this panel opens on a
+	// conversation, and when the server says the room changed.
+	let agreementAskedFor = '';
+	$: if (scopeType === 'dm' && scopeId && agreementAskedFor !== scopeId) {
+		agreementAskedFor = scopeId;
+		void refreshE2eeStatus(scopeId).catch(() => {});
+	}
+	function onRoomUpdated(payload: { channelId?: string } | null | undefined) {
+		if (scopeType === 'dm' && scopeId && payload?.channelId === scopeId) void refreshE2eeStatus(scopeId).catch(() => {});
+	}
+	$: albumsSocket = $liveSocket;
+	let boundAlbumsSocket: { on: Function; off: Function } | null = null;
+	$: if (albumsSocket !== boundAlbumsSocket) {
+		boundAlbumsSocket?.off('e2ee-room-updated', onRoomUpdated);
+		boundAlbumsSocket = albumsSocket;
+		boundAlbumsSocket?.on('e2ee-room-updated', onRoomUpdated);
+	}
 	let albumsWereOff = false;
 	$: if (albumsWereOff !== albumsOffHere) {
 		albumsWereOff = albumsOffHere;
@@ -756,6 +779,8 @@
 	});
 
 	onDestroy(() => {
+		boundAlbumsSocket?.off('e2ee-room-updated', onRoomUpdated);
+		boundAlbumsSocket = null;
 		if (autoRefreshTimer) {
 			clearInterval(autoRefreshTimer);
 			autoRefreshTimer = null;
@@ -801,6 +826,8 @@
 		<div class="empty-state">
 			{$_('media_albums.sign_in')}
 		</div>
+	{:else if albumsAskAgreement}
+		<AlbumsAgreement channelId={scopeId} variant="panel" />
 	{:else if albumsOff}
 		<div class="album-list is-empty">
 			<div class="empty-state" role={albumsKeepReason === 'checking' ? 'status' : undefined}>
@@ -813,6 +840,9 @@
 			</div>
 		</div>
 	{:else}
+		{#if albumsAgreedHere}
+			<AlbumsAgreement channelId={scopeId} variant="open" />
+		{/if}
 		<div class="create-row">
 			<input
 				type="text"
