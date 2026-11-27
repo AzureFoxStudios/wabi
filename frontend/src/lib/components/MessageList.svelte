@@ -84,6 +84,7 @@
 	import { uploadAlbumFile } from './media-albums/mediaAlbumUpload';
 	import { privateMediaToGallery } from '$lib/privacy/privateMediaToGallery';
 	import AddToGalleryDialog from './AddToGalleryDialog.svelte';
+	import ReactionRolesDialog from './ReactionRolesDialog.svelte';
 	import { decryptAttachmentBlob } from '$lib/e2ee';
 	import { confirmAlbumsAgreed, e2eeStatusRevision, ensureE2eeStatus, roomAlbumsAgreed, roomContentKeepReason } from '$lib/dm/dmE2eeState';
 	import { albumsHint, keepReasonFor, mayTranslate } from '$lib/privacy/contentEgress';
@@ -742,6 +743,20 @@
 		['owner', 'admin', 'developer', 'artist'].includes(
 			($currentUser?.highestRole ?? '').toLowerCase()
 		);
+
+	// Role reactions: staff link emoji on a message in a shared room to roles.
+	$: canSetRoleReactions =
+		['owner', 'admin'].includes(($currentUser?.highestRole ?? '').toLowerCase()) &&
+		activeMessageChannel?.type !== 'dm' &&
+		activeMessageChannel?.type !== 'group';
+	let roleReactionsMessageId: string | null = null;
+	let roleReactionsChannelId: string | null = null;
+	function handleRoleReactions(): void {
+		if (!contextMenuMessage) return;
+		roleReactionsMessageId = contextMenuMessage.id;
+		roleReactionsChannelId = activeChannelId;
+		contextMenuVisible = false;
+	}
 
 	function handlePromoteToLore(): void {
 		if (!contextMenuMessage) return;
@@ -2443,6 +2458,7 @@
 	{handleReactionSelect}
 	{closeReactionPicker}
 	handlePromoteToLore={canPromoteToLore ? handlePromoteToLore : undefined}
+	handleRoleReactions={canSetRoleReactions ? handleRoleReactions : undefined}
 	{handleEdit}
 	{handleDelete}
 	{handlePin}
@@ -2469,6 +2485,13 @@
 	message={promoteModalMessage}
 	channelId={activeChannelId}
 	onClose={() => (showPromoteModal = false)}
+/>
+
+<ReactionRolesDialog
+	visible={roleReactionsMessageId !== null}
+	messageId={roleReactionsMessageId}
+	channelId={roleReactionsChannelId}
+	onClose={() => (roleReactionsMessageId = null)}
 />
 
 <AddToGalleryDialog

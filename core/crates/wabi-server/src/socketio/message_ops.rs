@@ -33,10 +33,11 @@ async fn on_sync_newer(socket: SocketRef, data: Value, state: SioState) {
         None => return,
     };
     if require_socket_channel(&socket, &state, &channel_id, "sync-error").await.is_none() { return; }
-    let msgs: Vec<Value> = {
+    let mut msgs: Vec<Value> = {
         let session = state.app.session_messages.read().await;
         session.get(&channel_id).cloned().unwrap_or_default()
     };
+    attach_reactions(&state, &mut msgs).await;
     let _ = socket.emit("sync-newer-result", &json!({
         "channelId": channel_id,
         "messages": msgs,

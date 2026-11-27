@@ -821,7 +821,20 @@ export class SocketManager {
 					} else if (active) joinChannel(active);
 				}).catch(() => {});
 		};
-		on('channel-access-policy-updated', () => { channelAccessPolicyVersion.update(version => version + 1); refreshAccessibleChannels(); void refreshRoleHolders(); });
+		on('channel-access-policy-updated', (payload?: { roleChangedUserId?: number; reactionRolesMessageId?: string }) => {
+			void refreshRoleHolders();
+			// Someone else's roles, or a role-reaction link, change what the role lists show but not
+			// which rooms this person may open: no need to refetch rooms and reload the open one.
+			const self = get(currentUser)?.dbUserId;
+			const othersRoles = typeof payload?.roleChangedUserId === 'number' && self !== undefined && payload.roleChangedUserId !== self;
+			if (othersRoles || typeof payload?.reactionRolesMessageId === 'string') return;
+			channelAccessPolicyVersion.update(version => version + 1);
+			refreshAccessibleChannels();
+		});
+		// A reaction gave or took a role (role reactions). The shell says so; this module raises no toasts.
+		on('reaction-role-changed', (payload: { roleName?: string; granted?: boolean; error?: string }) => {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('wabi-reaction-role-changed', { detail: payload ?? {} }));
+		});
 		on('channel-access-revoked', (payload: { channelId?: string }) => {
 			if (payload?.channelId) {
 				const revoked = payload.channelId;
@@ -1171,6 +1184,7 @@ export class SocketManager {
 			'create-thread-error',
 			'reorder-channels-error',
 			'pin-channel-error',
+			'reaction-error',
 			'unpin-channel-error',
 			'ban-error',
 			'kick-error',

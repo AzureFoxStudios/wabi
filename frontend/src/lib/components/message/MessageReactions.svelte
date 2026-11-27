@@ -2,6 +2,8 @@
 	import type { Message, Emoji, User } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import { reactionPresentation } from './reactionPresentation';
+	import { reactionEntries, reactionRoleMessages } from '$lib/reactionRoles';
+	import { listedRoles } from '$lib/serverRoles';
 
 	export let message: Message;
 	export let currentUser: User | undefined;
@@ -30,19 +32,26 @@
 		return { glyph: `:${name.replace(/^openmoji_/, '')}:`, code: true };
 	}
 
-	$: reactions = Object.entries(message.reactions || {})
-		.filter(([, userIds]) => Array.isArray(userIds) && userIds.length > 0)
-		.map(([emojiId, userIds]) => {
+	// An emoji staff linked to a role on this message is drawn even with nobody on it yet.
+	$: reactions = reactionEntries(message.reactions, $reactionRoleMessages[message.id]?.rules, $listedRoles)
+		.map(({ emojiId, userIds, roleName }) => {
 			const emoji = emojis.find((candidate) => candidate.id === emojiId);
 			const presentation = reactionPresentation(userIds, users, currentUser, $_('messages.unknown_user'));
 			const name = emoji?.displayName || emoji?.name || emojiId;
+			const roleHint = roleName
+				? $_(presentation.userReacted ? 'reaction_roles.chip_leave' : 'reaction_roles.chip_get', { values: { role: roleName } })
+				: '';
 			return {
 				emojiId,
 				userIds,
 				emoji,
+				roleName,
 				text: reactionText(emojiId, emoji),
-				label: `${name}, ${userIds.length}: ${presentation.tooltip}`,
-				...presentation
+				label: roleName
+					? `${roleHint} (${name}, ${userIds.length})`
+					: `${name}, ${userIds.length}: ${presentation.tooltip}`,
+				...presentation,
+				tooltip: roleName ? roleHint : presentation.tooltip
 			};
 		});
 </script>
@@ -73,8 +82,21 @@
 				{:else}
 					<span class="w-react__emoji" aria-hidden="true">{reaction.text.glyph}</span>
 				{/if}
+				{#if reaction.roleName}<span class="reaction-role" aria-hidden="true">{reaction.roleName}</span>{/if}
 				<span class="reaction-count" aria-hidden="true">{reaction.userIds.length}</span>
 			</button>
 		{/each}
 	</div>
 {/if}
+
+<style>
+	/* The role an emoji gives on this message, beside the emoji. */
+	.reaction-role {
+		font-size: 12px;
+		font-weight: 600;
+		max-width: 16ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+</style>

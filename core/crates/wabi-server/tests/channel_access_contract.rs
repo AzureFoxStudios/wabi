@@ -2951,8 +2951,145 @@ async fn listed_roles_are_self_chosen_only_when_marked_and_staff_can_give_any() 
     assert_eq!(request(&app, Method::GET, &staff_read, &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
     assert_eq!(request(&app, Method::GET, &staff_read, &owner_token, json!(null)).await.0, StatusCode::OK);
 
+    // Demoted, the former moderator is out of the role room again.
+    state.wdb.ingest_event("rbac", "assign_role", &json!({"userId": outsider,
+        "workspaceId": "default-workspace", "role": "Member", "assignedBy": owner})).await.unwrap();
+    assert_eq!(request(&app, Method::GET, &read, &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+    assert!(!listed(outsider_token.clone()).await, "a demoted moderator no longer sees the role room");
+
     // Staff take the role away: the room closes again.
     let (status, body) = request(&app, Method::PUT, &give, &owner_token, json!({"roleIds": []})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(request(&app, Method::GET, &read, &member_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+}
+
+/// Role reactions: staff link an emoji on a message to a listed role. Reacting
+/// gives the role and opens its room; removing the reaction takes it back.
+/// Only self-chosen roles move this way, and never a staff rank.
+#[tokio::test]
+async fn a_reaction_gives_and_takes_only_a_self_chosen_role() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, outsider, owner) = users(&state).await;
+    let lobby = channel(&state, member, ChannelKind::Text).await;
+    let jam_room = channel(&state, owner, ChannelKind::Text).await;
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let (member_token, outsider_token, owner_token) = (jwt(&state, member), jwt(&state, outsider), jwt(&state, owner));
+    let banana = format!("community-{}", uuid::Uuid::new_v4());
+    let kiwi = format!("community-{}", uuid::Uuid::new_v4());
+    let (status, body) = request(&app, Method::PUT, "/server-center/community-roles", &owner_token, json!({
+        "expectedRevision": 0,
+        "roles": [
+            {"id": banana, "name": "Banana Jammers", "description": "", "selfAssignable": true},
+            {"id": kiwi, "name": "Kiwi Killers", "description": "", "selfAssignable": false},
+        ],
+        "channelRoles": { jam_room.clone(): banana },
+    })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let message = state.wdb.send_message(&lobby, member, "pick your fruit", false, &[]).await.unwrap();
+    let rules = format!("/server-center/reaction-roles/{message}");
+    let set = |token: String, rules_body: Value| {
+        let (app, rules) = (app.clone(), rules.clone());
+        async move { request(&app, Method::PUT, &rules, &token, rules_body).await }
+    };
+
+    // Only staff set them up, and only for roles members may pick themselves.
+    let wanted = json!({"channelId": lobby, "rules": [{"emojiId": "1F34C", "roleId": banana}]});
+    assert_ne!(set(member_token.clone(), wanted.clone()).await.0, StatusCode::OK);
+    let (status, body) = set(owner_token.clone(), json!({"channelId": lobby, "rules": [{"emojiId": "1F95D", "roleId": kiwi}]})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    for rank in ["owner", "admin", "moderator"] {
+        assert_eq!(set(owner_token.clone(), json!({"channelId": lobby, "rules": [{"emojiId": "1F34C", "roleId": rank}]})).await.0, StatusCode::BAD_REQUEST, "{rank}");
+    }
+    assert_eq!(set(owner_token.clone(), json!({"channelId": lobby, "rules": [{"emojiId": "not an emoji", "roleId": banana}]})).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(set(owner_token.clone(), json!({"channelId": jam_room, "rules": [{"emojiId": "1F34C", "roleId": banana}]})).await.0, StatusCode::NOT_FOUND, "the message is in another room");
+    let (status, body) = set(owner_token.clone(), wanted).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let holds = |user: u64| {
+        let (app, token) = (app.clone(), owner_token.clone());
+        async move {
+            let (_, body) = request(&app, Method::GET, "/server-center/role-holders", &token, json!(null)).await;
+            body["holders"][user.to_string()].as_array().cloned().unwrap_or_default()
+        }
+    };
+    let (_, listing) = request(&app, Method::GET, "/server-center/role-holders", &outsider_token, json!(null)).await;
+    assert_eq!(listing["reactionRoles"][&message]["rules"][0]["roleId"], json!(banana), "members see which emoji gives which role");
+
+    let jam_read = format!("/messages/{jam_room}");
+    assert_eq!(request(&app, Method::POST, &format!("/channels/{lobby}/join"), &outsider_token, json!(null)).await.0, StatusCode::OK);
+    assert_eq!(request(&app, Method::POST, &format!("/channels/{jam_room}/join"), &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+    let mut socket = SocketClient::connect(&app, &outsider_token).await;
+    socket.emit("join-channel", json!(lobby)).await;
+    socket.event("channel-messages").await;
+
+    // Another emoji on the same message gives nothing.
+    socket.emit("add-emoji-reaction", json!({"channelId": lobby, "messageId": message, "emojiId": "1F44D"})).await;
+    socket.event("emoji-reaction-added").await;
+    assert!(holds(outsider).await.is_empty());
+
+    // The linked emoji gives the role, and the role opens its room.
+    socket.emit("add-emoji-reaction", json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
+    let granted = socket.event("reaction-role-changed").await;
+    assert_eq!(granted, json!({"roleId": banana, "roleName": "Banana Jammers", "granted": true}));
+    assert_eq!(holds(outsider).await, vec![json!(banana)]);
+    assert_eq!(request(&app, Method::POST, &format!("/channels/{jam_room}/join"), &outsider_token, json!(null)).await.0, StatusCode::OK);
+    assert_eq!(request(&app, Method::GET, &jam_read, &outsider_token, json!(null)).await.0, StatusCode::OK);
+
+    // The reaction is still on the message when the room is loaded again.
+    socket.emit("join-channel", json!(lobby)).await;
+    let reloaded = socket.event("channel-messages").await;
+    let loaded = reloaded["messages"].as_array().unwrap().iter().find(|loaded| loaded["id"] == json!(message)).unwrap().clone();
+    assert_eq!(loaded["reactions"]["1F34C"], json!([format!("user-{outsider}")]), "{loaded}");
+    assert_eq!(loaded["reactions"]["1F44D"], json!([format!("user-{outsider}")]));
+
+    // Removing the reaction takes it back and closes the room.
+    socket.emit("remove-emoji-reaction", json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
+    assert_eq!(socket.event("reaction-role-changed").await["granted"], json!(false));
+    assert!(holds(outsider).await.is_empty());
+    assert_eq!(request(&app, Method::GET, &jam_read, &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
+
+    // No reaction ever touched a staff rank.
+    assert!(!state.has_role(outsider as i64, "Moderator").await);
+
+    // The role becomes staff-given: its rule is dropped, and reacting gives nothing.
+    socket.emit("add-emoji-reaction", json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
+    socket.event("reaction-role-changed").await;
+    let (status, body) = request(&app, Method::PUT, "/server-center/community-roles", &owner_token, json!({
+        "expectedRevision": 1,
+        "roles": [
+            {"id": banana, "name": "Banana Jammers", "description": "", "selfAssignable": false},
+            {"id": kiwi, "name": "Kiwi Killers", "description": "", "selfAssignable": false},
+        ],
+        "channelRoles": { jam_room.clone(): banana },
+    })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, listing) = request(&app, Method::GET, "/server-center/role-holders", &owner_token, json!(null)).await;
+    assert_eq!(listing["reactionRoles"], json!({}));
+    // Removing the reaction now leaves the staff-given role alone.
+    socket.emit("remove-emoji-reaction", json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
+    socket.event("emoji-reaction-removed").await;
+    assert_eq!(holds(outsider).await, vec![json!(banana)]);
+
+    // Flipping a role reaction over and over is cut off, and the member is told.
+    let (status, body) = request(&app, Method::PUT, "/server-center/community-roles", &owner_token, json!({
+        "expectedRevision": 2,
+        "roles": [{"id": banana, "name": "Banana Jammers", "description": "", "selfAssignable": true}],
+        "channelRoles": {},
+    })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = set(owner_token.clone(), json!({"channelId": lobby, "rules": [{"emojiId": "1F34C", "roleId": banana}]})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = request(&app, Method::PUT, &format!("/server-center/members/{outsider}/roles"), &owner_token, json!({"roleIds": []})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut refused = None;
+    for turn in 0..12 {
+        let event = if turn % 2 == 0 { "add-emoji-reaction" } else { "remove-emoji-reaction" };
+        socket.emit(event, json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
+        let outcome = socket.event("reaction-role-changed").await;
+        if outcome.get("error").is_some() { refused = Some(outcome); break; }
+    }
+    assert!(refused.is_some_and(|outcome| outcome["error"].as_str().unwrap().contains("Too many role changes")), "rapid role flipping is refused");
 }

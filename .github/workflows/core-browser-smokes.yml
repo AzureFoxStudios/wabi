@@ -145,6 +145,12 @@ jobs:
         working-directory: frontend
         run: xvfb-run -a node scripts/dm-call-end-to-end.mjs
 
+      - name: Role reactions (set up from the message menu, press to get and give up a role)
+        working-directory: frontend
+        env:
+          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
+        run: xvfb-run -a node scripts/reaction-roles-browser-smoke.mjs
+
       - name: Encrypted shared conversation notes
         working-directory: frontend
         run: xvfb-run -a node scripts/shared-notes-end-to-end.mjs

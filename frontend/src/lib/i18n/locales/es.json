@@ -464,7 +464,8 @@
     "delete_message_uploads": "Eliminar mensaje y archivos…",
     "delete_message_uploads_hint": "También elimina los archivos adjuntos",
     "delete_message_unavailable_hint": "Solo puedes eliminar tus propios mensajes",
-    "add_to_gallery": "Añadir a la galería"
+    "add_to_gallery": "Añadir a la galería",
+    "role_reactions": "Reacciones de rol…"
   },
   "forward_dialog": {
     "title": "Reenviar mensaje",
@@ -8478,6 +8479,24 @@
     "mentions": "Menciones",
     "all": "Todas las publicaciones",
     "priority": "Prioritario"
+  },
+  "reaction_roles": {
+    "title": "Reacciones de rol",
+    "description": "Vincula emojis de este mensaje con roles. Quien reaccione con un emoji vinculado recibe su rol; al quitar la reacción lo deja. Los emojis vinculados se muestran bajo el mensaje para que la gente los pulse.",
+    "no_roles": "Aún no hay roles que los miembros puedan elegir. Añade uno en Administración, Roles, y permite que los miembros lo elijan.",
+    "role_label": "Rol que da este emoji",
+    "add_row": "Añadir un emoji",
+    "remove_row": "Quitar",
+    "save": "Guardar",
+    "problem_incomplete": "Elige un emoji y un rol en cada línea.",
+    "problem_duplicate": "Usa cada emoji una sola vez.",
+    "saved": "Reacciones de rol guardadas",
+    "removed": "Reacciones de rol eliminadas",
+    "save_failed": "No se pudieron guardar las reacciones de rol.",
+    "chip_get": "Reacciona para obtener el rol {role}",
+    "chip_leave": "Quita tu reacción para dejar el rol {role}",
+    "granted": "Ahora tienes el rol {role}",
+    "taken": "Ya no tienes el rol {role}"
   },
   "add_to_gallery": {
     "title": "Añadir a la galería",

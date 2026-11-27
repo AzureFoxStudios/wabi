@@ -17,6 +17,14 @@ function serverModule(source: string, filename: string): string {
 		.replace(/from ['"](svelte[^'"]*)['"]/g, (_match, specifier) => `from ${JSON.stringify(import.meta.resolve(specifier))}`);
 }
 
+/** Point the remaining `$lib/name` imports at the real modules, which a temp folder cannot resolve. */
+function withLibModules(compiled: string): string {
+	return compiled.replace(
+		/from ['"]\$lib\/([a-zA-Z]+)['"]/g,
+		(_match, name) => `from ${JSON.stringify(new URL(`../../${name}.ts`, import.meta.url).href)}`
+	);
+}
+
 /**
  * Compile one message component for the server and import it. `$lib/i18n` becomes an identity
  * translator, the shared Icon component is compiled next to it, and relative TypeScript helpers
@@ -38,7 +46,7 @@ async function loadComponent(file: string): Promise<Record<string, any>> {
 			(match, name) => (name === 'Icon' ? match : `from ${JSON.stringify(new URL(`./${name}.ts`, import.meta.url).href)}`)
 		);
 		const path = join(directory, `${file}.mjs`);
-		writeFileSync(path, compiled);
+		writeFileSync(path, withLibModules(compiled));
 		return await import(pathToFileURL(path).href);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });

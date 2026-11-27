@@ -87,6 +87,16 @@ pub struct CommunityRole {
     #[serde(default = "self_assignable_default")] pub self_assignable: bool,
 }
 fn self_assignable_default() -> bool { true }
+
+/// One emoji on one message that gives a listed role to whoever reacts with it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactionRoleRule { pub emoji_id: String, pub role_id: String }
+
+/// The role reactions set up on one message.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactionRoleMessage { pub channel_id: String, pub rules: Vec<ReactionRoleRule> }
 impl Default for PrivacyPolicy {
     fn default() -> Self {
         Self {
@@ -175,6 +185,8 @@ struct ServerCenterData {
     #[serde(default)] channel_community_roles: HashMap<String, String>,
     #[serde(default)] member_community_roles: HashMap<i64, Vec<String>>,
     #[serde(default)] welcome_pending: std::collections::HashSet<i64>,
+    /// Message id → the role reactions on it.
+    #[serde(default)] reaction_roles: HashMap<String, ReactionRoleMessage>,
 }
 
 pub(crate) struct ServerCenterStore { path: PathBuf, data: ServerCenterData }
@@ -275,6 +287,11 @@ fn validate_server_center_data(data: &ServerCenterData) -> anyhow::Result<()> {
         "Invalid member community roles in Server Center data");
     anyhow::ensure!(data.welcome_pending.iter().all(|user| *user > 0),
         "Invalid welcome marker in Server Center data");
+    anyhow::ensure!(data.reaction_roles.len() <= MAX_REACTION_ROLE_MESSAGES
+        && data.reaction_roles.iter().all(|(message, entry)| !message.is_empty() && !entry.channel_id.is_empty()
+            && (1..=MAX_REACTION_ROLE_RULES).contains(&entry.rules.len())
+            && entry.rules.iter().all(|rule| !rule.emoji_id.is_empty() && role_ids.contains(rule.role_id.as_str()))),
+        "Invalid role reactions in Server Center data");
     Ok(())
 }
 
@@ -333,6 +350,18 @@ pub async fn community_role_exists(state: &AppState, role_id: &str) -> bool {
     state.server_center.read().await.data.community_roles.iter().any(|role| role.id == role_id)
 }
 
+const MAX_REACTION_ROLE_MESSAGES: usize = 100;
+const MAX_REACTION_ROLE_RULES: usize = 20;
+
+/// Role reactions only ever give roles a member may pick for themselves.
+/// Drop the rules of a role that left the list or became staff-given.
+fn prune_reaction_roles(data: &mut ServerCenterData) {
+    let pickable: std::collections::HashSet<String> = data.community_roles.iter()
+        .filter(|role| role.self_assignable).map(|role| role.id.clone()).collect();
+    for entry in data.reaction_roles.values_mut() { entry.rules.retain(|rule| pickable.contains(&rule.role_id)); }
+    data.reaction_roles.retain(|_, entry| !entry.rules.is_empty());
+}
+
 pub async fn gated_channel_ids(state: &AppState) -> Vec<String> {
     let guard = state.server_center.read().await;
     guard.data.channel_min_roles.keys().chain(guard.data.channel_community_roles.keys()).cloned().collect()
@@ -361,6 +390,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/reception/roles", put(put_my_community_roles))
         .route("/role-holders", get(list_role_holders))
         .route("/members/{user_id}/roles", put(put_member_roles))
+        .route("/reaction-roles/{message_id}", put(put_reaction_roles))
         .route("/storage", get(list_storage))
         .route("/storage/{filename}", delete(delete_storage_file))
         .layer(Extension(store)).with_state(state)
@@ -697,6 +727,7 @@ async fn put_community_roles(
     candidate.community_roles_revision = candidate.community_roles_revision.saturating_add(1);
     let valid_ids: std::collections::HashSet<_> = candidate.community_roles.iter().map(|role| role.id.as_str()).collect();
     for roles in candidate.member_community_roles.values_mut() { roles.retain(|role| valid_ids.contains(role.as_str())); }
+    prune_reaction_roles(&mut candidate);
     if let Err(error) = validate_server_center_data(&candidate) {
         return json_error(StatusCode::BAD_REQUEST, &error.to_string());
     }
@@ -794,8 +825,7 @@ struct PutMyRolesInput {
 }
 
 async fn put_my_community_roles(
-    State(state): State<Arc<AppState>>, auth: AuthUser,
-    Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>, Json(input): Json<PutMyRolesInput>,
+    State(state): State<Arc<AppState>>, auth: AuthUser, Json(input): Json<PutMyRolesInput>,
 ) -> Response {
     if auth.is_guest || auth.is_bot || auth.user_id <= 0 {
         return json_error(StatusCode::FORBIDDEN, "Sign in with a member account to choose roles");
@@ -805,68 +835,231 @@ async fn put_my_community_roles(
         Ok(Some(user)) if user.is_active && !user.password_hash.is_empty() => {}
         _ => return json_error(StatusCode::FORBIDDEN, "Active member account required"),
     }
+    let result = commit_member_roles(&state, auth.user_id, |data, held| {
+        let current: std::collections::HashSet<_> = held.iter().collect();
+        let expected: std::collections::HashSet<_> = input.expected_role_ids.iter().collect();
+        if current != expected || expected.len() != input.expected_role_ids.len() {
+            return Err((StatusCode::CONFLICT, "Your role choices changed; reload and try again"));
+        }
+        let valid: std::collections::HashSet<_> = data.community_roles.iter().map(|role| role.id.as_str()).collect();
+        let unique: std::collections::HashSet<_> = input.role_ids.iter().map(String::as_str).collect();
+        if unique.len() != input.role_ids.len() || !unique.iter().all(|role| valid.contains(role)) {
+            return Err((StatusCode::BAD_REQUEST, "Choose only roles from the current list"));
+        }
+        // A member decides only the roles marked for self-choice. A role staff
+        // gave stays whatever this request says, and one staff must give cannot
+        // be picked up here.
+        let staff_given: std::collections::HashSet<&str> = data.community_roles.iter()
+            .filter(|role| !role.self_assignable).map(|role| role.id.as_str()).collect();
+        if input.role_ids.iter().any(|role| staff_given.contains(role.as_str()) && !held.contains(role)) {
+            return Err((StatusCode::FORBIDDEN, "That role is given by staff and cannot be chosen here"));
+        }
+        let mut next: Vec<String> = held.iter().filter(|role| staff_given.contains(role.as_str())).cloned().collect();
+        next.extend(input.role_ids.iter().filter(|role| !staff_given.contains(role.as_str())).cloned());
+        Ok(next)
+    }).await;
+    match result {
+        Ok(role_ids) => Json(json!({ "myRoleIds": role_ids })).into_response(),
+        Err((status, message)) => json_error(status, message),
+    }
+}
+
+type RoleRefusal = (StatusCode, &'static str);
+
+/// Every change to one member's listed roles goes through here: Welcome,
+/// staff in People, and role reactions. `decide` sees the stored data and the
+/// roles the member holds, under the admission writer, and returns the roles
+/// they hold next. Rooms the member may no longer open are closed for them.
+async fn commit_member_roles(
+    state: &AppState, user_id: i64,
+    decide: impl FnOnce(&ServerCenterData, &[String]) -> Result<Vec<String>, RoleRefusal>,
+) -> Result<Vec<String>, RoleRefusal> {
     let _membership = state.membership_gate.write().await;
     let _message_commit = state.retention_policy_lock.lock().await;
-    let mut guard = store.write().await;
-    let current: std::collections::HashSet<_> = guard.data.member_community_roles
-        .get(&auth.user_id).into_iter().flatten().collect();
-    let expected: std::collections::HashSet<_> = input.expected_role_ids.iter().collect();
-    if current != expected || expected.len() != input.expected_role_ids.len() {
-        return json_error(StatusCode::CONFLICT, "Your role choices changed; reload and try again");
-    }
-    let valid: std::collections::HashSet<_> = guard.data.community_roles.iter().map(|role| role.id.as_str()).collect();
-    let unique: std::collections::HashSet<_> = input.role_ids.iter().map(String::as_str).collect();
-    if unique.len() != input.role_ids.len() || !unique.iter().all(|role| valid.contains(role)) {
-        return json_error(StatusCode::BAD_REQUEST, "Choose only roles from the current list");
-    }
-    // A member decides only the roles marked for self-choice. A role staff
-    // gave stays whatever this request says, and one staff must give cannot
-    // be picked up here.
-    let staff_given: std::collections::HashSet<&str> = guard.data.community_roles.iter()
-        .filter(|role| !role.self_assignable).map(|role| role.id.as_str()).collect();
-    let held: Vec<String> = guard.data.member_community_roles.get(&auth.user_id).cloned().unwrap_or_default();
-    if input.role_ids.iter().any(|role| staff_given.contains(role.as_str()) && !held.contains(role)) {
-        return json_error(StatusCode::FORBIDDEN, "That role is given by staff and cannot be chosen here");
-    }
-    let mut next: Vec<String> = held.iter().filter(|role| staff_given.contains(role.as_str())).cloned().collect();
-    next.extend(input.role_ids.iter().filter(|role| !staff_given.contains(role.as_str())).cloned());
-    let input = PutMyRolesInput { role_ids: next, expected_role_ids: input.expected_role_ids };
+    let mut guard = state.server_center.write().await;
+    let held = guard.data.member_community_roles.get(&user_id).cloned().unwrap_or_default();
+    let next = decide(&guard.data, &held)?;
+    if next == held { return Ok(next); }
     let before = guard.data.clone();
-    if input.role_ids.is_empty() { guard.data.member_community_roles.remove(&auth.user_id); }
-    else { guard.data.member_community_roles.insert(auth.user_id, input.role_ids.clone()); }
+    if next.is_empty() { guard.data.member_community_roles.remove(&user_id); }
+    else { guard.data.member_community_roles.insert(user_id, next.clone()); }
     if let Err(error) = guard.persist() {
         guard.data = before;
-        tracing::error!(%error, "member community roles could not be saved");
-        return json_error(StatusCode::SERVICE_UNAVAILABLE, "Role choices could not be saved");
+        tracing::error!(%error, "member roles could not be saved");
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "The roles could not be saved"));
     }
     let affected: Vec<String> = guard.data.channel_community_roles.keys().cloned().collect();
     drop(guard);
     if let Some(io) = state.socket_io() {
         for channel_id in &affected {
-            if !matches!(crate::channel_access::channel_role_allows(&state, auth.user_id, channel_id).await, Ok(true)) {
-                crate::socketio::evict_channel_user(&io, &state, channel_id, auth.user_id).await;
+            if !matches!(crate::channel_access::channel_role_allows(state, user_id, channel_id).await, Ok(true)) {
+                crate::socketio::evict_channel_user(&io, state, channel_id, user_id).await;
             }
         }
-        evict_inherited_voice_policy(&io, &state, Some(auth.user_id)).await;
+        evict_inherited_voice_policy(&io, state, Some(user_id)).await;
     }
     drop(_message_commit);
     drop(_membership);
-    if let Some(io) = state.socket_io() { let _ = io.broadcast().emit("channel-access-policy-updated", &json!({ "roleChangedUserId": auth.user_id })).await; }
-    Json(json!({ "myRoleIds": input.role_ids })).into_response()
+    if let Some(io) = state.socket_io() { let _ = io.broadcast().emit("channel-access-policy-updated", &json!({ "roleChangedUserId": user_id })).await; }
+    Ok(next)
+}
+
+/// A reaction was added to or removed from a message. If that emoji carries a
+/// role there, the member gains or loses the role. Only roles marked for
+/// self-choice move this way, checked again now: a rule never gives a role
+/// staff must give, and removing a reaction never takes one staff gave.
+/// Call without holding the membership gate.
+pub async fn apply_reaction_role(state: &AppState, user_id: i64, channel_id: &str, message_id: &str, emoji_id: &str, added: bool) {
+    let rule_role = |data: &ServerCenterData| data.reaction_roles.get(message_id)
+        .filter(|entry| entry.channel_id == channel_id)
+        .and_then(|entry| entry.rules.iter().find(|rule| rule.emoji_id == emoji_id))
+        .map(|rule| rule.role_id.clone());
+    match state.wdb.get_user(user_id.max(0) as u64).await {
+        Ok(Some(user)) if user_id > 0 && user.is_active && !user.password_hash.is_empty() => {}
+        _ => return,
+    }
+    // Each change takes the admission writer and rewrites the roles file:
+    // one member flipping a reaction must not be able to do that at will.
+    if !reaction_role_allowance(user_id) {
+        if let Some(io) = state.socket_io() {
+            let _ = io.to(format!("user-{user_id}")).emit("reaction-role-changed",
+                &json!({ "error": "Too many role changes at once. Wait a minute, then react again." })).await;
+        }
+        return;
+    }
+    let mut changed: Option<(String, String)> = None;
+    let result = commit_member_roles(state, user_id, |data, held| {
+        let Some(role_id) = rule_role(data) else { return Ok(held.to_vec()); };
+        let Some(role) = data.community_roles.iter().find(|role| role.id == role_id && role.self_assignable) else {
+            return Ok(held.to_vec());
+        };
+        let mut next = held.to_vec();
+        if added {
+            if next.contains(&role_id) { return Ok(next); }
+            if next.len() >= 16 { return Err((StatusCode::CONFLICT, "You already hold the most roles one person can have")); }
+            next.push(role_id.clone());
+        } else {
+            if !next.contains(&role_id) { return Ok(next); }
+            next.retain(|held_role| held_role != &role_id);
+        }
+        changed = Some((role_id, role.name.clone()));
+        Ok(next)
+    }).await;
+    let Some(io) = state.socket_io() else { return; };
+    let room = format!("user-{user_id}");
+    match (result, changed) {
+        (Ok(_), Some((role_id, role_name))) => {
+            let _ = io.to(room).emit("reaction-role-changed", &json!({ "roleId": role_id, "roleName": role_name, "granted": added })).await;
+        }
+        (Err((_, message)), _) => { let _ = io.to(room).emit("reaction-role-changed", &json!({ "error": message })).await; }
+        _ => {}
+    }
+}
+
+const REACTION_ROLE_CHANGES_PER_MINUTE: usize = 8;
+
+/// True when this member may change a role by reaction now: at most
+/// `REACTION_ROLE_CHANGES_PER_MINUTE` in any minute.
+fn reaction_role_allowance(user_id: i64) -> bool {
+    static RECENT: std::sync::OnceLock<std::sync::Mutex<HashMap<i64, std::collections::VecDeque<std::time::Instant>>>> = std::sync::OnceLock::new();
+    let mut recent = RECENT.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let now = std::time::Instant::now();
+    let window = std::time::Duration::from_secs(60);
+    recent.retain(|_, times| { times.retain(|at| now.duration_since(*at) < window); !times.is_empty() });
+    let times = recent.entry(user_id).or_default();
+    if times.len() >= REACTION_ROLE_CHANGES_PER_MINUTE { return false; }
+    times.push_back(now);
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PutReactionRolesInput { channel_id: String, rules: Vec<ReactionRoleRule> }
+
+/// Staff set which emoji on one message give which role. An empty list
+/// removes the message's role reactions.
+async fn put_reaction_roles(
+    State(state): State<Arc<AppState>>, headers: HeaderMap,
+    Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>, Path(message_id): Path<String>,
+    Json(input): Json<PutReactionRolesInput>,
+) -> Response {
+    if let Err(resp) = crate::api::admin::admin_auth(&headers, &state).await { return resp; }
+    if input.rules.len() > MAX_REACTION_ROLE_RULES { return json_error(StatusCode::BAD_REQUEST, "Too many role reactions on one message"); }
+    match state.wdb.get_channel(&input.channel_id).await {
+        Ok(Some(channel)) if !crate::channel_access::is_conversation(channel.channel_kind) => {}
+        Ok(_) => return json_error(StatusCode::BAD_REQUEST, "Role reactions belong on a message in a shared room"),
+        Err(error) => { tracing::error!(%error, "role reaction room lookup failed"); return json_error(StatusCode::SERVICE_UNAVAILABLE, "The room could not be checked"); }
+    }
+    match state.wdb.get_message_typed(&message_id).await {
+        Ok(Some(message)) if message.channel_id == input.channel_id && !message.is_deleted => {}
+        Ok(_) => return json_error(StatusCode::NOT_FOUND, "That message is not in this room"),
+        Err(error) => { tracing::error!(%error, "role reaction message lookup failed"); return json_error(StatusCode::SERVICE_UNAVAILABLE, "The message could not be checked"); }
+    }
+    let mut emoji = std::collections::HashSet::new();
+    if !input.rules.iter().all(|rule| crate::socketio::valid_reaction_emoji_id(&rule.emoji_id) && emoji.insert(rule.emoji_id.as_str())) {
+        return json_error(StatusCode::BAD_REQUEST, "Use each emoji once, and only emoji people can react with");
+    }
+    // Entries whose message has since been deleted are cleared on any save.
+    let existing: Vec<String> = store.read().await.data.reaction_roles.keys().filter(|id| **id != message_id).cloned().collect();
+    let mut gone = Vec::new();
+    for id in existing {
+        match state.wdb.get_message_typed(&id).await {
+            Ok(Some(message)) if !message.is_deleted => {}
+            Ok(_) => gone.push(id),
+            Err(_) => {}
+        }
+    }
+    let mut guard = store.write().await;
+    for rule in &input.rules {
+        match guard.data.community_roles.iter().find(|role| role.id == rule.role_id) {
+            Some(role) if role.self_assignable => {}
+            Some(_) => return json_error(StatusCode::BAD_REQUEST, "A reaction can only give a role members may pick themselves"),
+            None => return json_error(StatusCode::BAD_REQUEST, "Choose only roles from the current list"),
+        }
+        if guard.data.channel_community_roles.get(&input.channel_id) == Some(&rule.role_id) {
+            return json_error(StatusCode::BAD_REQUEST, "This room needs that role, so nobody without it could react here");
+        }
+    }
+    let before = guard.data.clone();
+    for id in &gone { guard.data.reaction_roles.remove(id); }
+    if input.rules.is_empty() { guard.data.reaction_roles.remove(&message_id); }
+    else { guard.data.reaction_roles.insert(message_id.clone(), ReactionRoleMessage { channel_id: input.channel_id.clone(), rules: input.rules.clone() }); }
+    if guard.data.reaction_roles.len() > MAX_REACTION_ROLE_MESSAGES {
+        guard.data = before;
+        return json_error(StatusCode::BAD_REQUEST, "Too many messages carry role reactions; remove some first");
+    }
+    if let Err(error) = guard.persist() {
+        guard.data = before;
+        tracing::error!(%error, "role reactions could not be saved");
+        return json_error(StatusCode::SERVICE_UNAVAILABLE, "Role reactions could not be saved");
+    }
+    drop(guard);
+    if let Some(io) = state.socket_io() { let _ = io.broadcast().emit("channel-access-policy-updated", &json!({ "reactionRolesMessageId": message_id })).await; }
+    Json(json!({ "messageId": message_id, "rules": input.rules })).into_response()
 }
 
 /// The role list and who holds each role, for any signed-in member: roles are
 /// shown on people, like the staff marks. Guests see none.
 async fn list_role_holders(
-    auth: AuthUser,
+    State(state): State<Arc<AppState>>, auth: AuthUser,
     Extension(store): Extension<Arc<RwLock<ServerCenterStore>>>,
 ) -> Response {
     if auth.is_guest || auth.user_id <= 0 {
         return json_error(StatusCode::FORBIDDEN, "Sign in with a member account to see roles");
     }
-    let guard = store.read().await;
-    Json(json!({ "roles": guard.data.community_roles, "holders": guard.data.member_community_roles,
-        "revision": guard.data.community_roles_revision })).into_response()
+    let (roles, holders, revision, reactions) = {
+        let guard = store.read().await;
+        (guard.data.community_roles.clone(), guard.data.member_community_roles.clone(),
+            guard.data.community_roles_revision, guard.data.reaction_roles.clone())
+    };
+    // Role reactions in a room the caller cannot open are not theirs to see.
+    let mut reaction_roles = HashMap::new();
+    for (message_id, entry) in reactions {
+        if matches!(crate::channel_access::channel_role_allows(&state, auth.user_id, &entry.channel_id).await, Ok(true)) {
+            reaction_roles.insert(message_id, entry);
+        }
+    }
+    Json(json!({ "roles": roles, "holders": holders, "revision": revision, "reactionRoles": reaction_roles })).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -887,36 +1080,18 @@ async fn put_member_roles(
         Ok(_) => return json_error(StatusCode::BAD_REQUEST, "Roles are for active member accounts"),
         Err(error) => { tracing::error!(%error, "member lookup for roles failed"); return json_error(StatusCode::SERVICE_UNAVAILABLE, "The member could not be checked"); }
     }
-    let _membership = state.membership_gate.write().await;
-    let _message_commit = state.retention_policy_lock.lock().await;
-    let mut guard = store.write().await;
-    let valid: std::collections::HashSet<_> = guard.data.community_roles.iter().map(|role| role.id.as_str()).collect();
-    let unique: std::collections::HashSet<_> = input.role_ids.iter().map(String::as_str).collect();
-    if unique.len() != input.role_ids.len() || !unique.iter().all(|role| valid.contains(role)) {
-        return json_error(StatusCode::BAD_REQUEST, "Choose only roles from the current list");
-    }
-    let before = guard.data.clone();
-    if input.role_ids.is_empty() { guard.data.member_community_roles.remove(&user_id); }
-    else { guard.data.member_community_roles.insert(user_id, input.role_ids.clone()); }
-    if let Err(error) = guard.persist() {
-        guard.data = before;
-        tracing::error!(%error, "member roles could not be saved");
-        return json_error(StatusCode::SERVICE_UNAVAILABLE, "The member's roles could not be saved");
-    }
-    let affected: Vec<String> = guard.data.channel_community_roles.keys().cloned().collect();
-    drop(guard);
-    if let Some(io) = state.socket_io() {
-        for channel_id in &affected {
-            if !matches!(crate::channel_access::channel_role_allows(&state, user_id, channel_id).await, Ok(true)) {
-                crate::socketio::evict_channel_user(&io, &state, channel_id, user_id).await;
-            }
+    let result = commit_member_roles(&state, user_id, |data, _held| {
+        let valid: std::collections::HashSet<_> = data.community_roles.iter().map(|role| role.id.as_str()).collect();
+        let unique: std::collections::HashSet<_> = input.role_ids.iter().map(String::as_str).collect();
+        if unique.len() != input.role_ids.len() || !unique.iter().all(|role| valid.contains(role)) {
+            return Err((StatusCode::BAD_REQUEST, "Choose only roles from the current list"));
         }
-        evict_inherited_voice_policy(&io, &state, Some(user_id)).await;
+        Ok(input.role_ids.clone())
+    }).await;
+    match result {
+        Ok(role_ids) => Json(json!({ "userId": user_id, "roleIds": role_ids })).into_response(),
+        Err((status, message)) => json_error(status, message),
     }
-    drop(_message_commit);
-    drop(_membership);
-    if let Some(io) = state.socket_io() { let _ = io.broadcast().emit("channel-access-policy-updated", &json!({ "roleChangedUserId": user_id })).await; }
-    Json(json!({ "userId": user_id, "roleIds": input.role_ids })).into_response()
 }
 
 #[derive(Debug, Deserialize)]

@@ -266,7 +266,7 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
 /// same name rule as emoji upload), a Unicode codepoint sequence
 /// (`1F44D`, `1F468-200D-1F469`), or a literal emoji of a few characters
 /// from older clients. Anything else, notably words, is refused.
-fn valid_reaction_emoji_id(id: &str) -> bool {
+pub fn valid_reaction_emoji_id(id: &str) -> bool {
     if id.is_empty() || id.len() > 64 {
         return false;
     }
@@ -283,77 +283,69 @@ fn valid_reaction_emoji_id(id: &str) -> bool {
 }
 
 #[allow(dead_code)]
-async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+/// Returns the reaction that was stored, so the caller can apply a role
+/// reaction once it has let go of the membership gate.
+async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, io: SocketIo) -> Option<StoredReaction> {
+    on_add_emoji_reaction_inner(socket, data, state, io).await
+}
+
+/// A reaction a member added or removed: member, room, message, emoji.
+pub struct StoredReaction { pub user_id: i64, pub channel_id: String, pub message_id: String, pub emoji_id: String }
+
+async fn on_add_emoji_reaction_inner(socket: SocketRef, data: Value, state: SioState, io: SocketIo) -> Option<StoredReaction> {
     let message_id = match data.get("messageId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return,
+        None => return None,
     };
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return,
+        None => return None,
     };
     let emoji_id = match data.get("emojiId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return,
+        None => return None,
     };
 
-    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "reaction-error").await else { return; };
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "reaction-error").await else { return None; };
     if !message_in_channel(&state, &channel_id, &message_id).await {
         let _ = socket.emit("reaction-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
-        return;
+        return None;
     }
     let user_id_num = identity.user_id;
 
     if user_id_num <= 0 {
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Guests cannot react" }));
-        return;
+        return None;
     }
     let is_private = matches!(state.app.wdb.get_channel_kind(&channel_id).await.as_deref(), Some("dm" | "group"));
     if !is_private && !state.app.is_owner(user_id_num).await {
         match crate::api::server_center::rules_required_for_post(&state.app.config.data_dir, user_id_num) {
-            Ok(true) => { let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Read and acknowledge server rules before reacting" })); return; }
+            Ok(true) => { let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Read and acknowledge server rules before reacting" })); return None; }
             Ok(false) => {}
-            Err(error) => { warn!("[rules] could not check rules before reaction: {error}"); let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Server rules could not be checked" })); return; }
+            Err(error) => { warn!("[rules] could not check rules before reaction: {error}"); let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Server rules could not be checked" })); return None; }
         }
     }
     let Some(blacklist) = state.app.get_blacklist().await else {
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Channel restrictions could not be checked" }));
-        return;
+        return None;
     };
     if blacklist.is_channel_timed_out(&channel_id, user_id_num).await.is_some() {
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "You are timed out in this channel" }));
-        return;
+        return None;
     }
 
     // A reaction is stored and broadcast as-is, in every room: keep it an
     // emoji identifier, never a place for free text.
     if !valid_reaction_emoji_id(&emoji_id) {
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Unknown emoji" }));
-        return;
+        return None;
     }
 
     // Store the reaction
     if let Err(e) = state.app.wdb.add_reaction(&message_id, user_id_num as u64, &emoji_id).await {
         warn!("[sio] add-emoji-reaction: failed to add reaction: {}", e);
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Failed to add reaction" }));
-        return;
-    }
-
-    // Check if there's an emoji role rule for this emoji/message
-    if let Ok(rules) = state.app.wdb.get_emoji_role_rules(&message_id).await {
-        for rule in rules {
-            let rule_emoji = rule.emote.as_str();
-            if rule_emoji == emoji_id {
-                let role_name = format!("{:?}", rule.role);
-                // Assign the role to the user
-                let _ = state.app.wdb.ingest_event("rbac", "assign_role", &json!({
-                    "userId": user_id_num,
-                    "workspaceId": "default-workspace",
-                    "role": role_name,
-                    "assignedBy": 0,
-                })).await;
-            }
-        }
+        return None;
     }
 
     // Broadcast reaction to channel
@@ -369,55 +361,39 @@ async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, 
             }),
         )
         .await;
+    Some(StoredReaction { user_id: user_id_num, channel_id, message_id, emoji_id })
 }
 
 #[allow(dead_code)]
-async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioState, io: SocketIo) -> Option<StoredReaction> {
     let message_id = match data.get("messageId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return,
+        None => return None,
     };
     let channel_id = match data.get("channelId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return,
+        None => return None,
     };
     let emoji_id = match data.get("emojiId").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return,
+        None => return None,
     };
 
-    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "reaction-error").await else { return; };
+    let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "reaction-error").await else { return None; };
     if !message_in_channel(&state, &channel_id, &message_id).await {
         let _ = socket.emit("reaction-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
-        return;
+        return None;
     }
     let user_id_num = identity.user_id;
 
     if user_id_num <= 0 {
-        return;
+        return None;
     }
 
     // Remove the reaction
     if let Err(e) = state.app.wdb.remove_reaction(&message_id, user_id_num as u64, &emoji_id).await {
         warn!("[sio] remove-emoji-reaction: failed to remove reaction: {}", e);
-        return;
-    }
-
-    // Check if there's an emoji role rule with removeOnUnreact flag
-    if let Ok(rules) = state.app.wdb.get_emoji_role_rules(&message_id).await {
-        for rule in rules {
-            let rule_emoji = rule.emote.as_str();
-            if rule_emoji == emoji_id {
-                // WDB-compat: removeOnUnreact removed in v1 EmojiRoleRule (no equivalent field). Always treat as true.
-                let role_name = format!("{:?}", rule.role);
-                // Remove the role from the user
-                let _ = state.app.wdb.ingest_event("rbac", "remove_role", &json!({
-                    "userId": user_id_num,
-                    "workspaceId": "default-workspace",
-                    "role": role_name,
-                })).await;
-            }
-        }
+        return None;
     }
 
     // Broadcast reaction removal to channel
@@ -433,6 +409,7 @@ async fn on_remove_emoji_reaction(socket: SocketRef, data: Value, state: SioStat
             }),
         )
         .await;
+    Some(StoredReaction { user_id: user_id_num, channel_id, message_id, emoji_id })
 }
 
 // ---------------------------------------------------------------------------

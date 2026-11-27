@@ -441,7 +441,14 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_add_emoji_reaction(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move {
+                        let app = s.app.clone();
+                        let stored = { let _membership = app.membership_gate.clone().read_owned().await; on_add_emoji_reaction(socket, data, s, io).await };
+                        // A role reaction changes who may open rooms: it takes the gate as a writer, after the reader above is gone.
+                        if let Some(reaction) = stored {
+                            crate::api::server_center::apply_reaction_role(&app, reaction.user_id, &reaction.channel_id, &reaction.message_id, &reaction.emoji_id, true).await;
+                        }
+                    })
                 }
             });
 
@@ -449,7 +456,14 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_remove_emoji_reaction(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move {
+                        let app = s.app.clone();
+                        let stored = { let _membership = app.membership_gate.clone().read_owned().await; on_remove_emoji_reaction(socket, data, s, io).await };
+                        // A role reaction changes who may open rooms: it takes the gate as a writer, after the reader above is gone.
+                        if let Some(reaction) = stored {
+                            crate::api::server_center::apply_reaction_role(&app, reaction.user_id, &reaction.channel_id, &reaction.message_id, &reaction.emoji_id, false).await;
+                        }
+                    })
                 }
             });
 

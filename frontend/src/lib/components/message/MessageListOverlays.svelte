@@ -60,6 +60,7 @@
 	export let handleAddToGallery: () => void;
 	export let albumsAgreed = false;
 	export let handlePromoteToLore: (() => void) | undefined = undefined;
+	export let handleRoleReactions: (() => void) | undefined = undefined;
 	export let handleCopyQuote: () => void;
 	export let handleCopyMessageLink: () => void;
 	export let handleForward: () => void;
@@ -143,6 +144,7 @@
 		onAddToGallery={handleAddToGallery}
 		{albumsAgreed}
 		onPromoteToLore={handlePromoteToLore}
+		onRoleReactions={handleRoleReactions}
 		onCopyQuote={handleCopyQuote}
 		onCopyMessageLink={handleCopyMessageLink}
 		onForward={handleForward}

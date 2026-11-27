@@ -891,6 +891,18 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}).catch(() => { /* Desk remains manually reachable when offline. */ });
 	});
 
+	onMount(() => {
+		window.addEventListener('wabi-reaction-role-changed', announceReactionRole);
+		return () => window.removeEventListener('wabi-reaction-role-changed', announceReactionRole);
+	});
+
+	// A reaction gave or took a role: the reaction alone does not say so.
+	function announceReactionRole(event: Event): void {
+		const detail = (event as CustomEvent<{ roleName?: string; granted?: boolean; error?: string }>).detail ?? {};
+		if (detail.error) showToast(detail.error, 'error');
+		else if (detail.roleName) showToast($_(detail.granted ? 'reaction_roles.granted' : 'reaction_roles.taken', { values: { role: detail.roleName } }), 'info');
+	}
+
 	function completeServerWelcome(): void {
 		serverHubWelcome = false;
 		const server = getServerUrl();

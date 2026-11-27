@@ -464,7 +464,8 @@
     "delete_message_uploads": "Delete message and uploads…",
     "delete_message_uploads_hint": "Also deletes the attached files",
     "delete_message_unavailable_hint": "Only your own messages can be deleted",
-    "add_to_gallery": "Add to gallery"
+    "add_to_gallery": "Add to gallery",
+    "role_reactions": "Role reactions…"
   },
   "forward_dialog": {
     "title": "Forward message",
@@ -8478,6 +8479,24 @@
     "mentions": "Mentions",
     "all": "All Posts",
     "priority": "Priority"
+  },
+  "reaction_roles": {
+    "title": "Role reactions",
+    "description": "Link emoji on this message to roles. Anyone who reacts with a linked emoji gets its role; removing the reaction gives it up. The linked emoji are shown under the message for people to press.",
+    "no_roles": "There are no roles members may pick themselves yet. Add one in Admin, Roles, and allow members to pick it.",
+    "role_label": "Role this emoji gives",
+    "add_row": "Add an emoji",
+    "remove_row": "Remove",
+    "save": "Save",
+    "problem_incomplete": "Choose an emoji and a role on every line.",
+    "problem_duplicate": "Use each emoji only once.",
+    "saved": "Role reactions saved",
+    "removed": "Role reactions removed",
+    "save_failed": "Role reactions could not be saved.",
+    "chip_get": "React to get the role {role}",
+    "chip_leave": "Remove your reaction to give up the role {role}",
+    "granted": "You now have the role {role}",
+    "taken": "You no longer have the role {role}"
   },
   "add_to_gallery": {
     "title": "Add to gallery",
