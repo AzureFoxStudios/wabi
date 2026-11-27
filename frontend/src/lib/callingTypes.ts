@@ -92,6 +92,11 @@ export interface CallConnectionDiagnostics {
 	 * wabidb relay envelope counters; null when the source doesn't report). */
 	packetsSent?: number | null;
 	packetsReceived?: number | null;
+	/** Server-relay calls only: audio waiting to be played, audio thrown away because it arrived
+	 * faster than it could be played, and times playback ran out mid-stream, since joining. */
+	playbackBufferMs?: number | null;
+	playbackCutMs?: number | null;
+	playbackGaps?: number | null;
 	/** Which transport produced this sample ('webrtc' | 'wabidb' | null). */
 	source?: 'webrtc' | 'wabidb' | null;
 }

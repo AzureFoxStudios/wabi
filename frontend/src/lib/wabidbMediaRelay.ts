@@ -139,6 +139,12 @@ export interface WabidbMediaRelayDiagnostics {
   droppedParseFail: number;
   /** Oldest decoded blocks discarded to bound playback backlog. */
   droppedJitterOverflow: number;
+  /** Audio waiting to be played, in ms: the largest across the people heard. */
+  playbackBufferMs?: number;
+  /** Audio thrown away because it arrived faster than it could be played, in ms. */
+  playbackCutMs?: number;
+  /** Times playback ran out of audio mid-stream. */
+  playbackGaps?: number;
 }
 
 export interface WabidbMediaRelayConfig {
@@ -220,6 +226,8 @@ export class WabidbMediaRelay {
   private onRemoteAudioReady?: (userId: string) => void;
   private onRemoteAudioUnavailable?: (userId: string) => void;
   private renderedMicSamples = new Map<string, number>();
+  /** Latest playback report per stream, from its worklet. Ended streams keep their totals. */
+  private playbackHealth = new Map<string, { bufferedMs: number; cutMs: number; gaps: number }>();
   private readyUsers = new Set<string>();
   private lastRenderedAt = new Map<string, number>();
   private localStream: MediaStream | null = null;
@@ -293,8 +301,20 @@ export class WabidbMediaRelay {
       captureEnabled: this.captureEnabled,
       audioContextState: this.audioContext?.state ?? null,
       ...this.counters,
+      ...this.playbackTotals(),
       ...(this.nativePlayback ? { ...this.nativePlayback.counters(), nativeEngine: true } : {})
     };
+  }
+
+  private playbackTotals(): { playbackBufferMs?: number; playbackCutMs?: number; playbackGaps?: number } {
+    if (this.playbackHealth.size === 0) return {};
+    let bufferMs = 0, cutMs = 0, gaps = 0;
+    for (const [key, health] of this.playbackHealth) {
+      if (this.userPlaybackChains.has(key)) bufferMs = Math.max(bufferMs, health.bufferedMs);
+      cutMs += health.cutMs;
+      gaps += health.gaps;
+    }
+    return { playbackBufferMs: bufferMs, playbackCutMs: cutMs, playbackGaps: gaps };
   }
 
   isRoomReady(): boolean {
@@ -683,6 +703,7 @@ export class WabidbMediaRelay {
           if (!this.isActive || this.userPlaybackChains.get(fromUserId)?.worklet !== worklet) return;
           if (data?.type !== 'rendered' || !Number.isFinite(data.samples) || !(data.samples > 0)) return;
           this.counters.playedChunks++;
+          if (Number.isFinite(data.buffered)) this.playbackHealth.set(fromUserId, { bufferedMs: (data.buffered / context.sampleRate) * 1000, cutMs: ((data.cutSamples ?? 0) / context.sampleRate) * 1000, gaps: data.gaps ?? 0 });
           if (!decoder.screen && context.state === 'running' && this.isRoomReady()) this.lastRenderedAt.set(decoder.userId, Date.now());
           if (!decoder.screen && !this.readyUsers.has(decoder.userId) && context.state === 'running' && this.isRoomReady()) {
             const samples = (this.renderedMicSamples.get(fromUserId) ?? 0) + data.samples;
@@ -765,6 +786,7 @@ export class WabidbMediaRelay {
     this.isActive = false;
     for (const user of this.readyUsers) this.markAudioUnavailable(user);
     this.renderedMicSamples.clear();
+    this.playbackHealth.clear();
     this.lastRenderedAt.clear();
     this.localStream = null;
     this.screenStream = null;

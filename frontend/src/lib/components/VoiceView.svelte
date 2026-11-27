@@ -464,6 +464,14 @@
 				<dd>{pair($callConnectionDiagnostics.inboundPacketLossPct, $callConnectionDiagnostics.outboundPacketLossPct, '%')}</dd>
 				<dt>{$_('voice.stat_rate')}</dt>
 				<dd>{pair($callConnectionDiagnostics.inboundKbps, $callConnectionDiagnostics.outboundKbps, ' kbps')}</dd>
+				{#if $callConnectionDiagnostics.source === 'wabidb'}
+					<dt>{$_('voice.stat_playback_buffer')}</dt>
+					<dd>{measure($callConnectionDiagnostics.playbackBufferMs, 'ms')}</dd>
+					<dt>{$_('voice.stat_playback_trouble')}</dt>
+					<dd>{$callConnectionDiagnostics.playbackGaps == null
+						? measure(null, '')
+						: $_('voice.stat_playback_trouble_value', { values: { gaps: $callConnectionDiagnostics.playbackGaps, cut: (Math.round(($callConnectionDiagnostics.playbackCutMs ?? 0) / 100) / 10) } })}</dd>
+				{/if}
 			</dl>
 			<p class="calls-conn__hint">
 				Voice channels always go through this server, so a moderator's mute, deafen and listen-only apply. Direct device-to-device audio can only be used in direct and group calls.

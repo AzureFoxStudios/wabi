@@ -1284,6 +1284,9 @@
     "stat_jitter": "Jitter",
     "stat_packet_loss": "Packet loss",
     "stat_rate": "Rate",
+    "stat_playback_buffer": "Playback buffer",
+    "stat_playback_trouble": "Gaps and cuts since joining",
+    "stat_playback_trouble_value": "{gaps} gaps · {cut} s cut",
     "your_screen": "Your screen",
     "empty_title": "No voice rooms yet",
     "empty_text": "A voice room shows up here once someone in this community creates one."
