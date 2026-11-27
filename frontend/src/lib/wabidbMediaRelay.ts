@@ -701,9 +701,12 @@ export class WabidbMediaRelay {
         const worklet = new AudioWorkletNode(this.audioContext, 'wabidb-audio-playback');
         worklet.port.onmessage = ({ data }) => {
           if (!this.isActive || this.userPlaybackChains.get(fromUserId)?.worklet !== worklet) return;
+          // `waiting` carries the same readings while playback holds its reserve; only
+          // `rendered` means audio was actually played.
+          const report = data?.type === 'rendered' || data?.type === 'waiting';
+          if (report && Number.isFinite(data.buffered)) this.playbackHealth.set(fromUserId, { bufferedMs: (data.buffered / context.sampleRate) * 1000, cutMs: ((data.cutSamples ?? 0) / context.sampleRate) * 1000, gaps: data.gaps ?? 0 });
           if (data?.type !== 'rendered' || !Number.isFinite(data.samples) || !(data.samples > 0)) return;
           this.counters.playedChunks++;
-          if (Number.isFinite(data.buffered)) this.playbackHealth.set(fromUserId, { bufferedMs: (data.buffered / context.sampleRate) * 1000, cutMs: ((data.cutSamples ?? 0) / context.sampleRate) * 1000, gaps: data.gaps ?? 0 });
           if (!decoder.screen && context.state === 'running' && this.isRoomReady()) this.lastRenderedAt.set(decoder.userId, Date.now());
           if (!decoder.screen && !this.readyUsers.has(decoder.userId) && context.state === 'running' && this.isRoomReady()) {
             const samples = (this.renderedMicSamples.get(fromUserId) ?? 0) + data.samples;
