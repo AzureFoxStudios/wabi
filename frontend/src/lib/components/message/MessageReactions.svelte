@@ -2,8 +2,7 @@
 	import type { Message, Emoji, User } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import { reactionPresentation } from './reactionPresentation';
-	import { reactionEntries } from '$lib/reactionRoles';
-	import { reactionRoleMessages } from '$lib/reactionRoles';
+	import { reactionEntries, reactionRoleMessages } from '$lib/reactionRoles';
 	import { listedRoles } from '$lib/serverRoles';
 
 	export let message: Message;
