@@ -11,11 +11,12 @@
 		onRetry: () => void;
 		onOpenPeople: () => void;
 	} = $props();
-	type Tab = 'staff' | 'community' | 'service' | 'badges';
+	type Tab = 'community' | 'service' | 'badges';
 	let tab = $state<Tab>('community');
+	/** The fixed staff ranks that head the one list, named as this server's catalog names them. */
+	const staffRanks = $derived(['owner', 'admin', 'mod'].map((id) => roleDefinitions.find((role) => role.roleName === id)?.displayName ?? { owner: 'Owner', admin: 'Admin', mod: 'Moderator' }[id]!));
 	const TABS: Array<[Tab, string, string]> = [
 		['community', $_('rnp.tab_community'), $_('rnp.tab_community_hint')],
-		['staff', $_('rnp.tab_staff'), $_('rnp.tab_staff_hint')],
 		['service', $_('rnp.tab_service'), $_('rnp.tab_service_hint')],
 		['badges', $_('profile_settings.badges_heading'), $_('rnp.tab_badges_hint')]
 	];
@@ -34,25 +35,9 @@
 	<p class="rc-tabhint">{TABS.find(([id]) => id === tab)?.[2]}</p>
 
 	{#if tab === 'community'}
-		<CommunityRolesPanel />
-	{:else if tab === 'staff'}
-		<section class="rc-card" aria-label={$_('rnp.server_roles')} aria-busy={loading}>
-			<div class="rc-row-head"><p>{$_('rnp.staff_desc')}</p><button class="w-btn" type="button" onclick={onOpenPeople}>{$_('rnp.manage_people')}</button></div>
-			{#if error}
-				<div class="rc-feedback" role="alert"><p>{error}</p><button class="w-btn" onclick={onRetry}>Try again</button></div>
-			{:else if loading && roleDefinitions.length === 0}
-				<p class="rc-feedback" role="status">{$_('rnp.loading_roles')}</p>
-			{:else if roleDefinitions.length === 0}
-				<div class="rc-feedback" role="status"><p>{$_('rnp.no_catalog')}</p><button class="w-btn" onclick={onRetry}>{$_('lore_roles.reload')}</button></div>
-			{:else}
-				<ol class="rc-ladder">
-					{#each roleDefinitions as role, index (role.roleName)}
-						<li><span class="rc-rank w-mono">{String(index + 1).padStart(2, '0')}</span><div><strong>{role.displayName}</strong>{#if role.description}<p>{role.description}</p>{/if}</div></li>
-					{/each}
-				</ol>
-				<p class="rc-note">{$_('rnp.builtin_fixed')} <button type="button" class="rc-link" onclick={() => (tab = 'community')}>{$_('rnp.tab_community')}</button>.</p>
-			{/if}
-		</section>
+		{#if error}<div class="rc-feedback" role="alert"><p>{error}</p><button class="w-btn" onclick={onRetry}>{$_('lore_roles.reload')}</button></div>{/if}
+		<div class="rc-row-head"><p>{$_('rnp.staff_desc')}</p><button class="w-btn" type="button" onclick={onOpenPeople}>{$_('rnp.manage_people')}</button></div>
+		<CommunityRolesPanel {staffRanks} />
 	{:else if tab === 'service'}
 		<ServiceRolesPanel />
 	{:else}

@@ -29,6 +29,7 @@ import { messageDeliveries, parseMessageAcceptance, parseMessageFailure, isOwnMe
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
 import { channelAccessPolicyVersion } from './channelAccessPolicyVersion';
+import { refreshRoleHolders } from './serverRoles';
 import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
 import { channelMessages, _incrementUnreadCount, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
 import {
@@ -687,6 +688,7 @@ export class SocketManager {
 			voiceState?: Record<string, unknown>;
 		}) => {
 			_resetHistoryRequests();
+			void refreshRoleHolders();
 			const offered = dedupeByIdKey(normalizeChannelList(payload?.channels));
 			const nextChannels = offered.filter(channel => channel.type !== 'group' || (realm && groupMembership.apply(channel, realm)));
 			if (realm) {
@@ -819,7 +821,7 @@ export class SocketManager {
 					} else if (active) joinChannel(active);
 				}).catch(() => {});
 		};
-		on('channel-access-policy-updated', () => { channelAccessPolicyVersion.update(version => version + 1); refreshAccessibleChannels(); });
+		on('channel-access-policy-updated', () => { channelAccessPolicyVersion.update(version => version + 1); refreshAccessibleChannels(); void refreshRoleHolders(); });
 		on('channel-access-revoked', (payload: { channelId?: string }) => {
 			if (payload?.channelId) {
 				const revoked = payload.channelId;

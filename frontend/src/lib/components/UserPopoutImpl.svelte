@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { listedRoles, roleHolders, rolesHeldBy } from '$lib/serverRoles';
 	import { createEventDispatcher } from 'svelte';
 	import { showToast } from '$lib/toast';
 	async function copyHandle() {
@@ -677,7 +678,7 @@
 			{#if completeProfile}
 				<dl class="w-pop__facts pop-facts">
 					<dt>{$_('upop.role')}</dt>
-					<dd>{getUserTopRoleLabel(liveUser ?? user)}</dd>
+					<dd>{[getUserTopRoleLabel(liveUser ?? user), ...rolesHeldBy($listedRoles, $roleHolders, (liveUser ?? user)?.dbUserId).map((role) => role.name)].filter(Boolean).join(', ')}</dd>
 					{#if joinedLine}
 						<dt>{$_('user.popout.member_since')}</dt>
 						<dd>{joinedLine}</dd>
