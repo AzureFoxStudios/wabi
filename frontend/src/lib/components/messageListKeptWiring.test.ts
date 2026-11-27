@@ -45,12 +45,21 @@ function guardsFirst(name: string, guard: string): void {
 
 describe('MessageList hands nothing kept to a server-readable feature', () => {
 	test('albums', () => {
-		guardsFirst('handleAddToAlbum', "blockedForServerReadable('album', targetMessage)");
+		// Kept content goes to an album only when every member agreed (roomAlbumsOpen), and the
+		// server is asked again before a readable copy is uploaded.
+		guardsFirst('handleAddToAlbum', "serverReadableActionBlock('album', targetMessage, roomKeep, { album: roomAlbumsOpen })");
+		const addToAlbum = functionSource('handleAddToAlbum');
+		expect(addToAlbum.indexOf('confirmAlbumsAgreed(scope.scopeId)')).toBeGreaterThan(-1);
+		expect(addToAlbum.indexOf('confirmAlbumsAgreed(scope.scopeId)')).toBeLessThan(addToAlbum.indexOf('addMessageAttachmentsToAlbum('));
+		expect(addToAlbum.indexOf('confirmAlbumsAgreed(scope.scopeId)')).toBeLessThan(addToAlbum.indexOf('uploadAlbumFile('));
 		guardsFirst('handleAlbumAnnouncementActivate', "blockedForServerReadable('album', message)");
 		guardsFirst('triggerAlbumAnnouncementUpload', "blockedForServerReadable('album', message)");
 		guardsFirst('uploadFilesToAlbumAnnouncement', "blockedForServerReadable('album', message)");
-		expect(functionSource('handleAddToAlbum')).toContain("keepOnDevice: serverReadableActionBlock('album', targetMessage, roomKeep) !== null");
 		expect(functionSource('handleAlbumAnnouncementUploadChange')).toContain('uploadFilesToAlbumAnnouncement(targetMeta, files, targetMessage)');
+	});
+
+	test('galleries: only by the person\'s own setting', () => {
+		guardsFirst('handleAddToGallery', "serverReadableActionBlock('gallery', targetMessage, roomKeep, { gallery: $privateMediaToGallery })");
 	});
 
 	test('forward, Lore and Blender import', () => {
