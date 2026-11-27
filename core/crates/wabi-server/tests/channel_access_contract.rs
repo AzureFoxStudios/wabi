@@ -3050,4 +3050,24 @@ async fn a_reaction_gives_and_takes_only_a_self_chosen_role() {
     socket.emit("remove-emoji-reaction", json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
     socket.event("emoji-reaction-removed").await;
     assert_eq!(holds(outsider).await, vec![json!(banana)]);
+
+    // Flipping a role reaction over and over is cut off, and the member is told.
+    let (status, body) = request(&app, Method::PUT, "/server-center/community-roles", &owner_token, json!({
+        "expectedRevision": 2,
+        "roles": [{"id": banana, "name": "Banana Jammers", "description": "", "selfAssignable": true}],
+        "channelRoles": {},
+    })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = set(owner_token.clone(), json!({"channelId": lobby, "rules": [{"emojiId": "1F34C", "roleId": banana}]})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = request(&app, Method::PUT, &format!("/server-center/members/{outsider}/roles"), &owner_token, json!({"roleIds": []})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut refused = None;
+    for turn in 0..12 {
+        let event = if turn % 2 == 0 { "add-emoji-reaction" } else { "remove-emoji-reaction" };
+        socket.emit(event, json!({"channelId": lobby, "messageId": message, "emojiId": "1F34C"})).await;
+        let outcome = socket.event("reaction-role-changed").await;
+        if outcome.get("error").is_some() { refused = Some(outcome); break; }
+    }
+    assert!(refused.is_some_and(|outcome| outcome["error"].as_str().unwrap().contains("Too many role changes")), "rapid role flipping is refused");
 }

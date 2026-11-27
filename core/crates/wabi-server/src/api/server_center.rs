@@ -918,6 +918,15 @@ pub async fn apply_reaction_role(state: &AppState, user_id: i64, channel_id: &st
         Ok(Some(user)) if user_id > 0 && user.is_active && !user.password_hash.is_empty() => {}
         _ => return,
     }
+    // Each change takes the admission writer and rewrites the roles file:
+    // one member flipping a reaction must not be able to do that at will.
+    if !reaction_role_allowance(user_id) {
+        if let Some(io) = state.socket_io() {
+            let _ = io.to(format!("user-{user_id}")).emit("reaction-role-changed",
+                &json!({ "error": "Too many role changes at once. Wait a minute, then react again." })).await;
+        }
+        return;
+    }
     let mut changed: Option<(String, String)> = None;
     let result = commit_member_roles(state, user_id, |data, held| {
         let Some(role_id) = rule_role(data) else { return Ok(held.to_vec()); };
@@ -945,6 +954,22 @@ pub async fn apply_reaction_role(state: &AppState, user_id: i64, channel_id: &st
         (Err((_, message)), _) => { let _ = io.to(room).emit("reaction-role-changed", &json!({ "error": message })).await; }
         _ => {}
     }
+}
+
+const REACTION_ROLE_CHANGES_PER_MINUTE: usize = 8;
+
+/// True when this member may change a role by reaction now: at most
+/// `REACTION_ROLE_CHANGES_PER_MINUTE` in any minute.
+fn reaction_role_allowance(user_id: i64) -> bool {
+    static RECENT: std::sync::OnceLock<std::sync::Mutex<HashMap<i64, std::collections::VecDeque<std::time::Instant>>>> = std::sync::OnceLock::new();
+    let mut recent = RECENT.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let now = std::time::Instant::now();
+    let window = std::time::Duration::from_secs(60);
+    recent.retain(|_, times| { times.retain(|at| now.duration_since(*at) < window); !times.is_empty() });
+    let times = recent.entry(user_id).or_default();
+    if times.len() >= REACTION_ROLE_CHANGES_PER_MINUTE { return false; }
+    times.push_back(now);
+    true
 }
 
 #[derive(Debug, Deserialize)]
