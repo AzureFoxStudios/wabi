@@ -36,6 +36,7 @@
 		reorderChannels
 	} from '$lib/socket';
 	import { createChannel, deleteChannel as deleteChannelWithOptions } from '$lib/channelStore';
+	import { sharedChannelsOnly } from '$lib/channelReorder';
 	import { showToast } from '$lib/toast';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import {
@@ -701,7 +702,7 @@
 		anchorId: string | null,
 		pos: 'before' | 'after'
 	) {
-		const allCh = $channels;
+		const allCh = sharedChannelsOnly($channels);
 		const dragged = allCh.find((c) => c.id === channelId);
 		if (!dragged || (dragged.type as string | undefined) === 'category') return;
 		const sourceParentId = dragged.parentId ?? null;
@@ -779,7 +780,7 @@
 		const folderIds = new Set(
 			$channels.filter((c) => (c.type as string | undefined) === 'category').map((c) => c.id)
 		);
-		return $channels
+		return sharedChannelsOnly($channels)
 			.filter((c) => {
 				const type = c.type as string | undefined;
 				if (type === 'thread_public' || type === 'thread_private') return false;
@@ -802,7 +803,7 @@
 	}
 
 	function sectionOf(parentId: string | null) {
-		return $channels
+		return sharedChannelsOnly($channels)
 			.filter(
 				(c) =>
 					(c.parentId ?? null) === parentId &&
@@ -831,7 +832,7 @@
 	}
 
 	function moveChannelToCategory(channelId: string, catId: string) {
-		const allCh = $channels;
+		const allCh = sharedChannelsOnly($channels);
 		const dragged = allCh.find((c) => c.id === channelId);
 		if (!dragged || (dragged.type as string | undefined) === 'category' || dragged.id === catId) return;
 		const sourceParentId = dragged.parentId ?? null;
