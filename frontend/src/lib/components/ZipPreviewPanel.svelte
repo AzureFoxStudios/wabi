@@ -23,13 +23,15 @@
 	import { onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
 	import { _ } from '$lib/i18n';
-	import { extractZipEntryBytes, parseZipPreviewMetadata, type ZipPreviewEntry, type ZipPreviewMetadata } from '$lib/zip/zipPreview';
+	import { readZipEntryBytes, readZipPreviewMetadata, type ZipByteSource, type ZipPreviewEntry, type ZipPreviewMetadata } from '$lib/zip/zipPreview';
+	import { openHttpZipSource, ZipTooLargeError } from '$lib/zip/zipHttpSource';
 	import { setZipPreviewSortMode, zipPreviewSettingsStore, type ZipPreviewSortMode } from '$lib/zip/zipPreviewSettings';
 	import './ZipPreviewPanel.css';
 
-	const MAX_PREVIEW_ARCHIVE_BYTES = 25 * 1024 * 1024;
+	// Only applies when a server cannot send part of a file; otherwise any size previews.
+	const MAX_WHOLE_ARCHIVE_BYTES = 25 * 1024 * 1024;
 	const MAX_RENDER_ENTRIES = 200;
-	const FETCH_TIMEOUT_MS = 4000;
+	const FETCH_TIMEOUT_MS = 20000;
 	const INLINE_TEXT_PREVIEW_MAX_BYTES = 64 * 1024;
 	const INLINE_TEXT_PREVIEW_MAX_CHARS = 4000;
 	const INLINE_IMAGE_PREVIEW_MAX_BYTES = 1024 * 1024;
@@ -45,14 +47,13 @@
 	let isLoading = false;
 	let errorMessage = '';
 	let metadata: ZipPreviewMetadata | null = null;
-	let archiveBytes: Uint8Array | null = null;
+	let archive: ZipByteSource | null = null;
 	let filterQuery = '';
 	let normalizedFilter = '';
 	let filteredEntries: ZipPreviewEntry[] = [];
 	let sortedEntries: ZipPreviewEntry[] = [];
 	let activeController: AbortController | null = null;
-	let fetchTimeoutId: number | undefined;
-	let previousIdentity = '';
+		let previousIdentity = '';
 	let inlinePreviewPath: string | null = null;
 	let inlinePreviewKind: 'text' | 'image' | null = null;
 	let inlinePreviewText = '';
@@ -77,28 +78,20 @@
 	}
 	function getEntryIcon(entry: ZipPreviewEntry): string { if (entry.isDirectory) return 'DIR'; const ext = getPathExtension(entry.path); if (IMAGE_EXTENSIONS.has(ext)) return 'IMG'; if (TEXT_EXTENSIONS.has(ext)) return 'TXT'; if (ext === 'zip' || ext === 'rar' || ext === '7z' || ext === 'tar' || ext === 'gz') return 'ARC'; if (ext === 'pdf' || ext === 'doc' || ext === 'docx') return 'DOC'; if (ext === 'mp4' || ext === 'mov' || ext === 'webm' || ext === 'mkv') return 'VID'; if (ext === 'mp3' || ext === 'wav' || ext === 'flac' || ext === 'ogg') return 'AUD'; return 'FILE'; }
 	function cacheKey(): string { return `${fileUrl}::${fileName || 'unnamed'}::${fileSize ?? 'unknown'}`; }
-	function stopActiveRequest(): void { if (activeController) { activeController.abort(); activeController = null; } if (typeof window !== 'undefined' && fetchTimeoutId !== undefined) { window.clearTimeout(fetchTimeoutId); } fetchTimeoutId = undefined; }
+	function stopActiveRequest(): void { if (activeController) { activeController.abort(); activeController = null; } }
 	function revokeInlinePreviewImage(): void { if (!inlinePreviewImageUrl) return; try { URL.revokeObjectURL(inlinePreviewImageUrl); } catch {} inlinePreviewImageUrl = ''; }
 	function resetInlinePreviewState(): void { revokeInlinePreviewImage(); inlinePreviewPath = null; inlinePreviewKind = null; inlinePreviewText = ''; inlinePreviewError = ''; inlinePreviewLoadingPath = null; }
-	function normalizeError(error: unknown): string { const raw = error instanceof Error ? error.message : String(error ?? ''); if (raw.toLowerCase().includes('abort')) return t('messages.zip_preview.errors.timeout'); return raw || t('messages.zip_preview.errors.failed'); }
-	async function fetchArchiveBytes(): Promise<Uint8Array> {
+	function normalizeError(error: unknown): string { if (error instanceof ZipTooLargeError) return t('messages.zip_preview.errors.too_large', { limit: formatBytes(error.limit) }); const raw = error instanceof Error ? error.message : String(error ?? ''); if (raw.toLowerCase().includes('abort')) return t('messages.zip_preview.errors.timeout'); return raw || t('messages.zip_preview.errors.failed'); }
+	async function ensureArchive(): Promise<ZipByteSource> {
+		if (archive) return archive;
 		if (!fileUrl) throw new Error(t('messages.zip_preview.errors.failed'));
-		if (typeof fileSize === 'number' && fileSize > MAX_PREVIEW_ARCHIVE_BYTES) throw new Error(t('messages.zip_preview.errors.too_large', { limit: formatBytes(MAX_PREVIEW_ARCHIVE_BYTES) }));
 		stopActiveRequest();
 		const controller = new AbortController();
 		activeController = controller;
-		fetchTimeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-		try {
-			const response = await fetch(fileUrl, { signal: controller.signal });
-			if (!response.ok) throw new Error(`Failed to fetch archive (${response.status}).`);
-			const contentLength = Number(response.headers.get('content-length') ?? NaN);
-			if (Number.isFinite(contentLength) && contentLength > MAX_PREVIEW_ARCHIVE_BYTES) throw new Error(t('messages.zip_preview.errors.too_large', { limit: formatBytes(MAX_PREVIEW_ARCHIVE_BYTES) }));
-			const bytes = new Uint8Array(await response.arrayBuffer());
-			if (bytes.byteLength > MAX_PREVIEW_ARCHIVE_BYTES) throw new Error(t('messages.zip_preview.errors.too_large', { limit: formatBytes(MAX_PREVIEW_ARCHIVE_BYTES) }));
-			return bytes;
-		} finally { if (activeController === controller) stopActiveRequest(); }
+		const opened = await openHttpZipSource(fileUrl, { knownSize: fileSize, maxWholeBytes: MAX_WHOLE_ARCHIVE_BYTES, timeoutMs: FETCH_TIMEOUT_MS, signal: controller.signal });
+		if (activeController === controller) archive = opened;
+		return opened;
 	}
-	async function ensureArchiveBytes(): Promise<Uint8Array> { if (archiveBytes && archiveBytes.byteLength > 0) return archiveBytes; archiveBytes = await fetchArchiveBytes(); return archiveBytes; }
 	function isInlineTextPreviewable(entry: ZipPreviewEntry): boolean { if (entry.isDirectory || entry.encrypted) return false; if (entry.uncompressedSize > INLINE_TEXT_PREVIEW_MAX_BYTES) return false; return TEXT_EXTENSIONS.has(getPathExtension(entry.path)); }
 	function isInlineImagePreviewable(entry: ZipPreviewEntry): boolean { if (entry.isDirectory || entry.encrypted) return false; if (entry.uncompressedSize > INLINE_IMAGE_PREVIEW_MAX_BYTES) return false; if (entry.compressedSize > INLINE_IMAGE_PREVIEW_MAX_BYTES) return false; return IMAGE_EXTENSIONS.has(getPathExtension(entry.path)); }
 	function isInlinePreviewable(entry: ZipPreviewEntry): boolean { if (!$zipPreviewSettingsStore.inlinePreviewEnabled) return false; return isInlineTextPreviewable(entry) || isInlineImagePreviewable(entry); }
@@ -109,9 +102,9 @@
 		inlinePreviewPath = entry.path;
 		inlinePreviewLoadingPath = entry.path;
 		try {
-			const bytes = await ensureArchiveBytes();
-			if (isInlineTextPreviewable(entry)) { const payload = await extractZipEntryBytes(bytes, entry, { maxOutputBytes: INLINE_TEXT_PREVIEW_MAX_BYTES }); inlinePreviewText = new TextDecoder('utf-8').decode(payload).slice(0, INLINE_TEXT_PREVIEW_MAX_CHARS); inlinePreviewKind = 'text'; return; }
-			if (isInlineImagePreviewable(entry)) { const payload = await extractZipEntryBytes(bytes, entry, { maxOutputBytes: INLINE_IMAGE_PREVIEW_MAX_BYTES }); const normalizedPayload = new Uint8Array(payload.byteLength); normalizedPayload.set(payload); inlinePreviewImageUrl = URL.createObjectURL(new Blob([normalizedPayload.buffer], { type: imageMimeFromPath(entry.path) })); inlinePreviewKind = 'image'; return; }
+			const source = await ensureArchive();
+			if (isInlineTextPreviewable(entry)) { const payload = await readZipEntryBytes(source, entry, { maxOutputBytes: INLINE_TEXT_PREVIEW_MAX_BYTES }); inlinePreviewText = new TextDecoder('utf-8').decode(payload).slice(0, INLINE_TEXT_PREVIEW_MAX_CHARS); inlinePreviewKind = 'text'; return; }
+			if (isInlineImagePreviewable(entry)) { const payload = await readZipEntryBytes(source, entry, { maxOutputBytes: INLINE_IMAGE_PREVIEW_MAX_BYTES }); const normalizedPayload = new Uint8Array(payload.byteLength); normalizedPayload.set(payload); inlinePreviewImageUrl = URL.createObjectURL(new Blob([normalizedPayload.buffer], { type: imageMimeFromPath(entry.path) })); inlinePreviewKind = 'image'; return; }
 			throw new Error('Inline preview is not available for this entry.');
 		} catch (error) { inlinePreviewError = normalizeError(error); inlinePreviewKind = null; } finally { inlinePreviewLoadingPath = null; }
 	}
@@ -119,23 +112,22 @@
 	$: normalizedFilter = filterQuery.trim().toLowerCase();
 	$: filteredEntries = metadata ? normalizedFilter.length === 0 ? metadata.entries : metadata.entries.filter((entry) => entry.path.toLowerCase().includes(normalizedFilter)) : [];
 	$: sortedEntries = sortEntries(filteredEntries, $zipPreviewSettingsStore.sortMode);
-	$: { const identity = `${fileUrl}::${fileName || 'unnamed'}::${fileSize ?? 'unknown'}::${encrypted ? '1' : '0'}`; if (identity !== previousIdentity) { previousIdentity = identity; stopActiveRequest(); isExpanded = false; isLoading = false; errorMessage = ''; metadata = null; archiveBytes = null; filterQuery = ''; resetInlinePreviewState(); } }
+	$: { const identity = `${fileUrl}::${fileName || 'unnamed'}::${fileSize ?? 'unknown'}::${encrypted ? '1' : '0'}`; if (identity !== previousIdentity) { previousIdentity = identity; stopActiveRequest(); isExpanded = false; isLoading = false; errorMessage = ''; metadata = null; archive = null; filterQuery = ''; resetInlinePreviewState(); } }
 	onDestroy(() => { stopActiveRequest(); resetInlinePreviewState(); });
 
 	async function loadPreview(): Promise<void> {
 		if (metadata || isLoading) return;
 		if (!fileUrl) { errorMessage = t('messages.zip_preview.errors.failed'); return; }
 		if (encrypted) { errorMessage = t('messages.zip_preview.errors.encrypted'); return; }
-		if (typeof fileSize === 'number' && fileSize > MAX_PREVIEW_ARCHIVE_BYTES) { errorMessage = t('messages.zip_preview.errors.too_large', { limit: formatBytes(MAX_PREVIEW_ARCHIVE_BYTES) }); return; }
 		const key = cacheKey();
 		const cached = readPreviewCache(key);
-		if (cached) { metadata = cached; archiveBytes = null; return; }
+		if (cached) { metadata = cached; return; }
 		isLoading = true;
 		errorMessage = '';
-		try { const bytes = await fetchArchiveBytes(); archiveBytes = bytes; const parsed = parseZipPreviewMetadata(bytes, { maxEntries: MAX_RENDER_ENTRIES }); metadata = parsed; writePreviewCache(key, parsed); } catch (error) { errorMessage = normalizeError(error); } finally { isLoading = false; }
+		try { const source = await ensureArchive(); const parsed = await readZipPreviewMetadata(source, { maxEntries: MAX_RENDER_ENTRIES }); metadata = parsed; writePreviewCache(key, parsed); } catch (error) { errorMessage = normalizeError(error); } finally { isLoading = false; }
 	}
-	async function retryPreview(): Promise<void> { if (isLoading) return; errorMessage = ''; metadata = null; archiveBytes = null; resetInlinePreviewState(); await loadPreview(); }
-	async function togglePreview(): Promise<void> { isExpanded = !isExpanded; if (isExpanded) { await loadPreview(); return; } stopActiveRequest(); isLoading = false; filterQuery = ''; resetInlinePreviewState(); }
+	async function retryPreview(): Promise<void> { if (isLoading) return; errorMessage = ''; metadata = null; archive = null; resetInlinePreviewState(); await loadPreview(); }
+	async function togglePreview(): Promise<void> { isExpanded = !isExpanded; if (isExpanded) { await loadPreview(); return; } stopActiveRequest(); archive = null; isLoading = false; filterQuery = ''; resetInlinePreviewState(); }
 	function handleSortModeChange(event: Event): void { const target = event.currentTarget as HTMLSelectElement; setZipPreviewSortMode(target.value as ZipPreviewSortMode); }
 </script>
 

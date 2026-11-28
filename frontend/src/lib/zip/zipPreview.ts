@@ -51,21 +51,46 @@ function findEndOfCentralDirectory(view: DataView): number {
 	return -1;
 }
 
-export function parseZipPreviewMetadata(
-	bytes: Uint8Array,
-	options?: {
-		maxEntries?: number;
-	}
-): ZipPreviewMetadata {
+
+/** Somewhere an archive's bytes can be read from, a piece at a time. */
+export interface ZipByteSource {
+	/** Size of the whole archive in bytes. */
+	size: number;
+	/** Bytes from `start` up to, not including, `end`. */
+	read(start: number, end: number): Promise<Uint8Array>;
+}
+
+export function memoryZipSource(bytes: Uint8Array): ZipByteSource {
+	return { size: bytes.byteLength, read: async (start, end) => bytes.subarray(start, end) };
+}
+
+/** The file list of a very large archive is still small; refuse absurd ones. */
+const MAX_DIRECTORY_BYTES = 32 * 1024 * 1024;
+/** Local headers repeat the name and may carry a longer extra field. */
+const LOCAL_HEADER_SLACK = 4096;
+
+/**
+ * Reads an archive's file list by fetching only its tail and its central
+ * directory, so the archive's size does not matter.
+ */
+export async function readZipPreviewMetadata(
+	source: ZipByteSource,
+	options?: { maxEntries?: number }
+): Promise<ZipPreviewMetadata> {
 	const requestedMaxEntries = options?.maxEntries ?? 200;
 	const maxEntries = Number.isFinite(requestedMaxEntries)
 		? Math.max(1, Math.floor(requestedMaxEntries))
 		: 200;
-	if (bytes.byteLength < EOCD_MIN_LENGTH) {
+	if (source.size < EOCD_MIN_LENGTH) {
 		throw new Error('Archive is too small to be a valid ZIP file.');
 	}
 
-	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const tailStart = Math.max(0, source.size - (EOCD_MIN_LENGTH + ZIP_COMMENT_MAX));
+	const tailBytes = await source.read(tailStart, source.size);
+	if (tailBytes.byteLength !== source.size - tailStart) {
+		throw new Error('Could not read the end of the archive.');
+	}
+	const view = new DataView(tailBytes.buffer, tailBytes.byteOffset, tailBytes.byteLength);
 	const eocdOffset = findEndOfCentralDirectory(view);
 	if (eocdOffset < 0) {
 		throw new Error('Could not find ZIP directory metadata.');
@@ -81,11 +106,9 @@ export function parseZipPreviewMetadata(
 	if (diskNumber !== 0 || centralDirectoryDiskNumber !== 0) {
 		throw new Error('Multi-disk ZIP archives are not supported in preview mode.');
 	}
-
 	if (entriesOnThisDisk !== totalEntries) {
 		throw new Error('Split ZIP archives are not supported in preview mode.');
 	}
-
 	if (
 		totalEntries === 0xffff ||
 		centralDirectorySize === 0xffffffff ||
@@ -93,57 +116,62 @@ export function parseZipPreviewMetadata(
 	) {
 		throw new Error('ZIP64 archives are not supported in preview mode yet.');
 	}
-
-	const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
-	if (centralDirectoryEnd > bytes.byteLength) {
-		throw new Error('ZIP metadata points outside the downloaded data.');
+	if (centralDirectoryOffset + centralDirectorySize > source.size) {
+		throw new Error('ZIP metadata points outside the archive.');
 	}
+	if (centralDirectorySize > MAX_DIRECTORY_BYTES) {
+		throw new Error('This archive lists too many files to preview.');
+	}
+
+	let directory: Uint8Array;
+	if (centralDirectoryOffset >= tailStart) {
+		const from = centralDirectoryOffset - tailStart;
+		directory = tailBytes.subarray(from, from + centralDirectorySize);
+	} else {
+		directory = await source.read(centralDirectoryOffset, centralDirectoryOffset + centralDirectorySize);
+	}
+	if (directory.byteLength !== centralDirectorySize) {
+		throw new Error('ZIP entry metadata is truncated.');
+	}
+	const dirView = new DataView(directory.buffer, directory.byteOffset, directory.byteLength);
 
 	const entries: ZipPreviewEntry[] = [];
 	let totalCompressedSize = 0;
 	let totalUncompressedSize = 0;
 	let encryptedEntryCount = 0;
-	let cursor = centralDirectoryOffset;
-	let parsedEntries = 0;
+	let cursor = 0;
 
-	while (parsedEntries < totalEntries) {
-		if (cursor + CENTRAL_DIRECTORY_FIXED_LENGTH > centralDirectoryEnd) {
+	for (let parsed = 0; parsed < totalEntries; parsed += 1) {
+		if (cursor + CENTRAL_DIRECTORY_FIXED_LENGTH > centralDirectorySize) {
 			throw new Error('ZIP entry metadata is truncated.');
 		}
-		if (view.getUint32(cursor, true) !== CENTRAL_DIRECTORY_SIGNATURE) {
+		if (dirView.getUint32(cursor, true) !== CENTRAL_DIRECTORY_SIGNATURE) {
 			throw new Error('ZIP central directory is malformed.');
 		}
-
-		const generalPurposeFlags = view.getUint16(cursor + 8, true);
-		const compressionMethod = view.getUint16(cursor + 10, true);
-		const compressedSize = view.getUint32(cursor + 20, true);
-		const uncompressedSize = view.getUint32(cursor + 24, true);
-		const fileNameLength = view.getUint16(cursor + 28, true);
-		const extraFieldLength = view.getUint16(cursor + 30, true);
-		const fileCommentLength = view.getUint16(cursor + 32, true);
-		const localHeaderOffset = view.getUint32(cursor + 42, true);
-		const recordLength =
-			CENTRAL_DIRECTORY_FIXED_LENGTH + fileNameLength + extraFieldLength + fileCommentLength;
-		const recordEnd = cursor + recordLength;
-
-		if (recordEnd > centralDirectoryEnd) {
+		const generalPurposeFlags = dirView.getUint16(cursor + 8, true);
+		const compressionMethod = dirView.getUint16(cursor + 10, true);
+		const compressedSize = dirView.getUint32(cursor + 20, true);
+		const uncompressedSize = dirView.getUint32(cursor + 24, true);
+		const fileNameLength = dirView.getUint16(cursor + 28, true);
+		const extraFieldLength = dirView.getUint16(cursor + 30, true);
+		const fileCommentLength = dirView.getUint16(cursor + 32, true);
+		const localHeaderOffset = dirView.getUint32(cursor + 42, true);
+		const recordEnd =
+			cursor + CENTRAL_DIRECTORY_FIXED_LENGTH + fileNameLength + extraFieldLength + fileCommentLength;
+		if (recordEnd > centralDirectorySize) {
 			throw new Error('ZIP entry payload is truncated.');
 		}
-
-		const fileNameStart = cursor + CENTRAL_DIRECTORY_FIXED_LENGTH;
-		const fileNameEnd = fileNameStart + fileNameLength;
-		const utf8 = (generalPurposeFlags & UTF8_BIT_FLAG) !== 0;
-		const isEncrypted = (generalPurposeFlags & ENCRYPTED_BIT_FLAG) !== 0;
-		const path = decodeEntryName(bytes.slice(fileNameStart, fileNameEnd), utf8);
-		if (localHeaderOffset >= bytes.byteLength) {
+		if (localHeaderOffset >= source.size) {
 			throw new Error('ZIP local entry offset is outside archive bounds.');
 		}
+		const fileNameStart = cursor + CENTRAL_DIRECTORY_FIXED_LENGTH;
+		const utf8 = (generalPurposeFlags & UTF8_BIT_FLAG) !== 0;
+		const isEncrypted = (generalPurposeFlags & ENCRYPTED_BIT_FLAG) !== 0;
+		const path = decodeEntryName(directory.slice(fileNameStart, fileNameStart + fileNameLength), utf8);
 
 		totalCompressedSize += compressedSize;
 		totalUncompressedSize += uncompressedSize;
-		if (isEncrypted) {
-			encryptedEntryCount += 1;
-		}
+		if (isEncrypted) encryptedEntryCount += 1;
 		if (entries.length < maxEntries) {
 			entries.push({
 				path,
@@ -155,12 +183,10 @@ export function parseZipPreviewMetadata(
 				localHeaderOffset
 			});
 		}
-
-		parsedEntries += 1;
 		cursor = recordEnd;
 	}
 
-	if (cursor !== centralDirectoryEnd) {
+	if (cursor !== centralDirectorySize) {
 		throw new Error('ZIP directory metadata is inconsistent.');
 	}
 
@@ -173,6 +199,26 @@ export function parseZipPreviewMetadata(
 		encryptedEntryCount
 	};
 }
+
+/** Reads one file out of an archive, fetching only that file's bytes. */
+export async function readZipEntryBytes(
+	source: ZipByteSource,
+	entry: ZipPreviewEntry,
+	options?: { maxOutputBytes?: number }
+): Promise<Uint8Array> {
+	const maxOutputBytes = Math.max(1, Math.floor(options?.maxOutputBytes ?? 1024 * 1024));
+	if (entry.uncompressedSize > maxOutputBytes || entry.compressedSize > maxOutputBytes * 4 + 1024) {
+		throw new Error(`Entry exceeds preview limit (${maxOutputBytes} bytes).`);
+	}
+	const nameBytes = new TextEncoder().encode(entry.path).byteLength;
+	const end = Math.min(
+		source.size,
+		entry.localHeaderOffset + LOCAL_FILE_HEADER_FIXED_LENGTH + nameBytes + LOCAL_HEADER_SLACK + entry.compressedSize
+	);
+	const piece = await source.read(entry.localHeaderOffset, end);
+	return extractZipEntryBytes(piece, { ...entry, localHeaderOffset: 0 }, options);
+}
+
 
 async function inflateDeflateRaw(
 	bytes: Uint8Array,
