@@ -22,6 +22,9 @@ import { showToast } from './toast';
 export const channelMessages = writable<Record<string, Message[]>>({ general: [] });
 export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
+/** Per channel, the first message that arrived while it was not being looked at: where the
+ * "new" divider goes. It stays put as more arrive, and is forgotten once the channel is left. */
+export const channelFirstUnread = writable<Record<string, string>>({});
 export const channelUnreadCounts = writable<Record<string, number>>({});
 
 const e2eeHydrating = new Set<string>();
@@ -145,15 +148,28 @@ export function markMessagesAsRead(): void {
 	if (sock) sock.emit('mark-messages-as-read');
 }
 
-export function markChannelAsRead(channelId: string): void {
-	const sock = getSocket();
-	if (!sock) return;
-	const messages = get(channelMessages)[channelId] || [];
-	if (messages.length > 0) lastReadMessageId.set(messages[messages.length - 1].id);
-	sock.emit('mark-channel-as-read', { channelId });
+/**
+ * The channel has been seen: its count goes to zero here whether or not the server can be told
+ * right now. The "new" divider is left for `forgetFirstUnread`, so it stays while the reader is
+ * still looking at the messages it marks.
+ */
+export function markChannelAsRead(channelId: string, options: { keepDivider?: boolean } = {}): void {
 	const prior = get(channelUnreadCounts)[channelId] || 0;
-	channelUnreadCounts.update((counts) => ({ ...counts, [channelId]: 0 }));
-	unreadCount.update((count) => Math.max(0, count - prior));
+	if (prior > 0) {
+		channelUnreadCounts.update((counts) => ({ ...counts, [channelId]: 0 }));
+		unreadCount.update((count) => Math.max(0, count - prior));
+	}
+	if (!options.keepDivider) forgetFirstUnread(channelId);
+	getSocket()?.emit('mark-channel-as-read', { channelId });
+}
+
+/** Drop a channel's "new" divider, once the reader has moved on from it. */
+export function forgetFirstUnread(channelId: string): void {
+	if (!(channelId in get(channelFirstUnread))) return;
+	channelFirstUnread.update((marks) => {
+		const { [channelId]: _gone, ...rest } = marks;
+		return rest;
+	});
 }
 
 export type SendMessageResult =
@@ -387,6 +403,8 @@ export function _incrementUnreadCount(channelId: string, messageId: string): voi
 	channelUnreadCounts.update((counts) => ({ ...counts, [channelId]: (counts[channelId] || 0) + 1 }));
 	unreadCount.update((count) => count + 1);
 	lastReadMessageId.set(messageId);
+	// Only the first one marks the spot; later arrivals must not move the divider down.
+	if (!get(channelFirstUnread)[channelId]) channelFirstUnread.update((marks) => ({ ...marks, [channelId]: messageId }));
 }
 export function _appendOptimisticMessage(channelId: string, message: Message): void { appendOptimisticMessage(channelId, message); }
 export function _removeOptimisticMessage(channelId: string, messageId: string): void { removeOptimisticMessage(channelId, messageId); }

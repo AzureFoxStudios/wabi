@@ -9,7 +9,6 @@
 		currentChannel,
 		typingUsers,
 		sendMessage,
-		lastReadMessageId,
 		currentUser,
 		users,
 		serverMembers,
@@ -32,6 +31,7 @@
 		type User,
 		type Channel
 	} from '$lib/socket';
+	import { channelFirstUnread, channelUnreadCounts, forgetFirstUnread } from '$lib/messageStore';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { layoutStore } from '$lib/layoutStore';
 	import { isMobile } from '$lib/layoutStoreStates';
@@ -345,6 +345,21 @@
 		}
 	}
 
+	// Opening a channel on the stage is reading it: its count clears, so the badge does not come
+	// back on leaving. The "new" divider stays for this visit and goes when the reader moves on.
+	let pageVisible = typeof document === 'undefined' || document.visibilityState === 'visible';
+	function notePageVisibility() {
+		pageVisible = document.visibilityState === 'visible';
+	}
+	$: if (!companion && viewChannelId && pageVisible && ($channelUnreadCounts[viewChannelId] || 0) > 0) {
+		markChannelAsRead(viewChannelId, { keepDivider: true });
+	}
+	let dividerChannelId = '';
+	$: if (!companion && viewChannelId !== dividerChannelId) {
+		if (dividerChannelId) forgetFirstUnread(dividerChannelId);
+		dividerChannelId = viewChannelId;
+	}
+
 	// What the masthead search shows about this stream: the result count, history backfill and
 	// the full-history scan. Only text-like streams showing messages filter by the query.
 	$: if (!companion) chatStageInfo.set({
@@ -367,8 +382,13 @@
 		resetChatSearch();
 	});
 
+	onDestroy(() => {
+		if (!companion && dividerChannelId) forgetFirstUnread(dividerChannelId);
+	});
 
 </script>
+
+<svelte:document on:visibilitychange={notePageVisibility} />
 
 <div
 	class="chat-container"
@@ -448,7 +468,7 @@
 				{channelDisplayName}
 				{filteredMessages}
 				{pinnedMessages}
-				firstUnreadMessageId={companion ? null : $lastReadMessageId}
+				firstUnreadMessageId={companion ? null : ($channelFirstUnread[viewChannelId] ?? null)}
 				{channelPaneAnimation}
 				{searchBackfillBusy}
 		currentChannelPersistMessages={Boolean(currentChannelData?.persistMessages)}
