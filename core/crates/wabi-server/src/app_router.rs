@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -132,23 +132,87 @@ async fn upload_response(
             return (StatusCode::NOT_MODIFIED, headers).into_response();
         }
     }
+    headers.insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
     if method == Method::HEAD {
         return (StatusCode::OK, headers).into_response();
     }
-    let file = match tokio::fs::File::open(&file_path).await {
+    // One byte range lets a client read part of a large file, such as the
+    // directory at the end of an archive, without downloading all of it.
+    let total = metadata.len();
+    let range = match request_headers.get(header::RANGE) {
+        None => None,
+        Some(value) => match value.to_str().ok().and_then(|v| upload_byte_range(v, total)) {
+            Some(range) => Some(range),
+            None => {
+                headers.insert(
+                    header::CONTENT_RANGE,
+                    format!("bytes */{total}").parse().unwrap(),
+                );
+                headers.remove(header::CONTENT_LENGTH);
+                return (StatusCode::RANGE_NOT_SATISFIABLE, headers).into_response();
+            }
+        },
+    };
+    let mut file = match tokio::fs::File::open(&file_path).await {
         Ok(file) => file,
         Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
     };
-    let stream = futures::stream::try_unfold(file, |mut file| async move {
-        let mut buffer = vec![0_u8; 64 * 1024];
+    let (status, start, length) = match range {
+        Some((start, end)) => {
+            headers.insert(
+                header::CONTENT_RANGE,
+                format!("bytes {start}-{end}/{total}").parse().unwrap(),
+            );
+            (StatusCode::PARTIAL_CONTENT, start, end - start + 1)
+        }
+        None => (StatusCode::OK, 0, total),
+    };
+    headers.insert(header::CONTENT_LENGTH, length.to_string().parse().unwrap());
+    if start > 0 && file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Could not read file").into_response();
+    }
+    let stream = futures::stream::try_unfold((file, length), |(mut file, left)| async move {
+        if left == 0 {
+            return Ok::<_, std::io::Error>(None);
+        }
+        let mut buffer = vec![0_u8; left.min(64 * 1024) as usize];
         let count = file.read(&mut buffer).await?;
         if count == 0 {
-            Ok::<_, std::io::Error>(None)
+            Ok(None)
         } else {
-            Ok(Some((Bytes::copy_from_slice(&buffer[..count]), file)))
+            Ok(Some((
+                Bytes::copy_from_slice(&buffer[..count]),
+                (file, left - count as u64),
+            )))
         }
     });
-    (headers, Body::from_stream(stream)).into_response()
+    (status, headers, Body::from_stream(stream)).into_response()
+}
+
+/// `bytes=start-end`, `bytes=start-` or `bytes=-count` as inclusive offsets
+/// within a file of `total` bytes. Several ranges at once are not served.
+fn upload_byte_range(value: &str, total: u64) -> Option<(u64, u64)> {
+    let (start, end) = value.trim().strip_prefix("bytes=")?.split_once('-')?;
+    if total == 0 || end.contains(',') {
+        return None;
+    }
+    if start.is_empty() {
+        let count: u64 = end.parse().ok()?;
+        if count == 0 {
+            return None;
+        }
+        return Some((total.saturating_sub(count), total - 1));
+    }
+    let start: u64 = start.parse().ok()?;
+    if start >= total {
+        return None;
+    }
+    let end = if end.is_empty() {
+        total - 1
+    } else {
+        end.parse::<u64>().ok()?.min(total - 1)
+    };
+    (end >= start).then_some((start, end))
 }
 
 /// Embedded static assets from frontend build
@@ -282,6 +346,11 @@ fn build_cors_layer() -> CorsLayer {
             axum::http::header::ACCEPT,
             axum::http::header::ORIGIN,
             axum::http::header::HeaderName::from_static("x-requested-with"),
+            axum::http::header::RANGE,
+        ])
+        .expose_headers([
+            axum::http::header::CONTENT_RANGE,
+            axum::http::header::ACCEPT_RANGES,
         ])
         .allow_credentials(true)
 }

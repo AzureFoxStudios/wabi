@@ -1,4 +1,7 @@
-import { parseZipPreviewMetadata } from '../src/lib/zip/zipPreview';
+import { memoryZipSource, readZipPreviewMetadata } from '../src/lib/zip/zipPreview';
+
+const parseZipPreviewMetadata = (bytes: Uint8Array, options?: { maxEntries?: number }) =>
+	readZipPreviewMetadata(memoryZipSource(bytes), options);
 
 type ZipFixtureEntry = {
 	name: string;
@@ -104,9 +107,9 @@ function buildZipFixture(entries: ZipFixtureEntry[], options: ZipFixtureOptions 
 	return concatBytes([centralDirectory, eocd]);
 }
 
-function expectThrows(name: string, fn: () => void, expectedMessagePart: string): void {
+async function expectThrows(name: string, fn: () => Promise<unknown>, expectedMessagePart: string): Promise<void> {
 	try {
-		fn();
+		await fn();
 		throw new Error(`${name}: expected throw`);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -117,7 +120,7 @@ function expectThrows(name: string, fn: () => void, expectedMessagePart: string)
 	}
 }
 
-function run(): void {
+async function run(): Promise<void> {
 	const validFixture = buildZipFixture([
 		{
 			name: 'photos/',
@@ -138,7 +141,7 @@ function run(): void {
 		}
 	]);
 
-	const metadata = parseZipPreviewMetadata(validFixture, { maxEntries: 200 });
+	const metadata = await parseZipPreviewMetadata(validFixture, { maxEntries: 200 });
 	expect(metadata.entryCount === 3, 'valid fixture entryCount');
 	expect(metadata.entries.length === 3, 'valid fixture rendered entries');
 	expect(metadata.totalCompressedSize === 1232, 'valid fixture compressed sum');
@@ -146,23 +149,23 @@ function run(): void {
 	expect(metadata.encryptedEntryCount === 1, 'valid fixture encrypted count');
 	expect(metadata.entries[0]?.isDirectory === true, 'directory detection');
 
-	const truncated = parseZipPreviewMetadata(validFixture, { maxEntries: 2 });
+	const truncated = await parseZipPreviewMetadata(validFixture, { maxEntries: 2 });
 	expect(truncated.entries.length === 2, 'maxEntries truncates output');
 	expect(truncated.truncated === true, 'maxEntries sets truncated');
 
-	expectThrows(
+	await expectThrows(
 		'no eocd',
 		() => parseZipPreviewMetadata(new Uint8Array([1, 2, 3, 4])),
 		'Archive is too small'
 	);
 
-	expectThrows(
+	await expectThrows(
 		'multi-disk',
 		() => parseZipPreviewMetadata(buildZipFixture([{ name: 'a.txt', compressedSize: 1, uncompressedSize: 1 }], { diskNumber: 1 })),
 		'Multi-disk ZIP archives are not supported'
 	);
 
-	expectThrows(
+	await expectThrows(
 		'split archive',
 		() =>
 			parseZipPreviewMetadata(
@@ -174,7 +177,7 @@ function run(): void {
 		'Split ZIP archives are not supported'
 	);
 
-	expectThrows(
+	await expectThrows(
 		'zip64 sentinel',
 		() =>
 			parseZipPreviewMetadata(
@@ -185,7 +188,7 @@ function run(): void {
 		'ZIP64 archives are not supported'
 	);
 
-	expectThrows(
+	await expectThrows(
 		'central directory out of range',
 		() =>
 			parseZipPreviewMetadata(
@@ -193,10 +196,10 @@ function run(): void {
 					centralDirectoryOffsetOverride: 999_999
 				})
 			),
-		'ZIP metadata points outside the downloaded data'
+		'ZIP metadata points outside the archive'
 	);
 
-	expectThrows(
+	await expectThrows(
 		'central directory inconsistent',
 		() =>
 			parseZipPreviewMetadata(
@@ -219,7 +222,7 @@ function run(): void {
 	tampered[1] = 0;
 	tampered[2] = 0;
 	tampered[3] = 0;
-	expectThrows(
+	await expectThrows(
 		'malformed central signature',
 		() => parseZipPreviewMetadata(tampered),
 		'ZIP central directory is malformed'
@@ -228,4 +231,4 @@ function run(): void {
 	console.log('[zip-preview-fixture-smoke] all checks passed');
 }
 
-run();
+await run();
