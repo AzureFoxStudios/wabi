@@ -15,7 +15,7 @@ mock.module('./groupAccess', () => ({ groupMembership: { acceptsContent: () => t
 // initialize browser storage merely because a socket boundary is stubbed.
 mock.module('$app/environment', () => ({ browser: false, dev: false, building: false }));
 
-const { channelMessages, unreadCount, channelUnreadCounts, markChannelAsRead } = await import(
+const { channelMessages, unreadCount, channelUnreadCounts, channelFirstUnread, forgetFirstUnread, markChannelAsRead, _incrementUnreadCount } = await import(
 	'./messageStore'
 );
 const { currentUser } = await import('./presenceStore');
@@ -50,5 +50,41 @@ describe('markChannelAsRead unread ordering', () => {
 		unreadCount.set(1);
 		markChannelAsRead('b');
 		expect(get(unreadCount)).toBe(0); // Math.max clamp
+	});
+});
+
+describe('the "new" divider belongs to one channel and marks its first unread message', () => {
+	beforeEach(() => {
+		channelUnreadCounts.set({});
+		unreadCount.set(0);
+		channelFirstUnread.set({});
+	});
+
+	test('later arrivals, here or elsewhere, do not move it', () => {
+		_incrementUnreadCount('a', 'a-1');
+		_incrementUnreadCount('a', 'a-2');
+		_incrementUnreadCount('b', 'b-1');
+		expect(get(channelFirstUnread)).toEqual({ a: 'a-1', b: 'b-1' });
+	});
+
+	test('opening a channel clears its count for good but keeps the divider for the visit', () => {
+		_incrementUnreadCount('a', 'a-1');
+		_incrementUnreadCount('b', 'b-1');
+		markChannelAsRead('a', { keepDivider: true });
+		expect(get(channelUnreadCounts)).toEqual({ a: 0, b: 1 });
+		expect(get(unreadCount)).toBe(1);
+		expect(get(channelFirstUnread).a).toBe('a-1');
+		// Moving on drops the divider; the next unread message starts a new one.
+		forgetFirstUnread('a');
+		expect(get(channelFirstUnread)).toEqual({ b: 'b-1' });
+		_incrementUnreadCount('a', 'a-9');
+		expect(get(channelFirstUnread).a).toBe('a-9');
+	});
+
+	test('an explicit mark as read clears the divider too', () => {
+		_incrementUnreadCount('a', 'a-1');
+		markChannelAsRead('a');
+		expect(get(channelFirstUnread)).toEqual({});
+		expect(get(channelUnreadCounts).a).toBe(0);
 	});
 });
