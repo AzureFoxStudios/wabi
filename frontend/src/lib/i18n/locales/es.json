@@ -1525,7 +1525,9 @@
     "policy_open_title": "Solo la app de escritorio de Wabi puede abrir esta pizarra",
     "policy_edit_title": "Solo la app de escritorio de Wabi puede editar esta pizarra",
     "corner_radius": "Radio de esquina",
-    "math_example": "p. ej."
+    "math_example": "p. ej.",
+    "tool_pen": "Lápiz",
+    "tool_eraser": "Borrador"
   },
   "error_page": {
     "page_not_found": "Página no encontrada",
@@ -3135,7 +3137,8 @@
     "independent": "CRT es independiente del efecto de fondo o del tema seleccionados.",
     "save": "Guardar CRT",
     "toast_saved": "Distorsión CRT guardada",
-    "toast_failed": "No se pudo guardar la distorsión CRT"
+    "toast_failed": "No se pudo guardar la distorsión CRT",
+    "off": "Apagado"
   },
   "vcd": {
     "title": "Comprimir video antes de subir",
@@ -3260,7 +3263,10 @@
     "try_another": "Prueba con otro nombre.",
     "empty_filter_text": "No hay conversaciones ({filter}) en este momento.",
     "empty_none_title": "Aún no hay conversaciones",
-    "empty_none_text": "Inicia una con cualquier persona de esta comunidad. Aparecerá aquí."
+    "empty_none_text": "Inicia una con cualquier persona de esta comunidad. Aparecerá aquí.",
+    "filter_all": "Todos",
+    "filter_unread": "No leídos",
+    "filter_groups": "Grupos"
   },
   "upop": {
     "handle_copied": "Identificador copiado.",
@@ -3292,7 +3298,11 @@
     "nickname_here": "Apodo en este dispositivo",
     "save_nickname": "Guardar apodo",
     "note_aria": "Nota privada sobre {name}",
-    "legacy_notes": "Las notas anteriores de este dispositivo se mantienen aparte y no están vinculadas a esta cuenta."
+    "legacy_notes": "Las notas anteriores de este dispositivo se mantienen aparte y no están vinculadas a esta cuenta.",
+    "role_owner": "Propietario",
+    "role_admin": "Admin",
+    "role_mod": "Moderador",
+    "role_guest": "Invitado"
   },
   "ulist": {
     "people_desc_default": "Quién está aquí, agrupado por dónde está",
@@ -3338,7 +3348,11 @@
     "empty_no_people": "Aún no hay nadie aquí",
     "empty_join": "Las personas aparecen aquí en cuanto se unen a esta comunidad.",
     "member_actions": "Acciones del miembro",
-    "actions_for": "Acciones para {name}"
+    "actions_for": "Acciones para {name}",
+    "count_other": "{count} personas",
+    "menu_view_profile": "Ver perfil",
+    "menu_voice_call": "Llamada de voz",
+    "menu_video_call": "Videollamada"
   },
   "kan": {
     "opt_any": "Cualquiera",
@@ -3682,7 +3696,12 @@
     "folder_hint": "Crea primero la carpeta y luego pone este canal dentro.",
     "spoiler": "Canal de spoilers: oculta cada mensaje hasta que alguien lo revele",
     "create_folder": "Crear carpeta",
-    "creating": "Creando…"
+    "creating": "Creando…",
+    "kind_voice": "Voz",
+    "kind_forum": "Foro",
+    "kind_wiki": "Wiki",
+    "kind_gallery": "Galería",
+    "kind_project": "Proyecto"
   },
   "cdm": {
     "note": "Las conversaciones nuevas empiezan con el cifrado pendiente",

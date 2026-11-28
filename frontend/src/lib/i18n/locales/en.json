@@ -1525,7 +1525,9 @@
     "policy_open_title": "Only the Wabi desktop app can open this board",
     "policy_edit_title": "Only the Wabi desktop app can edit this board",
     "corner_radius": "Corner radius",
-    "math_example": "e.g."
+    "math_example": "e.g.",
+    "tool_pen": "Pen",
+    "tool_eraser": "Eraser"
   },
   "error_page": {
     "page_not_found": "Page not found",
@@ -3135,7 +3137,8 @@
     "independent": "CRT is independent of the selected background effect or theme.",
     "save": "Save CRT",
     "toast_saved": "CRT distortion saved",
-    "toast_failed": "Failed to save CRT distortion"
+    "toast_failed": "Failed to save CRT distortion",
+    "off": "Off"
   },
   "vcd": {
     "title": "Compress Video Before Upload",
@@ -3260,7 +3263,10 @@
     "try_another": "Try another name.",
     "empty_filter_text": "No {filter} conversations right now.",
     "empty_none_title": "No conversations yet",
-    "empty_none_text": "Start one with anyone in this community. It appears here."
+    "empty_none_text": "Start one with anyone in this community. It appears here.",
+    "filter_all": "All",
+    "filter_unread": "Unread",
+    "filter_groups": "Groups"
   },
   "upop": {
     "handle_copied": "Handle copied.",
@@ -3292,7 +3298,11 @@
     "nickname_here": "Nickname on this device",
     "save_nickname": "Save nickname",
     "note_aria": "Private note about {name}",
-    "legacy_notes": "Older notes on this device are kept apart and are not linked to this account."
+    "legacy_notes": "Older notes on this device are kept apart and are not linked to this account.",
+    "role_owner": "Owner",
+    "role_admin": "Admin",
+    "role_mod": "Moderator",
+    "role_guest": "Guest"
   },
   "ulist": {
     "people_desc_default": "Who is here, grouped by where they are",
@@ -3338,7 +3348,11 @@
     "empty_no_people": "No one here yet",
     "empty_join": "People appear here as soon as they join this community.",
     "member_actions": "Member actions",
-    "actions_for": "Actions for {name}"
+    "actions_for": "Actions for {name}",
+    "count_other": "{count} people",
+    "menu_view_profile": "View profile",
+    "menu_voice_call": "Voice call",
+    "menu_video_call": "Video call"
   },
   "kan": {
     "opt_any": "Any",
@@ -3682,7 +3696,12 @@
     "folder_hint": "Creates the folder first, then puts this channel inside it.",
     "spoiler": "Spoiler channel: hide every message until someone reveals it",
     "create_folder": "Create folder",
-    "creating": "Creating…"
+    "creating": "Creating…",
+    "kind_voice": "Voice",
+    "kind_forum": "Forum",
+    "kind_wiki": "Wiki",
+    "kind_gallery": "Gallery",
+    "kind_project": "Project"
   },
   "cdm": {
     "note": "New conversations start encryption-pending",
