@@ -33,7 +33,7 @@ function usedKeys(): string[] {
 
 describe('label keys used in the app', () => {
 	const keys = usedKeys();
-	for (const [name, locale] of Object.entries({ en, es, th }) as [string, Record<string, Record<string, unknown>>][]) {
+	for (const [name, locale] of Object.entries({ en, es, th } as unknown as Record<string, Record<string, Record<string, unknown>>>)) {
 		test(`every one has ${name} text`, () => {
 			expect(keys.length).toBeGreaterThan(100);
 			const missing = keys.filter((key) => {
